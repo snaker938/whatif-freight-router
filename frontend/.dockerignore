@@ -1,0 +1,12 @@
+# dependencies / build output
+node_modules
+.next
+out
+dist
+
+# repo / tooling
+.git
+*.log
+.DS_Store
+Thumbs.db
+.env*

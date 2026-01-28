@@ -1,0 +1,19 @@
+import { NextResponse } from 'next/server';
+
+export async function POST(req: Request) {
+  const backendBase = process.env.BACKEND_INTERNAL_URL ?? 'http://backend:8000';
+  const body = await req.text();
+
+  const resp = await fetch(`${backendBase}/pareto`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    cache: 'no-store',
+  });
+
+  const text = await resp.text();
+  return new NextResponse(text, {
+    status: resp.status,
+    headers: { 'content-type': 'application/json' },
+  });
+}

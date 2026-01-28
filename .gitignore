@@ -1,0 +1,27 @@
+# env
+.env
+
+# OSRM data (large)
+osrm/data/pbf/*
+!osrm/data/pbf/.gitkeep
+osrm/data/osrm/*
+!osrm/data/osrm/.gitkeep
+
+# Backend
+backend/.venv/
+backend/**/__pycache__/
+backend/**/.pytest_cache/
+backend/out/logs/*
+!backend/out/logs/.gitkeep
+backend/out/manifests/*
+!backend/out/manifests/.gitkeep
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log

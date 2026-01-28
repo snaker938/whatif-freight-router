@@ -1,0 +1,12 @@
+# Normalize text files by default
+* text=auto
+
+# IMPORTANT for Docker-on-Windows: keep shell scripts LF so /bin/sh can run them.
+*.sh text eol=lf
+*.lua text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# PowerShell scripts should stay CRLF on Windows
+*.ps1 text eol=crlf

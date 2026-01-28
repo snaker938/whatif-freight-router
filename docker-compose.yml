@@ -1,0 +1,72 @@
+# Docker Compose configuration for Freight Router v0
+name: freight-router-v0
+
+services:
+  osrm_download:
+    image: curlimages/curl:8.7.1
+    container_name: freight_osrm_download
+    restart: 'no'
+    env_file: .env
+    environment:
+      REGION_PBF_URL: ${REGION_PBF_URL:?Set REGION_PBF_URL in .env}
+    volumes:
+      - ./osrm/data/pbf:/data/pbf
+      - ./osrm/scripts:/scripts:ro
+    command: ['sh', '/scripts/download_pbf.sh']
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    container_name: freight_osrm
+    depends_on:
+      osrm_download:
+        condition: service_completed_successfully
+    ports:
+      - '5000:5000'
+    volumes:
+      - ./osrm/data/pbf:/data/pbf
+      - ./osrm/data/osrm:/data/osrm
+      - ./osrm/profiles:/profiles:ro
+      - ./osrm/scripts:/scripts:ro
+    command: ['sh', '/scripts/run_osrm.sh']
+
+  osrm_ready:
+    image: curlimages/curl:8.7.1
+    container_name: freight_osrm_ready
+    restart: 'no'
+    depends_on:
+      osrm:
+        condition: service_started
+    command: >
+      sh -c 'echo "Waiting for OSRM on :5000..."; until curl -sS http://osrm:5000/ >/dev/null; do sleep 2; done; echo "OSRM is up."'
+
+  backend:
+    build:
+      context: ./backend
+    container_name: freight_backend
+    environment:
+      OSRM_BASE_URL: http://osrm:5000
+      OUT_DIR: /app/out
+      LOG_LEVEL: INFO
+      # CORS_ALLOW_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - ./backend/out:/app/out
+    ports:
+      - '8000:8000'
+    depends_on:
+      osrm_ready:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: freight_frontend
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: '1'
+    ports:
+      - '3000:3000'
+    depends_on:
+      backend:
+        condition: service_started
