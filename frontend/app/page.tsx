@@ -1,8 +1,10 @@
 'use client';
+// frontend/app/page.tsx
 
 import dynamic from 'next/dynamic';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import Select from './components/Select';
 import { postJSON } from './lib/api';
 import type {
   LatLng,
@@ -14,16 +16,25 @@ import type {
 } from './lib/types';
 import { normaliseWeights, pickBestByWeightedSum, type WeightState } from './lib/weights';
 
+type MarkerKind = 'origin' | 'destination';
+
 type MapViewProps = {
   origin: LatLng | null;
   destination: LatLng | null;
+
+  selectedMarker: MarkerKind | null;
+
   route: RouteOption | null;
+
   onMapClick: (lat: number, lon: number) => void;
+  onSelectMarker: (kind: MarkerKind | null) => void;
+  onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onRemoveMarker: (kind: MarkerKind) => void;
+  onSwapMarkers?: () => void;
 };
 
 const MapView = dynamic<MapViewProps>(() => import('./components/MapView'), {
   ssr: false,
-  // Keep layout stable during SSR/prerender
   loading: () => <div className="mapPane" />,
 });
 
@@ -41,6 +52,7 @@ const ParetoChart = dynamic<ParetoChartProps>(() => import('./components/ParetoC
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<MarkerKind | null>(null);
 
   const [vehicles, setVehicles] = useState<VehicleProfile[]>([]);
   const [vehicleType, setVehicleType] = useState<string>('rigid_hgv');
@@ -56,20 +68,20 @@ export default function Page() {
 
   const canCompute = Boolean(origin && destination) && !loading;
 
-  // If the user changes scenario/vehicle after computing, invalidate the current route set.
-  useEffect(() => {
+  const clearComputed = useCallback(() => {
     setParetoRoutes([]);
     setSelectedId(null);
-  }, [vehicleType, scenarioMode]);
+  }, []);
 
   useEffect(() => {
-    // Load vehicles dynamically so backend changes auto-propagate
+    clearComputed();
+  }, [vehicleType, scenarioMode, clearComputed]);
+
+  useEffect(() => {
     fetch('/api/vehicles')
       .then((r) => r.json())
       .then((j: VehicleListResponse) => setVehicles(j.vehicles ?? []))
-      .catch(() => {
-        // Keep silent; UI still works with default select options
-      });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -87,30 +99,68 @@ export default function Page() {
 
     if (!origin) {
       setOrigin({ lat, lon });
-      return;
-    }
-    if (!destination) {
-      setDestination({ lat, lon });
+      setSelectedMarker('origin');
+      clearComputed();
       return;
     }
 
-    // Quick iteration: update destination, clear computed routes
+    if (!destination) {
+      setDestination({ lat, lon });
+      setSelectedMarker('destination');
+      clearComputed();
+      return;
+    }
+
+    if (selectedMarker === 'origin') {
+      setOrigin({ lat, lon });
+      clearComputed();
+      return;
+    }
+
     setDestination({ lat, lon });
-    setParetoRoutes([]);
-    setSelectedId(null);
+    setSelectedMarker('destination');
+    clearComputed();
+  }
+
+  function handleMoveMarker(kind: MarkerKind, lat: number, lon: number) {
+    setError(null);
+
+    if (kind === 'origin') setOrigin({ lat, lon });
+    else setDestination({ lat, lon });
+
+    setSelectedMarker(kind);
+    clearComputed();
+  }
+
+  function handleRemoveMarker(kind: MarkerKind) {
+    setError(null);
+
+    if (kind === 'origin') setOrigin(null);
+    else setDestination(null);
+
+    setSelectedMarker(null);
+    clearComputed();
+  }
+
+  function swapMarkers() {
+    if (!origin || !destination) return;
+    setOrigin(destination);
+    setDestination(origin);
+    setSelectedMarker(null);
+    clearComputed();
   }
 
   function reset() {
     setOrigin(null);
     setDestination(null);
-    setParetoRoutes([]);
-    setSelectedId(null);
+    setSelectedMarker(null);
+    clearComputed();
     setError(null);
   }
 
   async function computePareto() {
     if (!origin || !destination) {
-      setError('Click map to set origin then destination.');
+      setError('Click the map to set Start, then Destination.');
       return;
     }
     setLoading(true);
@@ -144,26 +194,47 @@ export default function Page() {
         { value: 'artic_hgv', label: 'Articulated HGV' },
       ];
 
+  const scenarioOptions: { value: ScenarioMode; label: string; description: string }[] = [
+    {
+      value: 'no_sharing',
+      label: 'No sharing',
+      description: 'Baseline: no expected delay uplift.',
+    },
+    {
+      value: 'partial_sharing',
+      label: 'Partial sharing',
+      description: 'Small delay uplift, some coordination overhead.',
+    },
+    {
+      value: 'full_sharing',
+      label: 'Full sharing',
+      description: 'Best coordination: lowest expected delay uplift.',
+    },
+  ];
+
+  const mapHint = (() => {
+    if (!origin) return 'Click the map to set Start.';
+    if (origin && !destination) return 'Now click the map to set Destination.';
+    return 'Compute Pareto to compare candidate routes. Use sliders to pick the best trade-off.';
+  })();
+
   return (
     <div className="app">
       <div className="mapStage">
         <MapView
           origin={origin}
           destination={destination}
+          selectedMarker={selectedMarker}
           route={selectedRoute}
           onMapClick={handleMapClick}
+          onSelectMarker={setSelectedMarker}
+          onMoveMarker={handleMoveMarker}
+          onRemoveMarker={handleRemoveMarker}
+          onSwapMarkers={swapMarkers}
         />
 
         <div className="mapHUD">
-          <div className="mapHUD__brand">
-            <span className="mapHUD__dot" />
-            <span>UK demo</span>
-          </div>
-          <div className="mapHUD__hint">
-            {!origin && 'Click the map to drop an origin pin.'}
-            {origin && !destination && 'Now click to drop the destination pin.'}
-            {origin && destination && 'Adjust weights or recompute with a new destination.'}
-          </div>
+          <div className="mapHUD__hint">{mapHint}</div>
         </div>
       </div>
 
@@ -174,8 +245,8 @@ export default function Page() {
             <span className="badge">v0</span>
           </div>
           <p className="subtitle">
-            Click map: origin → destination. Compute Pareto. Sliders re-select the best route among
-            candidates.
+            Click the map to set Start, then Destination. Compute Pareto to generate candidate
+            routes, then use the sliders to choose the best trade‑off (time vs cost vs CO₂).
           </p>
         </header>
 
@@ -184,27 +255,41 @@ export default function Page() {
             <div className="sectionTitle">Setup</div>
 
             <label>Vehicle type</label>
-            <select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
-              {vehicleOptions.map((v) => (
-                <option key={v.value} value={v.value}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+            <Select
+              ariaLabel="Vehicle type"
+              value={vehicleType}
+              options={vehicleOptions}
+              onChange={setVehicleType}
+              disabled={loading}
+            />
 
             <label>Scenario mode</label>
-            <select
+            <Select
+              ariaLabel="Scenario mode"
               value={scenarioMode}
-              onChange={(e) => setScenarioMode(e.target.value as ScenarioMode)}
-            >
-              <option value="no_sharing">No sharing</option>
-              <option value="partial_sharing">Partial sharing</option>
-              <option value="full_sharing">Full sharing</option>
-            </select>
+              options={scenarioOptions}
+              onChange={setScenarioMode}
+              disabled={loading}
+            />
 
             <div className="helper">
-              Scenario changes expected delay + idle emissions via policy (stub, replaceable with
-              simulation later).
+              Scenario mode applies a policy‑based delay multiplier and adds idle emissions (and
+              driver time cost) for the extra delay. This is a lightweight stub that can be swapped
+              for a detailed simulator later.
+            </div>
+
+            <div className="row" style={{ marginTop: 12 }}>
+              <button
+                className="secondary"
+                onClick={swapMarkers}
+                disabled={!origin || !destination || loading}
+                title="Swap start and destination"
+              >
+                Swap pins
+              </button>
+              <button className="secondary" onClick={reset} disabled={loading}>
+                Clear pins
+              </button>
             </div>
           </section>
 
@@ -242,8 +327,12 @@ export default function Page() {
               <button className="primary" onClick={computePareto} disabled={!canCompute}>
                 {loading ? 'Computing…' : 'Compute Pareto'}
               </button>
-              <button className="secondary" onClick={reset} disabled={loading}>
-                Reset
+              <button
+                className="secondary"
+                onClick={clearComputed}
+                disabled={loading || paretoRoutes.length === 0}
+              >
+                Clear results
               </button>
             </div>
 
@@ -304,8 +393,7 @@ export default function Page() {
                 {paretoRoutes.length === 1 && (
                   <>
                     <br />
-                    Only one route was returned for this pair — try a longer trip or different pins
-                    to see more trade-offs.
+                    Only one route was generated for this pair — try moving the pins a little.
                   </>
                 )}
               </div>

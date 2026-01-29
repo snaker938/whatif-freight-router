@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 import uuid
+from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
@@ -16,6 +18,7 @@ from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
+    LatLng,
     ParetoRequest,
     ParetoResponse,
     RouteMetrics,
@@ -62,6 +65,12 @@ def osrm_client(request: Request) -> OSRMClient:
 OSRMDep = Annotated[OSRMClient, Depends(osrm_client)]
 
 
+@app.get("/")
+async def root() -> dict[str, str]:
+    # Avoid confusion when opening the backend base URL directly.
+    return {"message": "Backend is running. Visit /docs for the API UI.", "docs": "/docs"}
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -69,12 +78,11 @@ async def health() -> dict[str, str]:
 
 @app.get("/vehicles", response_model=VehicleListResponse)
 async def list_vehicles() -> VehicleListResponse:
+    # With models.py importing VehicleProfile from vehicles.py, Pylance stops complaining.
     return VehicleListResponse(vehicles=list(VEHICLES.values()))
 
 
 def _validate_osrm_geometry(geometry: Any) -> dict[str, Any]:
-    # RouteOption.geometry is typed as GeoJSONLineString, but OSRM returns a dict that
-    # should already be GeoJSON if we requested geojson format.
     if not isinstance(geometry, dict):
         raise HTTPException(status_code=502, detail="OSRM returned invalid geometry object")
     if geometry.get("type") != "LineString":
@@ -102,17 +110,14 @@ def build_option(
     distance_km = distance_m / 1000.0
     base_duration_h = base_duration_s / 3600.0
 
-    # Base emissions from segment profile
     base_emissions = route_emissions_kg(
         vehicle=vehicle,
         segment_distances_m=seg_d_m,
         segment_durations_s=seg_t_s,
     )
 
-    # Base monetary: distance + time
     base_monetary = (distance_km * vehicle.cost_per_km) + (base_duration_h * vehicle.cost_per_hour)
 
-    # Scenario adjustment: extends cleanly later to real incident simulation
     duration_s = apply_scenario_duration(base_duration_s, scenario_mode)
     extra_time_s = max(0.0, duration_s - base_duration_s)
 
@@ -138,23 +143,164 @@ def build_option(
         raise HTTPException(status_code=502, detail=f"Invalid route output from OSRM: {e}") from e
 
 
+def _route_signature(route: dict[str, Any]) -> str:
+    """Create a stable-ish hash to dedupe near-identical routes."""
+    geom = route.get("geometry", {})
+    coords = (geom or {}).get("coordinates", [])
+    if not isinstance(coords, list) or not coords:
+        raw = repr((route.get("distance"), route.get("duration")))
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    n = len(coords)
+    step = max(1, n // 30)
+    sample = coords[::step][:40]
+
+    parts: list[str] = []
+    for pt in sample:
+        if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+            continue
+        try:
+            lon = float(pt[0])
+            lat = float(pt[1])
+        except Exception:
+            continue
+        parts.append(f"{lon:.4f},{lat:.4f}")
+
+    raw = "|".join(parts) + f"|n={n}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _midpoint(
+    origin: LatLng, destination: LatLng, base_route: dict[str, Any] | None
+) -> tuple[float, float]:
+    """Return (lat, lon) midpoint using the base route geometry if available."""
+    try:
+        if base_route:
+            geom = base_route.get("geometry", {})
+            coords = (geom or {}).get("coordinates", [])
+            if isinstance(coords, list) and coords:
+                mid = coords[len(coords) // 2]
+                if isinstance(mid, (list, tuple)) and len(mid) >= 2:
+                    lon = float(mid[0])
+                    lat = float(mid[1])
+                    return lat, lon
+    except Exception:
+        pass
+
+    return (origin.lat + destination.lat) / 2.0, (origin.lon + destination.lon) / 2.0
+
+
+def _candidate_via_points(
+    origin: LatLng, destination: LatLng, base_route: dict[str, Any] | None
+) -> list[tuple[float, float]]:
+    """Generate a few via points to force alternative paths (lat, lon)."""
+    mid_lat, mid_lon = _midpoint(origin, destination, base_route)
+    span = max(abs(destination.lat - origin.lat), abs(destination.lon - origin.lon))
+    offset = max(0.08, min(span * 0.18, 0.6))
+
+    def clamp_lat(x: float) -> float:
+        return max(-89.9, min(89.9, x))
+
+    def clamp_lon(x: float) -> float:
+        return max(-179.9, min(179.9, x))
+
+    return [
+        (clamp_lat(mid_lat + offset), clamp_lon(mid_lon)),
+        (clamp_lat(mid_lat - offset), clamp_lon(mid_lon)),
+        (clamp_lat(mid_lat), clamp_lon(mid_lon + offset)),
+        (clamp_lat(mid_lat), clamp_lon(mid_lon - offset)),
+    ]
+
+
+async def _collect_candidate_routes(
+    *,
+    osrm: OSRMClient,
+    origin: LatLng,
+    destination: LatLng,
+    max_routes: int,
+) -> list[dict[str, Any]]:
+    """Get a small, diverse set of candidate routes.
+
+    OSRM `alternatives=true` often returns only 1 route. To keep the sliders/plot useful,
+    we also try:
+      - excludable-class variants (motorway/toll/ferry/trunk), if supported
+      - 1-via-point detours around the midpoint
+    """
+    max_routes = max(1, min(max_routes, 5))
+
+    base = await osrm.fetch_routes(
+        origin_lat=origin.lat,
+        origin_lon=origin.lon,
+        dest_lat=destination.lat,
+        dest_lon=destination.lon,
+        alternatives=max_routes,
+    )
+
+    raw: list[dict[str, Any]] = list(base)
+
+    tasks: list[Awaitable[list[dict[str, Any]]]] = []
+    if len(raw) < max_routes:
+        for ex in ["motorway", "trunk", "toll", "ferry"]:
+            tasks.append(
+                osrm.fetch_routes(
+                    origin_lat=origin.lat,
+                    origin_lon=origin.lon,
+                    dest_lat=destination.lat,
+                    dest_lon=destination.lon,
+                    alternatives=False,
+                    exclude=ex,
+                )
+            )
+
+        for via in _candidate_via_points(origin, destination, base_route=raw[0] if raw else None):
+            tasks.append(
+                osrm.fetch_routes(
+                    origin_lat=origin.lat,
+                    origin_lon=origin.lon,
+                    dest_lat=destination.lat,
+                    dest_lon=destination.lon,
+                    alternatives=False,
+                    via=[via],
+                )
+            )
+
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            # ✅ fixes your "raw.extend(r)" type error: gather can return BaseException
+            if isinstance(r, BaseException):
+                continue
+            raw.extend(r)
+
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for r in raw:
+        sig = _route_signature(r)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        unique.append(r)
+        if len(unique) >= max_routes:
+            break
+
+    return unique
+
+
 @app.post("/pareto", response_model=ParetoResponse)
 async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
 
     try:
-        routes = await osrm.fetch_routes(
-            origin_lat=req.origin.lat,
-            origin_lon=req.origin.lon,
-            dest_lat=req.destination.lat,
-            dest_lon=req.destination.lon,
-            alternatives=True,
+        routes = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=req.origin,
+            destination=req.destination,
+            max_routes=req.max_alternatives,
         )
     except OSRMError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-    routes = routes[: req.max_alternatives]
     options: list[RouteOption] = [
         build_option(
             r,
@@ -171,16 +317,12 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
     )
     pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
 
-    # Practical demo UX: if the strict Pareto set collapses to a single route while
-    # OSRM did return alternatives, the UI appears "broken" (sliders/plot can't change).
-    # In that case, include objective-extremes (time/cost/CO2) so the user can still
-    # explore trade-offs.
     if len(pareto_sorted) < 2 and len(options) > 1:
         by_time = min(options, key=lambda o: o.metrics.duration_s)
         by_cost = min(options, key=lambda o: o.metrics.monetary_cost)
         by_co2 = min(options, key=lambda o: o.metrics.emissions_kg)
-        unique = {r.id: r for r in (by_time, by_cost, by_co2)}
-        pareto_sorted = sorted(unique.values(), key=lambda o: o.metrics.duration_s)
+        unique_extremes = {r.id: r for r in (by_time, by_cost, by_co2)}
+        pareto_sorted = sorted(unique_extremes.values(), key=lambda o: o.metrics.duration_s)
 
     log_event(
         "pareto_request",
@@ -203,12 +345,11 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
     t0 = time.perf_counter()
 
     try:
-        routes = await osrm.fetch_routes(
-            origin_lat=req.origin.lat,
-            origin_lon=req.origin.lon,
-            dest_lat=req.destination.lat,
-            dest_lon=req.destination.lon,
-            alternatives=True,
+        routes = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=req.origin,
+            destination=req.destination,
+            max_routes=5,
         )
     except OSRMError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
@@ -262,7 +403,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                     origin_lon=req.pairs[pair_idx].origin.lon,
                     dest_lat=req.pairs[pair_idx].destination.lat,
                     dest_lon=req.pairs[pair_idx].destination.lon,
-                    alternatives=True,
+                    alternatives=req.max_alternatives,
                 )
                 routes = routes[: req.max_alternatives]
                 options: list[RouteOption] = [
@@ -330,7 +471,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
 
 
 def _manifest_path_for_id(run_id: str) -> Path:
-    # Only allow UUID-looking IDs to avoid path traversal / filesystem probing.
     try:
         uuid.UUID(run_id)
     except ValueError as e:

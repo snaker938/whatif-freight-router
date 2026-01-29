@@ -22,11 +22,14 @@
     "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/geojson": "^7946.0.16",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^25.0.9",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"
   }
 }

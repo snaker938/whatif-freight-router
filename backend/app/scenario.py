@@ -6,9 +6,15 @@ from pydantic import BaseModel, Field
 
 
 class ScenarioMode(str, Enum):
-    no_sharing = "no_sharing"
-    partial_sharing = "partial_sharing"
-    full_sharing = "full_sharing"
+    # Canonical (recommended) enum member names (what your models.py is trying to use)
+    NO_SHARING = "no_sharing"
+    PARTIAL_SHARING = "partial_sharing"
+    FULL_SHARING = "full_sharing"
+
+    # Backwards-compatible aliases (older code used lowercase member names)
+    no_sharing = NO_SHARING
+    partial_sharing = PARTIAL_SHARING
+    full_sharing = FULL_SHARING
 
 
 class ScenarioPolicy(BaseModel):
@@ -22,9 +28,9 @@ class ScenarioPolicy(BaseModel):
 
 
 SCENARIO_POLICIES: dict[ScenarioMode, ScenarioPolicy] = {
-    ScenarioMode.no_sharing: ScenarioPolicy(duration_multiplier=1.10),
-    ScenarioMode.partial_sharing: ScenarioPolicy(duration_multiplier=1.05),
-    ScenarioMode.full_sharing: ScenarioPolicy(duration_multiplier=1.00),
+    ScenarioMode.NO_SHARING: ScenarioPolicy(duration_multiplier=1.10),
+    ScenarioMode.PARTIAL_SHARING: ScenarioPolicy(duration_multiplier=1.05),
+    ScenarioMode.FULL_SHARING: ScenarioPolicy(duration_multiplier=1.00),
 }
 
 

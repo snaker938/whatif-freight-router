@@ -37,7 +37,7 @@ class RouteRequest(BaseModel):
     origin: LatLng
     destination: LatLng
     vehicle_type: str = Field(default="rigid_hgv")
-    scenario_mode: ScenarioMode = Field(default=ScenarioMode.no_sharing)
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
 
 
@@ -45,7 +45,7 @@ class ParetoRequest(BaseModel):
     origin: LatLng
     destination: LatLng
     vehicle_type: str = Field(default="rigid_hgv")
-    scenario_mode: ScenarioMode = Field(default=ScenarioMode.no_sharing)
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     # v0 default bumped to 5 so the UI more often has multiple routes to compare.
     # (OSRM will still cap the number of alternatives it can produce.)
     max_alternatives: int = Field(default=5, ge=1, le=5)
@@ -59,7 +59,7 @@ class ODPair(BaseModel):
 class BatchParetoRequest(BaseModel):
     pairs: list[ODPair] = Field(..., min_length=1, max_length=500)
     vehicle_type: str = Field(default="rigid_hgv")
-    scenario_mode: ScenarioMode = Field(default=ScenarioMode.no_sharing)
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     max_alternatives: int = Field(default=5, ge=1, le=5)
 
 
