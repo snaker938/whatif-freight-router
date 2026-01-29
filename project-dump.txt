@@ -44,7 +44,8 @@ whatif-freight-router
 │   │   │       └── route.ts
 │   │   ├── components
 │   │   │   ├── MapView.tsx
-│   │   │   └── ParetoChart.tsx
+│   │   │   ├── ParetoChart.tsx
+│   │   │   └── Select.tsx
 │   │   ├── lib
 │   │   │   ├── api.ts
 │   │   │   ├── types.ts
@@ -295,6 +296,7 @@ from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
+    GeoJSONLineString,
     LatLng,
     ParetoRequest,
     ParetoResponse,
@@ -304,7 +306,7 @@ from .models import (
     RouteResponse,
     VehicleListResponse,
 )
-from .objectives_emissions import route_emissions_kg
+from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
 from .pareto import pareto_filter
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
@@ -355,19 +357,35 @@ async def health() -> dict[str, str]:
 
 @app.get("/vehicles", response_model=VehicleListResponse)
 async def list_vehicles() -> VehicleListResponse:
-    # With models.py importing VehicleProfile from vehicles.py, Pylance stops complaining.
     return VehicleListResponse(vehicles=list(VEHICLES.values()))
 
 
-def _validate_osrm_geometry(geometry: Any) -> dict[str, Any]:
-    if not isinstance(geometry, dict):
-        raise HTTPException(status_code=502, detail="OSRM returned invalid geometry object")
-    if geometry.get("type") != "LineString":
-        raise HTTPException(status_code=502, detail="OSRM returned non-LineString geometry")
-    coords = geometry.get("coordinates")
-    if not isinstance(coords, list) or not coords:
-        raise HTTPException(status_code=502, detail="OSRM returned empty geometry coordinates")
-    return geometry
+def _validate_osrm_geometry(route: dict[str, Any]) -> list[tuple[float, float]]:
+    geom = route.get("geometry")
+    if not isinstance(geom, dict):
+        raise OSRMError("OSRM route missing geometry")
+
+    coords = geom.get("coordinates")
+    if not isinstance(coords, list) or len(coords) < 2:
+        raise OSRMError("OSRM geometry missing coordinates")
+
+    out: list[tuple[float, float]] = []
+    for pt in coords:
+        if (
+            isinstance(pt, (list, tuple))
+            and len(pt) == 2
+            and isinstance(pt[0], (int, float))
+            and isinstance(pt[1], (int, float))
+        ):
+            out.append((float(pt[0]), float(pt[1])))
+    if len(out) < 2:
+        raise OSRMError("OSRM geometry invalid")
+    return out
+
+
+# Monetary cost model: weight the time-based component so "£" doesn't perfectly track "time".
+# If cost is dominated by time, one route often dominates and the Pareto set collapses to 1.
+DRIVER_TIME_COST_WEIGHT: float = 0.35
 
 
 def build_option(
@@ -379,12 +397,19 @@ def build_option(
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
 
+    coords = _validate_osrm_geometry(route)
     seg_d_m, seg_t_s = extract_segment_annotations(route)
 
-    distance_m = float(route.get("distance", 0.0) or 0.0)
-    base_duration_s = float(route.get("duration", 0.0) or 0.0)
+    distance_m = float(route.get("distance", 0.0))
+    duration_s = float(route.get("duration", 0.0))
+
+    if distance_m <= 0 or duration_s <= 0:
+        # If OSRM omits these top-level fields, compute them from segments.
+        distance_m = sum(seg_d_m)
+        duration_s = sum(seg_t_s)
 
     distance_km = distance_m / 1000.0
+    base_duration_s = duration_s
     base_duration_h = base_duration_s / 3600.0
 
     base_emissions = route_emissions_kg(
@@ -393,100 +418,79 @@ def build_option(
         segment_durations_s=seg_t_s,
     )
 
-    base_monetary = (distance_km * vehicle.cost_per_km) + (base_duration_h * vehicle.cost_per_hour)
+    fuel_cost = 0.0
+    for d_m, t_s in zip(seg_d_m, seg_t_s, strict=True):
+        d_m = max(float(d_m), 0.0)
+        t_s = max(float(t_s), 0.0)
 
-    duration_s = apply_scenario_duration(base_duration_s, scenario_mode)
-    extra_time_s = max(0.0, duration_s - base_duration_s)
+        d_km = d_m / 1000.0
+        speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else 0.0
 
-    emissions = base_emissions + (extra_time_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
-    monetary = base_monetary + (extra_time_s / 3600.0) * vehicle.cost_per_hour
+        # Approximate fuel / wear cost as distance * speed_factor(speed).
+        # This helps create time-vs-cost trade-offs so the UI can show multiple routes.
+        fuel_cost += d_km * vehicle.cost_per_km * speed_factor(speed_kmh)
 
-    duration_h = duration_s / 3600.0
-    avg_speed_kmh = (distance_km / duration_h) if duration_h > 0 else 0.0
+    base_monetary = fuel_cost + (base_duration_h * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT)
 
-    geometry = _validate_osrm_geometry(route.get("geometry"))
+    duration_s = apply_scenario_duration(base_duration_s, mode=scenario_mode)
+    extra_time_s = max(duration_s - base_duration_s, 0.0)
 
-    metrics = RouteMetrics(
-        distance_km=distance_km,
-        duration_s=duration_s,
-        monetary_cost=monetary,
-        emissions_kg=emissions,
-        avg_speed_kmh=avg_speed_kmh,
+    # Scenario also adds idle emissions and driver time cost for extra delay.
+    monetary = (
+        base_monetary + (extra_time_s / 3600.0) * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT
     )
+    emissions = base_emissions + (extra_time_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
 
-    try:
-        return RouteOption(id=option_id, geometry=geometry, metrics=metrics)  # type: ignore[arg-type]
-    except Exception as e:  # pragma: no cover
-        raise HTTPException(status_code=502, detail=f"Invalid route output from OSRM: {e}") from e
+    avg_speed_kmh = distance_km / (duration_s / 3600.0) if duration_s > 0 else 0.0
+
+    return RouteOption(
+        id=option_id,
+        geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+        metrics=RouteMetrics(
+            distance_km=round(distance_km, 3),
+            duration_s=round(duration_s, 2),
+            monetary_cost=round(monetary, 2),
+            emissions_kg=round(emissions, 3),
+            avg_speed_kmh=round(avg_speed_kmh, 2),
+        ),
+    )
 
 
 def _route_signature(route: dict[str, Any]) -> str:
-    """Create a stable-ish hash to dedupe near-identical routes."""
-    geom = route.get("geometry", {})
-    coords = (geom or {}).get("coordinates", [])
-    if not isinstance(coords, list) or not coords:
-        raw = repr((route.get("distance"), route.get("duration")))
-        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
+    coords = _validate_osrm_geometry(route)
     n = len(coords)
     step = max(1, n // 30)
     sample = coords[::step][:40]
 
-    parts: list[str] = []
-    for pt in sample:
-        if not isinstance(pt, (list, tuple)) or len(pt) < 2:
-            continue
-        try:
-            lon = float(pt[0])
-            lat = float(pt[1])
-        except Exception:
-            continue
-        parts.append(f"{lon:.4f},{lat:.4f}")
-
-    raw = "|".join(parts) + f"|n={n}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
-
-def _midpoint(
-    origin: LatLng, destination: LatLng, base_route: dict[str, Any] | None
-) -> tuple[float, float]:
-    """Return (lat, lon) midpoint using the base route geometry if available."""
-    try:
-        if base_route:
-            geom = base_route.get("geometry", {})
-            coords = (geom or {}).get("coordinates", [])
-            if isinstance(coords, list) and coords:
-                mid = coords[len(coords) // 2]
-                if isinstance(mid, (list, tuple)) and len(mid) >= 2:
-                    lon = float(mid[0])
-                    lat = float(mid[1])
-                    return lat, lon
-    except Exception:
-        pass
-
-    return (origin.lat + destination.lat) / 2.0, (origin.lon + destination.lon) / 2.0
+    # round for stability; avoid huge hash variability
+    parts = [f"{lon:.4f},{lat:.4f}" for lon, lat in sample]
+    s = "|".join(parts)
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
 
 def _candidate_via_points(
-    origin: LatLng, destination: LatLng, base_route: dict[str, Any] | None
+    origin: LatLng, destination: LatLng, *, base_route: dict[str, Any] | None
 ) -> list[tuple[float, float]]:
-    """Generate a few via points to force alternative paths (lat, lon)."""
-    mid_lat, mid_lon = _midpoint(origin, destination, base_route)
+    """Generate a few via points around the midpoint to force detours.
+
+    This is a heuristic. If via falls off the network, OSRM may fail that candidate.
+    """
+    # Midpoint in lat/lon
+    mid_lat = (origin.lat + destination.lat) / 2.0
+    mid_lon = (origin.lon + destination.lon) / 2.0
+
+    # Choose a modest offset based on span
     span = max(abs(destination.lat - origin.lat), abs(destination.lon - origin.lon))
     offset = max(0.08, min(span * 0.18, 0.6))
 
-    def clamp_lat(x: float) -> float:
-        return max(-89.9, min(89.9, x))
-
-    def clamp_lon(x: float) -> float:
-        return max(-179.9, min(179.9, x))
-
-    return [
-        (clamp_lat(mid_lat + offset), clamp_lon(mid_lon)),
-        (clamp_lat(mid_lat - offset), clamp_lon(mid_lon)),
-        (clamp_lat(mid_lat), clamp_lon(mid_lon + offset)),
-        (clamp_lat(mid_lat), clamp_lon(mid_lon - offset)),
+    candidates = [
+        (mid_lat + offset, mid_lon),
+        (mid_lat - offset, mid_lon),
+        (mid_lat, mid_lon + offset),
+        (mid_lat, mid_lon - offset),
     ]
+
+    return candidates
 
 
 async def _collect_candidate_routes(
@@ -496,16 +500,10 @@ async def _collect_candidate_routes(
     destination: LatLng,
     max_routes: int,
 ) -> list[dict[str, Any]]:
-    """Get a small, diverse set of candidate routes.
-
-    OSRM `alternatives=true` often returns only 1 route. To keep the sliders/plot useful,
-    we also try:
-      - excludable-class variants (motorway/toll/ferry/trunk), if supported
-      - 1-via-point detours around the midpoint
-    """
     max_routes = max(1, min(max_routes, 5))
 
-    base = await osrm.fetch_routes(
+    # Start by asking OSRM for alternatives.
+    raw = await osrm.fetch_routes(
         origin_lat=origin.lat,
         origin_lon=origin.lon,
         dest_lat=destination.lat,
@@ -513,8 +511,9 @@ async def _collect_candidate_routes(
         alternatives=max_routes,
     )
 
-    raw: list[dict[str, Any]] = list(base)
-
+    # If OSRM doesn't give many alternatives, try a few forced variants:
+    # - exclude certain classes (if supported)
+    # - via points around midpoint
     tasks: list[Awaitable[list[dict[str, Any]]]] = []
     if len(raw) < max_routes:
         for ex in ["motorway", "trunk", "toll", "ferry"]:
@@ -595,11 +594,36 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
     pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
 
     if len(pareto_sorted) < 2 and len(options) > 1:
-        by_time = min(options, key=lambda o: o.metrics.duration_s)
-        by_cost = min(options, key=lambda o: o.metrics.monetary_cost)
-        by_co2 = min(options, key=lambda o: o.metrics.emissions_kg)
-        unique_extremes = {r.id: r for r in (by_time, by_cost, by_co2)}
-        pareto_sorted = sorted(unique_extremes.values(), key=lambda o: o.metrics.duration_s)
+        # In practice, cost and emissions can be correlated with time, so one candidate
+        # can dominate and the Pareto set collapses to a single route. That makes the UI
+        # feel "broken" (sliders can't change anything), so return a small diverse
+        # subset as a fallback.
+        desired = min(len(options), max(2, min(req.max_alternatives, 4)))
+
+        ranked_time = sorted(options, key=lambda o: o.metrics.duration_s)
+        ranked_cost = sorted(options, key=lambda o: o.metrics.monetary_cost)
+        ranked_co2 = sorted(options, key=lambda o: o.metrics.emissions_kg)
+
+        chosen: dict[str, RouteOption] = {}
+
+        def pick_first(ranked: list[RouteOption]) -> None:
+            for r in ranked:
+                if r.id not in chosen:
+                    chosen[r.id] = r
+                    return
+
+        # Always include extremes where possible.
+        for ranked in (ranked_time, ranked_cost, ranked_co2):
+            pick_first(ranked)
+
+        # Fill remaining slots with next-fastest distinct routes.
+        for r in ranked_time:
+            if len(chosen) >= desired:
+                break
+            if r.id not in chosen:
+                chosen[r.id] = r
+
+        pareto_sorted = sorted(chosen.values(), key=lambda o: o.metrics.duration_s)
 
     log_event(
         "pareto_request",
@@ -882,44 +906,45 @@ from __future__ import annotations
 from .vehicles import VehicleProfile
 
 
-def speed_factor(speed_kmh: float, *, eco_speed_kmh: float = 60.0) -> float:
-    """Speed adjustment factor (starter placeholder, tuned for visible trade-offs).
+def speed_factor(speed_kmh: float, *, eco_speed_kmh: float = 55.0) -> float:
+    """Speed adjustment factor used for emissions (and optionally cost).
 
-    The earlier v0 version was mostly monotonic (slower => worse), which often caused
-    a *single* route to dominate all OSRM alternatives, making the Pareto plot and
-    sliders feel "broken".
+    Design goal (demo / UI):
+      - avoid a single route dominating every alternative (which collapses the Pareto set to 1)
+      - create visible *trade-offs* between time, money and CO₂
 
-    This v0.2 tweak uses a simple *U‑shaped* relationship:
-      - very low speeds: stop/start + idling => higher emissions per km
-      - moderate speeds (~eco_speed_kmh): best
-      - very high speeds: aerodynamic/rolling losses => higher emissions per km
+    This is a deliberately simple, placeholder curve:
 
-    It is still a placeholder (replace with a validated model later), but it produces
-    more realistic multi-objective tension for the UI.
+      - below eco speed: only a mild penalty (stop/start is better handled by idle emissions)
+      - above eco speed: stronger penalty (aerodynamic/rolling losses grow quickly)
+      - very high speeds: an extra motorway+ surcharge
+
+    It is not a validated emissions model, but it produces better multi-objective
+    behaviour for the app.
     """
-
     if speed_kmh <= 0:
         return 1.0
 
     s = float(speed_kmh)
     eco = max(10.0, float(eco_speed_kmh))
 
-    # Quadratic penalty away from eco speed.
-    x = (s - eco) / eco
-    factor = 1.0 + 0.85 * (x * x)
+    if s <= eco:
+        # Mild penalty when crawling; near-zero speeds are handled by idle emissions.
+        x = (eco - s) / eco
+        factor = 1.0 + 0.18 * (x * x)
+    else:
+        # Stronger penalty above eco speed.
+        x = (s - eco) / eco
+        factor = 1.0 + 1.25 * (x * x)
 
-    # Extra stop/start penalty at very low speeds (urban traffic).
-    if s < 20:
-        factor += 0.18
-    if s < 10:
-        factor += 0.22
-
-    # Slight extra penalty at motorway+ speeds.
+    # Extra motorway+ surcharge
     if s > 90:
-        factor += 0.12
+        factor += 0.30
+    if s > 110:
+        factor += 0.20
 
     # Keep a sane range for a demo.
-    return min(max(factor, 1.0), 2.75)
+    return min(max(factor, 1.0), 3.25)
 
 
 def route_emissions_kg(
@@ -931,9 +956,9 @@ def route_emissions_kg(
 ) -> float:
     """Compute total route emissions (kg CO2e) from OSRM segment annotations.
 
-    This is a deliberately simple placeholder model:
+    Placeholder model:
       - moving emissions = mass_tonnes * distance_km * EF(kg/t-km) * speed_factor
-      - optional idle/queue emissions when speed is very low
+      - optional idle/queuing emissions when speed is very low
     """
     if len(segment_distances_m) != len(segment_durations_s):
         raise ValueError("segment arrays must be same length")
@@ -1073,10 +1098,14 @@ def pareto_filter(items: Iterable[T], key: Callable[[T], tuple[float, ...]]) -> 
 
 
 ===== backend\app\routing_osrm.py =====
+# backend/app/routing_osrm.py
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+import os
+from pathlib import Path
+from typing import Any, Final
+from urllib.parse import urlparse
 
 import httpx
 
@@ -1085,14 +1114,62 @@ class OSRMError(RuntimeError):
     pass
 
 
+class OSRMRetryableError(OSRMError):
+    """An OSRM error that is likely transient and safe to retry."""
+
+    pass
+
+
 AlternativesParam = bool | int
+
+
+_RETRYABLE_STATUS: Final[set[int]] = {408, 425, 429, 500, 502, 503, 504}
+_LOCALHOST_HOSTS: Final[set[str]] = {"localhost", "127.0.0.1"}
+
+
+def _running_in_docker() -> bool:
+    # Best-effort detection; used only for better defaults / hints.
+    return Path("/.dockerenv").exists() or os.environ.get("RUNNING_IN_DOCKER") == "1"
+
+
+def _format_osrm_error(resp: httpx.Response) -> str:
+    """Best-effort decode of OSRM JSON error payloads."""
+    try:
+        data = resp.json()
+        if isinstance(data, dict):
+            code = data.get("code")
+            message = data.get("message")
+            if code and message:
+                return f"OSRM {resp.status_code} {code}: {message}"
+            if code:
+                return f"OSRM {resp.status_code} {code}"
+            if message:
+                return f"OSRM {resp.status_code}: {message}"
+    except Exception:
+        # fall through to text
+        pass
+
+    body = (resp.text or "").strip().replace("\n", " ")
+    if len(body) > 240:
+        body = body[:240] + "…"
+    if body:
+        return f"OSRM {resp.status_code}: {body}"
+    return f"OSRM HTTP {resp.status_code}"
 
 
 class OSRMClient:
     def __init__(self, *, base_url: str, profile: str = "driving") -> None:
         self.base_url = base_url.rstrip("/")
         self.profile = profile
-        self._client = httpx.AsyncClient(timeout=30.0)
+
+        # OSRM is local in this stack, so keep connect timeout snappy.
+        # IMPORTANT: trust_env=False prevents corporate proxy env vars (HTTP_PROXY/HTTPS_PROXY)
+        # from hijacking requests to localhost / docker service names.
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=5.0),
+            trust_env=False,
+            headers={"accept": "application/json"},
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -1107,13 +1184,16 @@ class OSRMClient:
         alternatives: AlternativesParam = True,
         exclude: str | None = None,
         via: list[tuple[float, float]] | None = None,
-        max_retries: int = 30,
+        max_retries: int = 8,
     ) -> list[dict[str, Any]]:
         """Fetch routes from OSRM.
 
-        alternatives:
-          - True/False to toggle alternatives
-          - OR an integer for the number of alternatives (supported by recent OSRM builds)
+        Notes on `alternatives`:
+
+        - OSRM's public API accepts `alternatives=true|false`.
+        - Some OSRM builds also accept an integer (number of alternative routes).
+          We try the integer form first (when provided) and fall back to boolean
+          for compatibility.
 
         exclude:
           Optional comma-separated classes to exclude (e.g. "motorway", "toll", "ferry").
@@ -1131,42 +1211,125 @@ class OSRMClient:
 
         url = f"{self.base_url}/route/v1/{self.profile}/{coords}"
 
+        # Decide what to send for the `alternatives` query param.
+        alt_values: list[str]
         if isinstance(alternatives, bool):
-            alt_val: str = "true" if alternatives else "false"
+            alt_values = ["true" if alternatives else "false"]
         else:
-            alt_val = str(max(0, min(int(alternatives), 10)))
+            try:
+                alt_i = int(alternatives)
+            except Exception:
+                alt_i = 1
 
-        params: dict[str, str] = {
-            "alternatives": alt_val,
+            if alt_i <= 1:
+                alt_values = ["false"]
+            else:
+                # Try numeric first, then fall back to boolean for builds that
+                # only accept true/false.
+                alt_values = [str(alt_i), "true"]
+
+        base_params: dict[str, str] = {
             "overview": "full",
             "geometries": "geojson",
             "annotations": "true",
         }
         if exclude:
-            params["exclude"] = exclude
+            base_params["exclude"] = exclude
 
-        last_err: Exception | None = None
-        for attempt in range(max_retries):
+        max_retries_i = max(1, int(max_retries))
+
+        async def _call(params: dict[str, str]) -> list[dict[str, Any]]:
+            last_err: Exception | None = None
+
+            for attempt in range(max_retries_i):
+                try:
+                    resp = await self._client.get(url, params=params)
+
+                    # Fast-fail on most 4xx: these are usually request errors
+                    # (bad param, no segment, etc.)
+                    if 400 <= resp.status_code < 500 and resp.status_code not in _RETRYABLE_STATUS:
+                        raise OSRMError(_format_osrm_error(resp))
+
+                    # Retryable HTTP errors
+                    if resp.status_code in _RETRYABLE_STATUS:
+                        raise OSRMRetryableError(_format_osrm_error(resp))
+
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    if data.get("code") != "Ok":
+                        raise OSRMError(
+                            f"OSRM error code={data.get('code')} message={data.get('message')}"
+                        )
+
+                    routes = data.get("routes", [])
+                    if not isinstance(routes, list) or not routes:
+                        raise OSRMError("OSRM returned no routes")
+
+                    return routes
+
+                except OSRMRetryableError as e:
+                    last_err = e
+                except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as e:
+                    last_err = e
+                except httpx.HTTPStatusError as e:
+                    # Non-retryable HTTP errors (already handled above for 4xx),
+                    # but keep this as a safety net.
+                    last_err = e
+                    raise OSRMError(str(e)) from e
+
+                if attempt < max_retries_i - 1:
+                    await asyncio.sleep(min(0.25 * (2**attempt), 2.0))
+
+            # httpx exceptions can stringify to "" (e.g. some timeouts), so include the type.
+            if last_err is None:
+                detail = "unknown error"
+            else:
+                msg = str(last_err).strip()
+                detail = (
+                    f"{type(last_err).__name__}: {msg}"
+                    if msg
+                    else f"{type(last_err).__name__}: {last_err!r}"
+                )
+
+            # Add a targeted hint for the most common misconfigurations.
+            hint = ""
             try:
-                resp = await self._client.get(url, params=params)
-                resp.raise_for_status()
-                data = resp.json()
+                host = urlparse(self.base_url).hostname or ""
+            except Exception:
+                host = ""
 
-                if data.get("code") != "Ok":
-                    raise OSRMError(
-                        f"OSRM error code={data.get('code')} message={data.get('message')}"
-                    )
+            if _running_in_docker() and host in _LOCALHOST_HOSTS:
+                hint = (
+                    " Hint: you're running inside a container; `localhost` points to that container. "
+                    "In docker-compose, set OSRM_BASE_URL=http://osrm:5000."
+                )
+            elif (not _running_in_docker()) and host == "osrm":
+                hint = (
+                    " Hint: `osrm` is the docker-compose service name. "
+                    "If you're running the backend directly on your host, set OSRM_BASE_URL=http://localhost:5000."
+                )
 
-                routes = data.get("routes", [])
-                if not isinstance(routes, list) or not routes:
-                    raise OSRMError("OSRM returned no routes")
+            raise OSRMError(
+                "OSRM request failed after "
+                f"{max_retries_i} retries (base={self.base_url}): {detail}{hint}"
+            )
 
-                return routes
-            except Exception as e:
-                last_err = e
-                await asyncio.sleep(min(0.25 * (2**attempt), 2.5))
+        last_error: Exception | None = None
+        for idx, alt in enumerate(alt_values):
+            params = dict(base_params)
+            params["alternatives"] = alt
+            try:
+                return await _call(params)
+            except OSRMError as e:
+                last_error = e
+                # If OSRM doesn't accept numeric alternatives, fall back to boolean.
+                if idx < len(alt_values) - 1:
+                    continue
+                raise
 
-        raise OSRMError(f"OSRM request failed after {max_retries} retries: {last_err}")
+        # Should be unreachable, but keep type-checkers happy.
+        raise OSRMError(str(last_error) if last_error else "OSRM request failed")
 
 
 def extract_segment_annotations(route: dict[str, Any]) -> tuple[list[float], list[float]]:
@@ -1258,20 +1421,38 @@ def apply_scenario_duration(duration_s: float, mode: ScenarioMode) -> float:
 ===== backend\app\settings.py =====
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _running_in_docker() -> bool:
+    """Best-effort check for container execution.
+
+    Used only to pick sensible defaults. Environment variables always win.
+    """
+    return Path("/.dockerenv").exists() or os.environ.get("RUNNING_IN_DOCKER") == "1"
+
+
+def _default_osrm_base_url() -> str:
+    # In docker-compose, OSRM is reachable by service name "osrm".
+    # When running the backend directly on the host, OSRM is typically exposed on localhost:5000.
+    return "http://osrm:5000" if _running_in_docker() else "http://localhost:5000"
 
 
 class Settings(BaseSettings):
     """Validated settings (env-driven), keeping config out of code for easy extension."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Support both "repo root/.env" (docker compose) and "backend/.env" (local dev)
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    osrm_base_url: str = Field(default="http://osrm:5000", alias="OSRM_BASE_URL")
+    osrm_base_url: str = Field(default_factory=_default_osrm_base_url, alias="OSRM_BASE_URL")
     osrm_profile: str = Field(default="driving", alias="OSRM_PROFILE")
 
     out_dir: str = Field(default="/app/out", alias="OUT_DIR")
@@ -1448,6 +1629,12 @@ CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "
 {"message": "pareto_request", "taskName": "Task-34", "event": "pareto_request", "request_id": "7bfa6595-3337-4a01-a430-39a5c9b27748", "vehicle_type": "rigid_hgv", "scenario_mode": "full_sharing", "origin": {"lat": 58.00247752037178, "lon": -4.550585859674026}, "destination": {"lat": 50.15823115360645, "lon": -5.187693296945742}, "candidate_count": 1, "pareto_count": 1, "duration_ms": 129.39}
 {"message": "pareto_request", "taskName": "Task-35", "event": "pareto_request", "request_id": "85334926-c098-430e-9a1a-c56336191f18", "vehicle_type": "rigid_hgv", "scenario_mode": "full_sharing", "origin": {"lat": 58.00247752037178, "lon": -4.550585859674026}, "destination": {"lat": 50.15823115360645, "lon": -5.187693296945742}, "candidate_count": 1, "pareto_count": 1, "duration_ms": 106.84}
 {"message": "pareto_request", "taskName": "Task-36", "event": "pareto_request", "request_id": "d4499b2c-f817-4a39-968e-c70fdafc9784", "vehicle_type": "rigid_hgv", "scenario_mode": "full_sharing", "origin": {"lat": 58.00247752037178, "lon": -4.550585859674026}, "destination": {"lat": 50.15823115360645, "lon": -5.187693296945742}, "candidate_count": 1, "pareto_count": 1, "duration_ms": 108.04}
+{"message": "pareto_request", "taskName": "Task-7", "event": "pareto_request", "request_id": "fc582625-994e-4a08-b179-e5966ffaace3", "vehicle_type": "rigid_hgv", "scenario_mode": "no_sharing", "origin": {"lat": 55.635702826345664, "lon": -3.7487578722492114}, "destination": {"lat": 50.186366508862456, "lon": -5.187696132804589}, "candidate_count": 5, "pareto_count": 1, "duration_ms": 1040.9}
+{"message": "pareto_request", "taskName": "Task-17", "event": "pareto_request", "request_id": "333d22e8-9da9-417f-97b3-618d0019a56c", "vehicle_type": "rigid_hgv", "scenario_mode": "no_sharing", "origin": {"lat": 55.635702826345664, "lon": -3.7487578722492114}, "destination": {"lat": 50.186366508862456, "lon": -5.187696132804589}, "candidate_count": 5, "pareto_count": 1, "duration_ms": 424.64}
+{"message": "pareto_request", "taskName": "Task-26", "event": "pareto_request", "request_id": "edde691b-797d-4268-b2da-3b187d2ffd0e", "vehicle_type": "rigid_hgv", "scenario_mode": "no_sharing", "origin": {"lat": 55.635702826345664, "lon": -3.7487578722492114}, "destination": {"lat": 50.186366508862456, "lon": -5.187696132804589}, "candidate_count": 5, "pareto_count": 1, "duration_ms": 394.19}
+{"message": "pareto_request", "taskName": "Task-35", "event": "pareto_request", "request_id": "48ed1ce2-261d-4dd5-b29f-f40776b6952e", "vehicle_type": "rigid_hgv", "scenario_mode": "no_sharing", "origin": {"lat": 55.635702826345664, "lon": -3.7487578722492114}, "destination": {"lat": 50.186366508862456, "lon": -5.187696132804589}, "candidate_count": 5, "pareto_count": 1, "duration_ms": 365.11}
+{"message": "pareto_request", "taskName": "Task-45", "event": "pareto_request", "request_id": "79e01bc8-ffc6-40c7-8e7e-a5ff6370134f", "vehicle_type": "rigid_hgv", "scenario_mode": "no_sharing", "origin": {"lat": 55.635702826345664, "lon": -3.7487578722492114}, "destination": {"lat": 50.186366508862456, "lon": -5.187696132804589}, "candidate_count": 5, "pareto_count": 1, "duration_ms": 356.57}
+{"message": "pareto_request", "taskName": "Task-6", "event": "pareto_request", "request_id": "b4e64c93-1c07-4064-b60a-36ea687f47de", "vehicle_type": "rigid_hgv", "scenario_mode": "no_sharing", "origin": {"lat": 55.37377868378744, "lon": -3.133641293109638}, "destination": {"lat": 51.05764511297148, "lon": -2.551473365374864}, "candidate_count": 5, "pareto_count": 3, "duration_ms": 735.57}
 
 
 ===== backend\out\manifests\.gitkeep =====
@@ -2205,6 +2392,10 @@ services:
     depends_on:
       osrm:
         condition: service_started
+    environment:
+      # Ensure internal curl checks never go via a corporate proxy.
+      NO_PROXY: osrm,localhost,127.0.0.1
+      no_proxy: osrm,localhost,127.0.0.1
     command: >
       sh -c 'echo "Waiting for OSRM on :5000..."; until curl -sS http://osrm:5000/ >/dev/null; do sleep 2; done; echo "OSRM is up."'
 
@@ -2216,6 +2407,9 @@ services:
       OSRM_BASE_URL: http://osrm:5000
       OUT_DIR: /app/out
       LOG_LEVEL: INFO
+      # Ensure backend -> OSRM calls never go via a corporate proxy.
+      NO_PROXY: osrm,localhost,127.0.0.1
+      no_proxy: osrm,localhost,127.0.0.1
       # CORS_ALLOW_ORIGINS: '["http://localhost:3000"]'
     volumes:
       - ./backend/out:/app/out
@@ -2263,7 +2457,10 @@ Thumbs.db
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
-  const backendBase = process.env.BACKEND_INTERNAL_URL ?? 'http://backend:8000';
+  const backendBase =
+    process.env.BACKEND_INTERNAL_URL ??
+    process.env.NEXT_PUBLIC_BACKEND_URL ??
+    'http://localhost:8000';
   const body = await req.text();
 
   const resp = await fetch(`${backendBase}/pareto`, {
@@ -2285,7 +2482,10 @@ export async function POST(req: Request) {
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
-  const backendBase = process.env.BACKEND_INTERNAL_URL ?? 'http://backend:8000';
+  const backendBase =
+    process.env.BACKEND_INTERNAL_URL ??
+    process.env.NEXT_PUBLIC_BACKEND_URL ??
+    'http://localhost:8000';
   const body = await req.text();
 
   const resp = await fetch(`${backendBase}/route`, {
@@ -2307,7 +2507,10 @@ export async function POST(req: Request) {
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  const backendBase = process.env.BACKEND_INTERNAL_URL ?? 'http://backend:8000';
+  const backendBase =
+    process.env.BACKEND_INTERNAL_URL ??
+    process.env.NEXT_PUBLIC_BACKEND_URL ??
+    'http://localhost:8000';
 
   const resp = await fetch(`${backendBase}/vehicles`, { cache: 'no-store' });
   const text = await resp.text();
@@ -2318,13 +2521,14 @@ export async function GET() {
 
 ===== frontend\app\components\MapView.tsx =====
 'use client';
+// frontend/app/components/MapView.tsx
 
 import L, {
   type LatLngBoundsExpression,
   type LatLngExpression,
   type LeafletMouseEvent,
 } from 'leaflet';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   Marker,
@@ -2416,6 +2620,111 @@ function fmtCoord(v: number) {
   return Number.isFinite(v) ? v.toFixed(5) : String(v);
 }
 
+function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M18 6L6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M6 6l1 16h10l1-16" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+function SwapIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 7h13" />
+      <path d="M17 3l3 4-3 4" />
+      <path d="M17 17H4" />
+      <path d="M7 21l-3-4 3-4" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 9h10v12H9z" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </svg>
+  );
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback for older browsers / permission issues.
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      ta.style.pointerEvents = 'none';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export default function MapView({
   origin,
   destination,
@@ -2429,6 +2738,14 @@ export default function MapView({
 }: Props) {
   const originRef = useRef<L.Marker>(null);
   const destRef = useRef<L.Marker>(null);
+
+  const [copied, setCopied] = useState<MarkerKind | null>(null);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(null), 900);
+    return () => window.clearTimeout(t);
+  }, [copied]);
 
   const originIcon = useMemo(
     () => makePinIcon('origin', selectedMarker === 'origin'),
@@ -2464,6 +2781,12 @@ export default function MapView({
       ? ([origin.lat, origin.lon] as [number, number])
       : ([52.4862, -1.8904] as [number, number]);
   }, [origin]);
+
+  const handleCopyCoords = useCallback(async (kind: MarkerKind, lat: number, lon: number) => {
+    const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
+    const ok = await copyToClipboard(text);
+    if (ok) setCopied(kind);
+  }, []);
 
   return (
     <div className="mapPane">
@@ -2506,56 +2829,82 @@ export default function MapView({
               },
             }}
           >
-            <Popup className="markerPopup" closeButton={false} autoPan={false}>
+            <Popup
+              className="markerPopup"
+              closeButton={false}
+              autoPan={true}
+              autoPanPadding={[22, 22]}
+            >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
-                <div className="markerPopup__top">
-                  <div className="markerPopup__title">
-                    <span className="markerPopup__badge markerPopup__badge--origin">Start</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="markerPopup__close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectMarker(null);
-                    }}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
+                <div className="markerPopup__header">
+                  <span className="markerPopup__pill markerPopup__pill--origin">Start</span>
 
-                <div className="markerPopup__coords">
-                  {fmtCoord(origin.lat)}, {fmtCoord(origin.lon)}
-                </div>
+                  <div className="markerPopup__actions">
+                    {onSwapMarkers && destination && (
+                      <button
+                        type="button"
+                        className="markerPopup__iconBtn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSwapMarkers();
+                        }}
+                        aria-label="Swap start and destination"
+                        title="Swap start and destination"
+                      >
+                        <SwapIcon />
+                      </button>
+                    )}
 
-                <div className="markerPopup__actions">
-                  <button
-                    type="button"
-                    className="markerPopup__action markerPopup__action--danger"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemoveMarker('origin');
-                    }}
-                  >
-                    Remove
-                  </button>
-
-                  {onSwapMarkers && destination && (
                     <button
                       type="button"
-                      className="markerPopup__action"
+                      className="markerPopup__iconBtn markerPopup__iconBtn--danger"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onSwapMarkers();
+                        onRemoveMarker('origin');
+                        onSelectMarker(null);
                       }}
+                      aria-label="Remove start"
+                      title="Remove start"
                     >
-                      Swap
+                      <TrashIcon />
                     </button>
-                  )}
+
+                    <button
+                      type="button"
+                      className="markerPopup__iconBtn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectMarker(null);
+                      }}
+                      aria-label="Close"
+                      title="Close"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="markerPopup__hint">Tip: drag this pin to fine-tune the start.</div>
+                <div className="markerPopup__coordsRow">
+                  <button
+                    type="button"
+                    className="markerPopup__coordsBtn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyCoords('origin', origin.lat, origin.lon);
+                    }}
+                    aria-label="Copy coordinates"
+                    title="Copy coordinates"
+                  >
+                    <span className="markerPopup__coordsText">
+                      {fmtCoord(origin.lat)}, {fmtCoord(origin.lon)}
+                    </span>
+                    <span className="markerPopup__coordsIcon">
+                      <CopyIcon />
+                    </span>
+                  </button>
+
+                  {copied === 'origin' && <span className="markerPopup__toast">Copied</span>}
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -2580,59 +2929,83 @@ export default function MapView({
               },
             }}
           >
-            <Popup className="markerPopup" closeButton={false} autoPan={false}>
+            <Popup
+              className="markerPopup"
+              closeButton={false}
+              autoPan={true}
+              autoPanPadding={[22, 22]}
+            >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
-                <div className="markerPopup__top">
-                  <div className="markerPopup__title">
-                    <span className="markerPopup__badge markerPopup__badge--destination">
-                      Destination
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="markerPopup__close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectMarker(null);
-                    }}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
+                <div className="markerPopup__header">
+                  <span className="markerPopup__pill markerPopup__pill--destination">
+                    Destination
+                  </span>
 
-                <div className="markerPopup__coords">
-                  {fmtCoord(destination.lat)}, {fmtCoord(destination.lon)}
-                </div>
+                  <div className="markerPopup__actions">
+                    {onSwapMarkers && origin && (
+                      <button
+                        type="button"
+                        className="markerPopup__iconBtn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSwapMarkers();
+                        }}
+                        aria-label="Swap start and destination"
+                        title="Swap start and destination"
+                      >
+                        <SwapIcon />
+                      </button>
+                    )}
 
-                <div className="markerPopup__actions">
-                  <button
-                    type="button"
-                    className="markerPopup__action markerPopup__action--danger"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemoveMarker('destination');
-                    }}
-                  >
-                    Remove
-                  </button>
-
-                  {onSwapMarkers && origin && (
                     <button
                       type="button"
-                      className="markerPopup__action"
+                      className="markerPopup__iconBtn markerPopup__iconBtn--danger"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onSwapMarkers();
+                        onRemoveMarker('destination');
+                        onSelectMarker(null);
                       }}
+                      aria-label="Remove destination"
+                      title="Remove destination"
                     >
-                      Swap
+                      <TrashIcon />
                     </button>
-                  )}
+
+                    <button
+                      type="button"
+                      className="markerPopup__iconBtn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectMarker(null);
+                      }}
+                      aria-label="Close"
+                      title="Close"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="markerPopup__hint">
-                  Tip: drag this pin to try a new destination quickly.
+                <div className="markerPopup__coordsRow">
+                  <button
+                    type="button"
+                    className="markerPopup__coordsBtn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyCoords('destination', destination.lat, destination.lon);
+                    }}
+                    aria-label="Copy coordinates"
+                    title="Copy coordinates"
+                  >
+                    <span className="markerPopup__coordsText">
+                      {fmtCoord(destination.lat)}, {fmtCoord(destination.lon)}
+                    </span>
+                    <span className="markerPopup__coordsIcon">
+                      <CopyIcon />
+                    </span>
+                  </button>
+
+                  {copied === 'destination' && <span className="markerPopup__toast">Copied</span>}
                 </div>
               </div>
             </Popup>
@@ -2764,273 +3137,396 @@ export default function ParetoChart({ routes, selectedId, onSelect }: Props) {
 }
 
 
-===== frontend\app\global.css =====
-@import "tailwindcss";
+===== frontend\app\components\Select.tsx =====
+'use client';
+// frontend/app/components/Select.tsx
 
-/* ==========================================================================
-   Base tokens + global reset
-   ========================================================================== */
+import type React from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
-@layer base {
-  :root {
-    color-scheme: dark;
+export type SelectOption<T extends string> = {
+  value: T;
+  label: string;
+  description?: string;
+};
 
-    --bg0: #05060b;
-    --bg1: #0b1020;
+type Props<T extends string> = {
+  value: T;
+  options: SelectOption<T>[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  ariaLabel: string;
+};
 
-    --panel: rgba(13, 16, 28, 0.72);
-    --card: rgba(18, 23, 40, 0.55);
-
-    --stroke: rgba(255, 255, 255, 0.1);
-    --stroke2: rgba(255, 255, 255, 0.08);
-
-    --text: rgba(255, 255, 255, 0.92);
-    --muted: rgba(255, 255, 255, 0.68);
-    --muted2: rgba(255, 255, 255, 0.55);
-
-    --shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-
-    --accentA: #7c3aed; /* purple */
-    --accentB: #06b6d4; /* cyan */
-    --danger: #ef4444;
-
-    --radius: 22px;
-  }
-
-  *,
-  *::before,
-  *::after {
-    box-sizing: border-box;
-  }
-
-  html,
-  body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-  }
-
-  body {
-    color: var(--text);
-    font-family:
-      var(--font-inter),
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      Segoe UI,
-      Roboto,
-      Arial,
-      "Apple Color Emoji",
-      "Segoe UI Emoji";
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: geometricPrecision;
-
-    background:
-      radial-gradient(1000px 700px at 18% 12%, rgba(124, 58, 237, 0.22), transparent 55%),
-      radial-gradient(900px 600px at 90% 0%, rgba(6, 182, 212, 0.18), transparent 50%),
-      linear-gradient(180deg, var(--bg1) 0%, var(--bg0) 100%);
-
-    /* App is “full-screen” */
-    overflow: hidden;
-    overscroll-behavior: none;
-  }
-
-  /* Make form controls inherit your font */
-  button,
-  input,
-  select,
-  textarea {
-    font: inherit;
-  }
-
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  ::selection {
-    background: rgba(124, 58, 237, 0.28);
-  }
-
-  /* Accessible focus treatment */
-  :where(button, select, input, textarea, a):focus-visible {
-    outline: 2px solid rgba(6, 182, 212, 0.6);
-    outline-offset: 2px;
-  }
-
-  /* Reduce motion for users that request it */
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.001ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.001ms !important;
-      scroll-behavior: auto !important;
-    }
-  }
+function ChevronDownIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
 }
 
-/* ==========================================================================
-   App layout + UI components (your semantic class names)
-   ========================================================================== */
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
 
-@layer components {
+export default function Select<T extends string>({
+  value,
+  options,
+  onChange,
+  disabled,
+  placeholder,
+  ariaLabel,
+}: Props<T>) {
+  const id = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number>(() =>
+    Math.max(
+      0,
+      options.findIndex((o) => o.value === value),
+    ),
+  );
+
+  const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
+
+  useEffect(() => {
+    setActiveIndex(
+      Math.max(
+        0,
+        options.findIndex((o) => o.value === value),
+      ),
+    );
+  }, [options, value]);
+
+  useEffect(() => {
+    function onDocDown(e: MouseEvent) {
+      const el = rootRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && el.contains(e.target)) return;
+      setOpen(false);
+    }
+
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      buttonRef.current?.focus?.();
+      return;
+    }
+    const t = window.setTimeout(() => menuRef.current?.focus?.(), 0);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  function commit(idx: number) {
+    const opt = options[idx];
+    if (!opt) return;
+    onChange(opt.value);
+    setOpen(false);
+  }
+
+  function step(delta: number) {
+    setActiveIndex((i) => {
+      const next = i + delta;
+      return Math.max(0, Math.min(options.length - 1, next));
+    });
+  }
+
+  function onButtonKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    if (disabled) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setOpen(true);
+      step(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setOpen(true);
+      step(-1);
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (open) commit(activeIndex);
+      else setOpen(true);
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+    }
+  }
+
+  function onMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      step(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      step(-1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commit(activeIndex);
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      return;
+    }
+  }
+
+  return (
+    <div ref={rootRef} className={`select ${disabled ? 'isDisabled' : ''}`}>
+      <button
+        ref={buttonRef}
+        id={id}
+        type="button"
+        className="select__button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-menu`}
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((o) => !o)}
+        onKeyDown={onButtonKeyDown}
+      >
+        <span className="select__value">{selected?.label ?? placeholder ?? 'Select…'}</span>
+        <span className={`select__chev ${open ? 'isOpen' : ''}`}>
+          <ChevronDownIcon />
+        </span>
+      </button>
+
+      {open && (
+        <div
+          ref={menuRef}
+          id={`${id}-menu`}
+          className="select__menu"
+          role="listbox"
+          aria-labelledby={id}
+          tabIndex={-1}
+          onKeyDown={onMenuKeyDown}
+        >
+          {options.map((opt, idx) => {
+            const isSelected = opt.value === value;
+            const isActive = idx === activeIndex;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                className={`select__option ${isSelected ? 'isSelected' : ''} ${
+                  isActive ? 'isActive' : ''
+                }`}
+                onMouseEnter={() => setActiveIndex(idx)}
+                onClick={() => commit(idx)}
+              >
+                <span className="select__optionText">
+                  <span className="select__optionLabel">{opt.label}</span>
+                  {opt.description && <span className="select__optionDesc">{opt.description}</span>}
+                </span>
+                <span className="select__optionIcon">{isSelected ? <CheckIcon /> : null}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+===== frontend\app\global.css =====
+/* frontend/app/global.css */
+@import "tailwindcss";
+
+:root {
+  --bg0: #070812;
+  --bg1: rgba(12, 14, 24, 0.8);
+  --panel: rgba(18, 20, 32, 0.75);
+  --border: rgba(255, 255, 255, 0.10);
+  --text: rgba(255, 255, 255, 0.90);
+  --muted: rgba(255, 255, 255, 0.62);
+
+  --accentA: #7c3aed; /* violet */
+  --accentB: #06b6d4; /* cyan */
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg0);
+  color: var(--text);
+  font-family: var(--font-inter), system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+}
+
+@layer utilities {
   /* ---------- Layout ---------- */
 
   .app {
-    position: relative;
     height: 100vh;
-    width: 100vw;
-    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 420px;
   }
 
   .mapStage {
-    position: absolute;
-    inset: 0;
+    position: relative;
+    min-width: 0;
   }
 
   .mapPane {
-    position: absolute;
-    inset: 0;
-  }
-
-  .leaflet-container {
     height: 100%;
     width: 100%;
-    background: transparent;
-
-    /* Premium-ish map feel */
-    filter: saturate(1.15) contrast(1.08);
-    outline: none;
+    background: radial-gradient(1000px 500px at 20% 10%, rgba(124, 58, 237, 0.24), transparent 60%),
+      radial-gradient(900px 550px at 70% 60%, rgba(6, 182, 212, 0.18), transparent 65%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.35));
   }
 
   .panel {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    bottom: 16px;
-
-    width: 440px;
-    max-width: calc(100vw - 32px);
-
-    background: var(--panel);
-    border: 1px solid var(--stroke);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-
-    display: flex;
-    flex-direction: column;
+    height: 100%;
+    border-left: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(7, 8, 18, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     overflow: hidden;
   }
 
-  /* Fallback if backdrop-filter is unsupported */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .panel {
-      background: rgba(13, 16, 28, 0.92);
-    }
-  }
-
   .panelHeader {
-    padding: 18px 18px 12px;
-    border-bottom: 1px solid var(--stroke2);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent);
+    padding: 18px 18px 12px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0));
   }
 
   .panelHeader__top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 10px;
   }
 
   .panelHeader h1 {
-    margin: 0;
     font-family: var(--font-space), var(--font-inter), system-ui;
-    font-size: 20px;
+    font-size: 18px;
     letter-spacing: -0.02em;
+    margin: 0;
   }
 
   .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    border-radius: 999px;
     font-size: 11px;
-
-    color: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(124, 58, 237, 0.35);
-    background: rgba(124, 58, 237, 0.18);
-    box-shadow: 0 10px 24px rgba(124, 58, 237, 0.16);
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.82);
   }
 
   .subtitle {
     margin: 10px 0 0;
-    color: var(--muted);
+    color: rgba(255, 255, 255, 0.66);
     font-size: 12.5px;
-    line-height: 1.45;
+    line-height: 1.35;
   }
 
   .panelBody {
-    padding: 14px;
+    padding: 16px 18px 22px;
     overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    height: calc(100% - 86px);
   }
 
-  /* Nicer scrollbar (supported browsers only) */
-  .panelBody {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.18) rgba(0, 0, 0, 0);
-  }
   .panelBody::-webkit-scrollbar {
     width: 10px;
   }
   .panelBody::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.12);
     border: 2px solid rgba(0, 0, 0, 0);
     background-clip: padding-box;
   }
   .panelBody::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.18);
     border: 2px solid rgba(0, 0, 0, 0);
     background-clip: padding-box;
   }
 
+  /* ---------- Cards ---------- */
+
   .card {
-    background: var(--card);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 18px;
     padding: 14px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+
+    background: rgba(0, 0, 0, 0.18);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+
+    margin-bottom: 14px;
   }
 
   .sectionTitle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-
+    font-family: var(--font-space), var(--font-inter), system-ui;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, 0.88);
     margin-bottom: 10px;
+  }
 
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-
-    color: rgba(255, 255, 255, 0.62);
+  label {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.72);
   }
 
   .helper {
     margin-top: 10px;
     font-size: 12px;
-    color: var(--muted2);
+    color: rgba(255, 255, 255, 0.62);
     line-height: 1.35;
   }
 
@@ -3038,19 +3534,49 @@ export default function ParetoChart({ routes, selectedId, onSelect }: Props) {
     margin-top: 10px;
     font-size: 11px;
     color: rgba(255, 255, 255, 0.55);
-    user-select: text;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* ---------- Controls ---------- */
 
-  label {
-    display: block;
-    font-size: 12px;
-    color: var(--muted);
-    margin: 10px 0 6px;
+  select {
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 14px;
+
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.92);
+
+    appearance: none;
+    outline: none;
+
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
   }
 
-  select {
+  select:focus {
+    border-color: rgba(6, 182, 212, 0.55);
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.14);
+  }
+
+  /* ---------- Custom dropdown (consistent dark menu) ---------- */
+
+  .select {
+    position: relative;
+  }
+
+  .select.isDisabled {
+    opacity: 0.9;
+  }
+
+  .select__button {
     width: 100%;
     padding: 11px 12px;
     border-radius: 14px;
@@ -3059,77 +3585,145 @@ export default function ParetoChart({ routes, selectedId, onSelect }: Props) {
     background: rgba(0, 0, 0, 0.22);
     color: rgba(255, 255, 255, 0.92);
 
-    outline: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 
-    /* A bit more “custom”, but still native */
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-
-    background-image:
-      linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.7) 50%),
-      linear-gradient(135deg, rgba(255, 255, 255, 0.7) 50%, transparent 50%);
-    background-position:
-      calc(100% - 18px) calc(50% - 2px),
-      calc(100% - 12px) calc(50% - 2px);
-    background-size: 6px 6px, 6px 6px;
-    background-repeat: no-repeat;
-    padding-right: 34px;
+    cursor: pointer;
   }
 
-  select:focus {
+  .select__button:disabled {
+    cursor: not-allowed;
+  }
+
+  .select__button[aria-expanded="true"] {
     border-color: rgba(6, 182, 212, 0.55);
     box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.14);
+    transform: none;
+  }
+
+  .select__value {
+    font-size: 13px;
+    letter-spacing: -0.01em;
+  }
+
+  .select__chev {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.7);
+    transition: transform 160ms ease;
+  }
+
+  .select__chev.isOpen {
+    transform: rotate(180deg);
+  }
+
+  .select__menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 40;
+
+    padding: 6px;
+    border-radius: 16px;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 12, 20, 0.88);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+
+    max-height: 260px;
+    overflow: auto;
+  }
+
+  .select__menu {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) rgba(0, 0, 0, 0);
+  }
+  .select__menu::-webkit-scrollbar {
+    width: 10px;
+  }
+  .select__menu::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    border: 2px solid rgba(0, 0, 0, 0);
+    background-clip: padding-box;
+  }
+  .select__menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.22);
+    border: 2px solid rgba(0, 0, 0, 0);
+    background-clip: padding-box;
+  }
+
+  .select__option {
+    width: 100%;
+    text-align: left;
+    padding: 10px 10px;
+    border-radius: 14px;
+
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.88);
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+
+    transform: none;
+    box-shadow: none;
+  }
+
+  .select__option:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+    transform: none;
+    box-shadow: none;
+  }
+
+  .select__option.isActive {
+    background: rgba(124, 58, 237, 0.12);
+    border-color: rgba(124, 58, 237, 0.25);
+  }
+
+  .select__option.isSelected {
+    background: rgba(6, 182, 212, 0.12);
+    border-color: rgba(6, 182, 212, 0.25);
+  }
+
+  .select__optionText {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .select__optionLabel {
+    font-size: 13px;
+  }
+
+  .select__optionDesc {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .select__optionIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.72);
   }
 
   input[type="range"] {
     width: 100%;
-    margin: 6px 0 2px;
     accent-color: var(--accentB);
-
-    -webkit-appearance: none;
-    appearance: none;
-    height: 34px;
-    background: transparent;
   }
 
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-
-    margin-top: -7px;
-    height: 24px;
-    width: 24px;
-    border-radius: 999px;
-
-    background: linear-gradient(135deg, var(--accentA), var(--accentB));
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 10px 26px rgba(6, 182, 212, 0.18);
-  }
-
-  input[type="range"]::-moz-range-track {
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  input[type="range"]::-moz-range-thumb {
-    height: 24px;
-    width: 24px;
-    border: none;
-    border-radius: 999px;
-
-    background: linear-gradient(135deg, var(--accentA), var(--accentB));
-    box-shadow: 0 10px 26px rgba(6, 182, 212, 0.18);
-  }
+  /* ---------- Buttons ---------- */
 
   .row {
     display: flex;
@@ -3404,6 +3998,156 @@ export default function ParetoChart({ routes, selectedId, onSelect }: Props) {
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
   }
 
+  /* ---------- Marker popup (compact actions + QoL) ---------- */
+
+  .markerPopup__card {
+    min-width: 250px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    user-select: none;
+  }
+
+  .markerPopup__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .markerPopup__pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 999px;
+
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .markerPopup__pill--origin {
+    border-color: rgba(124, 58, 237, 0.38);
+    background: rgba(124, 58, 237, 0.18);
+  }
+
+  .markerPopup__pill--destination {
+    border-color: rgba(6, 182, 212, 0.35);
+    background: rgba(6, 182, 212, 0.16);
+  }
+
+  .markerPopup__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .markerPopup__iconBtn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 12px;
+
+    display: grid;
+    place-items: center;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.22);
+    color: rgba(255, 255, 255, 0.86);
+
+    transform: none;
+    box-shadow: none;
+  }
+
+  .markerPopup__iconBtn:hover {
+    transform: none;
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+  }
+
+  .markerPopup__iconBtn--danger {
+    border-color: rgba(239, 68, 68, 0.35);
+    color: rgba(239, 68, 68, 0.95);
+  }
+
+  .markerPopup__iconBtn--danger:hover {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.55);
+  }
+
+  .markerPopup__coordsRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .markerPopup__coordsBtn {
+    width: auto;
+    flex: 1;
+
+    padding: 10px 10px;
+    border-radius: 14px;
+    text-align: left;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+
+    transform: none;
+    box-shadow: none;
+  }
+
+  .markerPopup__coordsBtn:hover {
+    transform: none;
+    border-color: rgba(6, 182, 212, 0.45);
+    background: rgba(6, 182, 212, 0.08);
+    box-shadow: none;
+  }
+
+  .markerPopup__coordsText {
+    font-family:
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      "Liberation Mono",
+      "Courier New",
+      monospace;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .markerPopup__coordsIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .markerPopup__toast {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 999px;
+
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    background: rgba(6, 182, 212, 0.12);
+    color: rgba(255, 255, 255, 0.88);
+
+    white-space: nowrap;
+  }
+
   /* ---------- Custom pins (Leaflet divIcon) ---------- */
 
   .pin {
@@ -3638,10 +4382,12 @@ export function pickBestByWeightedSum(routes: RouteOption[], weights: WeightStat
 
 ===== frontend\app\page.tsx =====
 'use client';
+// frontend/app/page.tsx
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import Select from './components/Select';
 import { postJSON } from './lib/api';
 import type {
   LatLng,
@@ -3797,7 +4543,7 @@ export default function Page() {
 
   async function computePareto() {
     if (!origin || !destination) {
-      setError('Click map to set start then destination.');
+      setError('Click the map to set Start, then Destination.');
       return;
     }
     setLoading(true);
@@ -3831,10 +4577,28 @@ export default function Page() {
         { value: 'artic_hgv', label: 'Articulated HGV' },
       ];
 
+  const scenarioOptions: { value: ScenarioMode; label: string; description: string }[] = [
+    {
+      value: 'no_sharing',
+      label: 'No sharing',
+      description: 'Baseline: no expected delay uplift.',
+    },
+    {
+      value: 'partial_sharing',
+      label: 'Partial sharing',
+      description: 'Small delay uplift, some coordination overhead.',
+    },
+    {
+      value: 'full_sharing',
+      label: 'Full sharing',
+      description: 'Best coordination: lowest expected delay uplift.',
+    },
+  ];
+
   const mapHint = (() => {
-    if (!origin) return 'Click the map to set your start point.';
-    if (origin && !destination) return 'Now click the map to set your destination.';
-    return 'Drag a pin to tweak the trip, or click a pin for actions. Sliders re-select the best route.';
+    if (!origin) return 'Click the map to set Start.';
+    if (origin && !destination) return 'Now click the map to set Destination.';
+    return 'Compute Pareto to compare candidate routes. Use sliders to pick the best trade-off.';
   })();
 
   return (
@@ -3853,10 +4617,6 @@ export default function Page() {
         />
 
         <div className="mapHUD">
-          <div className="mapHUD__brand">
-            <span className="mapHUD__dot" />
-            <span>UK demo</span>
-          </div>
           <div className="mapHUD__hint">{mapHint}</div>
         </div>
       </div>
@@ -3868,8 +4628,8 @@ export default function Page() {
             <span className="badge">v0</span>
           </div>
           <p className="subtitle">
-            Click map: start → destination. Compute Pareto. Sliders re-select the best route among
-            candidates.
+            Click the map to set Start, then Destination. Compute Pareto to generate candidate
+            routes, then use the sliders to choose the best trade‑off (time vs cost vs CO₂).
           </p>
         </header>
 
@@ -3878,27 +4638,27 @@ export default function Page() {
             <div className="sectionTitle">Setup</div>
 
             <label>Vehicle type</label>
-            <select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
-              {vehicleOptions.map((v) => (
-                <option key={v.value} value={v.value}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+            <Select
+              ariaLabel="Vehicle type"
+              value={vehicleType}
+              options={vehicleOptions}
+              onChange={setVehicleType}
+              disabled={loading}
+            />
 
             <label>Scenario mode</label>
-            <select
+            <Select
+              ariaLabel="Scenario mode"
               value={scenarioMode}
-              onChange={(e) => setScenarioMode(e.target.value as ScenarioMode)}
-            >
-              <option value="no_sharing">No sharing</option>
-              <option value="partial_sharing">Partial sharing</option>
-              <option value="full_sharing">Full sharing</option>
-            </select>
+              options={scenarioOptions}
+              onChange={setScenarioMode}
+              disabled={loading}
+            />
 
             <div className="helper">
-              Scenario changes expected delay + idle emissions via policy (stub, replaceable with
-              simulation later).
+              Scenario mode applies a policy‑based delay multiplier and adds idle emissions (and
+              driver time cost) for the extra delay. This is a lightweight stub that can be swapped
+              for a detailed simulator later.
             </div>
 
             <div className="row" style={{ marginTop: 12 }}>

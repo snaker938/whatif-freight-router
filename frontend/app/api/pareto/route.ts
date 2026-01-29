@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
-  const backendBase = process.env.BACKEND_INTERNAL_URL ?? 'http://backend:8000';
+  const backendBase =
+    process.env.BACKEND_INTERNAL_URL ??
+    process.env.NEXT_PUBLIC_BACKEND_URL ??
+    'http://localhost:8000';
   const body = await req.text();
 
   const resp = await fetch(`${backendBase}/pareto`, {

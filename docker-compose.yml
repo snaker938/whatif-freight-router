@@ -36,6 +36,10 @@ services:
     depends_on:
       osrm:
         condition: service_started
+    environment:
+      # Ensure internal curl checks never go via a corporate proxy.
+      NO_PROXY: osrm,localhost,127.0.0.1
+      no_proxy: osrm,localhost,127.0.0.1
     command: >
       sh -c 'echo "Waiting for OSRM on :5000..."; until curl -sS http://osrm:5000/ >/dev/null; do sleep 2; done; echo "OSRM is up."'
 
@@ -47,6 +51,9 @@ services:
       OSRM_BASE_URL: http://osrm:5000
       OUT_DIR: /app/out
       LOG_LEVEL: INFO
+      # Ensure backend -> OSRM calls never go via a corporate proxy.
+      NO_PROXY: osrm,localhost,127.0.0.1
+      no_proxy: osrm,localhost,127.0.0.1
       # CORS_ALLOW_ORIGINS: '["http://localhost:3000"]'
     volumes:
       - ./backend/out:/app/out

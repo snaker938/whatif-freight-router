@@ -3,44 +3,45 @@ from __future__ import annotations
 from .vehicles import VehicleProfile
 
 
-def speed_factor(speed_kmh: float, *, eco_speed_kmh: float = 60.0) -> float:
-    """Speed adjustment factor (starter placeholder, tuned for visible trade-offs).
+def speed_factor(speed_kmh: float, *, eco_speed_kmh: float = 55.0) -> float:
+    """Speed adjustment factor used for emissions (and optionally cost).
 
-    The earlier v0 version was mostly monotonic (slower => worse), which often caused
-    a *single* route to dominate all OSRM alternatives, making the Pareto plot and
-    sliders feel "broken".
+    Design goal (demo / UI):
+      - avoid a single route dominating every alternative (which collapses the Pareto set to 1)
+      - create visible *trade-offs* between time, money and CO₂
 
-    This v0.2 tweak uses a simple *U‑shaped* relationship:
-      - very low speeds: stop/start + idling => higher emissions per km
-      - moderate speeds (~eco_speed_kmh): best
-      - very high speeds: aerodynamic/rolling losses => higher emissions per km
+    This is a deliberately simple, placeholder curve:
 
-    It is still a placeholder (replace with a validated model later), but it produces
-    more realistic multi-objective tension for the UI.
+      - below eco speed: only a mild penalty (stop/start is better handled by idle emissions)
+      - above eco speed: stronger penalty (aerodynamic/rolling losses grow quickly)
+      - very high speeds: an extra motorway+ surcharge
+
+    It is not a validated emissions model, but it produces better multi-objective
+    behaviour for the app.
     """
-
     if speed_kmh <= 0:
         return 1.0
 
     s = float(speed_kmh)
     eco = max(10.0, float(eco_speed_kmh))
 
-    # Quadratic penalty away from eco speed.
-    x = (s - eco) / eco
-    factor = 1.0 + 0.85 * (x * x)
+    if s <= eco:
+        # Mild penalty when crawling; near-zero speeds are handled by idle emissions.
+        x = (eco - s) / eco
+        factor = 1.0 + 0.18 * (x * x)
+    else:
+        # Stronger penalty above eco speed.
+        x = (s - eco) / eco
+        factor = 1.0 + 1.25 * (x * x)
 
-    # Extra stop/start penalty at very low speeds (urban traffic).
-    if s < 20:
-        factor += 0.18
-    if s < 10:
-        factor += 0.22
-
-    # Slight extra penalty at motorway+ speeds.
+    # Extra motorway+ surcharge
     if s > 90:
-        factor += 0.12
+        factor += 0.30
+    if s > 110:
+        factor += 0.20
 
     # Keep a sane range for a demo.
-    return min(max(factor, 1.0), 2.75)
+    return min(max(factor, 1.0), 3.25)
 
 
 def route_emissions_kg(
@@ -52,9 +53,9 @@ def route_emissions_kg(
 ) -> float:
     """Compute total route emissions (kg CO2e) from OSRM segment annotations.
 
-    This is a deliberately simple placeholder model:
+    Placeholder model:
       - moving emissions = mass_tonnes * distance_km * EF(kg/t-km) * speed_factor
-      - optional idle/queue emissions when speed is very low
+      - optional idle/queuing emissions when speed is very low
     """
     if len(segment_distances_m) != len(segment_durations_s):
         raise ValueError("segment arrays must be same length")

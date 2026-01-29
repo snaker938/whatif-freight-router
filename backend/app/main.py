@@ -18,6 +18,7 @@ from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
+    GeoJSONLineString,
     LatLng,
     ParetoRequest,
     ParetoResponse,
@@ -27,7 +28,7 @@ from .models import (
     RouteResponse,
     VehicleListResponse,
 )
-from .objectives_emissions import route_emissions_kg
+from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
 from .pareto import pareto_filter
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
@@ -78,19 +79,35 @@ async def health() -> dict[str, str]:
 
 @app.get("/vehicles", response_model=VehicleListResponse)
 async def list_vehicles() -> VehicleListResponse:
-    # With models.py importing VehicleProfile from vehicles.py, Pylance stops complaining.
     return VehicleListResponse(vehicles=list(VEHICLES.values()))
 
 
-def _validate_osrm_geometry(geometry: Any) -> dict[str, Any]:
-    if not isinstance(geometry, dict):
-        raise HTTPException(status_code=502, detail="OSRM returned invalid geometry object")
-    if geometry.get("type") != "LineString":
-        raise HTTPException(status_code=502, detail="OSRM returned non-LineString geometry")
-    coords = geometry.get("coordinates")
-    if not isinstance(coords, list) or not coords:
-        raise HTTPException(status_code=502, detail="OSRM returned empty geometry coordinates")
-    return geometry
+def _validate_osrm_geometry(route: dict[str, Any]) -> list[tuple[float, float]]:
+    geom = route.get("geometry")
+    if not isinstance(geom, dict):
+        raise OSRMError("OSRM route missing geometry")
+
+    coords = geom.get("coordinates")
+    if not isinstance(coords, list) or len(coords) < 2:
+        raise OSRMError("OSRM geometry missing coordinates")
+
+    out: list[tuple[float, float]] = []
+    for pt in coords:
+        if (
+            isinstance(pt, (list, tuple))
+            and len(pt) == 2
+            and isinstance(pt[0], (int, float))
+            and isinstance(pt[1], (int, float))
+        ):
+            out.append((float(pt[0]), float(pt[1])))
+    if len(out) < 2:
+        raise OSRMError("OSRM geometry invalid")
+    return out
+
+
+# Monetary cost model: weight the time-based component so "£" doesn't perfectly track "time".
+# If cost is dominated by time, one route often dominates and the Pareto set collapses to 1.
+DRIVER_TIME_COST_WEIGHT: float = 0.35
 
 
 def build_option(
@@ -102,12 +119,19 @@ def build_option(
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
 
+    coords = _validate_osrm_geometry(route)
     seg_d_m, seg_t_s = extract_segment_annotations(route)
 
-    distance_m = float(route.get("distance", 0.0) or 0.0)
-    base_duration_s = float(route.get("duration", 0.0) or 0.0)
+    distance_m = float(route.get("distance", 0.0))
+    duration_s = float(route.get("duration", 0.0))
+
+    if distance_m <= 0 or duration_s <= 0:
+        # If OSRM omits these top-level fields, compute them from segments.
+        distance_m = sum(seg_d_m)
+        duration_s = sum(seg_t_s)
 
     distance_km = distance_m / 1000.0
+    base_duration_s = duration_s
     base_duration_h = base_duration_s / 3600.0
 
     base_emissions = route_emissions_kg(
@@ -116,100 +140,79 @@ def build_option(
         segment_durations_s=seg_t_s,
     )
 
-    base_monetary = (distance_km * vehicle.cost_per_km) + (base_duration_h * vehicle.cost_per_hour)
+    fuel_cost = 0.0
+    for d_m, t_s in zip(seg_d_m, seg_t_s, strict=True):
+        d_m = max(float(d_m), 0.0)
+        t_s = max(float(t_s), 0.0)
 
-    duration_s = apply_scenario_duration(base_duration_s, scenario_mode)
-    extra_time_s = max(0.0, duration_s - base_duration_s)
+        d_km = d_m / 1000.0
+        speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else 0.0
 
-    emissions = base_emissions + (extra_time_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
-    monetary = base_monetary + (extra_time_s / 3600.0) * vehicle.cost_per_hour
+        # Approximate fuel / wear cost as distance * speed_factor(speed).
+        # This helps create time-vs-cost trade-offs so the UI can show multiple routes.
+        fuel_cost += d_km * vehicle.cost_per_km * speed_factor(speed_kmh)
 
-    duration_h = duration_s / 3600.0
-    avg_speed_kmh = (distance_km / duration_h) if duration_h > 0 else 0.0
+    base_monetary = fuel_cost + (base_duration_h * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT)
 
-    geometry = _validate_osrm_geometry(route.get("geometry"))
+    duration_s = apply_scenario_duration(base_duration_s, mode=scenario_mode)
+    extra_time_s = max(duration_s - base_duration_s, 0.0)
 
-    metrics = RouteMetrics(
-        distance_km=distance_km,
-        duration_s=duration_s,
-        monetary_cost=monetary,
-        emissions_kg=emissions,
-        avg_speed_kmh=avg_speed_kmh,
+    # Scenario also adds idle emissions and driver time cost for extra delay.
+    monetary = (
+        base_monetary + (extra_time_s / 3600.0) * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT
     )
+    emissions = base_emissions + (extra_time_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
 
-    try:
-        return RouteOption(id=option_id, geometry=geometry, metrics=metrics)  # type: ignore[arg-type]
-    except Exception as e:  # pragma: no cover
-        raise HTTPException(status_code=502, detail=f"Invalid route output from OSRM: {e}") from e
+    avg_speed_kmh = distance_km / (duration_s / 3600.0) if duration_s > 0 else 0.0
+
+    return RouteOption(
+        id=option_id,
+        geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+        metrics=RouteMetrics(
+            distance_km=round(distance_km, 3),
+            duration_s=round(duration_s, 2),
+            monetary_cost=round(monetary, 2),
+            emissions_kg=round(emissions, 3),
+            avg_speed_kmh=round(avg_speed_kmh, 2),
+        ),
+    )
 
 
 def _route_signature(route: dict[str, Any]) -> str:
-    """Create a stable-ish hash to dedupe near-identical routes."""
-    geom = route.get("geometry", {})
-    coords = (geom or {}).get("coordinates", [])
-    if not isinstance(coords, list) or not coords:
-        raw = repr((route.get("distance"), route.get("duration")))
-        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
+    coords = _validate_osrm_geometry(route)
     n = len(coords)
     step = max(1, n // 30)
     sample = coords[::step][:40]
 
-    parts: list[str] = []
-    for pt in sample:
-        if not isinstance(pt, (list, tuple)) or len(pt) < 2:
-            continue
-        try:
-            lon = float(pt[0])
-            lat = float(pt[1])
-        except Exception:
-            continue
-        parts.append(f"{lon:.4f},{lat:.4f}")
-
-    raw = "|".join(parts) + f"|n={n}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
-
-def _midpoint(
-    origin: LatLng, destination: LatLng, base_route: dict[str, Any] | None
-) -> tuple[float, float]:
-    """Return (lat, lon) midpoint using the base route geometry if available."""
-    try:
-        if base_route:
-            geom = base_route.get("geometry", {})
-            coords = (geom or {}).get("coordinates", [])
-            if isinstance(coords, list) and coords:
-                mid = coords[len(coords) // 2]
-                if isinstance(mid, (list, tuple)) and len(mid) >= 2:
-                    lon = float(mid[0])
-                    lat = float(mid[1])
-                    return lat, lon
-    except Exception:
-        pass
-
-    return (origin.lat + destination.lat) / 2.0, (origin.lon + destination.lon) / 2.0
+    # round for stability; avoid huge hash variability
+    parts = [f"{lon:.4f},{lat:.4f}" for lon, lat in sample]
+    s = "|".join(parts)
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
 
 def _candidate_via_points(
-    origin: LatLng, destination: LatLng, base_route: dict[str, Any] | None
+    origin: LatLng, destination: LatLng, *, base_route: dict[str, Any] | None
 ) -> list[tuple[float, float]]:
-    """Generate a few via points to force alternative paths (lat, lon)."""
-    mid_lat, mid_lon = _midpoint(origin, destination, base_route)
+    """Generate a few via points around the midpoint to force detours.
+
+    This is a heuristic. If via falls off the network, OSRM may fail that candidate.
+    """
+    # Midpoint in lat/lon
+    mid_lat = (origin.lat + destination.lat) / 2.0
+    mid_lon = (origin.lon + destination.lon) / 2.0
+
+    # Choose a modest offset based on span
     span = max(abs(destination.lat - origin.lat), abs(destination.lon - origin.lon))
     offset = max(0.08, min(span * 0.18, 0.6))
 
-    def clamp_lat(x: float) -> float:
-        return max(-89.9, min(89.9, x))
-
-    def clamp_lon(x: float) -> float:
-        return max(-179.9, min(179.9, x))
-
-    return [
-        (clamp_lat(mid_lat + offset), clamp_lon(mid_lon)),
-        (clamp_lat(mid_lat - offset), clamp_lon(mid_lon)),
-        (clamp_lat(mid_lat), clamp_lon(mid_lon + offset)),
-        (clamp_lat(mid_lat), clamp_lon(mid_lon - offset)),
+    candidates = [
+        (mid_lat + offset, mid_lon),
+        (mid_lat - offset, mid_lon),
+        (mid_lat, mid_lon + offset),
+        (mid_lat, mid_lon - offset),
     ]
+
+    return candidates
 
 
 async def _collect_candidate_routes(
@@ -219,16 +222,10 @@ async def _collect_candidate_routes(
     destination: LatLng,
     max_routes: int,
 ) -> list[dict[str, Any]]:
-    """Get a small, diverse set of candidate routes.
-
-    OSRM `alternatives=true` often returns only 1 route. To keep the sliders/plot useful,
-    we also try:
-      - excludable-class variants (motorway/toll/ferry/trunk), if supported
-      - 1-via-point detours around the midpoint
-    """
     max_routes = max(1, min(max_routes, 5))
 
-    base = await osrm.fetch_routes(
+    # Start by asking OSRM for alternatives.
+    raw = await osrm.fetch_routes(
         origin_lat=origin.lat,
         origin_lon=origin.lon,
         dest_lat=destination.lat,
@@ -236,8 +233,9 @@ async def _collect_candidate_routes(
         alternatives=max_routes,
     )
 
-    raw: list[dict[str, Any]] = list(base)
-
+    # If OSRM doesn't give many alternatives, try a few forced variants:
+    # - exclude certain classes (if supported)
+    # - via points around midpoint
     tasks: list[Awaitable[list[dict[str, Any]]]] = []
     if len(raw) < max_routes:
         for ex in ["motorway", "trunk", "toll", "ferry"]:
@@ -318,11 +316,36 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
     pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
 
     if len(pareto_sorted) < 2 and len(options) > 1:
-        by_time = min(options, key=lambda o: o.metrics.duration_s)
-        by_cost = min(options, key=lambda o: o.metrics.monetary_cost)
-        by_co2 = min(options, key=lambda o: o.metrics.emissions_kg)
-        unique_extremes = {r.id: r for r in (by_time, by_cost, by_co2)}
-        pareto_sorted = sorted(unique_extremes.values(), key=lambda o: o.metrics.duration_s)
+        # In practice, cost and emissions can be correlated with time, so one candidate
+        # can dominate and the Pareto set collapses to a single route. That makes the UI
+        # feel "broken" (sliders can't change anything), so return a small diverse
+        # subset as a fallback.
+        desired = min(len(options), max(2, min(req.max_alternatives, 4)))
+
+        ranked_time = sorted(options, key=lambda o: o.metrics.duration_s)
+        ranked_cost = sorted(options, key=lambda o: o.metrics.monetary_cost)
+        ranked_co2 = sorted(options, key=lambda o: o.metrics.emissions_kg)
+
+        chosen: dict[str, RouteOption] = {}
+
+        def pick_first(ranked: list[RouteOption]) -> None:
+            for r in ranked:
+                if r.id not in chosen:
+                    chosen[r.id] = r
+                    return
+
+        # Always include extremes where possible.
+        for ranked in (ranked_time, ranked_cost, ranked_co2):
+            pick_first(ranked)
+
+        # Fill remaining slots with next-fastest distinct routes.
+        for r in ranked_time:
+            if len(chosen) >= desired:
+                break
+            if r.id not in chosen:
+                chosen[r.id] = r
+
+        pareto_sorted = sorted(chosen.values(), key=lambda o: o.metrics.duration_s)
 
     log_event(
         "pareto_request",
