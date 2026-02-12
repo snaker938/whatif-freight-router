@@ -91,6 +91,17 @@ Use this for full containerized verification. Do not run this at the same time a
   - recreates those folders with `.gitkeep`
   - use when forcing a fully clean rebuild or recovering from suspected cache corruption
 
+## Documentation
+
+- `docs/sample-manifest.md`
+  - sample batch request/response payloads and manifest retrieval flow
+- `docs/dissertation-math-overview.md`
+  - concise report-ready overview of Pareto, scoring, and objective formulas
+- `docs/math-appendix.md`
+  - expanded notation, derivations, complexity, and assumptions
+- `docs/appendix-graph-theory-notes.md`
+  - graph-theory framing of current candidate-based approach and future MOSP direction
+
 ## Troubleshooting
 
 - `dev.ps1` stuck on "Waiting for OSRM...":

@@ -1,0 +1,17 @@
+{
+  "pairs": [
+    {
+      "origin": {
+        "lat": 52.4862,
+        "lon": -1.8904
+      },
+      "destination": {
+        "lat": 51.5072,
+        "lon": -0.1276
+      }
+    }
+  ],
+  "vehicle_type": "rigid_hgv",
+  "scenario_mode": "no_sharing",
+  "max_alternatives": 5
+}

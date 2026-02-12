@@ -1,0 +1,41 @@
+{
+  "run_id": "<uuid>",
+  "results": [
+    {
+      "origin": {
+        "lat": 52.4862,
+        "lon": -1.8904
+      },
+      "destination": {
+        "lat": 51.5072,
+        "lon": -0.1276
+      },
+      "routes": [
+        {
+          "id": "pair0_route0",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [
+                -1.8904,
+                52.4862
+              ],
+              [
+                -0.1276,
+                51.5072
+              ]
+            ]
+          },
+          "metrics": {
+            "distance_km": 190.321,
+            "duration_s": 11520.44,
+            "monetary_cost": 171.84,
+            "emissions_kg": 242.602,
+            "avg_speed_kmh": 59.48
+          }
+        }
+      ],
+      "error": null
+    }
+  ]
+}
