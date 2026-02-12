@@ -41,6 +41,7 @@ ARTIFACT_FILES: tuple[str, ...] = (
     "metadata.json",
     "routes.geojson",
     "results_summary.csv",
+    "report.pdf",
 )
 
 CSV_COLUMNS: tuple[str, ...] = (

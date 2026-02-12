@@ -73,6 +73,7 @@ from .objectives_selection import normalise_weights
 from .pareto_methods import select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .rbac import require_role
+from .reporting import write_report_pdf
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import (
@@ -2483,31 +2484,40 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
             manifest_payload,
         )
 
+        results_payload = {
+            "run_id": run_id,
+            "results": [r.model_dump(mode="json") for r in results],
+        }
+        metadata_payload = {
+            "run_id": run_id,
+            "schema_version": "1.0.0",
+            "manifest_endpoint": f"/runs/{run_id}/manifest",
+            "artifacts_endpoint": f"/runs/{run_id}/artifacts",
+            "provenance_endpoint": f"/runs/{run_id}/provenance",
+            "provenance_file": str(provenance_file),
+            "artifact_names": sorted(artifact_paths_for_run(run_id)),
+            "pair_count": len(req.pairs),
+            "error_count": error_count,
+            "duration_ms": duration_ms,
+            "fallback_used": fallback_count > 0,
+            "fallback_count": fallback_count,
+            "terrain_profile": req.terrain_profile,
+        }
+
         artifact_paths = write_run_artifacts(
             run_id,
-            results_payload={
-                "run_id": run_id,
-                "results": [r.model_dump(mode="json") for r in results],
-            },
-            metadata_payload={
-                "run_id": run_id,
-                "schema_version": "1.0.0",
-                "manifest_endpoint": f"/runs/{run_id}/manifest",
-                "artifacts_endpoint": f"/runs/{run_id}/artifacts",
-                "provenance_endpoint": f"/runs/{run_id}/provenance",
-                "provenance_file": str(provenance_file),
-                "artifact_names": sorted(artifact_paths_for_run(run_id)),
-                "pair_count": len(req.pairs),
-                "error_count": error_count,
-                "duration_ms": duration_ms,
-                "fallback_used": fallback_count > 0,
-                "fallback_count": fallback_count,
-                "terrain_profile": req.terrain_profile,
-            },
+            results_payload=results_payload,
+            metadata_payload=metadata_payload,
             csv_rows=_batch_results_csv_rows(req, results),
         )
         extra_artifacts = _write_batch_additional_exports(run_id, results)
-        artifact_names = [name for name in sorted(list(artifact_paths) + extra_artifacts)]
+        report_path = write_report_pdf(
+            run_id,
+            manifest=json.loads(manifest_path.read_text(encoding="utf-8")),
+            metadata=metadata_payload,
+            results=results_payload,
+        )
+        artifact_names = [name for name in sorted(list(artifact_paths) + extra_artifacts + [report_path.name])]
         provenance_events.append(
             provenance_event(
                 run_id,
@@ -2807,6 +2817,8 @@ async def _get_artifact_file(run_id: str, artifact_name: str) -> FileResponse:
             media_type = "application/geo+json"
         elif artifact_name.endswith(".csv"):
             media_type = "text/csv"
+        elif artifact_name.endswith(".pdf"):
+            media_type = "application/pdf"
 
         log_event(
             "run_artifact_get",
@@ -2848,3 +2860,8 @@ async def get_artifact_routes_geojson(run_id: str) -> FileResponse:
 @app.get("/runs/{run_id}/artifacts/results_summary.csv")
 async def get_artifact_results_summary_csv(run_id: str) -> FileResponse:
     return await _get_artifact_file(run_id, "results_summary.csv")
+
+
+@app.get("/runs/{run_id}/artifacts/report.pdf")
+async def get_artifact_report_pdf(run_id: str) -> FileResponse:
+    return await _get_artifact_file(run_id, "report.pdf")

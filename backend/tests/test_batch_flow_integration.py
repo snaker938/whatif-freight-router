@@ -110,6 +110,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
                 "metadata.json",
                 "routes.geojson",
                 "results_summary.csv",
+                "report.pdf",
             }
 
             results_json_resp = client.get(f"/runs/{run_id}/artifacts/results.json")
@@ -131,6 +132,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metadata["provenance_endpoint"] == f"/runs/{run_id}/provenance"
             assert metadata["artifact_names"] == [
                 "metadata.json",
+                "report.pdf",
                 "results.csv",
                 "results.json",
                 "results_summary.csv",
@@ -161,6 +163,11 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert summary_resp.status_code == 200
             assert "pair_index,origin_lat,origin_lon" in summary_resp.text
 
+            report_resp = client.get(f"/runs/{run_id}/artifacts/report.pdf")
+            assert report_resp.status_code == 200
+            assert report_resp.headers["content-type"].startswith("application/pdf")
+            assert report_resp.content.startswith(b"%PDF")
+
             metrics_resp = client.get("/metrics")
             assert metrics_resp.status_code == 200
             metrics = metrics_resp.json()
@@ -168,7 +175,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metrics["endpoints"]["runs_manifest_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_artifacts_list_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_provenance_get"]["request_count"] == 1
-            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 5
+            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 6
 
     finally:
         app.dependency_overrides.clear()

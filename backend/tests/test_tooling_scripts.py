@@ -8,6 +8,8 @@ from scripts.benchmark_batch_pareto import build_parser as benchmark_parser
 from scripts.benchmark_batch_pareto import run_benchmark
 from scripts.check_eta_concept_drift import build_parser as drift_parser
 from scripts.check_eta_concept_drift import compute_drift_metrics, run_drift_check
+from scripts.generate_run_report import build_parser as report_parser
+from scripts.generate_run_report import run_generate_report
 from scripts.run_headless_scenario import execute_headless_run, load_payload_from_csv
 from scripts.run_robustness_analysis import build_parser as robustness_parser
 from scripts.run_robustness_analysis import run_robustness
@@ -217,3 +219,40 @@ def test_compute_drift_metrics_empty_rows() -> None:
         assert True
     else:
         assert False
+
+
+def test_generate_run_report_script_writes_pdf(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    run_id = "11111111-1111-1111-1111-111111111111"
+    manifest_dir = out_dir / "manifests"
+    artifact_dir = out_dir / "artifacts" / run_id
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    (manifest_dir / f"{run_id}.json").write_text(
+        '{"run_id":"11111111-1111-1111-1111-111111111111","created_at":"2026-02-12T00:00:00Z","request":{"vehicle_type":"rigid_hgv","scenario_mode":"no_sharing"},"execution":{"pair_count":1},"signature":{"algorithm":"HMAC-SHA256","signature":"abc"}}',
+        encoding="utf-8",
+    )
+    (artifact_dir / "results.json").write_text(
+        '{"run_id":"11111111-1111-1111-1111-111111111111","results":[{"routes":[{"id":"r0","metrics":{"duration_s":3600,"monetary_cost":120,"emissions_kg":85}}]}]}',
+        encoding="utf-8",
+    )
+    (artifact_dir / "metadata.json").write_text(
+        '{"run_id":"11111111-1111-1111-1111-111111111111","manifest_endpoint":"/runs/11111111-1111-1111-1111-111111111111/manifest","artifacts_endpoint":"/runs/11111111-1111-1111-1111-111111111111/artifacts","pair_count":1}',
+        encoding="utf-8",
+    )
+
+    args = report_parser().parse_args(
+        [
+            "--run-id",
+            run_id,
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+    payload = run_generate_report(args)
+    report_path = Path(payload["report_pdf"])
+
+    assert payload["run_id"] == run_id
+    assert report_path.exists()
+    assert report_path.read_bytes().startswith(b"%PDF")
