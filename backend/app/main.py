@@ -21,6 +21,7 @@ from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
+    CostToggles,
     GeoJSONLineString,
     LatLng,
     ParetoRequest,
@@ -184,6 +185,7 @@ def build_option(
     option_id: str,
     vehicle_type: str,
     scenario_mode: ScenarioMode,
+    cost_toggles: CostToggles,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
 
@@ -220,7 +222,15 @@ def build_option(
         # This helps create time-vs-cost trade-offs so the UI can show multiple routes.
         fuel_cost += d_km * vehicle.cost_per_km * speed_factor(speed_kmh)
 
+    fuel_cost *= max(cost_toggles.fuel_price_multiplier, 0.0)
+
+    contains_toll = bool(route.get("contains_toll", False))
+    toll_component = (
+        distance_km * cost_toggles.toll_cost_per_km if cost_toggles.use_tolls and contains_toll else 0.0
+    )
+
     base_monetary = fuel_cost + (base_duration_h * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT)
+    base_monetary += toll_component
 
     duration_s = apply_scenario_duration(base_duration_s, mode=scenario_mode)
     extra_time_s = max(duration_s - base_duration_s, 0.0)
@@ -230,6 +240,7 @@ def build_option(
         base_monetary + (extra_time_s / 3600.0) * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT
     )
     emissions = base_emissions + (extra_time_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
+    monetary += emissions * max(cost_toggles.carbon_price_per_kg, 0.0)
 
     avg_speed_kmh = distance_km / (duration_s / 3600.0) if duration_s > 0 else 0.0
 
@@ -405,6 +416,7 @@ def _build_options(
     *,
     vehicle_type: str,
     scenario_mode: ScenarioMode,
+    cost_toggles: CostToggles,
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str]]:
     options: list[RouteOption] = []
@@ -419,6 +431,7 @@ def _build_options(
                     option_id=option_id,
                     vehicle_type=vehicle_type,
                     scenario_mode=scenario_mode,
+                    cost_toggles=cost_toggles,
                 )
             )
         except (OSRMError, ValueError) as e:
@@ -531,6 +544,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             routes,
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode,
+            cost_toggles=req.cost_toggles,
             option_prefix="route",
         )
         warnings.extend(build_warnings)
@@ -548,6 +562,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             request_id=request_id,
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
+            cost_toggles=req.cost_toggles.model_dump(),
             origin=req.origin.model_dump(),
             destination=req.destination.model_dump(),
             candidate_fetches=candidate_fetches,
@@ -637,6 +652,7 @@ async def compute_pareto_stream(
                             option_id=option_id,
                             vehicle_type=req.vehicle_type,
                             scenario_mode=req.scenario_mode,
+                            cost_toggles=req.cost_toggles,
                         )
                     except (OSRMError, ValueError) as e:
                         warnings.append(f"{option_id}: {e}")
@@ -659,6 +675,7 @@ async def compute_pareto_stream(
                 ranked_routes,
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode,
+                cost_toggles=req.cost_toggles,
                 option_prefix="route",
             )
             warnings.extend(build_warnings)
@@ -669,6 +686,7 @@ async def compute_pareto_stream(
                 request_id=request_id,
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode.value,
+                cost_toggles=req.cost_toggles.model_dump(),
                 origin=req.origin.model_dump(),
                 destination=req.destination.model_dump(),
                 candidate_fetches=len(specs),
@@ -732,6 +750,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             routes,
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode,
+            cost_toggles=req.cost_toggles,
             option_prefix="route",
         )
         warnings.extend(build_warnings)
@@ -755,6 +774,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
             weights=req.weights.model_dump(),
+            cost_toggles=req.cost_toggles.model_dump(),
             origin=req.origin.model_dump(),
             destination=req.destination.model_dump(),
             candidate_fetches=candidate_fetches,
@@ -848,6 +868,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                             option_id=f"pair{pair_idx}_route{i}",
                             vehicle_type=req.vehicle_type,
                             scenario_mode=req.scenario_mode,
+                            cost_toggles=req.cost_toggles,
                         )
                         for i, r in enumerate(routes)
                     ]
@@ -895,6 +916,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "pair_count": len(req.pairs),
                 "max_alternatives": req.max_alternatives,
                 "batch_concurrency": settings.batch_concurrency,
+                "cost_toggles": req.cost_toggles.model_dump(),
                 "duration_ms": duration_ms,
                 "error_count": error_count,
             },
@@ -929,6 +951,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             pair_count=len(req.pairs),
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
+            cost_toggles=req.cost_toggles.model_dump(),
             duration_ms=duration_ms,
             error_count=error_count,
             manifest=str(manifest_path),

@@ -28,6 +28,15 @@ class Weights(BaseModel):
         return v
 
 
+class CostToggles(BaseModel):
+    """Optional cost-model controls with neutral defaults."""
+
+    use_tolls: bool = True
+    fuel_price_multiplier: float = Field(default=1.0, ge=0.0)
+    carbon_price_per_kg: float = Field(default=0.0, ge=0.0)
+    toll_cost_per_km: float = Field(default=0.0, ge=0.0)
+
+
 class GeoJSONLineString(BaseModel):
     type: Literal["LineString"]
     coordinates: list[tuple[float, float]]  # [lon, lat]
@@ -39,6 +48,7 @@ class RouteRequest(BaseModel):
     vehicle_type: str = Field(default="rigid_hgv")
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
 
 
 class ParetoRequest(BaseModel):
@@ -49,6 +59,7 @@ class ParetoRequest(BaseModel):
     # v0 default bumped to 5 so the UI more often has multiple routes to compare.
     # (OSRM will still cap the number of alternatives it can produce.)
     max_alternatives: int = Field(default=5, ge=1, le=5)
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
 
 
 class ODPair(BaseModel):
@@ -61,6 +72,7 @@ class BatchParetoRequest(BaseModel):
     vehicle_type: str = Field(default="rigid_hgv")
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     max_alternatives: int = Field(default=5, ge=1, le=5)
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None

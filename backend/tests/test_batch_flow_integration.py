@@ -71,6 +71,12 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
                 "vehicle_type": "rigid_hgv",
                 "scenario_mode": "no_sharing",
                 "max_alternatives": 3,
+                "cost_toggles": {
+                    "use_tolls": True,
+                    "fuel_price_multiplier": 1.2,
+                    "carbon_price_per_kg": 0.1,
+                    "toll_cost_per_km": 0.4,
+                },
                 "seed": 42,
                 "toggles": {"weather_enabled": False, "incidents_enabled": False},
                 "model_version": "demo-model-v1",
@@ -91,6 +97,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert manifest["reproducibility"]["toggles"]["weather_enabled"] is False
             assert manifest["model_metadata"]["model_version"] == "demo-model-v1"
             assert manifest["execution"]["pair_count"] == 2
+            assert manifest["execution"]["cost_toggles"]["carbon_price_per_kg"] == 0.1
 
             list_resp = client.get(f"/runs/{run_id}/artifacts")
             assert list_resp.status_code == 200
