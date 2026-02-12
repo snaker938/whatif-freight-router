@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 from pydantic import BaseModel, Field
+
+from .settings import settings
 
 
 class VehicleProfile(BaseModel):
@@ -54,7 +60,111 @@ VEHICLES: dict[str, VehicleProfile] = {
 }
 
 DEFAULT_VEHICLE_ID = "rigid_hgv"
+VEHICLE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,47}$")
+
+
+def _custom_vehicle_path() -> Path:
+    p = Path(settings.out_dir) / "config" / "vehicles.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def load_custom_vehicles() -> dict[str, VehicleProfile]:
+    path = _custom_vehicle_path()
+    if not path.exists():
+        return {}
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+    if not isinstance(raw, list):
+        return {}
+
+    out: dict[str, VehicleProfile] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            vehicle = VehicleProfile.model_validate(item)
+        except Exception:
+            continue
+        out[vehicle.id] = vehicle
+    return out
+
+
+def save_custom_vehicles(vehicles: dict[str, VehicleProfile]) -> Path:
+    path = _custom_vehicle_path()
+    payload = [vehicles[key].model_dump(mode="json") for key in sorted(vehicles)]
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def all_vehicles() -> dict[str, VehicleProfile]:
+    merged = dict(VEHICLES)
+    merged.update(load_custom_vehicles())
+    return merged
+
+
+def list_custom_vehicles() -> list[VehicleProfile]:
+    custom = load_custom_vehicles()
+    return [custom[key] for key in sorted(custom)]
+
+
+def _validate_custom_vehicle_id(vehicle_id: str) -> str:
+    vid = vehicle_id.strip()
+    if not VEHICLE_ID_RE.match(vid):
+        raise ValueError("vehicle id must match ^[a-z][a-z0-9_-]{1,47}$")
+    return vid
+
+
+def create_custom_vehicle(vehicle: VehicleProfile) -> tuple[VehicleProfile, Path]:
+    vid = _validate_custom_vehicle_id(vehicle.id)
+    if vid in VEHICLES:
+        raise ValueError("vehicle id collides with built-in profile")
+
+    custom = load_custom_vehicles()
+    if vid in custom:
+        raise ValueError("vehicle id already exists")
+
+    created = vehicle.model_copy(update={"id": vid})
+    custom[vid] = created
+    path = save_custom_vehicles(custom)
+    return created, path
+
+
+def update_custom_vehicle(vehicle_id: str, vehicle: VehicleProfile) -> tuple[VehicleProfile, Path]:
+    vid = _validate_custom_vehicle_id(vehicle_id)
+    if vid in VEHICLES:
+        raise ValueError("built-in vehicles cannot be updated")
+    if vehicle.id != vid:
+        raise ValueError("body id must match path id")
+
+    custom = load_custom_vehicles()
+    if vid not in custom:
+        raise KeyError("custom vehicle not found")
+
+    updated = vehicle.model_copy(update={"id": vid})
+    custom[vid] = updated
+    path = save_custom_vehicles(custom)
+    return updated, path
+
+
+def delete_custom_vehicle(vehicle_id: str) -> tuple[str, Path]:
+    vid = _validate_custom_vehicle_id(vehicle_id)
+    if vid in VEHICLES:
+        raise ValueError("built-in vehicles cannot be deleted")
+
+    custom = load_custom_vehicles()
+    if vid not in custom:
+        raise KeyError("custom vehicle not found")
+
+    custom.pop(vid, None)
+    path = save_custom_vehicles(custom)
+    return vid, path
 
 
 def get_vehicle(vehicle_type: str) -> VehicleProfile:
-    return VEHICLES.get(vehicle_type) or VEHICLES[DEFAULT_VEHICLE_ID]
+    merged = all_vehicles()
+    return merged.get(vehicle_type) or merged[DEFAULT_VEHICLE_ID]

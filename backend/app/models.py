@@ -105,6 +105,19 @@ class VehicleListResponse(BaseModel):
     vehicles: list[VehicleProfile]
 
 
+class CustomVehicleListResponse(BaseModel):
+    vehicles: list[VehicleProfile]
+
+
+class VehicleMutationResponse(BaseModel):
+    vehicle: VehicleProfile
+
+
+class VehicleDeleteResponse(BaseModel):
+    vehicle_id: str
+    deleted: bool
+
+
 class BatchParetoResult(BaseModel):
     origin: LatLng
     destination: LatLng

@@ -22,6 +22,7 @@ from .models import (
     BatchParetoResponse,
     BatchParetoResult,
     CostToggles,
+    CustomVehicleListResponse,
     GeoJSONLineString,
     LatLng,
     ParetoRequest,
@@ -30,7 +31,9 @@ from .models import (
     RouteOption,
     RouteRequest,
     RouteResponse,
+    VehicleDeleteResponse,
     VehicleListResponse,
+    VehicleMutationResponse,
 )
 from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
@@ -39,7 +42,15 @@ from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import ARTIFACT_FILES, artifact_paths_for_run, write_manifest, write_run_artifacts
 from .scenario import ScenarioMode, apply_scenario_duration
 from .settings import settings
-from .vehicles import VEHICLES, get_vehicle
+from .vehicles import (
+    VehicleProfile,
+    all_vehicles,
+    create_custom_vehicle,
+    delete_custom_vehicle,
+    get_vehicle,
+    list_custom_vehicles,
+    update_custom_vehicle,
+)
 
 
 @asynccontextmanager
@@ -83,7 +94,83 @@ async def health() -> dict[str, str]:
 
 @app.get("/vehicles", response_model=VehicleListResponse)
 async def list_vehicles() -> VehicleListResponse:
-    return VehicleListResponse(vehicles=list(VEHICLES.values()))
+    merged = all_vehicles()
+    return VehicleListResponse(vehicles=[merged[key] for key in sorted(merged)])
+
+
+@app.get("/vehicles/custom", response_model=CustomVehicleListResponse)
+async def list_custom_vehicle_profiles() -> CustomVehicleListResponse:
+    return CustomVehicleListResponse(vehicles=list_custom_vehicles())
+
+
+@app.post("/vehicles/custom", response_model=VehicleMutationResponse)
+async def create_vehicle_profile(vehicle: VehicleProfile) -> VehicleMutationResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        created, path = create_custom_vehicle(vehicle)
+        log_event("vehicle_custom_create", vehicle_id=created.id, path=str(path))
+        return VehicleMutationResponse(vehicle=created)
+    except ValueError as e:
+        has_error = True
+        msg = str(e)
+        status = 409 if "exists" in msg or "collides" in msg else 400
+        raise HTTPException(status_code=status, detail=msg) from e
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("vehicles_custom_post", t0, error=has_error)
+
+
+@app.put("/vehicles/custom/{vehicle_id}", response_model=VehicleMutationResponse)
+async def update_vehicle_profile(vehicle_id: str, vehicle: VehicleProfile) -> VehicleMutationResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        updated, path = update_custom_vehicle(vehicle_id, vehicle)
+        log_event("vehicle_custom_update", vehicle_id=updated.id, path=str(path))
+        return VehicleMutationResponse(vehicle=updated)
+    except KeyError as e:
+        has_error = True
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        has_error = True
+        msg = str(e)
+        status = 400
+        if "cannot be updated" in msg:
+            status = 403
+        raise HTTPException(status_code=status, detail=msg) from e
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("vehicles_custom_put", t0, error=has_error)
+
+
+@app.delete("/vehicles/custom/{vehicle_id}", response_model=VehicleDeleteResponse)
+async def delete_vehicle_profile(vehicle_id: str) -> VehicleDeleteResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        deleted_id, path = delete_custom_vehicle(vehicle_id)
+        log_event("vehicle_custom_delete", vehicle_id=deleted_id, path=str(path))
+        return VehicleDeleteResponse(vehicle_id=deleted_id, deleted=True)
+    except KeyError as e:
+        has_error = True
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        has_error = True
+        msg = str(e)
+        status = 400
+        if "cannot be deleted" in msg:
+            status = 403
+        raise HTTPException(status_code=status, detail=msg) from e
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("vehicles_custom_delete", t0, error=has_error)
 
 
 @app.get("/metrics")
