@@ -57,16 +57,24 @@ const MAP_HOT_RELOAD_KEY =
       })();
 
 function makePinIcon(kind: MarkerKind, selected: boolean) {
-  const label = kind === 'origin' ? 'S' : 'E';
+  const label = kind === 'origin' ? 'A' : 'B';
+  const assistive = kind === 'origin' ? 'Start marker' : 'Destination marker';
   const baseClass = kind === 'origin' ? 'pin-origin' : 'pin-destination';
   const selectedClass = selected ? 'pin--selected' : '';
 
   return L.divIcon({
     className: `pin ${baseClass} ${selectedClass}`.trim(),
-    html: `<div class="pin__inner">${label}</div>`,
-    iconSize: [34, 44],
-    iconAnchor: [17, 44],
-    popupAnchor: [0, -42],
+    html: [
+      '<span class="pin__halo" aria-hidden="true"></span>',
+      '<span class="pin__body">',
+      `<span class="pin__inner">${label}</span>`,
+      '</span>',
+      '<span class="pin__tail" aria-hidden="true"></span>',
+      `<span class="pin__sr">${assistive}</span>`,
+    ].join(''),
+    iconSize: [42, 58],
+    iconAnchor: [21, 56],
+    popupAnchor: [0, -48],
   });
 }
 

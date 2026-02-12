@@ -35,14 +35,28 @@ a {
   /* ---------- Layout ---------- */
 
   .app {
-    height: 100vh;
-    display: grid;
-    grid-template-columns: 1fr 420px;
+    height: 100dvh;
+    min-height: 100vh;
+    position: relative;
+    overflow: hidden;
   }
 
   .mapStage {
     position: relative;
     min-width: 0;
+    height: 100%;
+    isolation: isolate;
+  }
+
+  .sidebarToggle__icon {
+    color: rgba(233, 241, 255, 0.76);
+    width: 14px;
+    height: 14px;
+    transition: transform 200ms ease;
+  }
+
+  .sidebarToggle__icon.isCollapsed {
+    transform: scaleX(-1);
   }
 
   .mapPane {
@@ -54,12 +68,41 @@ a {
   }
 
   .panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 500;
+    width: 420px;
     height: 100%;
     border-left: 1px solid rgba(255, 255, 255, 0.09);
     background: rgba(7, 8, 18, 0.65);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     overflow: hidden;
+    box-shadow: -28px 0 70px rgba(0, 0, 0, 0.42);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    opacity: 1;
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 200ms ease,
+      visibility 0s linear 0s;
+  }
+
+  .panel.isCollapsed {
+    opacity: 0;
+    transform: translateX(calc(100% + 18px));
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform 220ms cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 180ms ease,
+      visibility 0s linear 220ms;
   }
 
   .panelHeader {
@@ -71,7 +114,14 @@ a {
   .panelHeader__top {
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .panelHeader__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .panelHeader h1 {
@@ -100,7 +150,8 @@ a {
   .panelBody {
     padding: 16px 18px 22px;
     overflow: auto;
-    height: calc(100% - 86px);
+    flex: 1;
+    min-height: 0;
   }
 
   .panelBody::-webkit-scrollbar {
@@ -141,6 +192,13 @@ a {
 
   label {
     display: block;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .fieldLabel {
     margin-top: 10px;
     margin-bottom: 6px;
     font-size: 12px;
@@ -342,9 +400,115 @@ a {
     color: rgba(255, 255, 255, 0.72);
   }
 
+  .sliderField {
+    margin-top: 12px;
+    padding: 10px 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .sliderField__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .sliderField__head label {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 12px;
+  }
+
+  .sliderField__value {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(6, 182, 212, 0.35);
+    background: rgba(6, 182, 212, 0.16);
+    color: rgba(214, 248, 255, 0.94);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .sliderField__desc {
+    margin: 6px 0 8px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
   input[type="range"] {
     width: 100%;
-    accent-color: var(--accentB);
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 24px;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      rgba(6, 182, 212, 0.45),
+      rgba(124, 58, 237, 0.45)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    background: linear-gradient(135deg, rgba(6, 182, 212, 1), rgba(124, 58, 237, 1));
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      rgba(6, 182, 212, 0.45),
+      rgba(124, 58, 237, 0.45)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    background: linear-gradient(135deg, rgba(6, 182, 212, 1), rgba(124, 58, 237, 1));
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+  }
+
+  input[type="range"]:focus-visible {
+    outline: none;
+  }
+
+  input[type="range"]:focus-visible::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 5px rgba(6, 182, 212, 0.2),
+      0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  input[type="range"]:focus-visible::-moz-range-thumb {
+    box-shadow:
+      0 0 0 5px rgba(6, 182, 212, 0.2),
+      0 8px 20px rgba(0, 0, 0, 0.35);
   }
 
   /* ---------- Buttons ---------- */
@@ -393,6 +557,12 @@ a {
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
   }
 
+  button:focus-visible {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.7);
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.2);
+  }
+
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
@@ -412,6 +582,58 @@ a {
 
   button.secondary {
     background: rgba(0, 0, 0, 0.22);
+  }
+
+  button.sidebarToggle {
+    position: absolute;
+    top: 14px;
+    right: calc(420px - 10px);
+    z-index: 520;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    pointer-events: auto;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 12, 20, 0.45);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0.45;
+    transition:
+      right 150ms ease,
+      opacity 150ms ease,
+      border-color 150ms ease,
+      background 150ms ease;
+  }
+
+  button.sidebarToggle.isCollapsed {
+    right: -6px;
+    opacity: 0.36;
+  }
+
+  button.sidebarToggle:hover {
+    transform: none;
+    right: calc(420px + 6px);
+    opacity: 0.95;
+    border-color: rgba(6, 182, 212, 0.45);
+    background: rgba(10, 12, 20, 0.72);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  }
+
+  button.sidebarToggle.isCollapsed:hover {
+    right: 5px;
+  }
+
+  button.sidebarToggle:focus-visible {
+    right: calc(420px + 6px);
+    opacity: 1;
+  }
+
+  button.sidebarToggle.isCollapsed:focus-visible {
+    right: 5px;
   }
 
   .ghostButton {
@@ -525,6 +747,56 @@ a {
     border-color: rgba(245, 158, 11, 0.34);
     background: rgba(245, 158, 11, 0.14);
     color: rgba(255, 226, 170, 0.95);
+  }
+
+  .warningPill.warningPill--button {
+    width: auto;
+    cursor: pointer;
+    box-shadow: none;
+  }
+
+  .warningPill.warningPill--button:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: rgba(245, 158, 11, 0.52);
+    background: rgba(245, 158, 11, 0.22);
+  }
+
+  .warningPill.warningPill--button.isOpen {
+    border-color: rgba(245, 158, 11, 0.58);
+    background: rgba(245, 158, 11, 0.24);
+  }
+
+  .warningPanel {
+    margin-top: 8px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .warningPanel__title {
+    font-size: 12px;
+    color: rgba(255, 231, 188, 0.95);
+    margin-bottom: 6px;
+  }
+
+  .warningPanel__hint {
+    font-size: 11px;
+    line-height: 1.3;
+    color: rgba(255, 233, 195, 0.78);
+    margin-bottom: 6px;
+  }
+
+  .warningPanel__list {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+    font-size: 11.5px;
+    line-height: 1.3;
+    color: rgba(255, 226, 170, 0.9);
   }
 
   .routeList {
@@ -1019,58 +1291,110 @@ a {
   /* ---------- Custom pins (Leaflet divIcon) ---------- */
 
   .pin {
+    --pinFill: linear-gradient(145deg, rgba(124, 58, 237, 1), rgba(96, 165, 250, 1));
     position: relative;
-    width: 34px;
-    height: 34px;
-    border-radius: 999px;
-
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    display: grid;
-    place-items: center;
-
-    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+    width: 42px;
+    height: 58px;
+    display: block;
+    filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.42));
   }
 
-  .pin::after {
-    content: "";
+  .pin__halo {
     position: absolute;
     left: 50%;
-    bottom: -10px;
-    transform: translateX(-50%) rotate(45deg);
+    top: 8px;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    transform: translateX(-50%);
+    background: currentColor;
+    opacity: 0.35;
+  }
 
-    width: 14px;
-    height: 14px;
-    background: inherit;
-
-    border-radius: 3px;
-    border-right: 1px solid rgba(255, 255, 255, 0.18);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  .pin__body {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 36px;
+    height: 36px;
+    transform: translateX(-50%);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    display: grid;
+    place-items: center;
+    background:
+      linear-gradient(140deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.05)),
+      var(--pinFill);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 14px 26px rgba(0, 0, 0, 0.35);
   }
 
   .pin__inner {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     border-radius: 999px;
-
     display: grid;
     place-items: center;
-
     font-family: var(--font-space), var(--font-inter), system-ui;
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 700;
     letter-spacing: -0.02em;
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(2, 6, 23, 0.58);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
 
-    color: rgba(255, 255, 255, 0.92);
+  .pin__tail {
+    position: absolute;
+    left: 50%;
+    top: 32px;
+    width: 12px;
+    height: 22px;
+    transform: translateX(-50%);
+    clip-path: polygon(50% 100%, 0 0, 100% 0);
+    border-radius: 2px;
+    background: var(--pinFill);
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    border-top: none;
+  }
 
-    background: rgba(0, 0, 0, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+  .pin__sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .pin-origin {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 1), rgba(6, 182, 212, 1));
+    color: rgba(124, 58, 237, 0.95);
+    --pinFill: linear-gradient(145deg, rgba(124, 58, 237, 1), rgba(96, 165, 250, 1));
   }
 
   .pin-destination {
-    background: linear-gradient(135deg, rgba(6, 182, 212, 1), rgba(124, 58, 237, 1));
+    color: rgba(6, 182, 212, 0.95);
+    --pinFill: linear-gradient(145deg, rgba(6, 182, 212, 1), rgba(14, 116, 144, 1));
+  }
+
+  .pin--selected .pin__halo {
+    opacity: 0.6;
+    animation: pinPulse 1.2s ease-out infinite;
+  }
+
+  @keyframes pinPulse {
+    0% {
+      transform: translateX(-50%) scale(0.86);
+      opacity: 0.62;
+    }
+    100% {
+      transform: translateX(-50%) scale(1.35);
+      opacity: 0;
+    }
   }
 
   /* ---------- Animated route ---------- */
@@ -1136,18 +1460,47 @@ a {
 
   @media (max-width: 900px) {
     .panel {
-      left: 16px;
-      right: 16px;
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      z-index: 470;
+      width: min(420px, calc(100vw - 24px));
+      height: min(78dvh, 760px);
+      max-height: calc(100dvh - 24px);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 18px;
+      box-shadow: 0 26px 80px rgba(0, 0, 0, 0.45);
+    }
 
-      width: auto;
+    .mapHUD {
+      left: 12px;
+      top: 12px;
+    }
 
-      top: auto;
-      bottom: 16px;
-      height: 54vh;
+    button.sidebarToggle {
+      top: 12px;
+      right: calc(min(420px, calc(100vw - 24px)) - 8px);
+    }
+
+    button.sidebarToggle.isCollapsed {
+      right: -6px;
+    }
+
+    button.sidebarToggle:hover {
+      right: calc(min(420px, calc(100vw - 24px)) + 4px);
+    }
+
+    button.sidebarToggle.isCollapsed:hover,
+    button.sidebarToggle.isCollapsed:focus-visible {
+      right: 4px;
+    }
+
+    button.sidebarToggle:focus-visible {
+      right: calc(min(420px, calc(100vw - 24px)) + 4px);
     }
 
     .mapHUD__hint {
-      max-width: calc(100vw - 32px);
+      max-width: calc(100vw - 24px);
     }
   }
 }

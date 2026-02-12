@@ -59,6 +59,20 @@ function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
   });
 }
 
+function dedupeWarnings(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const item of items) {
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+
+  return out;
+}
+
 function RoutesSkeleton() {
   return (
     <div className="routesSkeleton" aria-hidden="true">
@@ -75,10 +89,32 @@ function RoutesSkeleton() {
   );
 }
 
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`sidebarToggle__icon ${collapsed ? 'isCollapsed' : ''}`}
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.8" />
+      <path d="M14 5v14" />
+      <path d="M10.5 10l-2.5 2 2.5 2" />
+    </svg>
+  );
+}
+
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<MarkerKind | null>(null);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
 
   const [vehicles, setVehicles] = useState<VehicleProfile[]>([]);
   const [vehicleType, setVehicleType] = useState<string>('rigid_hgv');
@@ -96,6 +132,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [showWarnings, setShowWarnings] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -174,6 +211,8 @@ export default function Page() {
     setLoading(false);
     setProgress(null);
     setWarnings([]);
+    setShowWarnings(false);
+    setError(null);
     setParetoRoutes([]);
     setSelectedId(null);
 
@@ -201,10 +240,26 @@ export default function Page() {
   }, [vehicleType, scenarioMode, clearComputed]);
 
   useEffect(() => {
-    fetch('/api/vehicles')
-      .then((r) => r.json())
-      .then((j: VehicleListResponse) => setVehicles(j.vehicles ?? []))
-      .catch(() => {});
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const resp = await fetch('/api/vehicles', {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        if (!resp.ok) return;
+
+        const payload = (await resp.json()) as Partial<VehicleListResponse>;
+        setVehicles(Array.isArray(payload.vehicles) ? payload.vehicles : []);
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          console.error('Failed to load vehicles:', e);
+        }
+      }
+    })();
+
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -224,6 +279,12 @@ export default function Page() {
       });
     });
   }, [loading, startTransition]);
+
+  useEffect(() => {
+    if (warnings.length === 0) {
+      setShowWarnings(false);
+    }
+  }, [warnings.length]);
 
   const selectedRoute = useMemo(() => {
     if (!selectedId) return null;
@@ -257,6 +318,7 @@ export default function Page() {
     progress && progress.total > 0
       ? Math.max(0, Math.min(100, (progress.done / progress.total) * 100))
       : 0;
+  const normalisedWeights = useMemo(() => normaliseWeights(weights), [weights]);
 
   const hasNameOverrides = Object.keys(routeNames).length > 0;
 
@@ -382,6 +444,7 @@ export default function Page() {
     setError(null);
     setProgress(null);
     setWarnings([]);
+    setShowWarnings(false);
     setParetoRoutes([]);
     setSelectedId(null);
     setRouteNames({});
@@ -419,9 +482,7 @@ export default function Page() {
 
             case 'error': {
               setProgress({ done: event.done, total: event.total });
-              setWarnings((prev) =>
-                prev.includes(event.message) ? prev : [...prev, event.message],
-              );
+              setWarnings((prev) => dedupeWarnings([...prev, event.message]));
               return;
             }
 
@@ -440,8 +501,9 @@ export default function Page() {
               });
 
               setProgress({ done: event.done, total: event.total });
-              if (event.warnings?.length) {
-                setWarnings(event.warnings);
+              const doneWarnings = event.warnings ?? [];
+              if (doneWarnings.length) {
+                setWarnings((prev) => dedupeWarnings([...prev, ...doneWarnings]));
               }
               return;
             }
@@ -512,7 +574,7 @@ export default function Page() {
   })();
 
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
-  const warningTitle = warnings.slice(0, 8).join('\n');
+  const sidebarToggleLabel = isPanelCollapsed ? 'Extend sidebar' : 'Collapse sidebar';
 
   return (
     <div className="app">
@@ -551,124 +613,171 @@ export default function Page() {
         </div>
       </div>
 
-      <aside className="panel">
-        <header className="panelHeader">
-          <div className="panelHeader__top">
-            <h1>Carbon‑Aware Freight Router</h1>
-            <span className="badge">v0</span>
-          </div>
-          <p className="subtitle">
-            Click the map to set Start, then Destination. Compute Pareto to generate candidate
-            routes, then use the sliders to choose the best trade‑off (time vs cost vs CO₂).
-          </p>
-        </header>
+      <button
+        type="button"
+        className={`sidebarToggle ${isPanelCollapsed ? 'isCollapsed' : ''}`}
+        onClick={() => setIsPanelCollapsed((prev) => !prev)}
+        aria-label={sidebarToggleLabel}
+        aria-pressed={isPanelCollapsed}
+        title={sidebarToggleLabel}
+      >
+        <SidebarToggleIcon collapsed={isPanelCollapsed} />
+      </button>
 
-        <div className="panelBody">
-          <section className="card">
-            <div className="sectionTitle">Setup</div>
+      <aside className={`panel ${isPanelCollapsed ? 'isCollapsed' : ''}`} aria-hidden={isPanelCollapsed}>
+            <header className="panelHeader">
+              <div className="panelHeader__top">
+                <h1>Carbon‑Aware Freight Router</h1>
+                <div className="panelHeader__actions">
+                  <span className="badge">v0</span>
+                </div>
+              </div>
+              <p className="subtitle">
+                Click the map to set Start, then Destination. Compute Pareto to generate candidate
+                routes, then use the sliders to choose the best trade-off (time vs cost vs CO2).
+              </p>
+            </header>
 
-            <label>Vehicle type</label>
-            <Select
-              ariaLabel="Vehicle type"
-              value={vehicleType}
-              options={vehicleOptions}
-              onChange={setVehicleType}
-              disabled={busy}
-            />
+            <div id="app-sidebar-content" className="panelBody">
+              <section className="card">
+                <div className="sectionTitle">Setup</div>
 
-            <label>Scenario mode</label>
-            <Select
-              ariaLabel="Scenario mode"
-              value={scenarioMode}
-              options={scenarioOptions}
-              onChange={setScenarioMode}
-              disabled={busy}
-            />
+                <div className="fieldLabel">Vehicle type</div>
+                <Select
+                  ariaLabel="Vehicle type"
+                  value={vehicleType}
+                  options={vehicleOptions}
+                  onChange={setVehicleType}
+                  disabled={busy}
+                />
 
-            <div className="helper">
-              Scenario mode applies a policy‑based delay multiplier and adds idle emissions (and
-              driver time cost) for the extra delay. This is a lightweight stub that can be swapped
-              for a detailed simulator later.
-            </div>
+                <div className="fieldLabel">Scenario mode</div>
+                <Select
+                  ariaLabel="Scenario mode"
+                  value={scenarioMode}
+                  options={scenarioOptions}
+                  onChange={setScenarioMode}
+                  disabled={busy}
+                />
 
-            <div className="row" style={{ marginTop: 12 }}>
-              <button
-                className="secondary"
-                onClick={swapMarkers}
-                disabled={!origin || !destination || busy}
-                title="Swap start and destination"
-              >
-                Swap pins
-              </button>
-              <button className="secondary" onClick={reset} disabled={busy}>
-                Clear pins
-              </button>
-            </div>
-          </section>
+                <div className="helper">
+                  Scenario mode applies a policy-based delay multiplier and adds idle emissions (and
+                  driver time cost) for the extra delay. This is a lightweight stub that can be
+                  swapped for a detailed simulator later.
+                </div>
 
-          <section className="card">
-            <div className="sectionTitle">Preferences</div>
+                <div className="row" style={{ marginTop: 12 }}>
+                  <button
+                    className="secondary"
+                    onClick={swapMarkers}
+                    disabled={!origin || !destination || busy}
+                    title="Swap start and destination"
+                  >
+                    Swap pins
+                  </button>
+                  <button className="secondary" onClick={reset} disabled={busy}>
+                    Clear pins
+                  </button>
+                </div>
+              </section>
 
-            <label>Time ({weights.time})</label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={weights.time}
-              onChange={(e) => setWeights((w) => ({ ...w, time: Number(e.target.value) }))}
-            />
+              <section className="card">
+                <div className="sectionTitle">Preferences</div>
 
-            <label>Money ({weights.money})</label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={weights.money}
-              onChange={(e) => setWeights((w) => ({ ...w, money: Number(e.target.value) }))}
-            />
+                <div className="sliderField">
+                  <div className="sliderField__head">
+                    <label htmlFor="weight-time">Time</label>
+                    <span className="sliderField__value">{weights.time}</span>
+                  </div>
+                  <p id="weight-time-help" className="sliderField__desc">
+                    Prioritises shorter delivery duration. Increase this to favour faster routes.
+                  </p>
+                  <input
+                    id="weight-time"
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={weights.time}
+                    aria-describedby="weight-time-help"
+                    onChange={(e) => setWeights((w) => ({ ...w, time: Number(e.target.value) }))}
+                  />
+                </div>
 
-            <label>CO₂ ({weights.co2})</label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={weights.co2}
-              onChange={(e) => setWeights((w) => ({ ...w, co2: Number(e.target.value) }))}
-            />
+                <div className="sliderField">
+                  <div className="sliderField__head">
+                    <label htmlFor="weight-money">Money</label>
+                    <span className="sliderField__value">{weights.money}</span>
+                  </div>
+                  <p id="weight-money-help" className="sliderField__desc">
+                    Prioritises lower operating cost. Increase this to favour cheaper routes.
+                  </p>
+                  <input
+                    id="weight-money"
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={weights.money}
+                    aria-describedby="weight-money-help"
+                    onChange={(e) => setWeights((w) => ({ ...w, money: Number(e.target.value) }))}
+                  />
+                </div>
 
-            <div className="row row--actions" style={{ marginTop: 12 }}>
-              <button className="primary" onClick={computePareto} disabled={!canCompute}>
-                {busy ? (
-                  <span className="buttonLabel">
-                    <span className="spinner spinner--inline" />
-                    <span>
-                      Computing...{progressText ? ` ${progressText}` : ''}
-                    </span>
-                  </span>
-                ) : (
-                  'Compute Pareto'
-                )}
-              </button>
+                <div className="sliderField">
+                  <div className="sliderField__head">
+                    <label htmlFor="weight-co2">CO2</label>
+                    <span className="sliderField__value">{weights.co2}</span>
+                  </div>
+                  <p id="weight-co2-help" className="sliderField__desc">
+                    Prioritises lower carbon emissions. Increase this to favour cleaner routes.
+                  </p>
+                  <input
+                    id="weight-co2"
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={weights.co2}
+                    aria-describedby="weight-co2-help"
+                    onChange={(e) => setWeights((w) => ({ ...w, co2: Number(e.target.value) }))}
+                  />
+                </div>
 
-              <button
-                className="secondary"
-                onClick={clearComputed}
-                disabled={busy || paretoRoutes.length === 0}
-              >
-                Clear results
-              </button>
+                <div className="row row--actions" style={{ marginTop: 12 }}>
+                  <button className="primary" onClick={computePareto} disabled={!canCompute}>
+                    {busy ? (
+                      <span className="buttonLabel">
+                        <span className="spinner spinner--inline" />
+                        <span>
+                          Computing...{progressText ? ` ${progressText}` : ''}
+                        </span>
+                      </span>
+                    ) : (
+                      'Compute Pareto'
+                    )}
+                  </button>
 
-              {loading && (
-                <button className="secondary" onClick={cancelCompute}>
-                  Cancel
-                </button>
-              )}
-            </div>
+                  <button
+                    className="secondary"
+                    onClick={clearComputed}
+                    disabled={busy || paretoRoutes.length === 0}
+                  >
+                    Clear results
+                  </button>
 
-            <div className="tiny">Normalised: {JSON.stringify(normaliseWeights(weights))}</div>
+                  {loading && (
+                    <button className="secondary" onClick={cancelCompute}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
 
-            {error && <div className="error">{error}</div>}
-          </section>
+                <div className="tiny">
+                  Relative influence: Time {(normalisedWeights.time * 100).toFixed(0)}% | Money{' '}
+                  {(normalisedWeights.money * 100).toFixed(0)}% | CO2{' '}
+                  {(normalisedWeights.co2 * 100).toFixed(0)}%
+                </div>
+
+                {error && <div className="error">{error}</div>}
+              </section>
 
           {m && (
             <section className="card">
@@ -687,7 +796,7 @@ export default function Page() {
                   <div className="metric__value">{m.monetary_cost.toFixed(2)}</div>
                 </div>
                 <div className="metric">
-                  <div className="metric__label">CO₂</div>
+                  <div className="metric__label">CO2</div>
                   <div className="metric__value">{m.emissions_kg.toFixed(3)} kg</div>
                 </div>
                 <div className="metric">
@@ -710,16 +819,18 @@ export default function Page() {
                 <div className="sectionTitle">Routes</div>
 
                 <div className="sectionTitleMeta">
-                  {loading && (
-                    <span className="statusPill">
-                      Computing {progressText ?? '...'}
-                    </span>
-                  )}
+                  {loading && <span className="statusPill">Computing {progressText ?? '...'}</span>}
 
                   {warnings.length > 0 && (
-                    <span className="warningPill" title={warningTitle}>
+                    <button
+                      type="button"
+                      className={`warningPill warningPill--button ${showWarnings ? 'isOpen' : ''}`}
+                      onClick={() => setShowWarnings((prev) => !prev)}
+                      aria-expanded={showWarnings}
+                      aria-controls="route-warning-list"
+                    >
                       {warnings.length} warning{warnings.length === 1 ? '' : 's'}
-                    </span>
+                    </button>
                   )}
 
                   {hasNameOverrides && (
@@ -734,6 +845,27 @@ export default function Page() {
                   )}
                 </div>
               </div>
+
+              {warnings.length > 0 && showWarnings && (
+                <div
+                  id="route-warning-list"
+                  className="warningPanel"
+                  role="region"
+                  aria-labelledby="route-warning-title"
+                >
+                  <div id="route-warning-title" className="warningPanel__title">
+                    Route generation warnings
+                  </div>
+                  <div className="warningPanel__hint">
+                    Routing succeeded, but some candidate requests were skipped or failed.
+                  </div>
+                  <ul className="warningPanel__list">
+                    {warnings.map((warning, idx) => (
+                      <li key={`${idx}-${warning}`}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {loading && paretoRoutes.length === 0 ? (
                 <RoutesSkeleton />
@@ -766,13 +898,16 @@ export default function Page() {
                         {paretoRoutes.map((route, idx) => {
                           const label = labelsById[route.id] ?? `Route ${idx + 1}`;
                           const isEditing = editingRouteId === route.id;
+                          const isSelected = route.id === selectedId;
 
                           return (
                             <li
                               key={route.id}
-                              className={`routeCard ${route.id === selectedId ? 'isSelected' : ''}`}
+                              className={`routeCard ${isSelected ? 'isSelected' : ''}`}
                               role="button"
                               tabIndex={0}
+                              aria-label={`Select ${label}`}
+                              aria-pressed={isSelected}
                               onClick={() => setSelectedId(route.id)}
                               onKeyDown={(event) => {
                                 if (event.key === 'Enter' || event.key === ' ') {
@@ -851,7 +986,7 @@ export default function Page() {
                               </div>
 
                               <div className="routeCard__meta">
-                                <span>{route.metrics.emissions_kg.toFixed(3)} kg CO₂</span>
+                                <span>{route.metrics.emissions_kg.toFixed(3)} kg CO2</span>
                                 <span>£{route.metrics.monetary_cost.toFixed(2)}</span>
                               </div>
                             </li>
@@ -864,7 +999,7 @@ export default function Page() {
               )}
             </section>
           )}
-        </div>
+            </div>
       </aside>
     </div>
   );
