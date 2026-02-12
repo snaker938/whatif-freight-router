@@ -75,7 +75,7 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
             assert sum(1 for route in routes if route["is_knee"]) == 1
             for route in routes:
                 assert route["knee_score"] is not None
-                assert len(route["eta_timeline"]) == 3
+                assert len(route["eta_timeline"]) == 4
                 assert len(route["eta_explanations"]) >= 2
                 assert len(route["segment_breakdown"]) >= 1
 
@@ -123,4 +123,3 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
             assert verify_resp.json()["valid"] is True
     finally:
         app.dependency_overrides.clear()
-

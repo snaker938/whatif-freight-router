@@ -39,6 +39,7 @@ class CostToggles(BaseModel):
 
 
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
+TerrainProfile = Literal["flat", "rolling", "hilly"]
 
 
 class EpsilonConstraints(BaseModel):
@@ -59,6 +60,7 @@ class RouteRequest(BaseModel):
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -73,6 +75,7 @@ class ParetoRequest(BaseModel):
     # (OSRM will still cap the number of alternatives it can produce.)
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -89,6 +92,7 @@ class BatchParetoRequest(BaseModel):
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -103,6 +107,7 @@ class BatchCSVImportRequest(BaseModel):
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -189,6 +194,7 @@ class ScenarioCompareRequest(BaseModel):
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=1, co2=1))
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None

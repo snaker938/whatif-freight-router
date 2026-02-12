@@ -56,8 +56,35 @@ def test_time_of_day_profile_increases_peak_eta() -> None:
     assert any("Time-of-day profile" in msg for msg in peak.eta_explanations)
 
     stages = [entry["stage"] for entry in peak.eta_timeline]
-    assert stages == ["baseline", "time_of_day", "scenario"]
+    assert stages == ["baseline", "time_of_day", "scenario", "gradient"]
     assert float(peak.eta_timeline[-1]["duration_s"]) == peak.metrics.duration_s
+
+
+def test_hilly_terrain_profile_increases_duration_and_emissions() -> None:
+    route = _route(distance_m=45_000.0, duration_s=2_700.0)
+
+    flat = build_option(
+        route,
+        option_id="flat",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.NO_SHARING,
+        cost_toggles=CostToggles(),
+        terrain_profile="flat",
+        departure_time_utc=datetime(2026, 2, 12, 3, 30, tzinfo=UTC),
+    )
+    hilly = build_option(
+        route,
+        option_id="hilly",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.NO_SHARING,
+        cost_toggles=CostToggles(),
+        terrain_profile="hilly",
+        departure_time_utc=datetime(2026, 2, 12, 3, 30, tzinfo=UTC),
+    )
+
+    assert hilly.metrics.duration_s > flat.metrics.duration_s
+    assert hilly.metrics.emissions_kg > flat.metrics.emissions_kg
+    assert any("Terrain profile 'hilly'" in msg for msg in hilly.eta_explanations)
 
 
 def test_route_endpoint_returns_eta_explainability_fields() -> None:
@@ -77,8 +104,7 @@ def test_route_endpoint_returns_eta_explainability_fields() -> None:
             data = resp.json()
             selected = data["selected"]
             assert len(selected["eta_explanations"]) >= 2
-            assert len(selected["eta_timeline"]) == 3
+            assert len(selected["eta_timeline"]) == 4
             assert selected["eta_timeline"][0]["stage"] == "baseline"
     finally:
         app.dependency_overrides.clear()
-

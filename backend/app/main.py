@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .fallback_store import load_route_snapshot, save_route_snapshot
+from .gradient import gradient_multipliers
 from .logging_utils import log_event
 from .metrics_store import metrics_snapshot, record_request
 from .models import (
@@ -43,6 +44,7 @@ from .models import (
     ScenarioCompareResult,
     SignatureVerificationRequest,
     SignatureVerificationResponse,
+    TerrainProfile,
     VehicleDeleteResponse,
     VehicleListResponse,
     VehicleMutationResponse,
@@ -318,6 +320,7 @@ def build_option(
     vehicle_type: str,
     scenario_mode: ScenarioMode,
     cost_toggles: CostToggles,
+    terrain_profile: TerrainProfile = "flat",
     departure_time_utc: datetime | None = None,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
@@ -338,11 +341,14 @@ def build_option(
     tod_multiplier = time_of_day_multiplier(departure_time_utc)
     scenario_multiplier = scenario_duration_multiplier(scenario_mode)
     duration_after_tod_s = base_duration_s * tod_multiplier
-    duration_s = apply_scenario_duration(duration_after_tod_s, mode=scenario_mode)
+    duration_after_scenario_s = apply_scenario_duration(duration_after_tod_s, mode=scenario_mode)
+    gradient_duration_multiplier, gradient_emissions_multiplier = gradient_multipliers(terrain_profile)
+    duration_s = duration_after_scenario_s * gradient_duration_multiplier
     total_duration_multiplier = duration_s / base_duration_s if base_duration_s > 0 else 1.0
 
     time_of_day_delta_s = max(duration_after_tod_s - base_duration_s, 0.0)
-    scenario_delta_s = max(duration_s - duration_after_tod_s, 0.0)
+    scenario_delta_s = max(duration_after_scenario_s - duration_after_tod_s, 0.0)
+    gradient_delta_s = max(duration_s - duration_after_scenario_s, 0.0)
     fuel_multiplier = max(cost_toggles.fuel_price_multiplier, 0.0)
     carbon_price = max(cost_toggles.carbon_price_per_kg, 0.0)
 
@@ -376,7 +382,7 @@ def build_option(
 
         seg_duration_s = t_s * total_duration_multiplier
         seg_extra_delay_s = max(seg_duration_s - t_s, 0.0)
-        seg_emissions = base_seg_emissions + (
+        seg_emissions = (base_seg_emissions * gradient_emissions_multiplier) + (
             (seg_extra_delay_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
         )
 
@@ -419,6 +425,13 @@ def build_option(
         )
     else:
         eta_explanations.append("Scenario mode added no material delay.")
+    if gradient_delta_s > 0.5:
+        eta_explanations.append(
+            f"Terrain profile '{terrain_profile}' added {gradient_delta_s / 60.0:.1f} min "
+            f"(x{gradient_duration_multiplier:.2f})."
+        )
+    else:
+        eta_explanations.append(f"Terrain profile '{terrain_profile}' added no material delay.")
 
     eta_timeline: list[dict[str, float | str]] = [
         {"stage": "baseline", "duration_s": round(base_duration_s, 2), "delta_s": 0.0},
@@ -430,9 +443,16 @@ def build_option(
         },
         {
             "stage": "scenario",
-            "duration_s": round(total_duration_s, 2),
+            "duration_s": round(duration_after_scenario_s, 2),
             "delta_s": round(scenario_delta_s, 2),
             "multiplier": round(scenario_multiplier, 3),
+        },
+        {
+            "stage": "gradient",
+            "duration_s": round(total_duration_s, 2),
+            "delta_s": round(gradient_delta_s, 2),
+            "multiplier": round(gradient_duration_multiplier, 3),
+            "profile": terrain_profile,
         },
     ]
 
@@ -472,6 +492,7 @@ def _candidate_cache_key(
     scenario_mode: ScenarioMode,
     max_routes: int,
     cost_toggles: CostToggles,
+    terrain_profile: TerrainProfile = "flat",
     departure_time_utc: datetime | None = None,
 ) -> str:
     payload = {
@@ -481,6 +502,7 @@ def _candidate_cache_key(
         "scenario_mode": scenario_mode.value,
         "max_routes": max_routes,
         "cost_toggles": cost_toggles.model_dump(mode="json"),
+        "terrain_profile": terrain_profile,
         "departure_time_utc": departure_time_utc.isoformat() if departure_time_utc else None,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -635,6 +657,7 @@ def _build_options(
     vehicle_type: str,
     scenario_mode: ScenarioMode,
     cost_toggles: CostToggles,
+    terrain_profile: TerrainProfile = "flat",
     departure_time_utc: datetime | None,
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str]]:
@@ -651,6 +674,7 @@ def _build_options(
                     vehicle_type=vehicle_type,
                     scenario_mode=scenario_mode,
                     cost_toggles=cost_toggles,
+                    terrain_profile=terrain_profile,
                     departure_time_utc=departure_time_utc,
                 )
             )
@@ -748,6 +772,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             scenario_mode=req.scenario_mode,
             max_routes=req.max_alternatives,
             cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
             departure_time_utc=req.departure_time_utc,
         )
         routes, warnings, candidate_fetches, fallback_used = await _collect_candidate_routes(
@@ -763,6 +788,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode,
             cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -787,6 +813,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
             cost_toggles=req.cost_toggles.model_dump(),
+            terrain_profile=req.terrain_profile,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
@@ -883,6 +910,7 @@ async def compute_pareto_stream(
                             vehicle_type=req.vehicle_type,
                             scenario_mode=req.scenario_mode,
                             cost_toggles=req.cost_toggles,
+                            terrain_profile=req.terrain_profile,
                             departure_time_utc=req.departure_time_utc,
                         )
                     except (OSRMError, ValueError) as e:
@@ -907,6 +935,7 @@ async def compute_pareto_stream(
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode,
                 cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
                 departure_time_utc=req.departure_time_utc,
                 option_prefix="route",
             )
@@ -924,6 +953,7 @@ async def compute_pareto_stream(
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode.value,
                 cost_toggles=req.cost_toggles.model_dump(),
+                terrain_profile=req.terrain_profile,
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
@@ -988,6 +1018,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             scenario_mode=req.scenario_mode,
             max_routes=5,
             cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
             departure_time_utc=req.departure_time_utc,
         )
         routes, warnings, candidate_fetches, fallback_used = await _collect_candidate_routes(
@@ -1003,6 +1034,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode,
             cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1035,6 +1067,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             scenario_mode=req.scenario_mode.value,
             weights=req.weights.model_dump(),
             cost_toggles=req.cost_toggles.model_dump(),
+            terrain_profile=req.terrain_profile,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
@@ -1101,6 +1134,7 @@ async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> Scena
                 scenario_mode=scenario_mode,
                 max_routes=req.max_alternatives,
                 cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
                 departure_time_utc=req.departure_time_utc,
             )
             routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
@@ -1115,6 +1149,7 @@ async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> Scena
                 vehicle_type=req.vehicle_type,
                 scenario_mode=scenario_mode,
                 cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
                 departure_time_utc=req.departure_time_utc,
                 option_prefix=f"scenario_{scenario_mode.value}",
             )
@@ -1172,6 +1207,7 @@ async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> Scena
             "execution": {
                 "duration_ms": round((time.perf_counter() - t0) * 1000.0, 3),
                 "scenario_count": len(results),
+                "terrain_profile": req.terrain_profile,
             },
         }
         scenario_manifest = write_scenario_manifest(run_id, manifest_payload)
@@ -1181,6 +1217,7 @@ async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> Scena
             run_id=run_id,
             vehicle_type=req.vehicle_type,
             max_alternatives=req.max_alternatives,
+            terrain_profile=req.terrain_profile,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             scenario_manifest=str(scenario_manifest),
@@ -1381,6 +1418,7 @@ async def batch_import_csv(req: BatchCSVImportRequest, osrm: OSRMDep) -> BatchPa
         scenario_mode=req.scenario_mode,
         max_alternatives=req.max_alternatives,
         cost_toggles=req.cost_toggles,
+        terrain_profile=req.terrain_profile,
         departure_time_utc=req.departure_time_utc,
         pareto_method=req.pareto_method,
         epsilon=req.epsilon,
@@ -1410,6 +1448,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                     scenario_mode=req.scenario_mode,
                     max_routes=req.max_alternatives,
                     cost_toggles=req.cost_toggles,
+                    terrain_profile=req.terrain_profile,
                     departure_time_utc=req.departure_time_utc,
                 )
                 pair_stats: dict[str, Any] = {
@@ -1438,6 +1477,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                             vehicle_type=req.vehicle_type,
                             scenario_mode=req.scenario_mode,
                             cost_toggles=req.cost_toggles,
+                            terrain_profile=req.terrain_profile,
                             departure_time_utc=req.departure_time_utc,
                         )
                         for i, r in enumerate(routes)
@@ -1475,6 +1515,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                                     vehicle_type=req.vehicle_type,
                                     scenario_mode=req.scenario_mode,
                                     cost_toggles=req.cost_toggles,
+                                    terrain_profile=req.terrain_profile,
                                     departure_time_utc=req.departure_time_utc,
                                 )
                                 for i, r in enumerate(routes)
@@ -1528,6 +1569,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 scenario_mode=req.scenario_mode.value,
                 max_alternatives=req.max_alternatives,
                 cost_toggles=req.cost_toggles.model_dump(mode="json"),
+                terrain_profile=req.terrain_profile,
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
@@ -1614,6 +1656,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "max_alternatives": req.max_alternatives,
                 "batch_concurrency": settings.batch_concurrency,
                 "cost_toggles": req.cost_toggles.model_dump(),
+                "terrain_profile": req.terrain_profile,
                 "pareto_method": req.pareto_method,
                 "epsilon": req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 "departure_time_utc": (
@@ -1649,6 +1692,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "duration_ms": duration_ms,
                 "fallback_used": fallback_count > 0,
                 "fallback_count": fallback_count,
+                "terrain_profile": req.terrain_profile,
             },
             csv_rows=_batch_results_csv_rows(req, results),
         )
@@ -1673,6 +1717,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
             cost_toggles=req.cost_toggles.model_dump(),
+            terrain_profile=req.terrain_profile,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
