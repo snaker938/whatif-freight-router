@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import time
 import uuid
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .logging_utils import log_event
 from .models import (
@@ -108,6 +110,58 @@ def _validate_osrm_geometry(route: dict[str, Any]) -> list[tuple[float, float]]:
 # Monetary cost model: weight the time-based component so "£" doesn't perfectly track "time".
 # If cost is dominated by time, one route often dominates and the Pareto set collapses to 1.
 DRIVER_TIME_COST_WEIGHT: float = 0.35
+MAX_GEOMETRY_POINTS: int = 1200
+MAX_CANDIDATE_FETCH_CONCURRENCY: int = 6
+
+
+@dataclass(frozen=True)
+class CandidateFetchSpec:
+    label: str
+    alternatives: bool | int
+    exclude: str | None = None
+    via: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
+class CandidateFetchResult:
+    spec: CandidateFetchSpec
+    routes: list[dict[str, Any]]
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class CandidateProgress:
+    done: int
+    total: int
+    result: CandidateFetchResult
+
+
+def _ndjson_line(event: dict[str, Any]) -> bytes:
+    return (json.dumps(event, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _downsample_coords(
+    coords: list[tuple[float, float]],
+    *,
+    max_points: int = MAX_GEOMETRY_POINTS,
+) -> list[tuple[float, float]]:
+    """Clamp route point count while preserving endpoints."""
+    if max_points < 2 or len(coords) <= max_points:
+        return coords
+
+    last_idx = len(coords) - 1
+    stride = last_idx / float(max_points - 1)
+    out: list[tuple[float, float]] = [coords[0]]
+    prev_idx = 0
+
+    for i in range(1, max_points - 1):
+        idx = int(round(i * stride))
+        idx = min(last_idx - 1, max(prev_idx + 1, idx))
+        out.append(coords[idx])
+        prev_idx = idx
+
+    out.append(coords[last_idx])
+    return out
 
 
 def build_option(
@@ -119,7 +173,7 @@ def build_option(
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
 
-    coords = _validate_osrm_geometry(route)
+    coords = _downsample_coords(_validate_osrm_geometry(route))
     seg_d_m, seg_t_s = extract_segment_annotations(route)
 
     distance_m = float(route.get("distance", 0.0))
@@ -190,9 +244,7 @@ def _route_signature(route: dict[str, Any]) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
 
-def _candidate_via_points(
-    origin: LatLng, destination: LatLng, *, base_route: dict[str, Any] | None
-) -> list[tuple[float, float]]:
+def _candidate_via_points(origin: LatLng, destination: LatLng) -> list[tuple[float, float]]:
     """Generate a few via points around the midpoint to force detours.
 
     This is a heuristic. If via falls off the network, OSRM may fail that candidate.
@@ -215,112 +267,169 @@ def _candidate_via_points(
     return candidates
 
 
-async def _collect_candidate_routes(
+def _candidate_fetch_specs(
+    *,
+    origin: LatLng,
+    destination: LatLng,
+    max_routes: int,
+) -> list[CandidateFetchSpec]:
+    max_routes = max(1, min(max_routes, 5))
+
+    specs: list[CandidateFetchSpec] = [
+        CandidateFetchSpec(label="alternatives", alternatives=max_routes),
+    ]
+
+    for ex in ("motorway", "trunk", "toll", "ferry"):
+        specs.append(CandidateFetchSpec(label=f"exclude:{ex}", alternatives=False, exclude=ex))
+
+    for idx, via in enumerate(_candidate_via_points(origin, destination), start=1):
+        specs.append(CandidateFetchSpec(label=f"via:{idx}", alternatives=False, via=via))
+
+    return specs
+
+
+def _candidate_fetch_concurrency(total_specs: int) -> int:
+    capped = min(settings.batch_concurrency, MAX_CANDIDATE_FETCH_CONCURRENCY)
+    return max(1, min(total_specs, capped))
+
+
+async def _run_candidate_fetch(
     *,
     osrm: OSRMClient,
     origin: LatLng,
     destination: LatLng,
+    spec: CandidateFetchSpec,
+    sem: asyncio.Semaphore,
+) -> CandidateFetchResult:
+    try:
+        async with sem:
+            routes = await osrm.fetch_routes(
+                origin_lat=origin.lat,
+                origin_lon=origin.lon,
+                dest_lat=destination.lat,
+                dest_lon=destination.lon,
+                alternatives=spec.alternatives,
+                exclude=spec.exclude,
+                via=[spec.via] if spec.via else None,
+            )
+        return CandidateFetchResult(spec=spec, routes=routes)
+    except OSRMError as e:
+        return CandidateFetchResult(spec=spec, routes=[], error=str(e))
+    except Exception as e:  # pragma: no cover - defensive fallback for unexpected failures
+        msg = str(e).strip()
+        detail = f"{type(e).__name__}: {msg}" if msg else type(e).__name__
+        return CandidateFetchResult(spec=spec, routes=[], error=detail)
+
+
+async def _iter_candidate_fetches(
+    *,
+    osrm: OSRMClient,
+    origin: LatLng,
+    destination: LatLng,
+    specs: list[CandidateFetchSpec],
+) -> AsyncIterator[CandidateProgress]:
+    total = len(specs)
+    if total == 0:
+        return
+
+    sem = asyncio.Semaphore(_candidate_fetch_concurrency(total))
+    tasks = [
+        asyncio.create_task(
+            _run_candidate_fetch(
+                osrm=osrm,
+                origin=origin,
+                destination=destination,
+                spec=spec,
+                sem=sem,
+            )
+        )
+        for spec in specs
+    ]
+
+    done = 0
+    try:
+        for task in asyncio.as_completed(tasks):
+            result = await task
+            done += 1
+            yield CandidateProgress(done=done, total=total, result=result)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _route_duration_s(route: dict[str, Any]) -> float:
+    duration = route.get("duration")
+    if isinstance(duration, (int, float)) and duration > 0:
+        return float(duration)
+    try:
+        _, seg_t_s = extract_segment_annotations(route)
+    except OSRMError:
+        return float("inf")
+    return float(sum(seg_t_s))
+
+
+def _select_ranked_candidate_routes(
+    routes: list[dict[str, Any]],
+    *,
     max_routes: int,
 ) -> list[dict[str, Any]]:
     max_routes = max(1, min(max_routes, 5))
 
-    # Start by asking OSRM for alternatives.
-    raw = await osrm.fetch_routes(
-        origin_lat=origin.lat,
-        origin_lon=origin.lon,
-        dest_lat=destination.lat,
-        dest_lon=destination.lon,
-        alternatives=max_routes,
-    )
+    scored: list[tuple[float, str, dict[str, Any]]] = []
+    for route in routes:
+        sig = _route_signature(route)
+        scored.append((_route_duration_s(route), sig, route))
 
-    # If OSRM doesn't give many alternatives, try a few forced variants:
-    # - exclude certain classes (if supported)
-    # - via points around midpoint
-    tasks: list[Awaitable[list[dict[str, Any]]]] = []
-    if len(raw) < max_routes:
-        for ex in ["motorway", "trunk", "toll", "ferry"]:
-            tasks.append(
-                osrm.fetch_routes(
-                    origin_lat=origin.lat,
-                    origin_lon=origin.lon,
-                    dest_lat=destination.lat,
-                    dest_lon=destination.lon,
-                    alternatives=False,
-                    exclude=ex,
+    scored.sort(key=lambda item: (item[0], item[1]))
+    return [route for _, _, route in scored[:max_routes]]
+
+
+def _build_options(
+    routes: list[dict[str, Any]],
+    *,
+    vehicle_type: str,
+    scenario_mode: ScenarioMode,
+    option_prefix: str,
+) -> tuple[list[RouteOption], list[str]]:
+    options: list[RouteOption] = []
+    warnings: list[str] = []
+
+    for route in routes:
+        option_id = f"{option_prefix}_{len(options)}"
+        try:
+            options.append(
+                build_option(
+                    route,
+                    option_id=option_id,
+                    vehicle_type=vehicle_type,
+                    scenario_mode=scenario_mode,
                 )
             )
+        except (OSRMError, ValueError) as e:
+            warnings.append(f"{option_id}: {e}")
 
-        for via in _candidate_via_points(origin, destination, base_route=raw[0] if raw else None):
-            tasks.append(
-                osrm.fetch_routes(
-                    origin_lat=origin.lat,
-                    origin_lon=origin.lon,
-                    dest_lat=destination.lat,
-                    dest_lon=destination.lon,
-                    alternatives=False,
-                    via=[via],
-                )
-            )
-
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for r in results:
-            # ✅ fixes your "raw.extend(r)" type error: gather can return BaseException
-            if isinstance(r, BaseException):
-                continue
-            raw.extend(r)
-
-    unique: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for r in raw:
-        sig = _route_signature(r)
-        if sig in seen:
-            continue
-        seen.add(sig)
-        unique.append(r)
-        if len(unique) >= max_routes:
-            break
-
-    return unique
+    return options, warnings
 
 
-@app.post("/pareto", response_model=ParetoResponse)
-async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
-    request_id = str(uuid.uuid4())
-    t0 = time.perf_counter()
-
-    try:
-        routes = await _collect_candidate_routes(
-            osrm=osrm,
-            origin=req.origin,
-            destination=req.destination,
-            max_routes=req.max_alternatives,
-        )
-    except OSRMError as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
-
-    options: list[RouteOption] = [
-        build_option(
-            r,
-            option_id=f"route_{i}",
-            vehicle_type=req.vehicle_type,
-            scenario_mode=req.scenario_mode,
-        )
-        for i, r in enumerate(routes)
-    ]
-
+def _finalize_pareto_options(
+    options: list[RouteOption],
+    *,
+    max_alternatives: int,
+) -> list[RouteOption]:
     pareto = pareto_filter(
         options,
         key=lambda o: (o.metrics.duration_s, o.metrics.monetary_cost, o.metrics.emissions_kg),
     )
-    pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
+    pareto_sorted = sorted(pareto, key=lambda o: (o.metrics.duration_s, o.id))
 
     if len(pareto_sorted) < 2 and len(options) > 1:
         # In practice, cost and emissions can be correlated with time, so one candidate
         # can dominate and the Pareto set collapses to a single route. That makes the UI
         # feel "broken" (sliders can't change anything), so return a small diverse
         # subset as a fallback.
-        desired = min(len(options), max(2, min(req.max_alternatives, 4)))
+        desired = min(len(options), max(2, min(max_alternatives, 4)))
 
         ranked_time = sorted(options, key=lambda o: o.metrics.duration_s)
         ranked_cost = sorted(options, key=lambda o: o.metrics.monetary_cost)
@@ -329,9 +438,9 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
         chosen: dict[str, RouteOption] = {}
 
         def pick_first(ranked: list[RouteOption]) -> None:
-            for r in ranked:
-                if r.id not in chosen:
-                    chosen[r.id] = r
+            for route in ranked:
+                if route.id not in chosen:
+                    chosen[route.id] = route
                     return
 
         # Always include extremes where possible.
@@ -339,13 +448,85 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             pick_first(ranked)
 
         # Fill remaining slots with next-fastest distinct routes.
-        for r in ranked_time:
+        for route in ranked_time:
             if len(chosen) >= desired:
                 break
-            if r.id not in chosen:
-                chosen[r.id] = r
+            if route.id not in chosen:
+                chosen[route.id] = route
 
-        pareto_sorted = sorted(chosen.values(), key=lambda o: o.metrics.duration_s)
+        pareto_sorted = sorted(
+            chosen.values(),
+            key=lambda route: (route.metrics.duration_s, route.id),
+        )
+
+    return pareto_sorted
+
+
+async def _collect_candidate_routes(
+    *,
+    osrm: OSRMClient,
+    origin: LatLng,
+    destination: LatLng,
+    max_routes: int,
+) -> tuple[list[dict[str, Any]], list[str], int]:
+    specs = _candidate_fetch_specs(origin=origin, destination=destination, max_routes=max_routes)
+    warnings: list[str] = []
+    unique_raw_routes: list[dict[str, Any]] = []
+    seen_signatures: set[str] = set()
+
+    async for progress in _iter_candidate_fetches(
+        osrm=osrm,
+        origin=origin,
+        destination=destination,
+        specs=specs,
+    ):
+        result = progress.result
+        if result.error:
+            warnings.append(f"{result.spec.label}: {result.error}")
+            continue
+
+        for route in result.routes:
+            try:
+                sig = _route_signature(route)
+            except OSRMError as e:
+                warnings.append(f"{result.spec.label}: skipped invalid route ({e})")
+                continue
+            if sig in seen_signatures:
+                continue
+            seen_signatures.add(sig)
+            unique_raw_routes.append(route)
+
+    ranked_routes = _select_ranked_candidate_routes(unique_raw_routes, max_routes=max_routes)
+    return ranked_routes, warnings, len(specs)
+
+
+@app.post("/pareto", response_model=ParetoResponse)
+async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
+    request_id = str(uuid.uuid4())
+    t0 = time.perf_counter()
+
+    routes, warnings, candidate_fetches = await _collect_candidate_routes(
+        osrm=osrm,
+        origin=req.origin,
+        destination=req.destination,
+        max_routes=req.max_alternatives,
+    )
+
+    options, build_warnings = _build_options(
+        routes,
+        vehicle_type=req.vehicle_type,
+        scenario_mode=req.scenario_mode,
+        option_prefix="route",
+    )
+    warnings.extend(build_warnings)
+
+    if not options:
+        detail = "No route candidates could be computed."
+        if warnings:
+            detail = f"{detail} {warnings[0]}"
+        raise HTTPException(status_code=502, detail=detail)
+
+    pareto_sorted = _finalize_pareto_options(options, max_alternatives=req.max_alternatives)
 
     log_event(
         "pareto_request",
@@ -354,12 +535,157 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
         scenario_mode=req.scenario_mode.value,
         origin=req.origin.model_dump(),
         destination=req.destination.model_dump(),
+        candidate_fetches=candidate_fetches,
         candidate_count=len(options),
         pareto_count=len(pareto_sorted),
+        warning_count=len(warnings),
         duration_ms=round((time.perf_counter() - t0) * 1000, 2),
     )
 
     return ParetoResponse(routes=pareto_sorted)
+
+
+@app.post("/pareto/stream")
+@app.post("/api/pareto/stream")
+async def compute_pareto_stream(
+    req: ParetoRequest,
+    request: Request,
+    osrm: OSRMDep,
+) -> StreamingResponse:
+    request_id = str(uuid.uuid4())
+    t0 = time.perf_counter()
+    specs = _candidate_fetch_specs(
+        origin=req.origin,
+        destination=req.destination,
+        max_routes=req.max_alternatives,
+    )
+
+    async def stream() -> AsyncIterator[bytes]:
+        warnings: list[str] = []
+        unique_raw_routes: list[dict[str, Any]] = []
+        seen_signatures: set[str] = set()
+        streamed_option_count = 0
+
+        try:
+            yield _ndjson_line({"type": "meta", "total": len(specs)})
+
+            async for progress in _iter_candidate_fetches(
+                osrm=osrm,
+                origin=req.origin,
+                destination=req.destination,
+                specs=specs,
+            ):
+                if await request.is_disconnected():
+                    raise asyncio.CancelledError
+
+                result = progress.result
+                if result.error:
+                    msg = f"{result.spec.label}: {result.error}"
+                    warnings.append(msg)
+                    yield _ndjson_line(
+                        {
+                            "type": "error",
+                            "done": progress.done,
+                            "total": progress.total,
+                            "message": msg,
+                        }
+                    )
+                    continue
+
+                for route in result.routes:
+                    try:
+                        sig = _route_signature(route)
+                    except OSRMError as e:
+                        warnings.append(f"{result.spec.label}: skipped invalid route ({e})")
+                        continue
+
+                    if sig in seen_signatures:
+                        continue
+
+                    seen_signatures.add(sig)
+                    unique_raw_routes.append(route)
+
+                    option_id = f"route_{streamed_option_count}"
+                    streamed_option_count += 1
+                    try:
+                        option = build_option(
+                            route,
+                            option_id=option_id,
+                            vehicle_type=req.vehicle_type,
+                            scenario_mode=req.scenario_mode,
+                        )
+                    except (OSRMError, ValueError) as e:
+                        warnings.append(f"{option_id}: {e}")
+                        continue
+
+                    yield _ndjson_line(
+                        {
+                            "type": "route",
+                            "done": progress.done,
+                            "total": progress.total,
+                            "route": option.model_dump(mode="json"),
+                        }
+                    )
+
+            ranked_routes = _select_ranked_candidate_routes(
+                unique_raw_routes,
+                max_routes=req.max_alternatives,
+            )
+            options, build_warnings = _build_options(
+                ranked_routes,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode,
+                option_prefix="route",
+            )
+            warnings.extend(build_warnings)
+            pareto_sorted = _finalize_pareto_options(options, max_alternatives=req.max_alternatives)
+
+            log_event(
+                "pareto_stream_request",
+                request_id=request_id,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode.value,
+                origin=req.origin.model_dump(),
+                destination=req.destination.model_dump(),
+                candidate_fetches=len(specs),
+                candidate_count=len(options),
+                pareto_count=len(pareto_sorted),
+                warning_count=len(warnings),
+                duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+            )
+
+            yield _ndjson_line(
+                {
+                    "type": "done",
+                    "done": len(specs),
+                    "total": len(specs),
+                    "routes": [route.model_dump(mode="json") for route in pareto_sorted],
+                    "warning_count": len(warnings),
+                    "warnings": warnings,
+                }
+            )
+        except asyncio.CancelledError:
+            log_event(
+                "pareto_stream_cancelled",
+                request_id=request_id,
+                duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+            )
+            raise
+        except Exception as e:
+            msg = str(e).strip() or type(e).__name__
+            log_event(
+                "pareto_stream_fatal",
+                request_id=request_id,
+                message=msg,
+                duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+            )
+            yield _ndjson_line({"type": "fatal", "message": msg})
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson",
+        headers={"cache-control": "no-store"},
+    )
 
 
 @app.post("/route", response_model=RouteResponse)
@@ -367,25 +693,26 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
 
-    try:
-        routes = await _collect_candidate_routes(
-            osrm=osrm,
-            origin=req.origin,
-            destination=req.destination,
-            max_routes=5,
-        )
-    except OSRMError as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
+    routes, warnings, candidate_fetches = await _collect_candidate_routes(
+        osrm=osrm,
+        origin=req.origin,
+        destination=req.destination,
+        max_routes=5,
+    )
 
-    options: list[RouteOption] = [
-        build_option(
-            r,
-            option_id=f"route_{i}",
-            vehicle_type=req.vehicle_type,
-            scenario_mode=req.scenario_mode,
-        )
-        for i, r in enumerate(routes)
-    ]
+    options, build_warnings = _build_options(
+        routes,
+        vehicle_type=req.vehicle_type,
+        scenario_mode=req.scenario_mode,
+        option_prefix="route",
+    )
+    warnings.extend(build_warnings)
+
+    if not options:
+        detail = "No route candidates could be computed."
+        if warnings:
+            detail = f"{detail} {warnings[0]}"
+        raise HTTPException(status_code=502, detail=detail)
 
     selected = pick_best_by_weighted_sum(
         options,
@@ -402,7 +729,9 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
         weights=req.weights.model_dump(),
         origin=req.origin.model_dump(),
         destination=req.destination.model_dump(),
+        candidate_fetches=candidate_fetches,
         candidate_count=len(options),
+        warning_count=len(warnings),
         selected_id=selected.id,
         selected_metrics=selected.metrics.model_dump(),
         duration_ms=round((time.perf_counter() - t0) * 1000, 2),
