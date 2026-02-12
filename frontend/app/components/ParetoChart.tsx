@@ -21,6 +21,7 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
     id: r.id,
     label: labelsById[r.id] ?? r.id,
     money: r.metrics.monetary_cost,
+    isKnee: Boolean(r.is_knee),
   }));
 
   const data = {
@@ -28,13 +29,17 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
       {
         label: 'Pareto candidates',
         data: points as any[],
-        pointRadius: (ctx: any) => (ctx?.raw?.id === selectedId ? 8 : 5),
+        pointRadius: (ctx: any) =>
+          ctx?.raw?.id === selectedId ? 8 : ctx?.raw?.isKnee ? 6 : 5,
         pointHoverRadius: 10,
-        pointBackgroundColor: (ctx: any) =>
-          ctx?.raw?.id === selectedId ? 'rgba(6, 182, 212, 0.95)' : 'rgba(255, 255, 255, 0.70)',
+        pointBackgroundColor: (ctx: any) => {
+          if (ctx?.raw?.id === selectedId) return 'rgba(6, 182, 212, 0.95)';
+          if (ctx?.raw?.isKnee) return 'rgba(245, 158, 11, 0.95)';
+          return 'rgba(255, 255, 255, 0.70)';
+        },
         pointBorderColor: (ctx: any) =>
           ctx?.raw?.id === selectedId ? 'rgba(124, 58, 237, 0.95)' : 'rgba(255, 255, 255, 0.18)',
-        pointBorderWidth: (ctx: any) => (ctx?.raw?.id === selectedId ? 2 : 1),
+        pointBorderWidth: (ctx: any) => (ctx?.raw?.id === selectedId || ctx?.raw?.isKnee ? 2 : 1),
       },
     ],
   };
@@ -59,7 +64,8 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
           },
           label: (context: any) => {
             const raw = context.raw;
-            return `time=${raw.x.toFixed(1)} min, CO₂=${raw.y.toFixed(3)} kg, £=${raw.money.toFixed(2)}`;
+            const knee = raw.isKnee ? ', knee-point' : '';
+            return `time=${raw.x.toFixed(1)} min, CO₂=${raw.y.toFixed(3)} kg, £=${raw.money.toFixed(2)}${knee}`;
           },
         },
         titleColor: 'rgba(255, 255, 255, 0.92)',

@@ -67,6 +67,14 @@ const ScenarioComparison = dynamic<
   loading: () => null,
 });
 
+const SegmentBreakdown = dynamic<{ route: RouteOption | null }>(
+  () => import('./components/SegmentBreakdown'),
+  {
+    ssr: false,
+    loading: () => null,
+  },
+);
+
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
   return [...routes].sort((a, b) => {
     const byDuration = a.metrics.duration_s - b.metrics.duration_s;
@@ -861,7 +869,10 @@ export default function Page() {
                 {selectedLabel && (
                   <div className="metric">
                     <div className="metric__label">Route</div>
-                    <div className="metric__value">{selectedLabel}</div>
+                    <div className="metric__value">
+                      {selectedLabel}
+                      {selectedRoute?.is_knee ? ' (knee)' : ''}
+                    </div>
                   </div>
                 )}
               </div>
@@ -884,6 +895,8 @@ export default function Page() {
               <div style={{ marginTop: 12 }}>
                 <EtaTimelineChart route={selectedRoute} />
               </div>
+
+              <SegmentBreakdown route={selectedRoute} />
             </section>
           )}
 
@@ -1056,6 +1069,7 @@ export default function Page() {
 
                                 <div className="routeCard__pill">
                                   {(route.metrics.duration_s / 60).toFixed(1)} min
+                                  {route.is_knee ? ' • knee' : ''}
                                 </div>
                               </div>
 

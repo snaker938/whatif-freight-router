@@ -335,53 +335,74 @@ def build_option(
 
     distance_km = distance_m / 1000.0
     base_duration_s = duration_s
-    base_duration_h = base_duration_s / 3600.0
-
-    base_emissions = route_emissions_kg(
-        vehicle=vehicle,
-        segment_distances_m=seg_d_m,
-        segment_durations_s=seg_t_s,
-    )
-
-    fuel_cost = 0.0
-    for d_m, t_s in zip(seg_d_m, seg_t_s, strict=True):
-        d_m = max(float(d_m), 0.0)
-        t_s = max(float(t_s), 0.0)
-
-        d_km = d_m / 1000.0
-        speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else 0.0
-
-        # Approximate fuel / wear cost as distance * speed_factor(speed).
-        # This helps create time-vs-cost trade-offs so the UI can show multiple routes.
-        fuel_cost += d_km * vehicle.cost_per_km * speed_factor(speed_kmh)
-
-    fuel_cost *= max(cost_toggles.fuel_price_multiplier, 0.0)
-
-    contains_toll = bool(route.get("contains_toll", False))
-    toll_component = (
-        distance_km * cost_toggles.toll_cost_per_km if cost_toggles.use_tolls and contains_toll else 0.0
-    )
-
-    base_monetary = fuel_cost + (base_duration_h * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT)
-    base_monetary += toll_component
-
     tod_multiplier = time_of_day_multiplier(departure_time_utc)
     scenario_multiplier = scenario_duration_multiplier(scenario_mode)
     duration_after_tod_s = base_duration_s * tod_multiplier
     duration_s = apply_scenario_duration(duration_after_tod_s, mode=scenario_mode)
+    total_duration_multiplier = duration_s / base_duration_s if base_duration_s > 0 else 1.0
 
     time_of_day_delta_s = max(duration_after_tod_s - base_duration_s, 0.0)
     scenario_delta_s = max(duration_s - duration_after_tod_s, 0.0)
-    extra_time_s = max(duration_s - base_duration_s, 0.0)
+    fuel_multiplier = max(cost_toggles.fuel_price_multiplier, 0.0)
+    carbon_price = max(cost_toggles.carbon_price_per_kg, 0.0)
 
-    # Scenario also adds idle emissions and driver time cost for extra delay.
-    monetary = (
-        base_monetary + (extra_time_s / 3600.0) * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT
+    contains_toll = bool(route.get("contains_toll", False))
+    toll_component_total = (
+        distance_km * cost_toggles.toll_cost_per_km if cost_toggles.use_tolls and contains_toll else 0.0
     )
-    emissions = base_emissions + (extra_time_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
-    monetary += emissions * max(cost_toggles.carbon_price_per_kg, 0.0)
 
-    avg_speed_kmh = distance_km / (duration_s / 3600.0) if duration_s > 0 else 0.0
+    segment_breakdown: list[dict[str, float | int]] = []
+    total_emissions = 0.0
+    total_monetary = 0.0
+    total_distance_km = 0.0
+    total_duration_s = 0.0
+
+    for idx, (d_m, t_s) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
+        d_m = max(float(d_m), 0.0)
+        t_s = max(float(t_s), 0.0)
+
+        seg_distance_km = d_m / 1000.0
+        total_distance_km += seg_distance_km
+
+        base_speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else 0.0
+        base_seg_fuel_cost = seg_distance_km * vehicle.cost_per_km * speed_factor(base_speed_kmh)
+        seg_fuel_cost = base_seg_fuel_cost * fuel_multiplier
+
+        base_seg_emissions = route_emissions_kg(
+            vehicle=vehicle,
+            segment_distances_m=[d_m],
+            segment_durations_s=[t_s],
+        )
+
+        seg_duration_s = t_s * total_duration_multiplier
+        seg_extra_delay_s = max(seg_duration_s - t_s, 0.0)
+        seg_emissions = base_seg_emissions + (
+            (seg_extra_delay_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
+        )
+
+        toll_share = (seg_distance_km / distance_km) if distance_km > 0 else 0.0
+        seg_toll_cost = toll_component_total * toll_share
+        seg_time_cost = (seg_duration_s / 3600.0) * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT
+        seg_carbon_cost = seg_emissions * carbon_price
+        seg_monetary = seg_fuel_cost + seg_time_cost + seg_toll_cost + seg_carbon_cost
+
+        seg_speed_kmh = seg_distance_km / (seg_duration_s / 3600.0) if seg_duration_s > 0 else 0.0
+        segment_breakdown.append(
+            {
+                "segment_index": idx,
+                "distance_km": round(seg_distance_km, 6),
+                "duration_s": round(seg_duration_s, 6),
+                "avg_speed_kmh": round(seg_speed_kmh, 6),
+                "emissions_kg": round(seg_emissions, 6),
+                "monetary_cost": round(seg_monetary, 6),
+            }
+        )
+
+        total_duration_s += seg_duration_s
+        total_emissions += seg_emissions
+        total_monetary += seg_monetary
+
+    avg_speed_kmh = total_distance_km / (total_duration_s / 3600.0) if total_duration_s > 0 else 0.0
 
     eta_explanations: list[str] = [f"Baseline ETA {base_duration_s / 60.0:.1f} min."]
     if time_of_day_delta_s > 0.5:
@@ -409,7 +430,7 @@ def build_option(
         },
         {
             "stage": "scenario",
-            "duration_s": round(duration_s, 2),
+            "duration_s": round(total_duration_s, 2),
             "delta_s": round(scenario_delta_s, 2),
             "multiplier": round(scenario_multiplier, 3),
         },
@@ -419,14 +440,15 @@ def build_option(
         id=option_id,
         geometry=GeoJSONLineString(type="LineString", coordinates=coords),
         metrics=RouteMetrics(
-            distance_km=round(distance_km, 3),
-            duration_s=round(duration_s, 2),
-            monetary_cost=round(monetary, 2),
-            emissions_kg=round(emissions, 3),
+            distance_km=round(total_distance_km, 3),
+            duration_s=round(total_duration_s, 2),
+            monetary_cost=round(total_monetary, 2),
+            emissions_kg=round(total_emissions, 3),
             avg_speed_kmh=round(avg_speed_kmh, 2),
         ),
         eta_explanations=eta_explanations,
         eta_timeline=eta_timeline,
+        segment_breakdown=segment_breakdown,
     )
 
 

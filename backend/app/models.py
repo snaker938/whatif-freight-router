@@ -127,6 +127,7 @@ class RouteOption(BaseModel):
     is_knee: bool = False
     eta_explanations: list[str] = Field(default_factory=list)
     eta_timeline: list[dict[str, float | str]] = Field(default_factory=list)
+    segment_breakdown: list[dict[str, float | int]] = Field(default_factory=list)
 
 
 class RouteResponse(BaseModel):
