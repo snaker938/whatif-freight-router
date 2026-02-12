@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .signatures import build_signature_metadata
 from .settings import settings
 
 
@@ -18,6 +19,7 @@ def write_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
         "created_at": datetime.now(UTC).isoformat(),
         **manifest,
     }
+    enriched["signature"] = build_signature_metadata(enriched)
 
     path = out_dir / f"{run_id}.json"
     path.write_text(json.dumps(enriched, indent=2), encoding="utf-8")

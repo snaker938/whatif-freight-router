@@ -129,6 +129,19 @@ class VehicleDeleteResponse(BaseModel):
     deleted: bool
 
 
+class SignatureVerificationRequest(BaseModel):
+    payload: dict[str, object] | list[object] | str
+    signature: str = Field(..., min_length=1)
+    secret: str | None = None
+
+
+class SignatureVerificationResponse(BaseModel):
+    valid: bool
+    algorithm: str
+    signature: str
+    expected_signature: str
+
+
 class BatchParetoResult(BaseModel):
     origin: LatLng
     destination: LatLng

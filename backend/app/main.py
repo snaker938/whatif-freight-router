@@ -34,6 +34,8 @@ from .models import (
     RouteOption,
     RouteRequest,
     RouteResponse,
+    SignatureVerificationRequest,
+    SignatureVerificationResponse,
     VehicleDeleteResponse,
     VehicleListResponse,
     VehicleMutationResponse,
@@ -52,6 +54,7 @@ from .run_store import (
 )
 from .scenario import ScenarioMode, apply_scenario_duration
 from .settings import settings
+from .signatures import SIGNATURE_ALGORITHM, verify_payload_signature
 from .vehicles import (
     VehicleProfile,
     all_vehicles,
@@ -1310,6 +1313,56 @@ async def get_manifest(run_id: str):
         raise
     finally:
         _record_endpoint_metric("runs_manifest_get", t0, error=has_error)
+
+
+@app.get("/runs/{run_id}/signature")
+async def get_manifest_signature(run_id: str) -> dict[str, object]:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        path = _manifest_path_for_id(run_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="manifest not found")
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        signature = payload.get("signature")
+        if not isinstance(signature, dict):
+            raise HTTPException(status_code=404, detail="manifest signature not found")
+
+        log_event("manifest_signature_get", run_id=_validated_run_id(run_id))
+        return {"run_id": _validated_run_id(run_id), "signature": signature}
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_signature_get", t0, error=has_error)
+
+
+@app.post("/verify/signature", response_model=SignatureVerificationResponse)
+async def verify_signature(req: SignatureVerificationRequest) -> SignatureVerificationResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        valid, expected = verify_payload_signature(
+            req.payload,
+            req.signature,
+            secret=req.secret,
+        )
+        log_event("signature_verify", valid=valid)
+        return SignatureVerificationResponse(
+            valid=valid,
+            algorithm=SIGNATURE_ALGORITHM,
+            signature=req.signature.strip().lower(),
+            expected_signature=expected,
+        )
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("verify_signature_post", t0, error=has_error)
 
 
 def _artifact_path_for_id(run_id: str, artifact_name: str) -> Path:
