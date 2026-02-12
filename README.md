@@ -101,6 +101,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - expanded notation, derivations, complexity, and assumptions
 - `docs/appendix-graph-theory-notes.md`
   - graph-theory framing of current candidate-based approach and future MOSP direction
+- `docs/co2e-validation.md`
+  - reference examples validating the current CO2e formula assumptions
 
 ## Troubleshooting
 
