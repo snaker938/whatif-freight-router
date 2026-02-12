@@ -21,7 +21,7 @@ RUN if [ -f uv.lock ]; then uv sync --locked --no-dev; else uv sync --no-dev; fi
 COPY app ./app
 COPY tests ./tests
 
-RUN mkdir -p /app/out/logs /app/out/manifests
+RUN mkdir -p /app/out/logs /app/out/manifests /app/out/artifacts /app/out/benchmarks /app/out/capsule
 
 EXPOSE 8000
 CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

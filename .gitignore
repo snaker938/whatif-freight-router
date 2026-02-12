@@ -15,6 +15,12 @@ backend/out/logs/*
 !backend/out/logs/.gitkeep
 backend/out/manifests/*
 !backend/out/manifests/.gitkeep
+backend/out/artifacts/*
+!backend/out/artifacts/.gitkeep
+backend/out/benchmarks/*
+!backend/out/benchmarks/.gitkeep
+backend/out/capsule/*
+!backend/out/capsule/.gitkeep
 
 # Frontend
 frontend/node_modules/

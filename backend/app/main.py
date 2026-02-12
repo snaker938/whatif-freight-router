@@ -35,7 +35,7 @@ from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
 from .pareto import pareto_filter
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
-from .run_store import write_manifest
+from .run_store import ARTIFACT_FILES, artifact_paths_for_run, write_manifest, write_run_artifacts
 from .scenario import ScenarioMode, apply_scenario_duration
 from .settings import settings
 from .vehicles import VEHICLES, get_vehicle
@@ -776,6 +776,52 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
         _record_endpoint_metric("route", t0, error=has_error)
 
 
+def _batch_results_csv_rows(
+    req: BatchParetoRequest,
+    results: list[BatchParetoResult],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+
+    for idx, result in enumerate(results):
+        base = {
+            "pair_index": idx,
+            "origin_lat": result.origin.lat,
+            "origin_lon": result.origin.lon,
+            "destination_lat": result.destination.lat,
+            "destination_lon": result.destination.lon,
+            "error": result.error or "",
+        }
+
+        if not result.routes:
+            rows.append(
+                {
+                    **base,
+                    "route_id": "",
+                    "distance_km": "",
+                    "duration_s": "",
+                    "monetary_cost": "",
+                    "emissions_kg": "",
+                    "avg_speed_kmh": "",
+                }
+            )
+            continue
+
+        for route in result.routes:
+            rows.append(
+                {
+                    **base,
+                    "route_id": route.id,
+                    "distance_km": route.metrics.distance_km,
+                    "duration_s": route.metrics.duration_s,
+                    "monetary_cost": route.metrics.monetary_cost,
+                    "emissions_kg": route.metrics.emissions_kg,
+                    "avg_speed_kmh": route.metrics.avg_speed_kmh,
+                }
+            )
+
+    return rows
+
+
 @app.post("/batch/pareto", response_model=BatchParetoResponse)
 async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoResponse:
     run_id = str(uuid.uuid4())
@@ -832,18 +878,49 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
         duration_ms = round((time.perf_counter() - t0) * 1000, 2)
         error_count = sum(1 for r in results if r.error)
 
-        manifest_path = write_manifest(
-            run_id,
-            {
-                "type": "batch_pareto",
+        request_payload = req.model_dump(mode="json")
+        manifest_payload: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "type": "batch_pareto",
+            "request": request_payload,
+            "reproducibility": {
+                "seed": req.seed,
+                "toggles": req.toggles,
+            },
+            "model_metadata": {
+                "app_version": app.version,
+                "model_version": req.model_version or app.version,
+            },
+            "execution": {
                 "pair_count": len(req.pairs),
-                "vehicle_type": req.vehicle_type,
-                "scenario_mode": req.scenario_mode.value,
                 "max_alternatives": req.max_alternatives,
                 "batch_concurrency": settings.batch_concurrency,
                 "duration_ms": duration_ms,
                 "error_count": error_count,
             },
+        }
+        manifest_path = write_manifest(
+            run_id,
+            manifest_payload,
+        )
+
+        artifact_paths = write_run_artifacts(
+            run_id,
+            results_payload={
+                "run_id": run_id,
+                "results": [r.model_dump(mode="json") for r in results],
+            },
+            metadata_payload={
+                "run_id": run_id,
+                "schema_version": "1.0.0",
+                "manifest_endpoint": f"/runs/{run_id}/manifest",
+                "artifacts_endpoint": f"/runs/{run_id}/artifacts",
+                "artifact_names": sorted(artifact_paths_for_run(run_id)),
+                "pair_count": len(req.pairs),
+                "error_count": error_count,
+                "duration_ms": duration_ms,
+            },
+            csv_rows=_batch_results_csv_rows(req, results),
         )
 
         log_event(
@@ -855,6 +932,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             duration_ms=duration_ms,
             error_count=error_count,
             manifest=str(manifest_path),
+            artifacts=[name for name in sorted(artifact_paths)],
         )
 
         return BatchParetoResponse(run_id=run_id, results=results)
@@ -868,13 +946,16 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
         _record_endpoint_metric("batch_pareto", t0, error=has_error)
 
 
-def _manifest_path_for_id(run_id: str) -> Path:
+def _validated_run_id(run_id: str) -> str:
     try:
-        uuid.UUID(run_id)
+        return str(uuid.UUID(run_id))
     except ValueError as e:
         raise HTTPException(status_code=400, detail="invalid run_id") from e
 
-    p = Path(settings.out_dir) / "manifests" / f"{run_id}.json"
+
+def _manifest_path_for_id(run_id: str) -> Path:
+    valid_run_id = _validated_run_id(run_id)
+    p = Path(settings.out_dir) / "manifests" / f"{valid_run_id}.json"
     base = (Path(settings.out_dir) / "manifests").resolve()
     resolved = p.resolve()
 
@@ -901,3 +982,103 @@ async def get_manifest(run_id: str):
         raise
     finally:
         _record_endpoint_metric("runs_manifest_get", t0, error=has_error)
+
+
+def _artifact_path_for_id(run_id: str, artifact_name: str) -> Path:
+    valid_run_id = _validated_run_id(run_id)
+    if artifact_name not in ARTIFACT_FILES:
+        raise HTTPException(status_code=404, detail="artifact not found")
+
+    base = (Path(settings.out_dir) / "artifacts" / valid_run_id).resolve()
+    path = (base / artifact_name).resolve()
+
+    if not str(path).startswith(str(base)):
+        raise HTTPException(status_code=400, detail="invalid artifact path")
+
+    return path
+
+
+@app.get("/runs/{run_id}/artifacts")
+async def list_artifacts(run_id: str) -> dict[str, object]:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        valid_run_id = _validated_run_id(run_id)
+        paths = artifact_paths_for_run(valid_run_id)
+
+        artifacts: list[dict[str, object]] = []
+        for name in sorted(paths):
+            path = paths[name]
+            if not path.exists():
+                continue
+            artifacts.append(
+                {
+                    "name": name,
+                    "endpoint": f"/runs/{valid_run_id}/artifacts/{name}",
+                    "size_bytes": path.stat().st_size,
+                }
+            )
+
+        if not artifacts:
+            raise HTTPException(status_code=404, detail="artifacts not found")
+
+        log_event(
+            "run_artifacts_list",
+            run_id=valid_run_id,
+            artifact_count=len(artifacts),
+        )
+        return {"run_id": valid_run_id, "artifacts": artifacts}
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_artifacts_list_get", t0, error=has_error)
+
+
+async def _get_artifact_file(run_id: str, artifact_name: str) -> FileResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        path = _artifact_path_for_id(run_id, artifact_name)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="artifact not found")
+
+        media_type = "application/octet-stream"
+        if artifact_name.endswith(".json"):
+            media_type = "application/json"
+        elif artifact_name.endswith(".csv"):
+            media_type = "text/csv"
+
+        log_event(
+            "run_artifact_get",
+            run_id=_validated_run_id(run_id),
+            artifact=artifact_name,
+            size_bytes=path.stat().st_size,
+        )
+        return FileResponse(str(path), media_type=media_type, filename=artifact_name)
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_artifact_get", t0, error=has_error)
+
+
+@app.get("/runs/{run_id}/artifacts/results.json")
+async def get_artifact_results_json(run_id: str) -> FileResponse:
+    return await _get_artifact_file(run_id, "results.json")
+
+
+@app.get("/runs/{run_id}/artifacts/results.csv")
+async def get_artifact_results_csv(run_id: str) -> FileResponse:
+    return await _get_artifact_file(run_id, "results.csv")
+
+
+@app.get("/runs/{run_id}/artifacts/metadata.json")
+async def get_artifact_metadata_json(run_id: str) -> FileResponse:
+    return await _get_artifact_file(run_id, "metadata.json")
