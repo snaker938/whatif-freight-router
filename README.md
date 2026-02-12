@@ -91,6 +91,23 @@ Use this for full containerized verification. Do not run this at the same time a
   - recreates those folders with `.gitkeep`
   - use when forcing a fully clean rebuild or recovering from suspected cache corruption
 
+- `backend/scripts/benchmark_batch_pareto.py`
+  - benchmark harness with runtime/resource logs
+  - run from `backend/`:
+  - `uv run python scripts/benchmark_batch_pareto.py --mode inprocess-fake --pair-count 100 --seed 20260212`
+
+- `backend/scripts/run_headless_scenario.py`
+  - headless batch runner with artifact download
+  - run from `backend/` with JSON input:
+  - `uv run python scripts/run_headless_scenario.py --input-json ../docs/examples/sample_batch_request.json`
+  - run from `backend/` with CSV input:
+  - `uv run python scripts/run_headless_scenario.py --input-csv .\pairs.csv`
+
+- `scripts/demo_repro_run.ps1`
+  - scripted reproducibility capsule run (fixed seed and pair count)
+  - run from repo root:
+  - `.\scripts\demo_repro_run.ps1`
+
 ## Documentation
 
 - `docs/sample-manifest.md`
@@ -103,6 +120,10 @@ Use this for full containerized verification. Do not run this at the same time a
   - graph-theory framing of current candidate-based approach and future MOSP direction
 - `docs/co2e-validation.md`
   - reference examples validating the current CO2e formula assumptions
+- `docs/performance-profiling-notes.md`
+  - benchmark usage, profiling workflow, and optimization notes
+- `docs/reproducibility-capsule.md`
+  - deterministic demo run and capsule artifact workflow
 
 ## Troubleshooting
 
