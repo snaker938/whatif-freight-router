@@ -5,12 +5,13 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import Select from './components/Select';
-import { postNDJSON } from './lib/api';
+import { postJSON, postNDJSON } from './lib/api';
 import type {
   LatLng,
   ParetoStreamEvent,
   RouteOption,
   ScenarioMode,
+  ScenarioCompareResponse,
   VehicleListResponse,
   VehicleProfile,
 } from './lib/types';
@@ -47,6 +48,21 @@ type ParetoChartProps = {
 };
 
 const ParetoChart = dynamic<ParetoChartProps>(() => import('./components/ParetoChart'), {
+  ssr: false,
+  loading: () => null,
+});
+
+const EtaTimelineChart = dynamic<{ route: RouteOption | null }>(
+  () => import('./components/EtaTimelineChart'),
+  {
+    ssr: false,
+    loading: () => null,
+  },
+);
+
+const ScenarioComparison = dynamic<
+  { data: ScenarioCompareResponse | null; loading: boolean; error: string | null }
+>(() => import('./components/ScenarioComparison'), {
   ssr: false,
   loading: () => null,
 });
@@ -133,6 +149,9 @@ export default function Page() {
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [showWarnings, setShowWarnings] = useState(false);
+  const [scenarioCompare, setScenarioCompare] = useState<ScenarioCompareResponse | null>(null);
+  const [scenarioCompareLoading, setScenarioCompareLoading] = useState(false);
+  const [scenarioCompareError, setScenarioCompareError] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -219,6 +238,9 @@ export default function Page() {
     setRouteNames({});
     setEditingRouteId(null);
     setEditingName('');
+    setScenarioCompare(null);
+    setScenarioCompareError(null);
+    setScenarioCompareLoading(false);
   }, [abortActiveCompute]);
 
   const cancelCompute = useCallback(() => {
@@ -450,6 +472,9 @@ export default function Page() {
     setRouteNames({});
     setEditingRouteId(null);
     setEditingName('');
+    setScenarioCompare(null);
+    setScenarioCompareError(null);
+    setScenarioCompareLoading(false);
 
     const body = {
       origin,
@@ -534,6 +559,35 @@ export default function Page() {
     }
   }
 
+  async function compareScenarios() {
+    if (!origin || !destination) {
+      setScenarioCompareError('Set origin and destination before comparing scenarios.');
+      return;
+    }
+
+    setScenarioCompareLoading(true);
+    setScenarioCompareError(null);
+    try {
+      const body = {
+        origin,
+        destination,
+        vehicle_type: vehicleType,
+        max_alternatives: 5,
+        weights: {
+          time: weights.time,
+          money: weights.money,
+          co2: weights.co2,
+        },
+      };
+      const payload = await postJSON<ScenarioCompareResponse>('/api/scenario/compare', body);
+      setScenarioCompare(payload);
+    } catch (e: unknown) {
+      setScenarioCompareError(e instanceof Error ? e.message : 'Failed to compare scenarios');
+    } finally {
+      setScenarioCompareLoading(false);
+    }
+  }
+
   const m = selectedRoute?.metrics ?? null;
 
   const vehicleOptions = vehicles.length
@@ -574,6 +628,7 @@ export default function Page() {
   })();
 
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
+  const canCompareScenarios = Boolean(origin && destination) && !busy && !scenarioCompareLoading;
   const sidebarToggleLabel = isPanelCollapsed ? 'Extend sidebar' : 'Collapse sidebar';
 
   return (
@@ -810,6 +865,25 @@ export default function Page() {
                   </div>
                 )}
               </div>
+
+              {selectedRoute?.eta_explanations?.length ? (
+                <div style={{ marginTop: 12 }}>
+                  <div className="fieldLabel" style={{ marginBottom: 6 }}>
+                    ETA explanation
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    {selectedRoute.eta_explanations.map((item, idx) => (
+                      <li key={`${idx}-${item}`} className="tiny">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div style={{ marginTop: 12 }}>
+                <EtaTimelineChart route={selectedRoute} />
+              </div>
             </section>
           )}
 
@@ -999,6 +1073,20 @@ export default function Page() {
               )}
             </section>
           )}
+
+          <section className="card">
+            <div className="sectionTitleRow">
+              <div className="sectionTitle">Scenario comparison</div>
+              <button className="secondary" onClick={compareScenarios} disabled={!canCompareScenarios}>
+                {scenarioCompareLoading ? 'Comparing...' : 'Compare scenarios'}
+              </button>
+            </div>
+            <ScenarioComparison
+              data={scenarioCompare}
+              loading={scenarioCompareLoading}
+              error={scenarioCompareError}
+            />
+          </section>
             </div>
       </aside>
     </div>

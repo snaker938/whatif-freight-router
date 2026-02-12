@@ -19,6 +19,11 @@ export type RouteOption = {
   id: string;
   geometry: GeoJSONLineString;
   metrics: RouteMetrics;
+  knee_score?: number | null;
+  is_knee?: boolean;
+  eta_explanations?: string[];
+  eta_timeline?: Array<Record<string, string | number>>;
+  segment_breakdown?: Array<Record<string, string | number>>;
 };
 
 export type ParetoResponse = { routes: RouteOption[] };
@@ -74,3 +79,20 @@ export type VehicleProfile = {
 };
 
 export type VehicleListResponse = { vehicles: VehicleProfile[] };
+
+export type ScenarioCompareResult = {
+  scenario_mode: ScenarioMode;
+  selected: RouteOption | null;
+  candidates: RouteOption[];
+  warnings: string[];
+  fallback_used: boolean;
+  error?: string | null;
+};
+
+export type ScenarioCompareResponse = {
+  run_id: string;
+  results: ScenarioCompareResult[];
+  deltas: Record<string, Record<string, number>>;
+  scenario_manifest_endpoint: string;
+  scenario_signature_endpoint: string;
+};
