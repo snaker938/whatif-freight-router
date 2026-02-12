@@ -111,3 +111,29 @@ export type ScenarioCompareResponse = {
   scenario_manifest_endpoint: string;
   scenario_signature_endpoint: string;
 };
+
+export type ScenarioCompareRequest = {
+  origin: LatLng;
+  destination: LatLng;
+  vehicle_type?: string;
+  weights?: { time: number; money: number; co2: number };
+  max_alternatives?: number;
+  cost_toggles?: CostToggles;
+  terrain_profile?: TerrainProfile;
+  departure_time_utc?: string;
+  pareto_method?: ParetoMethod;
+  epsilon?: EpsilonConstraints;
+};
+
+export type ExperimentBundle = {
+  id: string;
+  name: string;
+  description?: string | null;
+  request: ScenarioCompareRequest;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExperimentListResponse = {
+  experiments: ExperimentBundle[];
+};

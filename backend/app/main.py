@@ -18,6 +18,13 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
+from .experiment_store import (
+    create_experiment,
+    delete_experiment,
+    get_experiment,
+    list_experiments,
+    update_experiment,
+)
 from .fallback_store import load_route_snapshot, save_route_snapshot
 from .gradient import gradient_multipliers
 from .logging_utils import log_event
@@ -30,6 +37,10 @@ from .models import (
     CostToggles,
     CustomVehicleListResponse,
     EpsilonConstraints,
+    ExperimentBundle,
+    ExperimentBundleInput,
+    ExperimentCompareRequest,
+    ExperimentListResponse,
     GeoJSONLineString,
     LatLng,
     ParetoMethod,
@@ -1112,6 +1123,92 @@ def _scenario_metric_deltas(
     }
 
 
+async def _run_scenario_compare(
+    req: ScenarioCompareRequest,
+    osrm: OSRMClient,
+) -> tuple[list[ScenarioCompareResult], dict[str, dict[str, float]]]:
+    scenario_modes = [
+        ScenarioMode.NO_SHARING,
+        ScenarioMode.PARTIAL_SHARING,
+        ScenarioMode.FULL_SHARING,
+    ]
+    results: list[ScenarioCompareResult] = []
+
+    for scenario_mode in scenario_modes:
+        cache_key = _candidate_cache_key(
+            origin=req.origin,
+            destination=req.destination,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=scenario_mode,
+            max_routes=req.max_alternatives,
+            cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
+            departure_time_utc=req.departure_time_utc,
+        )
+        routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=req.origin,
+            destination=req.destination,
+            max_routes=req.max_alternatives,
+            cache_key=cache_key,
+        )
+        options, build_warnings = _build_options(
+            routes,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=scenario_mode,
+            cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
+            departure_time_utc=req.departure_time_utc,
+            option_prefix=f"scenario_{scenario_mode.value}",
+        )
+        warnings.extend(build_warnings)
+
+        if not options:
+            results.append(
+                ScenarioCompareResult(
+                    scenario_mode=scenario_mode,
+                    selected=None,
+                    candidates=[],
+                    warnings=warnings,
+                    fallback_used=fallback_used,
+                    error="No route candidates could be computed.",
+                )
+            )
+            continue
+
+        pareto_options = _finalize_pareto_options(
+            options,
+            max_alternatives=req.max_alternatives,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+        )
+        selected = pick_best_by_weighted_sum(
+            pareto_options,
+            w_time=req.weights.time,
+            w_money=req.weights.money,
+            w_co2=req.weights.co2,
+        )
+        results.append(
+            ScenarioCompareResult(
+                scenario_mode=scenario_mode,
+                selected=selected,
+                candidates=pareto_options,
+                warnings=warnings,
+                fallback_used=fallback_used,
+            )
+        )
+
+    baseline = next(
+        (item.selected for item in results if item.scenario_mode == ScenarioMode.NO_SHARING),
+        None,
+    )
+    deltas: dict[str, dict[str, float]] = {}
+    for item in results:
+        deltas[item.scenario_mode.value] = _scenario_metric_deltas(baseline, item.selected)
+
+    return results, deltas
+
+
 @app.post("/scenario/compare", response_model=ScenarioCompareResponse)
 async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> ScenarioCompareResponse:
     run_id = str(uuid.uuid4())
@@ -1119,84 +1216,7 @@ async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> Scena
     has_error = False
 
     try:
-        scenario_modes = [
-            ScenarioMode.NO_SHARING,
-            ScenarioMode.PARTIAL_SHARING,
-            ScenarioMode.FULL_SHARING,
-        ]
-        results: list[ScenarioCompareResult] = []
-
-        for scenario_mode in scenario_modes:
-            cache_key = _candidate_cache_key(
-                origin=req.origin,
-                destination=req.destination,
-                vehicle_type=req.vehicle_type,
-                scenario_mode=scenario_mode,
-                max_routes=req.max_alternatives,
-                cost_toggles=req.cost_toggles,
-                terrain_profile=req.terrain_profile,
-                departure_time_utc=req.departure_time_utc,
-            )
-            routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
-                osrm=osrm,
-                origin=req.origin,
-                destination=req.destination,
-                max_routes=req.max_alternatives,
-                cache_key=cache_key,
-            )
-            options, build_warnings = _build_options(
-                routes,
-                vehicle_type=req.vehicle_type,
-                scenario_mode=scenario_mode,
-                cost_toggles=req.cost_toggles,
-                terrain_profile=req.terrain_profile,
-                departure_time_utc=req.departure_time_utc,
-                option_prefix=f"scenario_{scenario_mode.value}",
-            )
-            warnings.extend(build_warnings)
-
-            if not options:
-                results.append(
-                    ScenarioCompareResult(
-                        scenario_mode=scenario_mode,
-                        selected=None,
-                        candidates=[],
-                        warnings=warnings,
-                        fallback_used=fallback_used,
-                        error="No route candidates could be computed.",
-                    )
-                )
-                continue
-
-            pareto_options = _finalize_pareto_options(
-                options,
-                max_alternatives=req.max_alternatives,
-                pareto_method=req.pareto_method,
-                epsilon=req.epsilon,
-            )
-            selected = pick_best_by_weighted_sum(
-                pareto_options,
-                w_time=req.weights.time,
-                w_money=req.weights.money,
-                w_co2=req.weights.co2,
-            )
-            results.append(
-                ScenarioCompareResult(
-                    scenario_mode=scenario_mode,
-                    selected=selected,
-                    candidates=pareto_options,
-                    warnings=warnings,
-                    fallback_used=fallback_used,
-                )
-            )
-
-        baseline = next(
-            (item.selected for item in results if item.scenario_mode == ScenarioMode.NO_SHARING),
-            None,
-        )
-        deltas: dict[str, dict[str, float]] = {}
-        for item in results:
-            deltas[item.scenario_mode.value] = _scenario_metric_deltas(baseline, item.selected)
+        results, deltas = await _run_scenario_compare(req=req, osrm=osrm)
 
         manifest_payload = {
             "schema_version": "1.0.0",
@@ -1238,6 +1258,158 @@ async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> Scena
         raise
     finally:
         _record_endpoint_metric("scenario_compare_post", t0, error=has_error)
+
+
+@app.get("/experiments", response_model=ExperimentListResponse)
+async def get_experiments() -> ExperimentListResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        return ExperimentListResponse(experiments=list_experiments())
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("experiments_get", t0, error=has_error)
+
+
+@app.post("/experiments", response_model=ExperimentBundle)
+async def post_experiment(payload: ExperimentBundleInput) -> ExperimentBundle:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        bundle, path = create_experiment(payload)
+        log_event("experiment_create", experiment_id=bundle.id, path=str(path))
+        return bundle
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("experiments_post", t0, error=has_error)
+
+
+@app.get("/experiments/{experiment_id}", response_model=ExperimentBundle)
+async def get_experiment_by_id(experiment_id: str) -> ExperimentBundle:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        return get_experiment(experiment_id)
+    except KeyError as e:
+        has_error = True
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        has_error = True
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("experiments_id_get", t0, error=has_error)
+
+
+@app.put("/experiments/{experiment_id}", response_model=ExperimentBundle)
+async def put_experiment(experiment_id: str, payload: ExperimentBundleInput) -> ExperimentBundle:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        bundle, path = update_experiment(experiment_id, payload)
+        log_event("experiment_update", experiment_id=bundle.id, path=str(path))
+        return bundle
+    except KeyError as e:
+        has_error = True
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        has_error = True
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("experiments_id_put", t0, error=has_error)
+
+
+@app.delete("/experiments/{experiment_id}")
+async def delete_experiment_by_id(experiment_id: str) -> dict[str, object]:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        deleted_id, index_path = delete_experiment(experiment_id)
+        log_event("experiment_delete", experiment_id=deleted_id, index_path=str(index_path))
+        return {"experiment_id": deleted_id, "deleted": True}
+    except KeyError as e:
+        has_error = True
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        has_error = True
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("experiments_id_delete", t0, error=has_error)
+
+
+@app.post("/experiments/{experiment_id}/compare", response_model=ScenarioCompareResponse)
+async def replay_experiment_compare(
+    experiment_id: str,
+    payload: ExperimentCompareRequest,
+    osrm: OSRMDep,
+) -> ScenarioCompareResponse:
+    t0 = time.perf_counter()
+    has_error = False
+
+    try:
+        bundle = get_experiment(experiment_id)
+        request_data = bundle.request.model_dump(mode="json")
+        if payload.overrides:
+            request_data.update(payload.overrides)
+        req = ScenarioCompareRequest.model_validate(request_data)
+
+        run_id = str(uuid.uuid4())
+        results, deltas = await _run_scenario_compare(req=req, osrm=osrm)
+
+        manifest_payload = {
+            "schema_version": "1.0.0",
+            "type": "scenario_compare",
+            "source": {"experiment_id": bundle.id, "experiment_name": bundle.name},
+            "request": req.model_dump(mode="json"),
+            "results": [item.model_dump(mode="json") for item in results],
+            "deltas": deltas,
+            "execution": {
+                "duration_ms": round((time.perf_counter() - t0) * 1000.0, 3),
+                "scenario_count": len(results),
+                "terrain_profile": req.terrain_profile,
+            },
+        }
+        scenario_manifest = write_scenario_manifest(run_id, manifest_payload)
+        log_event(
+            "experiment_compare_replay",
+            experiment_id=bundle.id,
+            run_id=run_id,
+            scenario_manifest=str(scenario_manifest),
+        )
+
+        return ScenarioCompareResponse(
+            run_id=run_id,
+            results=results,
+            deltas=deltas,
+            scenario_manifest_endpoint=f"/runs/{run_id}/scenario-manifest",
+            scenario_signature_endpoint=f"/runs/{run_id}/scenario-signature",
+        )
+    except KeyError as e:
+        has_error = True
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        has_error = True
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("experiments_compare_post", t0, error=has_error)
 
 
 def _batch_results_csv_rows(

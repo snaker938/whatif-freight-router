@@ -215,3 +215,26 @@ class ScenarioCompareResponse(BaseModel):
     deltas: dict[str, dict[str, float]]
     scenario_manifest_endpoint: str
     scenario_signature_endpoint: str
+
+
+class ExperimentBundleInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    request: ScenarioCompareRequest
+
+
+class ExperimentBundle(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    request: ScenarioCompareRequest
+    created_at: str
+    updated_at: str
+
+
+class ExperimentListResponse(BaseModel):
+    experiments: list[ExperimentBundle]
+
+
+class ExperimentCompareRequest(BaseModel):
+    overrides: dict[str, object] = Field(default_factory=dict)

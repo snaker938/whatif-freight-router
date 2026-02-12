@@ -31,6 +31,8 @@ backend/out/offline/*
 !backend/out/offline/.gitkeep
 backend/out/analysis/*
 !backend/out/analysis/.gitkeep
+backend/out/experiments/*
+!backend/out/experiments/.gitkeep
 
 # Frontend
 frontend/node_modules/

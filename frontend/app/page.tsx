@@ -9,12 +9,15 @@ import { postJSON, postNDJSON } from './lib/api';
 import type {
   CostToggles,
   EpsilonConstraints,
+  ExperimentBundle,
+  ExperimentListResponse,
   LatLng,
   ParetoMethod,
   ParetoStreamEvent,
   RouteOption,
   ScenarioMode,
   ScenarioCompareResponse,
+  ScenarioCompareRequest,
   TerrainProfile,
   VehicleListResponse,
   VehicleProfile,
@@ -83,6 +86,24 @@ const SegmentBreakdown = dynamic<{ route: RouteOption | null }>(
 const ScenarioParameterEditor = dynamic<
   { value: ScenarioAdvancedParams; onChange: (next: ScenarioAdvancedParams) => void; disabled: boolean; validationError: string | null }
 >(() => import('./components/ScenarioParameterEditor'), {
+  ssr: false,
+  loading: () => null,
+});
+
+const ExperimentManager = dynamic<
+  {
+    experiments: ExperimentBundle[];
+    loading: boolean;
+    error: string | null;
+    canSave: boolean;
+    disabled: boolean;
+    onRefresh: () => void;
+    onSave: (name: string, description: string) => Promise<void> | void;
+    onLoad: (bundle: ExperimentBundle) => void;
+    onDelete: (experimentId: string) => Promise<void> | void;
+    onReplay: (experimentId: string) => Promise<void> | void;
+  }
+>(() => import('./components/ExperimentManager'), {
   ssr: false,
   loading: () => null,
 });
@@ -187,6 +208,9 @@ export default function Page() {
   const [scenarioCompare, setScenarioCompare] = useState<ScenarioCompareResponse | null>(null);
   const [scenarioCompareLoading, setScenarioCompareLoading] = useState(false);
   const [scenarioCompareError, setScenarioCompareError] = useState<string | null>(null);
+  const [experiments, setExperiments] = useState<ExperimentBundle[]>([]);
+  const [experimentsLoading, setExperimentsLoading] = useState(false);
+  const [experimentsError, setExperimentsError] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -318,6 +342,10 @@ export default function Page() {
     })();
 
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    void loadExperiments();
   }, []);
 
   useEffect(() => {
@@ -590,6 +618,22 @@ export default function Page() {
     return patch;
   }
 
+  function buildScenarioCompareRequest(originPoint: LatLng, destinationPoint: LatLng): ScenarioCompareRequest {
+    const advancedPatch = buildAdvancedRequestPatch();
+    return {
+      origin: originPoint,
+      destination: destinationPoint,
+      vehicle_type: vehicleType,
+      max_alternatives: 5,
+      weights: {
+        time: weights.time,
+        money: weights.money,
+        co2: weights.co2,
+      },
+      ...advancedPatch,
+    };
+  }
+
   async function computePareto() {
     if (!origin || !destination) {
       setError('Click the map to set Start, then Destination.');
@@ -724,10 +768,10 @@ export default function Page() {
       return;
     }
 
-    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    let requestBody: ScenarioCompareRequest;
     try {
       setAdvancedError(null);
-      advancedPatch = buildAdvancedRequestPatch();
+      requestBody = buildScenarioCompareRequest(origin, destination);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
       setAdvancedError(msg);
@@ -738,22 +782,116 @@ export default function Page() {
     setScenarioCompareLoading(true);
     setScenarioCompareError(null);
     try {
-      const body = {
-        origin,
-        destination,
-        vehicle_type: vehicleType,
-        max_alternatives: 5,
-        weights: {
-          time: weights.time,
-          money: weights.money,
-          co2: weights.co2,
-        },
-        ...advancedPatch,
-      };
-      const payload = await postJSON<ScenarioCompareResponse>('/api/scenario/compare', body);
+      const payload = await postJSON<ScenarioCompareResponse>('/api/scenario/compare', requestBody);
       setScenarioCompare(payload);
     } catch (e: unknown) {
       setScenarioCompareError(e instanceof Error ? e.message : 'Failed to compare scenarios');
+    } finally {
+      setScenarioCompareLoading(false);
+    }
+  }
+
+  function toDatetimeLocalValue(isoUtc: string | undefined): string {
+    if (!isoUtc) return '';
+    const dt = new Date(isoUtc);
+    if (Number.isNaN(dt.getTime())) return '';
+    return dt.toISOString().slice(0, 16);
+  }
+
+  function applyScenarioRequestToState(req: ScenarioCompareRequest) {
+    setOrigin(req.origin);
+    setDestination(req.destination);
+    if (req.vehicle_type) {
+      setVehicleType(req.vehicle_type);
+    }
+    if (req.weights) {
+      setWeights({
+        time: Number(req.weights.time ?? 60),
+        money: Number(req.weights.money ?? 20),
+        co2: Number(req.weights.co2 ?? 20),
+      });
+    }
+
+    const cost = req.cost_toggles;
+    setAdvancedParams({
+      paretoMethod: req.pareto_method ?? 'dominance',
+      epsilonDurationS: req.epsilon?.duration_s !== undefined ? String(req.epsilon.duration_s) : '',
+      epsilonMonetaryCost:
+        req.epsilon?.monetary_cost !== undefined ? String(req.epsilon.monetary_cost) : '',
+      epsilonEmissionsKg: req.epsilon?.emissions_kg !== undefined ? String(req.epsilon.emissions_kg) : '',
+      departureTimeUtcLocal: toDatetimeLocalValue(req.departure_time_utc),
+      useTolls: cost?.use_tolls ?? true,
+      fuelPriceMultiplier: String(cost?.fuel_price_multiplier ?? 1.0),
+      carbonPricePerKg: String(cost?.carbon_price_per_kg ?? 0.0),
+      tollCostPerKm: String(cost?.toll_cost_per_km ?? 0.0),
+      terrainProfile: req.terrain_profile ?? 'flat',
+    });
+  }
+
+  async function loadExperiments() {
+    setExperimentsLoading(true);
+    setExperimentsError(null);
+    try {
+      const payload = await fetch('/api/experiments', { cache: 'no-store' });
+      if (!payload.ok) {
+        throw new Error(await payload.text());
+      }
+      const parsed = (await payload.json()) as ExperimentListResponse;
+      setExperiments(Array.isArray(parsed.experiments) ? parsed.experiments : []);
+    } catch (e: unknown) {
+      setExperimentsError(e instanceof Error ? e.message : 'Failed to load experiments');
+    } finally {
+      setExperimentsLoading(false);
+    }
+  }
+
+  async function saveCurrentExperiment(name: string, description: string) {
+    if (!origin || !destination) {
+      setExperimentsError('Set origin and destination before saving an experiment.');
+      return;
+    }
+    try {
+      setExperimentsError(null);
+      const request = buildScenarioCompareRequest(origin, destination);
+      await postJSON<ExperimentBundle>('/api/experiments', {
+        name,
+        description: description || null,
+        request,
+      });
+      await loadExperiments();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to save experiment';
+      setAdvancedError(msg);
+      setExperimentsError(msg);
+    }
+  }
+
+  async function deleteExperimentById(experimentId: string) {
+    try {
+      setExperimentsError(null);
+      const resp = await fetch(`/api/experiments/${experimentId}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+      await loadExperiments();
+    } catch (e: unknown) {
+      setExperimentsError(e instanceof Error ? e.message : 'Failed to delete experiment');
+    }
+  }
+
+  async function replayExperimentById(experimentId: string) {
+    setScenarioCompareLoading(true);
+    setScenarioCompareError(null);
+    try {
+      const payload = await postJSON<ScenarioCompareResponse>(`/api/experiments/${experimentId}/compare`, {
+        overrides: {},
+      });
+      setScenarioCompare(payload);
+    } catch (e: unknown) {
+      setScenarioCompareError(e instanceof Error ? e.message : 'Failed to replay experiment');
     } finally {
       setScenarioCompareLoading(false);
     }
@@ -800,6 +938,7 @@ export default function Page() {
 
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
   const canCompareScenarios = Boolean(origin && destination) && !busy && !scenarioCompareLoading;
+  const canSaveExperiment = Boolean(origin && destination) && !busy;
   const sidebarToggleLabel = isPanelCollapsed ? 'Extend sidebar' : 'Collapse sidebar';
 
   return (
@@ -1271,6 +1410,24 @@ export default function Page() {
               error={scenarioCompareError}
             />
           </section>
+
+          <ExperimentManager
+            experiments={experiments}
+            loading={experimentsLoading}
+            error={experimentsError}
+            canSave={canSaveExperiment}
+            disabled={busy}
+            onRefresh={() => {
+              void loadExperiments();
+            }}
+            onSave={saveCurrentExperiment}
+            onLoad={(bundle) => {
+              applyScenarioRequestToState(bundle.request);
+              clearComputed();
+            }}
+            onDelete={deleteExperimentById}
+            onReplay={replayExperimentById}
+          />
             </div>
       </aside>
     </div>
