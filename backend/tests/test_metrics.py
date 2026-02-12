@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app, osrm_client
 from app.metrics_store import reset_metrics
+from app.route_cache import clear_route_cache
 from app.routing_osrm import OSRMError
 
 
@@ -40,6 +41,7 @@ class FailingOSRM:
 
 def test_metrics_endpoint_tracks_successful_core_requests() -> None:
     reset_metrics()
+    clear_route_cache()
     app.dependency_overrides[osrm_client] = lambda: SuccessOSRM()
     try:
         with TestClient(app) as client:
@@ -79,6 +81,7 @@ def test_metrics_endpoint_tracks_successful_core_requests() -> None:
 
 def test_metrics_endpoint_tracks_handler_errors() -> None:
     reset_metrics()
+    clear_route_cache()
     app.dependency_overrides[osrm_client] = lambda: FailingOSRM()
     try:
         with TestClient(app) as client:

@@ -38,6 +38,7 @@ from .models import (
 from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
 from .pareto import pareto_filter
+from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import ARTIFACT_FILES, artifact_paths_for_run, write_manifest, write_run_artifacts
 from .scenario import ScenarioMode, apply_scenario_duration
@@ -175,7 +176,29 @@ async def delete_vehicle_profile(vehicle_id: str) -> VehicleDeleteResponse:
 
 @app.get("/metrics")
 async def get_metrics() -> dict[str, object]:
-    return metrics_snapshot()
+    payload = metrics_snapshot()
+    payload["route_cache"] = route_cache_stats()
+    return payload
+
+
+@app.get("/cache/stats")
+async def get_cache_stats() -> dict[str, int]:
+    return route_cache_stats()
+
+
+@app.delete("/cache")
+async def delete_cache() -> dict[str, int]:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        cleared = clear_route_cache()
+        log_event("route_cache_clear", cleared=cleared)
+        return {"cleared": cleared}
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("cache_delete", t0, error=has_error)
 
 
 def _record_endpoint_metric(endpoint: str, t0: float, *, error: bool = False) -> None:
@@ -354,6 +377,27 @@ def _route_signature(route: dict[str, Any]) -> str:
     parts = [f"{lon:.4f},{lat:.4f}" for lon, lat in sample]
     s = "|".join(parts)
     return hashlib.sha1(s.encode("utf-8")).hexdigest()
+
+
+def _candidate_cache_key(
+    *,
+    origin: LatLng,
+    destination: LatLng,
+    vehicle_type: str,
+    scenario_mode: ScenarioMode,
+    max_routes: int,
+    cost_toggles: CostToggles,
+) -> str:
+    payload = {
+        "origin": {"lat": round(origin.lat, 6), "lon": round(origin.lon, 6)},
+        "destination": {"lat": round(destination.lat, 6), "lon": round(destination.lon, 6)},
+        "vehicle_type": vehicle_type,
+        "scenario_mode": scenario_mode.value,
+        "max_routes": max_routes,
+        "cost_toggles": cost_toggles.model_dump(mode="json"),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
 
 
 def _candidate_via_points(origin: LatLng, destination: LatLng) -> list[tuple[float, float]]:
@@ -582,7 +626,13 @@ async def _collect_candidate_routes(
     origin: LatLng,
     destination: LatLng,
     max_routes: int,
+    cache_key: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], int]:
+    if cache_key:
+        cached = get_cached_routes(cache_key)
+        if cached is not None:
+            return cached
+
     specs = _candidate_fetch_specs(origin=origin, destination=destination, max_routes=max_routes)
     warnings: list[str] = []
     unique_raw_routes: list[dict[str, Any]] = []
@@ -611,7 +661,10 @@ async def _collect_candidate_routes(
             unique_raw_routes.append(route)
 
     ranked_routes = _select_ranked_candidate_routes(unique_raw_routes, max_routes=max_routes)
-    return ranked_routes, warnings, len(specs)
+    out = (ranked_routes, warnings, len(specs))
+    if cache_key:
+        set_cached_routes(cache_key, out)
+    return out
 
 
 @app.post("/pareto", response_model=ParetoResponse)
@@ -620,11 +673,20 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
     t0 = time.perf_counter()
     has_error = False
     try:
+        cache_key = _candidate_cache_key(
+            origin=req.origin,
+            destination=req.destination,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode,
+            max_routes=req.max_alternatives,
+            cost_toggles=req.cost_toggles,
+        )
         routes, warnings, candidate_fetches = await _collect_candidate_routes(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
             max_routes=req.max_alternatives,
+            cache_key=cache_key,
         )
 
         options, build_warnings = _build_options(
@@ -826,11 +888,20 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
     t0 = time.perf_counter()
     has_error = False
     try:
+        cache_key = _candidate_cache_key(
+            origin=req.origin,
+            destination=req.destination,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode,
+            max_routes=5,
+            cost_toggles=req.cost_toggles,
+        )
         routes, warnings, candidate_fetches = await _collect_candidate_routes(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
             max_routes=5,
+            cache_key=cache_key,
         )
 
         options, build_warnings = _build_options(
