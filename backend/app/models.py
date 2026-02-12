@@ -48,6 +48,11 @@ class EpsilonConstraints(BaseModel):
     emissions_kg: float | None = Field(default=None, ge=0.0)
 
 
+class TimeWindowConstraints(BaseModel):
+    earliest_arrival_utc: datetime | None = None
+    latest_arrival_utc: datetime | None = None
+
+
 class GeoJSONLineString(BaseModel):
     type: Literal["LineString"]
     coordinates: list[tuple[float, float]]  # [lon, lat]
@@ -229,6 +234,7 @@ class DepartureOptimizeRequest(BaseModel):
     terrain_profile: TerrainProfile = "flat"
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
+    time_window: TimeWindowConstraints | None = None
     window_start_utc: datetime
     window_end_utc: datetime
     step_minutes: int = Field(default=60, ge=5, le=720)

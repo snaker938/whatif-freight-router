@@ -1227,6 +1227,31 @@ async def optimize_departure_time(
         if end_utc <= start_utc:
             raise HTTPException(status_code=422, detail="window_end_utc must be after window_start_utc")
 
+        earliest_arrival_utc: datetime | None = None
+        latest_arrival_utc: datetime | None = None
+        if req.time_window is not None:
+            earliest_arrival_utc = req.time_window.earliest_arrival_utc
+            latest_arrival_utc = req.time_window.latest_arrival_utc
+            if earliest_arrival_utc is not None:
+                if earliest_arrival_utc.tzinfo is None:
+                    earliest_arrival_utc = earliest_arrival_utc.replace(tzinfo=timezone.utc)
+                else:
+                    earliest_arrival_utc = earliest_arrival_utc.astimezone(timezone.utc)
+            if latest_arrival_utc is not None:
+                if latest_arrival_utc.tzinfo is None:
+                    latest_arrival_utc = latest_arrival_utc.replace(tzinfo=timezone.utc)
+                else:
+                    latest_arrival_utc = latest_arrival_utc.astimezone(timezone.utc)
+            if (
+                earliest_arrival_utc is not None
+                and latest_arrival_utc is not None
+                and latest_arrival_utc < earliest_arrival_utc
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="time_window.latest_arrival_utc must be >= earliest_arrival_utc",
+                )
+
         departure_times: list[datetime] = []
         cursor = start_utc
         step = timedelta(minutes=req.step_minutes)
@@ -1280,16 +1305,24 @@ async def optimize_departure_time(
                 w_money=req.weights.money,
                 w_co2=req.weights.co2,
             )
+            arrival_utc = departure_time + timedelta(seconds=selected.metrics.duration_s)
+            if earliest_arrival_utc is not None and arrival_utc < earliest_arrival_utc:
+                continue
+            if latest_arrival_utc is not None and arrival_utc > latest_arrival_utc:
+                continue
             selected_rows.append(
                 {
                     "departure_time_utc": departure_time,
                     "selected": selected,
+                    "arrival_time_utc": arrival_utc,
                     "warning_count": len(warnings),
                     "fallback_used": fallback_used,
                 }
             )
 
         if not selected_rows:
+            if req.time_window is not None:
+                raise HTTPException(status_code=422, detail="no feasible departures for provided time window")
             raise HTTPException(status_code=502, detail="No departure candidates could be computed.")
 
         durations = [row["selected"].metrics.duration_s for row in selected_rows]
@@ -1333,6 +1366,22 @@ async def optimize_departure_time(
             step_minutes=req.step_minutes,
             window_start_utc=start_utc.isoformat().replace("+00:00", "Z"),
             window_end_utc=end_utc.isoformat().replace("+00:00", "Z"),
+            time_window=(
+                {
+                    "earliest_arrival_utc": (
+                        earliest_arrival_utc.isoformat().replace("+00:00", "Z")
+                        if earliest_arrival_utc is not None
+                        else None
+                    ),
+                    "latest_arrival_utc": (
+                        latest_arrival_utc.isoformat().replace("+00:00", "Z")
+                        if latest_arrival_utc is not None
+                        else None
+                    ),
+                }
+                if req.time_window is not None
+                else None
+            ),
             evaluated_count=len(candidates),
             best_departure_time_utc=best.departure_time_utc if best else None,
             duration_ms=round((time.perf_counter() - t0) * 1000.0, 2),
