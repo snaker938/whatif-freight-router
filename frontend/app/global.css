@@ -358,6 +358,17 @@ a {
     flex: 1;
   }
 
+  .row.row--actions {
+    flex-wrap: wrap;
+  }
+
+  .buttonLabel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
   button {
     width: 100%;
     padding: 12px 14px;
@@ -401,6 +412,23 @@ a {
 
   button.secondary {
     background: rgba(0, 0, 0, 0.22);
+  }
+
+  .ghostButton {
+    width: auto;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+  }
+
+  .ghostButton:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: rgba(6, 182, 212, 0.45);
+    background: rgba(6, 182, 212, 0.12);
   }
 
   .error {
@@ -454,6 +482,51 @@ a {
 
   /* ---------- Route list ---------- */
 
+  .routesSection {
+    position: relative;
+  }
+
+  .routesSection.isUpdating::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 18px;
+    pointer-events: none;
+    border: 1px solid rgba(6, 182, 212, 0.28);
+    background: linear-gradient(90deg, rgba(6, 182, 212, 0.08), rgba(124, 58, 237, 0.08));
+  }
+
+  .sectionTitleRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .sectionTitleMeta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .statusPill,
+  .warningPill {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .warningPill {
+    border-color: rgba(245, 158, 11, 0.34);
+    background: rgba(245, 158, 11, 0.14);
+    color: rgba(255, 226, 170, 0.95);
+  }
+
   .routeList {
     list-style: none;
     padding: 0;
@@ -462,12 +535,13 @@ a {
     gap: 10px;
   }
 
-  .routeList li {
+  .routeList > li:not(.routeCard) {
     margin: 0;
     padding: 0;
   }
 
   .routeCard {
+    margin: 0;
     text-align: left;
     padding: 12px;
     border-radius: 18px;
@@ -476,6 +550,18 @@ a {
     background: rgba(0, 0, 0, 0.2);
 
     box-shadow: 0 14px 34px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease,
+      border-color 150ms ease,
+      background 150ms ease;
+  }
+
+  .routeCard:focus-visible {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.7);
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.2);
   }
 
   .routeCard:hover {
@@ -495,10 +581,36 @@ a {
     gap: 10px;
   }
 
+  .routeCard__titleWrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
   .routeCard__id {
     font-family: var(--font-space), var(--font-inter), system-ui;
     font-size: 14px;
     letter-spacing: -0.02em;
+    min-width: 0;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .routeCard__renameBtn {
+    width: auto;
+    padding: 4px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: none;
+  }
+
+  .routeCard__renameBtn:hover {
+    transform: none;
+    box-shadow: none;
   }
 
   .routeCard__pill {
@@ -521,6 +633,99 @@ a {
     color: rgba(255, 255, 255, 0.7);
   }
 
+  .routeRename {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .routeRename__input {
+    min-width: 120px;
+    width: 170px;
+    max-width: 100%;
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(0, 0, 0, 0.28);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .routeRename__input:focus {
+    border-color: rgba(6, 182, 212, 0.6);
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.14);
+  }
+
+  .routeRename__btn {
+    width: auto;
+    padding: 6px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    box-shadow: none;
+  }
+
+  .routeRename__btn:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .routeRename__btn--secondary {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .routesSkeleton {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .routeSkeleton {
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .routeSkeleton__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .routeSkeleton__line {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    height: 12px;
+  }
+
+  .routeSkeleton__line--title {
+    width: 42%;
+  }
+
+  .routeSkeleton__line--pill {
+    width: 22%;
+  }
+
+  .routeSkeleton__line--meta {
+    width: 58%;
+    margin-top: 10px;
+  }
+
+  .shimmer {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0.16) 35%,
+      rgba(255, 255, 255, 0.08) 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
   /* ---------- Map HUD ---------- */
 
   .mapHUD {
@@ -530,6 +735,45 @@ a {
     display: grid;
     gap: 10px;
     pointer-events: none;
+  }
+
+  .mapHUD__status {
+    width: min(360px, calc(100vw - 32px));
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 12, 20, 0.56);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .mapHUD__statusLine {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .hudProgress {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .hudProgress__fill {
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.95), rgba(6, 182, 212, 0.95));
+    transition: width 200ms ease;
   }
 
   .mapHUD__brand {
@@ -847,6 +1091,44 @@ a {
   @keyframes routeDash {
     to {
       stroke-dashoffset: -30;
+    }
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: rgba(6, 182, 212, 0.95);
+    border-right-color: rgba(124, 58, 237, 0.95);
+    animation: spin 0.85s linear infinite;
+    flex: 0 0 auto;
+  }
+
+  .spinner--inline {
+    width: 12px;
+    height: 12px;
+    border-width: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
   }
 

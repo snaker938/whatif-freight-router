@@ -20,6 +20,7 @@ import {
 import type { LatLng, RouteOption } from '../lib/types';
 
 export type MarkerKind = 'origin' | 'destination';
+const MAX_POLYLINE_POINTS = 1000;
 
 type Props = {
   origin: LatLng | null;
@@ -203,6 +204,28 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
+function downsamplePolyline(
+  coords: [number, number][],
+  maxPoints: number = MAX_POLYLINE_POINTS,
+): [number, number][] {
+  if (maxPoints < 2 || coords.length <= maxPoints) return coords;
+
+  const lastIdx = coords.length - 1;
+  const stride = lastIdx / (maxPoints - 1);
+  const out: [number, number][] = [coords[0]];
+  let prevIdx = 0;
+
+  for (let i = 1; i < maxPoints - 1; i += 1) {
+    let idx = Math.round(i * stride);
+    idx = Math.min(lastIdx - 1, Math.max(prevIdx + 1, idx));
+    out.push(coords[idx]);
+    prevIdx = idx;
+  }
+
+  out.push(coords[lastIdx]);
+  return out;
+}
+
 export default function MapView({
   origin,
   destination,
@@ -250,7 +273,9 @@ export default function MapView({
   }, [selectedMarker]);
 
   const polylinePositions: LatLngExpression[] = useMemo(() => {
-    return route?.geometry?.coordinates?.map(([lon, lat]) => [lat, lon] as [number, number]) ?? [];
+    const coords = route?.geometry?.coordinates ?? [];
+    const slim = downsamplePolyline(coords);
+    return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
   }, [route]);
 
   // Default center: Birmingham-ish (West Midlands)

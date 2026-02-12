@@ -10,14 +10,16 @@ ChartJS.register(LinearScale, PointElement, Tooltip, Legend, Title);
 type Props = {
   routes: RouteOption[];
   selectedId: string | null;
+  labelsById: Record<string, string>;
   onSelect: (routeId: string) => void;
 };
 
-export default function ParetoChart({ routes, selectedId, onSelect }: Props) {
+export default function ParetoChart({ routes, selectedId, labelsById, onSelect }: Props) {
   const points = routes.map((r) => ({
     x: r.metrics.duration_s / 60.0,
     y: r.metrics.emissions_kg,
     id: r.id,
+    label: labelsById[r.id] ?? r.id,
     money: r.metrics.monetary_cost,
   }));
 
@@ -51,6 +53,10 @@ export default function ParetoChart({ routes, selectedId, onSelect }: Props) {
       },
       tooltip: {
         callbacks: {
+          title: (items: any[]) => {
+            const raw = items?.[0]?.raw;
+            return raw?.label ?? raw?.id ?? 'Route';
+          },
           label: (context: any) => {
             const raw = context.raw;
             return `time=${raw.x.toFixed(1)} min, CO₂=${raw.y.toFixed(3)} kg, £=${raw.money.toFixed(2)}`;

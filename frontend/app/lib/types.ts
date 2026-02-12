@@ -23,6 +23,46 @@ export type RouteOption = {
 
 export type ParetoResponse = { routes: RouteOption[] };
 
+export type ParetoStreamMetaEvent = {
+  type: 'meta';
+  total: number;
+};
+
+export type ParetoStreamRouteEvent = {
+  type: 'route';
+  done: number;
+  total: number;
+  route: RouteOption;
+};
+
+export type ParetoStreamErrorEvent = {
+  type: 'error';
+  done: number;
+  total: number;
+  message: string;
+};
+
+export type ParetoStreamFatalEvent = {
+  type: 'fatal';
+  message: string;
+};
+
+export type ParetoStreamDoneEvent = {
+  type: 'done';
+  done: number;
+  total: number;
+  routes: RouteOption[];
+  warning_count?: number;
+  warnings?: string[];
+};
+
+export type ParetoStreamEvent =
+  | ParetoStreamMetaEvent
+  | ParetoStreamRouteEvent
+  | ParetoStreamErrorEvent
+  | ParetoStreamFatalEvent
+  | ParetoStreamDoneEvent;
+
 export type VehicleProfile = {
   id: string;
   label: string;
