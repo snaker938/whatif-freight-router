@@ -6,6 +6,8 @@ import httpx
 
 from scripts.benchmark_batch_pareto import build_parser as benchmark_parser
 from scripts.benchmark_batch_pareto import run_benchmark
+from scripts.check_eta_concept_drift import build_parser as drift_parser
+from scripts.check_eta_concept_drift import compute_drift_metrics, run_drift_check
 from scripts.run_headless_scenario import execute_headless_run, load_payload_from_csv
 from scripts.run_robustness_analysis import build_parser as robustness_parser
 from scripts.run_robustness_analysis import run_robustness
@@ -176,3 +178,42 @@ def test_run_sensitivity_inprocess_fake_outputs(tmp_path: Path) -> None:
     assert baseline["delta_monetary_cost"] == 0
     assert Path(payload["json_output"]).exists()
     assert Path(payload["csv_output"]).exists()
+
+
+def test_eta_concept_drift_metrics_and_alerts(tmp_path: Path) -> None:
+    csv_path = tmp_path / "eta.csv"
+    csv_path.write_text(
+        "trip_id,predicted_eta_s,observed_eta_s\n"
+        "a,100,110\n"
+        "b,200,180\n",
+        encoding="utf-8",
+    )
+
+    args = drift_parser().parse_args(
+        [
+            "--input-csv",
+            str(csv_path),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--mae-threshold-s",
+            "10",
+            "--mape-threshold-pct",
+            "8",
+        ]
+    )
+    payload = run_drift_check(args)
+    assert payload["metrics"]["count"] == 2
+    assert payload["metrics"]["mae_s"] == 15.0
+    assert payload["alerts"]["mae_alert"] is True
+    assert payload["alerts"]["any_alert"] is True
+    assert Path(payload["json_output"]).exists()
+    assert Path(payload["csv_output"]).exists()
+
+
+def test_compute_drift_metrics_empty_rows() -> None:
+    try:
+        compute_drift_metrics([])
+    except ValueError:
+        assert True
+    else:
+        assert False
