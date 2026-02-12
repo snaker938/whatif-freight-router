@@ -42,10 +42,24 @@ URL="$RAW_URL"
 
 mkdir -p /data/pbf
 TARGET="/data/pbf/region.osm.pbf"
+URL_MARKER="/data/pbf/.region_pbf_url"
 
 if [ -f "$TARGET" ]; then
-  echo "PBF already present: $TARGET"
-  exit 0
+  if [ -f "$URL_MARKER" ]; then
+    CACHED_URL="$(cat "$URL_MARKER" || true)"
+    if [ "$CACHED_URL" = "$URL" ]; then
+      echo "PBF already present for REGION_PBF_URL: $TARGET"
+      exit 0
+    fi
+
+    echo "REGION_PBF_URL changed. Replacing cached PBF."
+    rm -f "$TARGET"
+  else
+    # Backward-compat: cache exists from before marker support. Adopt it.
+    printf '%s\n' "$URL" > "$URL_MARKER"
+    echo "PBF already present (adopted existing cache): $TARGET"
+    exit 0
+  fi
 fi
 
 echo "Downloading PBF:"
@@ -53,5 +67,6 @@ echo "  URL:    $URL"
 echo "  TARGET: $TARGET"
 
 curl -L --fail --retry 8 --retry-delay 2 -o "$TARGET" "$URL"
+printf '%s\n' "$URL" > "$URL_MARKER"
 
 echo "Download complete: $TARGET"

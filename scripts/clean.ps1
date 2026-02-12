@@ -12,4 +12,6 @@ New-Item -ItemType File -Force -Path "osrm\data\pbf\.gitkeep" | Out-Null
 New-Item -ItemType File -Force -Path "osrm\data\osrm\.gitkeep" | Out-Null
 
 Write-Host "Done. Run:"
+Write-Host "  .\scripts\dev.ps1"
+Write-Host "or (full Docker stack):"
 Write-Host "  docker compose up --build"

@@ -17,6 +17,9 @@ services:
   osrm:
     image: ghcr.io/project-osrm/osrm-backend:v6.0.0
     container_name: freight_osrm
+    env_file: .env
+    environment:
+      REGION_PBF_URL: ${REGION_PBF_URL:?Set REGION_PBF_URL in .env}
     depends_on:
       osrm_download:
         condition: service_completed_successfully
