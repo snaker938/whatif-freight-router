@@ -1134,6 +1134,77 @@ a {
     line-height: 1.35;
   }
 
+  /* ---------- Tutorial overlay ---------- */
+
+  .tutorialOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: 900;
+    display: grid;
+    place-items: center;
+    pointer-events: auto;
+  }
+
+  .tutorialOverlay__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 6, 18, 0.62);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  .tutorialOverlay__card {
+    position: relative;
+    width: min(460px, calc(100vw - 28px));
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(12, 15, 28, 0.96);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+    padding: 18px 18px 14px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .tutorialOverlay__badge {
+    font-size: 11px;
+    color: rgba(214, 248, 255, 0.92);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    background: rgba(6, 182, 212, 0.12);
+    border-radius: 999px;
+    width: fit-content;
+    padding: 4px 10px;
+  }
+
+  .tutorialOverlay__title {
+    margin: 0;
+    font-family: var(--font-space), var(--font-inter), system-ui;
+    letter-spacing: -0.02em;
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.94);
+  }
+
+  .tutorialOverlay__body {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .tutorialOverlay__actions {
+    margin-top: 4px;
+    display: flex;
+    gap: 10px;
+  }
+
+  .tutorialOverlay__actions > * {
+    flex: 1;
+  }
+
+  .tutorialOverlay__footer {
+    display: flex;
+    justify-content: flex-end;
+  }
+
   /* ---------- Leaflet polish ---------- */
 
   .leaflet-control-attribution {

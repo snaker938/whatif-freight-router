@@ -153,6 +153,13 @@ const ScenarioTimeLapse = dynamic<
   loading: () => null,
 });
 
+const TutorialOverlay = dynamic<
+  { open: boolean; onClose: (markSeen: boolean) => void }
+>(() => import('./components/TutorialOverlay'), {
+  ssr: false,
+  loading: () => null,
+});
+
 const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   paretoMethod: 'dominance',
   epsilonDurationS: '',
@@ -171,6 +178,8 @@ const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   stochasticSigma: '0.08',
   stochasticSamples: '25',
 };
+
+const TUTORIAL_STORAGE_KEY = 'tutorial_v1_seen';
 
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
   return [...routes].sort((a, b) => {
@@ -272,6 +281,7 @@ export default function Page() {
   const [depOptimizeError, setDepOptimizeError] = useState<string | null>(null);
   const [depOptimizeData, setDepOptimizeData] = useState<DepartureOptimizeResponse | null>(null);
   const [timeLapsePosition, setTimeLapsePosition] = useState<LatLng | null>(null);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -426,6 +436,17 @@ export default function Page() {
     setDepWindowStartLocal(start.toISOString().slice(0, 16));
     setDepWindowEndLocal(end.toISOString().slice(0, 16));
   }, [depWindowStartLocal, depWindowEndLocal]);
+
+  useEffect(() => {
+    try {
+      const seen = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
+      if (seen !== '1') {
+        setTutorialOpen(true);
+      }
+    } catch {
+      // Ignore localStorage access errors in restricted browser contexts.
+    }
+  }, []);
 
   useEffect(() => {
     const best = pickBestByWeightedSum(paretoRoutes, weights);
@@ -598,6 +619,17 @@ export default function Page() {
     setSelectedMarker(null);
     clearComputed();
     setError(null);
+  }
+
+  function closeTutorial(markSeen: boolean) {
+    if (markSeen) {
+      try {
+        window.localStorage.setItem(TUTORIAL_STORAGE_KEY, '1');
+      } catch {
+        // Ignore localStorage access errors.
+      }
+    }
+    setTutorialOpen(false);
   }
 
   function parseNonNegativeOrDefault(raw: string, field: string, fallback: number): number {
@@ -1315,6 +1347,15 @@ export default function Page() {
                   <button className="secondary" onClick={reset} disabled={busy}>
                     Clear pins
                   </button>
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setTutorialOpen(true);
+                    }}
+                    disabled={busy}
+                  >
+                    Start tutorial
+                  </button>
                 </div>
               </section>
 
@@ -1724,6 +1765,8 @@ export default function Page() {
           />
             </div>
       </aside>
+
+      <TutorialOverlay open={tutorialOpen} onClose={closeTutorial} />
     </div>
   );
 }

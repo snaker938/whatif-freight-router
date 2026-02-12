@@ -120,6 +120,11 @@ Use this for full containerized verification. Do not run this at the same time a
   - run from `backend/`:
   - `uv run python scripts/check_eta_concept_drift.py --input-csv .\eta_observations.csv --mae-threshold-s 120 --mape-threshold-pct 10`
 
+- `backend/scripts/generate_run_report.py`
+  - regenerate `report.pdf` from manifest/results/metadata for a run
+  - run from `backend/`:
+  - `uv run python scripts/generate_run_report.py --run-id <run_id> --out-dir out`
+
 - `scripts/demo_repro_run.ps1`
   - scripted reproducibility capsule run (fixed seed and pair count)
   - run from repo root:
@@ -147,6 +152,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - ETA drift-check input schema, metrics, thresholds, and output artifacts
 - `docs/jupyter-cookbook.md`
   - notebook setup and guided API/artifact/drift workflows
+- `docs/tutorial-and-reporting.md`
+  - interactive tutorial behavior and PDF report artifact usage
 
 ## Troubleshooting
 
