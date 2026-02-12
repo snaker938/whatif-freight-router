@@ -28,8 +28,10 @@ from .models import (
     BatchParetoResult,
     CostToggles,
     CustomVehicleListResponse,
+    EpsilonConstraints,
     GeoJSONLineString,
     LatLng,
+    ParetoMethod,
     ParetoRequest,
     ParetoResponse,
     RouteMetrics,
@@ -44,7 +46,7 @@ from .models import (
 )
 from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
-from .pareto import pareto_filter
+from .pareto_methods import select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
@@ -636,49 +638,15 @@ def _finalize_pareto_options(
     options: list[RouteOption],
     *,
     max_alternatives: int,
+    pareto_method: ParetoMethod = "dominance",
+    epsilon: EpsilonConstraints | None = None,
 ) -> list[RouteOption]:
-    pareto = pareto_filter(
+    return select_pareto_routes(
         options,
-        key=lambda o: (o.metrics.duration_s, o.metrics.monetary_cost, o.metrics.emissions_kg),
+        max_alternatives=max_alternatives,
+        pareto_method=pareto_method,
+        epsilon=epsilon,
     )
-    pareto_sorted = sorted(pareto, key=lambda o: (o.metrics.duration_s, o.id))
-
-    if len(pareto_sorted) < 2 and len(options) > 1:
-        # In practice, cost and emissions can be correlated with time, so one candidate
-        # can dominate and the Pareto set collapses to a single route. That makes the UI
-        # feel "broken" (sliders can't change anything), so return a small diverse
-        # subset as a fallback.
-        desired = min(len(options), max(2, min(max_alternatives, 4)))
-
-        ranked_time = sorted(options, key=lambda o: o.metrics.duration_s)
-        ranked_cost = sorted(options, key=lambda o: o.metrics.monetary_cost)
-        ranked_co2 = sorted(options, key=lambda o: o.metrics.emissions_kg)
-
-        chosen: dict[str, RouteOption] = {}
-
-        def pick_first(ranked: list[RouteOption]) -> None:
-            for route in ranked:
-                if route.id not in chosen:
-                    chosen[route.id] = route
-                    return
-
-        # Always include extremes where possible.
-        for ranked in (ranked_time, ranked_cost, ranked_co2):
-            pick_first(ranked)
-
-        # Fill remaining slots with next-fastest distinct routes.
-        for route in ranked_time:
-            if len(chosen) >= desired:
-                break
-            if route.id not in chosen:
-                chosen[route.id] = route
-
-        pareto_sorted = sorted(
-            chosen.values(),
-            key=lambda route: (route.metrics.duration_s, route.id),
-        )
-
-    return pareto_sorted
 
 
 async def _collect_candidate_routes(
@@ -780,7 +748,12 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
                 detail = f"{detail} {warnings[0]}"
             raise HTTPException(status_code=502, detail=detail)
 
-        pareto_sorted = _finalize_pareto_options(options, max_alternatives=req.max_alternatives)
+        pareto_sorted = _finalize_pareto_options(
+            options,
+            max_alternatives=req.max_alternatives,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+        )
 
         log_event(
             "pareto_request",
@@ -788,6 +761,8 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
             cost_toggles=req.cost_toggles.model_dump(),
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
                 req.departure_time_utc.isoformat() if req.departure_time_utc is not None else None
             ),
@@ -910,7 +885,12 @@ async def compute_pareto_stream(
                 option_prefix="route",
             )
             warnings.extend(build_warnings)
-            pareto_sorted = _finalize_pareto_options(options, max_alternatives=req.max_alternatives)
+            pareto_sorted = _finalize_pareto_options(
+                options,
+                max_alternatives=req.max_alternatives,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+            )
 
             log_event(
                 "pareto_stream_request",
@@ -918,6 +898,8 @@ async def compute_pareto_stream(
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode.value,
                 cost_toggles=req.cost_toggles.model_dump(),
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
                     req.departure_time_utc.isoformat() if req.departure_time_utc is not None else None
                 ),
@@ -1006,8 +988,15 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
                 detail = f"{detail} {warnings[0]}"
             raise HTTPException(status_code=502, detail=detail)
 
-        selected = pick_best_by_weighted_sum(
+        pareto_options = _finalize_pareto_options(
             options,
+            max_alternatives=5,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+        )
+
+        selected = pick_best_by_weighted_sum(
+            pareto_options,
             w_time=req.weights.time,
             w_money=req.weights.money,
             w_co2=req.weights.co2,
@@ -1020,13 +1009,15 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             scenario_mode=req.scenario_mode.value,
             weights=req.weights.model_dump(),
             cost_toggles=req.cost_toggles.model_dump(),
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
                 req.departure_time_utc.isoformat() if req.departure_time_utc is not None else None
             ),
             origin=req.origin.model_dump(),
             destination=req.destination.model_dump(),
             candidate_fetches=candidate_fetches,
-            candidate_count=len(options),
+            candidate_count=len(pareto_options),
             fallback_used=fallback_used,
             warning_count=len(warnings),
             selected_id=selected.id,
@@ -1034,7 +1025,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             duration_ms=round((time.perf_counter() - t0) * 1000, 2),
         )
 
-        return RouteResponse(selected=selected, candidates=options)
+        return RouteResponse(selected=selected, candidates=pareto_options)
     except HTTPException:
         has_error = True
         raise
@@ -1224,6 +1215,8 @@ async def batch_import_csv(req: BatchCSVImportRequest, osrm: OSRMDep) -> BatchPa
         max_alternatives=req.max_alternatives,
         cost_toggles=req.cost_toggles,
         departure_time_utc=req.departure_time_utc,
+        pareto_method=req.pareto_method,
+        epsilon=req.epsilon,
         seed=req.seed,
         toggles=req.toggles,
         model_version=req.model_version,
@@ -1283,22 +1276,19 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                         for i, r in enumerate(routes)
                     ]
                     pair_stats["option_count"] = len(options)
-                    pareto = pareto_filter(
+                    pareto = _finalize_pareto_options(
                         options,
-                        key=lambda o: (
-                            o.metrics.duration_s,
-                            o.metrics.monetary_cost,
-                            o.metrics.emissions_kg,
-                        ),
+                        max_alternatives=req.max_alternatives,
+                        pareto_method=req.pareto_method,
+                        epsilon=req.epsilon,
                     )
-                    pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
-                    pair_stats["pareto_count"] = len(pareto_sorted)
+                    pair_stats["pareto_count"] = len(pareto)
 
                     return (
                         BatchParetoResult(
                             origin=pair.origin,
                             destination=pair.destination,
-                            routes=pareto_sorted,
+                            routes=pareto,
                             fallback_used=bool(pair_stats["fallback_used"]),
                         ),
                         pair_stats,
@@ -1323,21 +1313,18 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                                 for i, r in enumerate(routes)
                             ]
                             pair_stats["option_count"] = len(options)
-                            pareto = pareto_filter(
+                            pareto = _finalize_pareto_options(
                                 options,
-                                key=lambda o: (
-                                    o.metrics.duration_s,
-                                    o.metrics.monetary_cost,
-                                    o.metrics.emissions_kg,
-                                ),
+                                max_alternatives=req.max_alternatives,
+                                pareto_method=req.pareto_method,
+                                epsilon=req.epsilon,
                             )
-                            pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
-                            pair_stats["pareto_count"] = len(pareto_sorted)
+                            pair_stats["pareto_count"] = len(pareto)
                             return (
                                 BatchParetoResult(
                                     origin=pair.origin,
                                     destination=pair.destination,
-                                    routes=pareto_sorted,
+                                    routes=pareto,
                                     fallback_used=True,
                                 ),
                                 pair_stats,
@@ -1374,6 +1361,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 scenario_mode=req.scenario_mode.value,
                 max_alternatives=req.max_alternatives,
                 cost_toggles=req.cost_toggles.model_dump(mode="json"),
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
                     req.departure_time_utc.isoformat() if req.departure_time_utc is not None else None
                 ),
@@ -1458,6 +1447,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "max_alternatives": req.max_alternatives,
                 "batch_concurrency": settings.batch_concurrency,
                 "cost_toggles": req.cost_toggles.model_dump(),
+                "pareto_method": req.pareto_method,
+                "epsilon": req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 "departure_time_utc": (
                     req.departure_time_utc.isoformat() if req.departure_time_utc is not None else None
                 ),
@@ -1515,6 +1506,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
             cost_toggles=req.cost_toggles.model_dump(),
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
                 req.departure_time_utc.isoformat() if req.departure_time_utc is not None else None
             ),

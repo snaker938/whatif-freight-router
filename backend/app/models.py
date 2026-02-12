@@ -38,6 +38,15 @@ class CostToggles(BaseModel):
     toll_cost_per_km: float = Field(default=0.0, ge=0.0)
 
 
+ParetoMethod = Literal["dominance", "epsilon_constraint"]
+
+
+class EpsilonConstraints(BaseModel):
+    duration_s: float | None = Field(default=None, ge=0.0)
+    monetary_cost: float | None = Field(default=None, ge=0.0)
+    emissions_kg: float | None = Field(default=None, ge=0.0)
+
+
 class GeoJSONLineString(BaseModel):
     type: Literal["LineString"]
     coordinates: list[tuple[float, float]]  # [lon, lat]
@@ -51,6 +60,8 @@ class RouteRequest(BaseModel):
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     departure_time_utc: datetime | None = None
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
 
 
 class ParetoRequest(BaseModel):
@@ -63,6 +74,8 @@ class ParetoRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     departure_time_utc: datetime | None = None
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
 
 
 class ODPair(BaseModel):
@@ -77,6 +90,8 @@ class BatchParetoRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     departure_time_utc: datetime | None = None
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None
@@ -89,6 +104,8 @@ class BatchCSVImportRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     departure_time_utc: datetime | None = None
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None
@@ -106,6 +123,8 @@ class RouteOption(BaseModel):
     id: str
     geometry: GeoJSONLineString
     metrics: RouteMetrics
+    knee_score: float | None = None
+    is_knee: bool = False
     eta_explanations: list[str] = Field(default_factory=list)
     eta_timeline: list[dict[str, float | str]] = Field(default_factory=list)
 
