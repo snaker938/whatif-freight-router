@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
+from .fallback_store import load_route_snapshot, save_route_snapshot
 from .logging_utils import log_event
 from .metrics_store import metrics_snapshot, record_request
 from .models import (
@@ -640,11 +641,12 @@ async def _collect_candidate_routes(
     destination: LatLng,
     max_routes: int,
     cache_key: str | None = None,
-) -> tuple[list[dict[str, Any]], list[str], int]:
+) -> tuple[list[dict[str, Any]], list[str], int, bool]:
     if cache_key:
         cached = get_cached_routes(cache_key)
         if cached is not None:
-            return cached
+            routes, warnings, spec_count = cached
+            return routes, warnings, spec_count, False
 
     specs = _candidate_fetch_specs(origin=origin, destination=destination, max_routes=max_routes)
     warnings: list[str] = []
@@ -674,9 +676,21 @@ async def _collect_candidate_routes(
             unique_raw_routes.append(route)
 
     ranked_routes = _select_ranked_candidate_routes(unique_raw_routes, max_routes=max_routes)
-    out = (ranked_routes, warnings, len(specs))
+    if ranked_routes and cache_key:
+        set_cached_routes(cache_key, (ranked_routes, warnings, len(specs)))
+        save_route_snapshot(cache_key, ranked_routes)
+        return ranked_routes, warnings, len(specs), False
+
+    if settings.offline_fallback_enabled and cache_key:
+        snapshot = load_route_snapshot(cache_key)
+        if snapshot is not None:
+            routes, updated_at = snapshot
+            warnings.append(f"offline fallback used from snapshot at {updated_at}")
+            return routes, warnings, len(specs), True
+
+    out = (ranked_routes, warnings, len(specs), False)
     if cache_key:
-        set_cached_routes(cache_key, out)
+        set_cached_routes(cache_key, (ranked_routes, warnings, len(specs)))
     return out
 
 
@@ -694,7 +708,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             max_routes=req.max_alternatives,
             cost_toggles=req.cost_toggles,
         )
-        routes, warnings, candidate_fetches = await _collect_candidate_routes(
+        routes, warnings, candidate_fetches, fallback_used = await _collect_candidate_routes(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
@@ -730,6 +744,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
             candidate_fetches=candidate_fetches,
             candidate_count=len(options),
             pareto_count=len(pareto_sorted),
+            fallback_used=fallback_used,
             warning_count=len(warnings),
             duration_ms=round((time.perf_counter() - t0) * 1000, 2),
         )
@@ -909,7 +924,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             max_routes=5,
             cost_toggles=req.cost_toggles,
         )
-        routes, warnings, candidate_fetches = await _collect_candidate_routes(
+        routes, warnings, candidate_fetches, fallback_used = await _collect_candidate_routes(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
@@ -950,6 +965,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
             destination=req.destination.model_dump(),
             candidate_fetches=candidate_fetches,
             candidate_count=len(options),
+            fallback_used=fallback_used,
             warning_count=len(warnings),
             selected_id=selected.id,
             selected_metrics=selected.metrics.model_dump(),
@@ -1053,6 +1069,7 @@ def _batch_summary_csv_rows(results: list[BatchParetoResult]) -> list[dict[str, 
                 "destination_lon": result.destination.lon,
                 "route_count": route_count,
                 "error": result.error or "",
+                "fallback_used": result.fallback_used,
                 "min_duration_s": min(durations) if durations else "",
                 "min_monetary_cost": min(moneys) if moneys else "",
                 "min_emissions_kg": min(emissions) if emissions else "",
@@ -1083,6 +1100,7 @@ def _write_batch_additional_exports(run_id: str, results: list[BatchParetoResult
             "destination_lon",
             "route_count",
             "error",
+            "fallback_used",
             "min_duration_s",
             "min_monetary_cost",
             "min_emissions_kg",
@@ -1161,23 +1179,34 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
 
         async def one(pair_idx: int) -> tuple[BatchParetoResult, dict[str, Any]]:
             async with sem:
+                pair = req.pairs[pair_idx]
+                cache_key = _candidate_cache_key(
+                    origin=pair.origin,
+                    destination=pair.destination,
+                    vehicle_type=req.vehicle_type,
+                    scenario_mode=req.scenario_mode,
+                    max_routes=req.max_alternatives,
+                    cost_toggles=req.cost_toggles,
+                )
                 pair_stats: dict[str, Any] = {
                     "pair_index": pair_idx,
                     "candidate_count": 0,
                     "option_count": 0,
                     "pareto_count": 0,
                     "error": None,
+                    "fallback_used": False,
                 }
                 try:
                     routes = await osrm.fetch_routes(
-                        origin_lat=req.pairs[pair_idx].origin.lat,
-                        origin_lon=req.pairs[pair_idx].origin.lon,
-                        dest_lat=req.pairs[pair_idx].destination.lat,
-                        dest_lon=req.pairs[pair_idx].destination.lon,
+                        origin_lat=pair.origin.lat,
+                        origin_lon=pair.origin.lon,
+                        dest_lat=pair.destination.lat,
+                        dest_lon=pair.destination.lon,
                         alternatives=req.max_alternatives,
                     )
                     routes = routes[: req.max_alternatives]
                     pair_stats["candidate_count"] = len(routes)
+                    save_route_snapshot(cache_key, routes)
                     options: list[RouteOption] = [
                         build_option(
                             r,
@@ -1202,19 +1231,70 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
 
                     return (
                         BatchParetoResult(
-                            origin=req.pairs[pair_idx].origin,
-                            destination=req.pairs[pair_idx].destination,
+                            origin=pair.origin,
+                            destination=pair.destination,
                             routes=pareto_sorted,
+                            fallback_used=bool(pair_stats["fallback_used"]),
                         ),
                         pair_stats,
                     )
-                except (OSRMError, ValueError) as e:
+                except OSRMError as e:
+                    if settings.offline_fallback_enabled:
+                        snapshot = load_route_snapshot(cache_key)
+                        if snapshot is not None:
+                            routes, _updated_at = snapshot
+                            routes = routes[: req.max_alternatives]
+                            pair_stats["candidate_count"] = len(routes)
+                            pair_stats["fallback_used"] = True
+                            options = [
+                                build_option(
+                                    r,
+                                    option_id=f"pair{pair_idx}_route{i}",
+                                    vehicle_type=req.vehicle_type,
+                                    scenario_mode=req.scenario_mode,
+                                    cost_toggles=req.cost_toggles,
+                                )
+                                for i, r in enumerate(routes)
+                            ]
+                            pair_stats["option_count"] = len(options)
+                            pareto = pareto_filter(
+                                options,
+                                key=lambda o: (
+                                    o.metrics.duration_s,
+                                    o.metrics.monetary_cost,
+                                    o.metrics.emissions_kg,
+                                ),
+                            )
+                            pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
+                            pair_stats["pareto_count"] = len(pareto_sorted)
+                            return (
+                                BatchParetoResult(
+                                    origin=pair.origin,
+                                    destination=pair.destination,
+                                    routes=pareto_sorted,
+                                    fallback_used=True,
+                                ),
+                                pair_stats,
+                            )
+
                     pair_stats["error"] = str(e)
                     return (
                         BatchParetoResult(
-                            origin=req.pairs[pair_idx].origin,
-                            destination=req.pairs[pair_idx].destination,
+                            origin=pair.origin,
+                            destination=pair.destination,
                             error=str(e),
+                            fallback_used=False,
+                        ),
+                        pair_stats,
+                    )
+                except ValueError as e:
+                    pair_stats["error"] = str(e)
+                    return (
+                        BatchParetoResult(
+                            origin=pair.origin,
+                            destination=pair.destination,
+                            error=str(e),
+                            fallback_used=bool(pair_stats["fallback_used"]),
                         ),
                         pair_stats,
                     )
@@ -1240,6 +1320,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
         candidate_count = sum(int(stats["candidate_count"]) for stats in pair_stats)
         option_count = sum(int(stats["option_count"]) for stats in pair_stats)
         pareto_count = sum(int(stats["pareto_count"]) for stats in pair_stats)
+        fallback_count = sum(1 for stats in pair_stats if bool(stats["fallback_used"]))
 
         provenance_events.append(
             provenance_event(
@@ -1251,6 +1332,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                         "pair_index": int(stats["pair_index"]),
                         "candidate_count": int(stats["candidate_count"]),
                         "error": stats["error"],
+                        "fallback_used": bool(stats["fallback_used"]),
                     }
                     for stats in pair_stats
                 ],
@@ -1276,10 +1358,12 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "pareto_selected",
                 pareto_count=pareto_count,
                 error_count=error_count,
+                fallback_count=fallback_count,
                 pairs=[
                     {
                         "pair_index": int(stats["pair_index"]),
                         "pareto_count": int(stats["pareto_count"]),
+                        "fallback_used": bool(stats["fallback_used"]),
                     }
                     for stats in pair_stats
                 ],
@@ -1307,6 +1391,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "cost_toggles": req.cost_toggles.model_dump(),
                 "duration_ms": duration_ms,
                 "error_count": error_count,
+                "fallback_used": fallback_count > 0,
+                "fallback_count": fallback_count,
             },
         }
         manifest_path = write_manifest(
@@ -1331,6 +1417,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "pair_count": len(req.pairs),
                 "error_count": error_count,
                 "duration_ms": duration_ms,
+                "fallback_used": fallback_count > 0,
+                "fallback_count": fallback_count,
             },
             csv_rows=_batch_results_csv_rows(req, results),
         )
@@ -1343,6 +1431,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 manifest=str(manifest_path),
                 artifact_names=artifact_names,
                 provenance_file=str(provenance_file),
+                fallback_count=fallback_count,
             )
         )
         written_provenance = write_provenance(run_id, provenance_events)
@@ -1356,6 +1445,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             cost_toggles=req.cost_toggles.model_dump(),
             duration_ms=duration_ms,
             error_count=error_count,
+            fallback_used=fallback_count > 0,
+            fallback_count=fallback_count,
             manifest=str(manifest_path),
             artifacts=artifact_names,
             provenance=str(written_provenance),

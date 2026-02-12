@@ -25,6 +25,10 @@ backend/out/config/*
 !backend/out/config/.gitkeep
 backend/out/provenance/*
 !backend/out/provenance/.gitkeep
+backend/out/offline/*
+!backend/out/offline/.gitkeep
+backend/out/analysis/*
+!backend/out/analysis/.gitkeep
 
 # Frontend
 frontend/node_modules/

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     batch_concurrency: int = Field(default=8, alias="BATCH_CONCURRENCY")
     route_cache_ttl_s: int = Field(default=600, alias="ROUTE_CACHE_TTL_S")
     route_cache_max_entries: int = Field(default=1024, alias="ROUTE_CACHE_MAX_ENTRIES")
+    offline_fallback_enabled: bool = Field(default=True, alias="OFFLINE_FALLBACK_ENABLED")
     manifest_signing_secret: str = Field(
         default="dev-manifest-signing-secret",
         alias="MANIFEST_SIGNING_SECRET",

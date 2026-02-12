@@ -147,6 +147,7 @@ class BatchParetoResult(BaseModel):
     destination: LatLng
     routes: list[RouteOption] = Field(default_factory=list)
     error: str | None = None
+    fallback_used: bool = False
 
 
 class BatchParetoResponse(BaseModel):

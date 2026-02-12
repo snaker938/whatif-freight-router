@@ -7,6 +7,10 @@ import httpx
 from scripts.benchmark_batch_pareto import build_parser as benchmark_parser
 from scripts.benchmark_batch_pareto import run_benchmark
 from scripts.run_headless_scenario import execute_headless_run, load_payload_from_csv
+from scripts.run_robustness_analysis import build_parser as robustness_parser
+from scripts.run_robustness_analysis import run_robustness
+from scripts.run_sensitivity_analysis import build_parser as sensitivity_parser
+from scripts.run_sensitivity_analysis import run_sensitivity
 
 
 def test_benchmark_parser_defaults() -> None:
@@ -121,3 +125,54 @@ def test_execute_headless_run_with_mock_transport(tmp_path: Path) -> None:
     assert summary_path.exists()
     assert Path(summary["manifest_file"]).exists()
     assert summary["downloaded_artifacts"] == ["metadata.json", "results.csv", "results.json"]
+
+
+def test_run_robustness_inprocess_fake_outputs(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    args = robustness_parser().parse_args(
+        [
+            "--mode",
+            "inprocess-fake",
+            "--seeds",
+            "101,202",
+            "--pair-count",
+            "6",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+    payload = run_robustness(args)
+    assert payload["mode"] == "inprocess-fake"
+    assert payload["pair_count"] == 6
+    assert payload["seeds"] == [101, 202]
+    assert len(payload["runs"]) == 2
+    assert "avg_duration_s_mean" in payload["aggregate"]
+    assert Path(payload["json_output"]).exists()
+    assert Path(payload["csv_output"]).exists()
+
+
+def test_run_sensitivity_inprocess_fake_outputs(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    args = sensitivity_parser().parse_args(
+        [
+            "--mode",
+            "inprocess-fake",
+            "--pair-count",
+            "5",
+            "--seed",
+            "303",
+            "--include-no-tolls",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+    payload = run_sensitivity(args)
+    assert payload["mode"] == "inprocess-fake"
+    assert payload["pair_count"] == 5
+    assert payload["seed"] == 303
+    assert len(payload["cases"]) >= 2
+    baseline = payload["cases"][0]
+    assert baseline["case"] == "baseline"
+    assert baseline["delta_monetary_cost"] == 0
+    assert Path(payload["json_output"]).exists()
+    assert Path(payload["csv_output"]).exists()
