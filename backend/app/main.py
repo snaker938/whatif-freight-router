@@ -38,6 +38,9 @@ from .models import (
     RouteOption,
     RouteRequest,
     RouteResponse,
+    ScenarioCompareRequest,
+    ScenarioCompareResponse,
+    ScenarioCompareResult,
     SignatureVerificationRequest,
     SignatureVerificationResponse,
     VehicleDeleteResponse,
@@ -54,6 +57,7 @@ from .run_store import (
     ARTIFACT_FILES,
     artifact_dir_for_run,
     artifact_paths_for_run,
+    write_scenario_manifest,
     write_manifest,
     write_run_artifacts,
 )
@@ -1036,6 +1040,147 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
         _record_endpoint_metric("route", t0, error=has_error)
 
 
+def _scenario_metric_deltas(
+    baseline: RouteOption | None,
+    current: RouteOption | None,
+) -> dict[str, float]:
+    if baseline is None or current is None:
+        return {
+            "duration_s_delta": 0.0,
+            "monetary_cost_delta": 0.0,
+            "emissions_kg_delta": 0.0,
+        }
+    return {
+        "duration_s_delta": round(current.metrics.duration_s - baseline.metrics.duration_s, 3),
+        "monetary_cost_delta": round(current.metrics.monetary_cost - baseline.metrics.monetary_cost, 3),
+        "emissions_kg_delta": round(current.metrics.emissions_kg - baseline.metrics.emissions_kg, 3),
+    }
+
+
+@app.post("/scenario/compare", response_model=ScenarioCompareResponse)
+async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> ScenarioCompareResponse:
+    run_id = str(uuid.uuid4())
+    t0 = time.perf_counter()
+    has_error = False
+
+    try:
+        scenario_modes = [
+            ScenarioMode.NO_SHARING,
+            ScenarioMode.PARTIAL_SHARING,
+            ScenarioMode.FULL_SHARING,
+        ]
+        results: list[ScenarioCompareResult] = []
+
+        for scenario_mode in scenario_modes:
+            cache_key = _candidate_cache_key(
+                origin=req.origin,
+                destination=req.destination,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=scenario_mode,
+                max_routes=req.max_alternatives,
+                cost_toggles=req.cost_toggles,
+                departure_time_utc=req.departure_time_utc,
+            )
+            routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+                osrm=osrm,
+                origin=req.origin,
+                destination=req.destination,
+                max_routes=req.max_alternatives,
+                cache_key=cache_key,
+            )
+            options, build_warnings = _build_options(
+                routes,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=scenario_mode,
+                cost_toggles=req.cost_toggles,
+                departure_time_utc=req.departure_time_utc,
+                option_prefix=f"scenario_{scenario_mode.value}",
+            )
+            warnings.extend(build_warnings)
+
+            if not options:
+                results.append(
+                    ScenarioCompareResult(
+                        scenario_mode=scenario_mode,
+                        selected=None,
+                        candidates=[],
+                        warnings=warnings,
+                        fallback_used=fallback_used,
+                        error="No route candidates could be computed.",
+                    )
+                )
+                continue
+
+            pareto_options = _finalize_pareto_options(
+                options,
+                max_alternatives=req.max_alternatives,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+            )
+            selected = pick_best_by_weighted_sum(
+                pareto_options,
+                w_time=req.weights.time,
+                w_money=req.weights.money,
+                w_co2=req.weights.co2,
+            )
+            results.append(
+                ScenarioCompareResult(
+                    scenario_mode=scenario_mode,
+                    selected=selected,
+                    candidates=pareto_options,
+                    warnings=warnings,
+                    fallback_used=fallback_used,
+                )
+            )
+
+        baseline = next(
+            (item.selected for item in results if item.scenario_mode == ScenarioMode.NO_SHARING),
+            None,
+        )
+        deltas: dict[str, dict[str, float]] = {}
+        for item in results:
+            deltas[item.scenario_mode.value] = _scenario_metric_deltas(baseline, item.selected)
+
+        manifest_payload = {
+            "schema_version": "1.0.0",
+            "type": "scenario_compare",
+            "request": req.model_dump(mode="json"),
+            "results": [item.model_dump(mode="json") for item in results],
+            "deltas": deltas,
+            "execution": {
+                "duration_ms": round((time.perf_counter() - t0) * 1000.0, 3),
+                "scenario_count": len(results),
+            },
+        }
+        scenario_manifest = write_scenario_manifest(run_id, manifest_payload)
+
+        log_event(
+            "scenario_compare_request",
+            run_id=run_id,
+            vehicle_type=req.vehicle_type,
+            max_alternatives=req.max_alternatives,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
+            scenario_manifest=str(scenario_manifest),
+        )
+
+        return ScenarioCompareResponse(
+            run_id=run_id,
+            results=results,
+            deltas=deltas,
+            scenario_manifest_endpoint=f"/runs/{run_id}/scenario-manifest",
+            scenario_signature_endpoint=f"/runs/{run_id}/scenario-signature",
+        )
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("scenario_compare_post", t0, error=has_error)
+
+
 def _batch_results_csv_rows(
     req: BatchParetoRequest,
     results: list[BatchParetoResult],
@@ -1550,6 +1695,18 @@ def _manifest_path_for_id(run_id: str) -> Path:
     return resolved
 
 
+def _scenario_manifest_path_for_id(run_id: str) -> Path:
+    valid_run_id = _validated_run_id(run_id)
+    p = Path(settings.out_dir) / "scenario_manifests" / f"{valid_run_id}.json"
+    base = (Path(settings.out_dir) / "scenario_manifests").resolve()
+    resolved = p.resolve()
+
+    if not str(resolved).startswith(str(base)):
+        raise HTTPException(status_code=400, detail="invalid run_id path")
+
+    return resolved
+
+
 def _provenance_path_for_id(run_id: str) -> Path:
     valid_run_id = _validated_run_id(run_id)
     p = Path(settings.out_dir) / "provenance" / f"{valid_run_id}.json"
@@ -1579,6 +1736,25 @@ async def get_manifest(run_id: str):
         raise
     finally:
         _record_endpoint_metric("runs_manifest_get", t0, error=has_error)
+
+
+@app.get("/runs/{run_id}/scenario-manifest")
+async def get_scenario_manifest(run_id: str):
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        path = _scenario_manifest_path_for_id(run_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="scenario manifest not found")
+        return FileResponse(str(path), media_type="application/json")
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_scenario_manifest_get", t0, error=has_error)
 
 
 @app.get("/runs/{run_id}/provenance")
@@ -1626,6 +1802,32 @@ async def get_manifest_signature(run_id: str) -> dict[str, object]:
         raise
     finally:
         _record_endpoint_metric("runs_signature_get", t0, error=has_error)
+
+
+@app.get("/runs/{run_id}/scenario-signature")
+async def get_scenario_signature(run_id: str) -> dict[str, object]:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        path = _scenario_manifest_path_for_id(run_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="scenario manifest not found")
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        signature = payload.get("signature")
+        if not isinstance(signature, dict):
+            raise HTTPException(status_code=404, detail="scenario signature not found")
+
+        log_event("scenario_signature_get", run_id=_validated_run_id(run_id))
+        return {"run_id": _validated_run_id(run_id), "signature": signature}
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_scenario_signature_get", t0, error=has_error)
 
 
 @app.post("/verify/signature", response_model=SignatureVerificationResponse)

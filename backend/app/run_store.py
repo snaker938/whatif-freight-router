@@ -10,8 +10,7 @@ from .signatures import build_signature_metadata
 from .settings import settings
 
 
-def write_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
-    out_dir = Path(settings.out_dir) / "manifests"
+def _write_signed_manifest(run_id: str, manifest: dict[str, Any], *, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     enriched = {
@@ -24,6 +23,16 @@ def write_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
     path = out_dir / f"{run_id}.json"
     path.write_text(json.dumps(enriched, indent=2), encoding="utf-8")
     return path
+
+
+def write_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
+    out_dir = Path(settings.out_dir) / "manifests"
+    return _write_signed_manifest(run_id, manifest, out_dir=out_dir)
+
+
+def write_scenario_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
+    out_dir = Path(settings.out_dir) / "scenario_manifests"
+    return _write_signed_manifest(run_id, manifest, out_dir=out_dir)
 
 
 ARTIFACT_FILES: tuple[str, ...] = (

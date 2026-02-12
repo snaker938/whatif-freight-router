@@ -179,3 +179,32 @@ class BatchParetoResult(BaseModel):
 class BatchParetoResponse(BaseModel):
     run_id: str
     results: list[BatchParetoResult]
+
+
+class ScenarioCompareRequest(BaseModel):
+    origin: LatLng
+    destination: LatLng
+    vehicle_type: str = Field(default="rigid_hgv")
+    weights: Weights = Field(default_factory=lambda: Weights(time=1, money=1, co2=1))
+    max_alternatives: int = Field(default=5, ge=1, le=5)
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    departure_time_utc: datetime | None = None
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
+
+
+class ScenarioCompareResult(BaseModel):
+    scenario_mode: ScenarioMode
+    selected: RouteOption | None = None
+    candidates: list[RouteOption] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    fallback_used: bool = False
+    error: str | None = None
+
+
+class ScenarioCompareResponse(BaseModel):
+    run_id: str
+    results: list[ScenarioCompareResult]
+    deltas: dict[str, dict[str, float]]
+    scenario_manifest_endpoint: str
+    scenario_signature_endpoint: str
