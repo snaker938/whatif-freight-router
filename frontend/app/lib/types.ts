@@ -1,4 +1,19 @@
 export type ScenarioMode = 'no_sharing' | 'partial_sharing' | 'full_sharing';
+export type ParetoMethod = 'dominance' | 'epsilon_constraint';
+export type TerrainProfile = 'flat' | 'rolling' | 'hilly';
+
+export type CostToggles = {
+  use_tolls: boolean;
+  fuel_price_multiplier: number;
+  carbon_price_per_kg: number;
+  toll_cost_per_km: number;
+};
+
+export type EpsilonConstraints = {
+  duration_s?: number;
+  monetary_cost?: number;
+  emissions_kg?: number;
+};
 
 export type LatLng = { lat: number; lon: number };
 

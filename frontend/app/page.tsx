@@ -7,15 +7,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import type {
+  CostToggles,
+  EpsilonConstraints,
   LatLng,
+  ParetoMethod,
   ParetoStreamEvent,
   RouteOption,
   ScenarioMode,
   ScenarioCompareResponse,
+  TerrainProfile,
   VehicleListResponse,
   VehicleProfile,
 } from './lib/types';
 import { normaliseWeights, pickBestByWeightedSum, type WeightState } from './lib/weights';
+import type { ScenarioAdvancedParams } from './components/ScenarioParameterEditor';
 
 type MarkerKind = 'origin' | 'destination';
 type ProgressState = { done: number; total: number };
@@ -74,6 +79,26 @@ const SegmentBreakdown = dynamic<{ route: RouteOption | null }>(
     loading: () => null,
   },
 );
+
+const ScenarioParameterEditor = dynamic<
+  { value: ScenarioAdvancedParams; onChange: (next: ScenarioAdvancedParams) => void; disabled: boolean; validationError: string | null }
+>(() => import('./components/ScenarioParameterEditor'), {
+  ssr: false,
+  loading: () => null,
+});
+
+const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
+  paretoMethod: 'dominance',
+  epsilonDurationS: '',
+  epsilonMonetaryCost: '',
+  epsilonEmissionsKg: '',
+  departureTimeUtcLocal: '',
+  useTolls: true,
+  fuelPriceMultiplier: '1.0',
+  carbonPricePerKg: '0.0',
+  tollCostPerKm: '0.0',
+  terrainProfile: 'flat',
+};
 
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
   return [...routes].sort((a, b) => {
@@ -145,6 +170,8 @@ export default function Page() {
   const [scenarioMode, setScenarioMode] = useState<ScenarioMode>('no_sharing');
 
   const [weights, setWeights] = useState<WeightState>({ time: 60, money: 20, co2: 20 });
+  const [advancedParams, setAdvancedParams] = useState<ScenarioAdvancedParams>(DEFAULT_ADVANCED_PARAMS);
+  const [advancedError, setAdvancedError] = useState<string | null>(null);
 
   const [paretoRoutes, setParetoRoutes] = useState<RouteOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -249,6 +276,7 @@ export default function Page() {
     setScenarioCompare(null);
     setScenarioCompareError(null);
     setScenarioCompareLoading(false);
+    setAdvancedError(null);
   }, [abortActiveCompute]);
 
   const cancelCompute = useCallback(() => {
@@ -315,6 +343,12 @@ export default function Page() {
       setShowWarnings(false);
     }
   }, [warnings.length]);
+
+  useEffect(() => {
+    if (advancedError) {
+      setAdvancedError(null);
+    }
+  }, [advancedParams, advancedError]);
 
   const selectedRoute = useMemo(() => {
     if (!selectedId) return null;
@@ -453,6 +487,109 @@ export default function Page() {
     setError(null);
   }
 
+  function parseNonNegativeOrDefault(raw: string, field: string, fallback: number): number {
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error(`${field} must be a non-negative number.`);
+    }
+    return parsed;
+  }
+
+  function parseOptionalNonNegative(raw: string, field: string): number | undefined {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error(`${field} must be a non-negative number.`);
+    }
+    return parsed;
+  }
+
+  function buildAdvancedRequestPatch(): {
+    pareto_method?: ParetoMethod;
+    epsilon?: EpsilonConstraints;
+    departure_time_utc?: string;
+    cost_toggles?: CostToggles;
+    terrain_profile?: TerrainProfile;
+  } {
+    const patch: {
+      pareto_method?: ParetoMethod;
+      epsilon?: EpsilonConstraints;
+      departure_time_utc?: string;
+      cost_toggles?: CostToggles;
+      terrain_profile?: TerrainProfile;
+    } = {};
+
+    if (advancedParams.paretoMethod !== 'dominance') {
+      patch.pareto_method = advancedParams.paretoMethod;
+    }
+
+    if (advancedParams.paretoMethod === 'epsilon_constraint') {
+      const durationS = parseOptionalNonNegative(advancedParams.epsilonDurationS, 'Epsilon duration');
+      const monetaryCost = parseOptionalNonNegative(
+        advancedParams.epsilonMonetaryCost,
+        'Epsilon monetary cost',
+      );
+      const emissionsKg = parseOptionalNonNegative(
+        advancedParams.epsilonEmissionsKg,
+        'Epsilon emissions',
+      );
+
+      if (durationS !== undefined || monetaryCost !== undefined || emissionsKg !== undefined) {
+        patch.epsilon = {};
+        if (durationS !== undefined) patch.epsilon.duration_s = durationS;
+        if (monetaryCost !== undefined) patch.epsilon.monetary_cost = monetaryCost;
+        if (emissionsKg !== undefined) patch.epsilon.emissions_kg = emissionsKg;
+      }
+    }
+
+    if (advancedParams.departureTimeUtcLocal.trim()) {
+      const dt = new Date(advancedParams.departureTimeUtcLocal);
+      if (Number.isNaN(dt.getTime())) {
+        throw new Error('Departure time must be a valid date/time.');
+      }
+      patch.departure_time_utc = dt.toISOString();
+    }
+
+    const fuelPriceMultiplier = parseNonNegativeOrDefault(
+      advancedParams.fuelPriceMultiplier,
+      'Fuel price multiplier',
+      1.0,
+    );
+    const carbonPricePerKg = parseNonNegativeOrDefault(
+      advancedParams.carbonPricePerKg,
+      'Carbon price',
+      0.0,
+    );
+    const tollCostPerKm = parseNonNegativeOrDefault(
+      advancedParams.tollCostPerKm,
+      'Toll cost per km',
+      0.0,
+    );
+
+    if (
+      !advancedParams.useTolls ||
+      fuelPriceMultiplier !== 1.0 ||
+      carbonPricePerKg !== 0.0 ||
+      tollCostPerKm !== 0.0
+    ) {
+      patch.cost_toggles = {
+        use_tolls: advancedParams.useTolls,
+        fuel_price_multiplier: fuelPriceMultiplier,
+        carbon_price_per_kg: carbonPricePerKg,
+        toll_cost_per_km: tollCostPerKm,
+      };
+    }
+
+    if (advancedParams.terrainProfile !== 'flat') {
+      patch.terrain_profile = advancedParams.terrainProfile;
+    }
+
+    return patch;
+  }
+
   async function computePareto() {
     if (!origin || !destination) {
       setError('Click the map to set Start, then Destination.');
@@ -483,6 +620,19 @@ export default function Page() {
     setScenarioCompare(null);
     setScenarioCompareError(null);
     setScenarioCompareLoading(false);
+    setAdvancedError(null);
+
+    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    try {
+      advancedPatch = buildAdvancedRequestPatch();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
+      setAdvancedError(msg);
+      setError(msg);
+      setLoading(false);
+      abortRef.current = null;
+      return;
+    }
 
     const body = {
       origin,
@@ -490,6 +640,7 @@ export default function Page() {
       vehicle_type: vehicleType,
       scenario_mode: scenarioMode,
       max_alternatives: 5,
+      ...advancedPatch,
     };
 
     let sawDone = false;
@@ -573,6 +724,17 @@ export default function Page() {
       return;
     }
 
+    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    try {
+      setAdvancedError(null);
+      advancedPatch = buildAdvancedRequestPatch();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
+      setAdvancedError(msg);
+      setScenarioCompareError(msg);
+      return;
+    }
+
     setScenarioCompareLoading(true);
     setScenarioCompareError(null);
     try {
@@ -586,6 +748,7 @@ export default function Page() {
           money: weights.money,
           co2: weights.co2,
         },
+        ...advancedPatch,
       };
       const payload = await postJSON<ScenarioCompareResponse>('/api/scenario/compare', body);
       setScenarioCompare(payload);
@@ -743,6 +906,13 @@ export default function Page() {
                   </button>
                 </div>
               </section>
+
+              <ScenarioParameterEditor
+                value={advancedParams}
+                onChange={setAdvancedParams}
+                disabled={busy}
+                validationError={advancedError}
+              />
 
               <section className="card">
                 <div className="sectionTitle">Preferences</div>
