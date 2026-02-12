@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
+import io
 import json
 import time
 import uuid
@@ -18,6 +20,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from .logging_utils import log_event
 from .metrics_store import metrics_snapshot, record_request
 from .models import (
+    BatchCSVImportRequest,
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
@@ -40,7 +43,13 @@ from .objectives_selection import pick_best_by_weighted_sum
 from .pareto import pareto_filter
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
-from .run_store import ARTIFACT_FILES, artifact_paths_for_run, write_manifest, write_run_artifacts
+from .run_store import (
+    ARTIFACT_FILES,
+    artifact_dir_for_run,
+    artifact_paths_for_run,
+    write_manifest,
+    write_run_artifacts,
+)
 from .scenario import ScenarioMode, apply_scenario_duration
 from .settings import settings
 from .vehicles import (
@@ -1000,6 +1009,143 @@ def _batch_results_csv_rows(
     return rows
 
 
+def _batch_routes_geojson(results: list[BatchParetoResult]) -> dict[str, Any]:
+    features: list[dict[str, Any]] = []
+    for pair_idx, result in enumerate(results):
+        for route in result.routes:
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": route.geometry.model_dump(mode="json"),
+                    "properties": {
+                        "pair_index": pair_idx,
+                        "route_id": route.id,
+                        "origin": result.origin.model_dump(),
+                        "destination": result.destination.model_dump(),
+                        "metrics": route.metrics.model_dump(mode="json"),
+                    },
+                }
+            )
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+    }
+
+
+def _batch_summary_csv_rows(results: list[BatchParetoResult]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for pair_idx, result in enumerate(results):
+        route_count = len(result.routes)
+        durations = [r.metrics.duration_s for r in result.routes]
+        moneys = [r.metrics.monetary_cost for r in result.routes]
+        emissions = [r.metrics.emissions_kg for r in result.routes]
+        rows.append(
+            {
+                "pair_index": pair_idx,
+                "origin_lat": result.origin.lat,
+                "origin_lon": result.origin.lon,
+                "destination_lat": result.destination.lat,
+                "destination_lon": result.destination.lon,
+                "route_count": route_count,
+                "error": result.error or "",
+                "min_duration_s": min(durations) if durations else "",
+                "min_monetary_cost": min(moneys) if moneys else "",
+                "min_emissions_kg": min(emissions) if emissions else "",
+            }
+        )
+    return rows
+
+
+def _write_batch_additional_exports(run_id: str, results: list[BatchParetoResult]) -> list[str]:
+    out_dir = artifact_dir_for_run(run_id)
+    written: list[str] = []
+
+    geojson_path = out_dir / "routes.geojson"
+    geojson_path.write_text(
+        json.dumps(_batch_routes_geojson(results), indent=2),
+        encoding="utf-8",
+    )
+    written.append("routes.geojson")
+
+    summary_rows = _batch_summary_csv_rows(results)
+    summary_path = out_dir / "results_summary.csv"
+    with summary_path.open("w", encoding="utf-8", newline="") as f:
+        fieldnames = [
+            "pair_index",
+            "origin_lat",
+            "origin_lon",
+            "destination_lat",
+            "destination_lon",
+            "route_count",
+            "error",
+            "min_duration_s",
+            "min_monetary_cost",
+            "min_emissions_kg",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in summary_rows:
+            writer.writerow(row)
+    written.append("results_summary.csv")
+
+    return written
+
+
+def _parse_pairs_from_csv_text(csv_text: str) -> list[dict[str, Any]]:
+    reader = csv.DictReader(io.StringIO(csv_text))
+    required = {"origin_lat", "origin_lon", "destination_lat", "destination_lon"}
+    headers = set(reader.fieldnames or [])
+    if not required.issubset(headers):
+        missing = sorted(required - headers)
+        raise HTTPException(
+            status_code=422,
+            detail=f"CSV missing required columns: {', '.join(missing)}",
+        )
+
+    pairs: list[dict[str, Any]] = []
+    for idx, row in enumerate(reader, start=2):
+        try:
+            pairs.append(
+                {
+                    "origin": {
+                        "lat": float(row["origin_lat"]),
+                        "lon": float(row["origin_lon"]),
+                    },
+                    "destination": {
+                        "lat": float(row["destination_lat"]),
+                        "lon": float(row["destination_lon"]),
+                    },
+                }
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=422,
+                detail=f"invalid CSV numeric value on row {idx}",
+            ) from e
+
+    if not pairs:
+        raise HTTPException(status_code=422, detail="CSV contains no OD pairs")
+
+    return pairs
+
+
+@app.post("/batch/import/csv", response_model=BatchParetoResponse)
+async def batch_import_csv(req: BatchCSVImportRequest, osrm: OSRMDep) -> BatchParetoResponse:
+    pairs = _parse_pairs_from_csv_text(req.csv_text)
+    batch_req = BatchParetoRequest(
+        pairs=pairs,
+        vehicle_type=req.vehicle_type,
+        scenario_mode=req.scenario_mode,
+        max_alternatives=req.max_alternatives,
+        cost_toggles=req.cost_toggles,
+        seed=req.seed,
+        toggles=req.toggles,
+        model_version=req.model_version,
+    )
+    return await batch_pareto(batch_req, osrm)
+
+
 @app.post("/batch/pareto", response_model=BatchParetoResponse)
 async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoResponse:
     run_id = str(uuid.uuid4())
@@ -1102,6 +1248,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             },
             csv_rows=_batch_results_csv_rows(req, results),
         )
+        extra_artifacts = _write_batch_additional_exports(run_id, results)
 
         log_event(
             "batch_pareto_request",
@@ -1113,7 +1260,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             duration_ms=duration_ms,
             error_count=error_count,
             manifest=str(manifest_path),
-            artifacts=[name for name in sorted(artifact_paths)],
+            artifacts=[name for name in sorted(list(artifact_paths) + extra_artifacts)],
         )
 
         return BatchParetoResponse(run_id=run_id, results=results)
@@ -1230,6 +1377,8 @@ async def _get_artifact_file(run_id: str, artifact_name: str) -> FileResponse:
         media_type = "application/octet-stream"
         if artifact_name.endswith(".json"):
             media_type = "application/json"
+        elif artifact_name.endswith(".geojson"):
+            media_type = "application/geo+json"
         elif artifact_name.endswith(".csv"):
             media_type = "text/csv"
 
@@ -1263,3 +1412,13 @@ async def get_artifact_results_csv(run_id: str) -> FileResponse:
 @app.get("/runs/{run_id}/artifacts/metadata.json")
 async def get_artifact_metadata_json(run_id: str) -> FileResponse:
     return await _get_artifact_file(run_id, "metadata.json")
+
+
+@app.get("/runs/{run_id}/artifacts/routes.geojson")
+async def get_artifact_routes_geojson(run_id: str) -> FileResponse:
+    return await _get_artifact_file(run_id, "routes.geojson")
+
+
+@app.get("/runs/{run_id}/artifacts/results_summary.csv")
+async def get_artifact_results_summary_csv(run_id: str) -> FileResponse:
+    return await _get_artifact_file(run_id, "results_summary.csv")

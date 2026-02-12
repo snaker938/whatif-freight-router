@@ -24,7 +24,13 @@ def write_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
     return path
 
 
-ARTIFACT_FILES: tuple[str, ...] = ("results.json", "results.csv", "metadata.json")
+ARTIFACT_FILES: tuple[str, ...] = (
+    "results.json",
+    "results.csv",
+    "metadata.json",
+    "routes.geojson",
+    "results_summary.csv",
+)
 
 CSV_COLUMNS: tuple[str, ...] = (
     "pair_index",

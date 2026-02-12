@@ -103,7 +103,13 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert list_resp.status_code == 200
             artifacts_payload = list_resp.json()
             names = {item["name"] for item in artifacts_payload["artifacts"]}
-            assert names == {"results.json", "results.csv", "metadata.json"}
+            assert names == {
+                "results.json",
+                "results.csv",
+                "metadata.json",
+                "routes.geojson",
+                "results_summary.csv",
+            }
 
             results_json_resp = client.get(f"/runs/{run_id}/artifacts/results.json")
             assert results_json_resp.status_code == 200
@@ -121,7 +127,23 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metadata_resp.status_code == 200
             metadata = metadata_resp.json()
             assert metadata["run_id"] == run_id
-            assert metadata["artifact_names"] == ["metadata.json", "results.csv", "results.json"]
+            assert metadata["artifact_names"] == [
+                "metadata.json",
+                "results.csv",
+                "results.json",
+                "results_summary.csv",
+                "routes.geojson",
+            ]
+
+            geojson_resp = client.get(f"/runs/{run_id}/artifacts/routes.geojson")
+            assert geojson_resp.status_code == 200
+            geojson = geojson_resp.json()
+            assert geojson["type"] == "FeatureCollection"
+            assert len(geojson["features"]) >= 1
+
+            summary_resp = client.get(f"/runs/{run_id}/artifacts/results_summary.csv")
+            assert summary_resp.status_code == 200
+            assert "pair_index,origin_lat,origin_lon" in summary_resp.text
 
             metrics_resp = client.get("/metrics")
             assert metrics_resp.status_code == 200
@@ -129,7 +151,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metrics["endpoints"]["batch_pareto"]["request_count"] == 1
             assert metrics["endpoints"]["runs_manifest_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_artifacts_list_get"]["request_count"] == 1
-            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 3
+            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 5
 
     finally:
         app.dependency_overrides.clear()

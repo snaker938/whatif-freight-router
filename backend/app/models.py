@@ -78,6 +78,17 @@ class BatchParetoRequest(BaseModel):
     model_version: str | None = None
 
 
+class BatchCSVImportRequest(BaseModel):
+    csv_text: str = Field(..., min_length=1)
+    vehicle_type: str = Field(default="rigid_hgv")
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
+    max_alternatives: int = Field(default=5, ge=1, le=5)
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    seed: int | None = None
+    toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
+    model_version: str | None = None
+
+
 class RouteMetrics(BaseModel):
     distance_km: float
     duration_s: float
