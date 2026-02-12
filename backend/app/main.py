@@ -43,6 +43,7 @@ from .models import (
 from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import pick_best_by_weighted_sum
 from .pareto import pareto_filter
+from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import (
@@ -1158,8 +1159,15 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
     try:
         sem = asyncio.Semaphore(settings.batch_concurrency)
 
-        async def one(pair_idx: int) -> BatchParetoResult:
+        async def one(pair_idx: int) -> tuple[BatchParetoResult, dict[str, Any]]:
             async with sem:
+                pair_stats: dict[str, Any] = {
+                    "pair_index": pair_idx,
+                    "candidate_count": 0,
+                    "option_count": 0,
+                    "pareto_count": 0,
+                    "error": None,
+                }
                 try:
                     routes = await osrm.fetch_routes(
                         origin_lat=req.pairs[pair_idx].origin.lat,
@@ -1169,6 +1177,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                         alternatives=req.max_alternatives,
                     )
                     routes = routes[: req.max_alternatives]
+                    pair_stats["candidate_count"] = len(routes)
                     options: list[RouteOption] = [
                         build_option(
                             r,
@@ -1179,6 +1188,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                         )
                         for i, r in enumerate(routes)
                     ]
+                    pair_stats["option_count"] = len(options)
                     pareto = pareto_filter(
                         options,
                         key=lambda o: (
@@ -1188,23 +1198,94 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                         ),
                     )
                     pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
+                    pair_stats["pareto_count"] = len(pareto_sorted)
 
-                    return BatchParetoResult(
-                        origin=req.pairs[pair_idx].origin,
-                        destination=req.pairs[pair_idx].destination,
-                        routes=pareto_sorted,
+                    return (
+                        BatchParetoResult(
+                            origin=req.pairs[pair_idx].origin,
+                            destination=req.pairs[pair_idx].destination,
+                            routes=pareto_sorted,
+                        ),
+                        pair_stats,
                     )
                 except (OSRMError, ValueError) as e:
-                    return BatchParetoResult(
-                        origin=req.pairs[pair_idx].origin,
-                        destination=req.pairs[pair_idx].destination,
-                        error=str(e),
+                    pair_stats["error"] = str(e)
+                    return (
+                        BatchParetoResult(
+                            origin=req.pairs[pair_idx].origin,
+                            destination=req.pairs[pair_idx].destination,
+                            error=str(e),
+                        ),
+                        pair_stats,
                     )
 
-        results = await asyncio.gather(*[one(i) for i in range(len(req.pairs))])
+        provenance_events: list[dict[str, Any]] = [
+            provenance_event(
+                run_id,
+                "input_received",
+                pair_count=len(req.pairs),
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode.value,
+                max_alternatives=req.max_alternatives,
+                cost_toggles=req.cost_toggles.model_dump(mode="json"),
+            )
+        ]
+
+        pair_outputs = await asyncio.gather(*[one(i) for i in range(len(req.pairs))])
+        results = [result for result, _ in pair_outputs]
+        pair_stats = [stats for _, stats in pair_outputs]
 
         duration_ms = round((time.perf_counter() - t0) * 1000, 2)
         error_count = sum(1 for r in results if r.error)
+        candidate_count = sum(int(stats["candidate_count"]) for stats in pair_stats)
+        option_count = sum(int(stats["option_count"]) for stats in pair_stats)
+        pareto_count = sum(int(stats["pareto_count"]) for stats in pair_stats)
+
+        provenance_events.append(
+            provenance_event(
+                run_id,
+                "candidates_fetched",
+                candidate_count=candidate_count,
+                pairs=[
+                    {
+                        "pair_index": int(stats["pair_index"]),
+                        "candidate_count": int(stats["candidate_count"]),
+                        "error": stats["error"],
+                    }
+                    for stats in pair_stats
+                ],
+            )
+        )
+        provenance_events.append(
+            provenance_event(
+                run_id,
+                "options_built",
+                option_count=option_count,
+                pairs=[
+                    {
+                        "pair_index": int(stats["pair_index"]),
+                        "option_count": int(stats["option_count"]),
+                    }
+                    for stats in pair_stats
+                ],
+            )
+        )
+        provenance_events.append(
+            provenance_event(
+                run_id,
+                "pareto_selected",
+                pareto_count=pareto_count,
+                error_count=error_count,
+                pairs=[
+                    {
+                        "pair_index": int(stats["pair_index"]),
+                        "pareto_count": int(stats["pareto_count"]),
+                    }
+                    for stats in pair_stats
+                ],
+            )
+        )
+        provenance_file = provenance_path_for_run(run_id)
 
         request_payload = req.model_dump(mode="json")
         manifest_payload: dict[str, Any] = {
@@ -1244,6 +1325,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
                 "schema_version": "1.0.0",
                 "manifest_endpoint": f"/runs/{run_id}/manifest",
                 "artifacts_endpoint": f"/runs/{run_id}/artifacts",
+                "provenance_endpoint": f"/runs/{run_id}/provenance",
+                "provenance_file": str(provenance_file),
                 "artifact_names": sorted(artifact_paths_for_run(run_id)),
                 "pair_count": len(req.pairs),
                 "error_count": error_count,
@@ -1252,6 +1335,17 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             csv_rows=_batch_results_csv_rows(req, results),
         )
         extra_artifacts = _write_batch_additional_exports(run_id, results)
+        artifact_names = [name for name in sorted(list(artifact_paths) + extra_artifacts)]
+        provenance_events.append(
+            provenance_event(
+                run_id,
+                "artifacts_written",
+                manifest=str(manifest_path),
+                artifact_names=artifact_names,
+                provenance_file=str(provenance_file),
+            )
+        )
+        written_provenance = write_provenance(run_id, provenance_events)
 
         log_event(
             "batch_pareto_request",
@@ -1263,7 +1357,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoRes
             duration_ms=duration_ms,
             error_count=error_count,
             manifest=str(manifest_path),
-            artifacts=[name for name in sorted(list(artifact_paths) + extra_artifacts)],
+            artifacts=artifact_names,
+            provenance=str(written_provenance),
         )
 
         return BatchParetoResponse(run_id=run_id, results=results)
@@ -1296,6 +1391,18 @@ def _manifest_path_for_id(run_id: str) -> Path:
     return resolved
 
 
+def _provenance_path_for_id(run_id: str) -> Path:
+    valid_run_id = _validated_run_id(run_id)
+    p = Path(settings.out_dir) / "provenance" / f"{valid_run_id}.json"
+    base = (Path(settings.out_dir) / "provenance").resolve()
+    resolved = p.resolve()
+
+    if not str(resolved).startswith(str(base)):
+        raise HTTPException(status_code=400, detail="invalid run_id path")
+
+    return resolved
+
+
 @app.get("/runs/{run_id}/manifest")
 async def get_manifest(run_id: str):
     t0 = time.perf_counter()
@@ -1313,6 +1420,27 @@ async def get_manifest(run_id: str):
         raise
     finally:
         _record_endpoint_metric("runs_manifest_get", t0, error=has_error)
+
+
+@app.get("/runs/{run_id}/provenance")
+async def get_provenance(run_id: str):
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        path = _provenance_path_for_id(run_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="provenance not found")
+
+        log_event("run_provenance_get", run_id=_validated_run_id(run_id))
+        return FileResponse(str(path), media_type="application/json")
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_provenance_get", t0, error=has_error)
 
 
 @app.get("/runs/{run_id}/signature")
@@ -1408,7 +1536,11 @@ async def list_artifacts(run_id: str) -> dict[str, object]:
             run_id=valid_run_id,
             artifact_count=len(artifacts),
         )
-        return {"run_id": valid_run_id, "artifacts": artifacts}
+        return {
+            "run_id": valid_run_id,
+            "artifacts": artifacts,
+            "provenance_endpoint": f"/runs/{valid_run_id}/provenance",
+        }
     except HTTPException:
         has_error = True
         raise

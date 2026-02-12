@@ -23,6 +23,8 @@ backend/out/capsule/*
 !backend/out/capsule/.gitkeep
 backend/out/config/*
 !backend/out/config/.gitkeep
+backend/out/provenance/*
+!backend/out/provenance/.gitkeep
 
 # Frontend
 frontend/node_modules/

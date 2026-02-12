@@ -102,6 +102,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             list_resp = client.get(f"/runs/{run_id}/artifacts")
             assert list_resp.status_code == 200
             artifacts_payload = list_resp.json()
+            assert artifacts_payload["provenance_endpoint"] == f"/runs/{run_id}/provenance"
             names = {item["name"] for item in artifacts_payload["artifacts"]}
             assert names == {
                 "results.json",
@@ -127,6 +128,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metadata_resp.status_code == 200
             metadata = metadata_resp.json()
             assert metadata["run_id"] == run_id
+            assert metadata["provenance_endpoint"] == f"/runs/{run_id}/provenance"
             assert metadata["artifact_names"] == [
                 "metadata.json",
                 "results.csv",
@@ -134,6 +136,20 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
                 "results_summary.csv",
                 "routes.geojson",
             ]
+
+            provenance_resp = client.get(f"/runs/{run_id}/provenance")
+            assert provenance_resp.status_code == 200
+            provenance = provenance_resp.json()
+            events = [item["event"] for item in provenance["events"]]
+            assert events == [
+                "input_received",
+                "candidates_fetched",
+                "options_built",
+                "pareto_selected",
+                "artifacts_written",
+            ]
+            timestamps = [item["timestamp"] for item in provenance["events"]]
+            assert timestamps == sorted(timestamps)
 
             geojson_resp = client.get(f"/runs/{run_id}/artifacts/routes.geojson")
             assert geojson_resp.status_code == 200
@@ -151,6 +167,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metrics["endpoints"]["batch_pareto"]["request_count"] == 1
             assert metrics["endpoints"]["runs_manifest_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_artifacts_list_get"]["request_count"] == 1
+            assert metrics["endpoints"]["runs_provenance_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 5
 
     finally:
