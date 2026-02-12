@@ -8,6 +8,7 @@ import L, {
 } from 'leaflet';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CircleMarker,
   MapContainer,
   Marker,
   Polyline,
@@ -29,6 +30,7 @@ type Props = {
   selectedMarker: MarkerKind | null;
 
   route: RouteOption | null;
+  timeLapsePosition?: LatLng | null;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
@@ -239,6 +241,7 @@ export default function MapView({
   destination,
   selectedMarker,
   route,
+  timeLapsePosition,
   onMapClick,
   onSelectMarker,
   onMoveMarker,
@@ -546,6 +549,19 @@ export default function MapView({
               }}
             />
           </>
+        )}
+
+        {timeLapsePosition && (
+          <CircleMarker
+            center={[timeLapsePosition.lat, timeLapsePosition.lon]}
+            radius={8}
+            pathOptions={{
+              color: 'rgba(255, 255, 255, 0.95)',
+              weight: 2,
+              fillColor: 'rgba(6, 182, 212, 0.95)',
+              fillOpacity: 0.95,
+            }}
+          />
         )}
       </MapContainer>
     </div>

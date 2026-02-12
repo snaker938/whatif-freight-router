@@ -1,6 +1,6 @@
 'use client';
 
-import type { ParetoMethod, TerrainProfile } from '../lib/types';
+import type { OptimizationMode, ParetoMethod, TerrainProfile } from '../lib/types';
 
 export type ScenarioAdvancedParams = {
   paretoMethod: ParetoMethod;
@@ -13,6 +13,12 @@ export type ScenarioAdvancedParams = {
   carbonPricePerKg: string;
   tollCostPerKm: string;
   terrainProfile: TerrainProfile;
+  optimizationMode: OptimizationMode;
+  riskAversion: string;
+  stochasticEnabled: boolean;
+  stochasticSeed: string;
+  stochasticSigma: string;
+  stochasticSamples: string;
 };
 
 type Props = {
@@ -36,9 +42,34 @@ export default function ScenarioParameterEditor({
     <section className="card">
       <div className="sectionTitle">Advanced Parameters</div>
       <div className="helper" style={{ marginBottom: 10 }}>
-        Optional controls for Pareto method, epsilon bounds, departure time, cost toggles, and terrain
-        profile.
+        Optional controls for Pareto/robust mode, epsilon bounds, departure time, stochastic sampling,
+        cost toggles, and terrain profile.
       </div>
+
+      <div className="fieldLabel">Optimization mode</div>
+      <select
+        className="input"
+        value={value.optimizationMode}
+        disabled={disabled}
+        onChange={(event) => patch('optimizationMode', event.target.value as OptimizationMode)}
+      >
+        <option value="expected_value">Expected value</option>
+        <option value="robust">Robust</option>
+      </select>
+
+      <label className="fieldLabel" htmlFor="risk-aversion">
+        Risk aversion
+      </label>
+      <input
+        id="risk-aversion"
+        className="input"
+        type="number"
+        min={0}
+        step="any"
+        value={value.riskAversion}
+        disabled={disabled}
+        onChange={(event) => patch('riskAversion', event.target.value)}
+      />
 
       <div className="fieldLabel">Pareto method</div>
       <select
@@ -108,6 +139,64 @@ export default function ScenarioParameterEditor({
         disabled={disabled}
         onChange={(event) => patch('departureTimeUtcLocal', event.target.value)}
       />
+
+      <div className="checkboxRow">
+        <input
+          id="stochastic-enabled"
+          type="checkbox"
+          checked={value.stochasticEnabled}
+          disabled={disabled}
+          onChange={(event) => patch('stochasticEnabled', event.target.checked)}
+        />
+        <label htmlFor="stochastic-enabled">Enable stochastic travel-time sampling</label>
+      </div>
+
+      {value.stochasticEnabled ? (
+        <div className="advancedGrid">
+          <label className="fieldLabel" htmlFor="stochastic-seed">
+            Stochastic seed (optional)
+          </label>
+          <input
+            id="stochastic-seed"
+            className="input"
+            type="number"
+            step={1}
+            value={value.stochasticSeed}
+            disabled={disabled}
+            onChange={(event) => patch('stochasticSeed', event.target.value)}
+          />
+
+          <label className="fieldLabel" htmlFor="stochastic-sigma">
+            Stochastic sigma (0-0.5)
+          </label>
+          <input
+            id="stochastic-sigma"
+            className="input"
+            type="number"
+            min={0}
+            max={0.5}
+            step="any"
+            value={value.stochasticSigma}
+            disabled={disabled}
+            onChange={(event) => patch('stochasticSigma', event.target.value)}
+          />
+
+          <label className="fieldLabel" htmlFor="stochastic-samples">
+            Stochastic samples (5-200)
+          </label>
+          <input
+            id="stochastic-samples"
+            className="input"
+            type="number"
+            min={5}
+            max={200}
+            step={1}
+            value={value.stochasticSamples}
+            disabled={disabled}
+            onChange={(event) => patch('stochasticSamples', event.target.value)}
+          />
+        </div>
+      ) : null}
 
       <div className="fieldLabel">Terrain profile</div>
       <select

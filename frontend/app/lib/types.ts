@@ -1,6 +1,7 @@
 export type ScenarioMode = 'no_sharing' | 'partial_sharing' | 'full_sharing';
 export type ParetoMethod = 'dominance' | 'epsilon_constraint';
 export type TerrainProfile = 'flat' | 'rolling' | 'hilly';
+export type OptimizationMode = 'expected_value' | 'robust';
 
 export type CostToggles = {
   use_tolls: boolean;
@@ -13,6 +14,18 @@ export type EpsilonConstraints = {
   duration_s?: number;
   monetary_cost?: number;
   emissions_kg?: number;
+};
+
+export type StochasticConfig = {
+  enabled?: boolean;
+  seed?: number | null;
+  sigma?: number;
+  samples?: number;
+};
+
+export type TimeWindowConstraints = {
+  earliest_arrival_utc?: string;
+  latest_arrival_utc?: string;
 };
 
 export type LatLng = { lat: number; lon: number };
@@ -40,6 +53,7 @@ export type RouteOption = {
   eta_timeline?: Array<Record<string, string | number>>;
   segment_breakdown?: Array<Record<string, string | number>>;
   counterfactuals?: Array<Record<string, string | number | boolean>>;
+  uncertainty?: Record<string, number> | null;
 };
 
 export type ParetoResponse = { routes: RouteOption[] };
@@ -122,6 +136,9 @@ export type ScenarioCompareRequest = {
   cost_toggles?: CostToggles;
   terrain_profile?: TerrainProfile;
   departure_time_utc?: string;
+  stochastic?: StochasticConfig;
+  optimization_mode?: OptimizationMode;
+  risk_aversion?: number;
   pareto_method?: ParetoMethod;
   epsilon?: EpsilonConstraints;
 };
@@ -148,8 +165,12 @@ export type DepartureOptimizeRequest = {
   max_alternatives?: number;
   cost_toggles?: CostToggles;
   terrain_profile?: TerrainProfile;
+  stochastic?: StochasticConfig;
+  optimization_mode?: OptimizationMode;
+  risk_aversion?: number;
   pareto_method?: ParetoMethod;
   epsilon?: EpsilonConstraints;
+  time_window?: TimeWindowConstraints;
   window_start_utc: string;
   window_end_utc: string;
   step_minutes: number;

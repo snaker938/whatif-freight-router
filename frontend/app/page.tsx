@@ -14,13 +14,16 @@ import type {
   ExperimentBundle,
   ExperimentListResponse,
   LatLng,
+  OptimizationMode,
   ParetoMethod,
   ParetoStreamEvent,
   RouteOption,
   ScenarioMode,
   ScenarioCompareResponse,
   ScenarioCompareRequest,
+  StochasticConfig,
   TerrainProfile,
+  TimeWindowConstraints,
   VehicleListResponse,
   VehicleProfile,
 } from './lib/types';
@@ -37,6 +40,7 @@ type MapViewProps = {
   selectedMarker: MarkerKind | null;
 
   route: RouteOption | null;
+  timeLapsePosition?: LatLng | null;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
@@ -114,6 +118,8 @@ const DepartureOptimizerChart = dynamic<
   {
     windowStartLocal: string;
     windowEndLocal: string;
+    earliestArrivalLocal: string;
+    latestArrivalLocal: string;
     stepMinutes: number;
     loading: boolean;
     error: string | null;
@@ -121,6 +127,8 @@ const DepartureOptimizerChart = dynamic<
     disabled: boolean;
     onWindowStartChange: (value: string) => void;
     onWindowEndChange: (value: string) => void;
+    onEarliestArrivalChange: (value: string) => void;
+    onLatestArrivalChange: (value: string) => void;
     onStepMinutesChange: (value: number) => void;
     onRun: () => void;
     onApplyDepartureTime: (isoUtc: string) => void;
@@ -138,6 +146,13 @@ const CounterfactualPanel = dynamic<{ route: RouteOption | null }>(
   },
 );
 
+const ScenarioTimeLapse = dynamic<
+  { route: RouteOption | null; onPositionChange: (position: LatLng | null) => void }
+>(() => import('./components/ScenarioTimeLapse'), {
+  ssr: false,
+  loading: () => null,
+});
+
 const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   paretoMethod: 'dominance',
   epsilonDurationS: '',
@@ -149,6 +164,12 @@ const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   carbonPricePerKg: '0.0',
   tollCostPerKm: '0.0',
   terrainProfile: 'flat',
+  optimizationMode: 'expected_value',
+  riskAversion: '1.0',
+  stochasticEnabled: false,
+  stochasticSeed: '',
+  stochasticSigma: '0.08',
+  stochasticSamples: '25',
 };
 
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
@@ -244,10 +265,13 @@ export default function Page() {
   const [experimentsError, setExperimentsError] = useState<string | null>(null);
   const [depWindowStartLocal, setDepWindowStartLocal] = useState('');
   const [depWindowEndLocal, setDepWindowEndLocal] = useState('');
+  const [depEarliestArrivalLocal, setDepEarliestArrivalLocal] = useState('');
+  const [depLatestArrivalLocal, setDepLatestArrivalLocal] = useState('');
   const [depStepMinutes, setDepStepMinutes] = useState(60);
   const [depOptimizeLoading, setDepOptimizeLoading] = useState(false);
   const [depOptimizeError, setDepOptimizeError] = useState<string | null>(null);
   const [depOptimizeData, setDepOptimizeData] = useState<DepartureOptimizeResponse | null>(null);
+  const [timeLapsePosition, setTimeLapsePosition] = useState<LatLng | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -344,6 +368,7 @@ export default function Page() {
     setDepOptimizeData(null);
     setDepOptimizeError(null);
     setDepOptimizeLoading(false);
+    setTimeLapsePosition(null);
     setAdvancedError(null);
   }, [abortActiveCompute]);
 
@@ -436,6 +461,12 @@ export default function Page() {
     if (!selectedId) return null;
     return paretoRoutes.find((route) => route.id === selectedId) ?? null;
   }, [paretoRoutes, selectedId]);
+
+  useEffect(() => {
+    if (!selectedRoute) {
+      setTimeLapsePosition(null);
+    }
+  }, [selectedRoute]);
 
   const defaultLabelsById = useMemo(() => {
     const labels: Record<string, string> = {};
@@ -589,12 +620,33 @@ export default function Page() {
     return parsed;
   }
 
+  function parseOptionalInteger(raw: string, field: string): number | undefined {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed)) {
+      throw new Error(`${field} must be an integer.`);
+    }
+    return parsed;
+  }
+
+  function parseBounded(raw: string, field: string, min: number, max: number): number {
+    const parsed = Number(raw.trim());
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+      throw new Error(`${field} must be between ${min} and ${max}.`);
+    }
+    return parsed;
+  }
+
   function buildAdvancedRequestPatch(): {
     pareto_method?: ParetoMethod;
     epsilon?: EpsilonConstraints;
     departure_time_utc?: string;
     cost_toggles?: CostToggles;
     terrain_profile?: TerrainProfile;
+    stochastic?: StochasticConfig;
+    optimization_mode?: OptimizationMode;
+    risk_aversion?: number;
   } {
     const patch: {
       pareto_method?: ParetoMethod;
@@ -602,7 +654,23 @@ export default function Page() {
       departure_time_utc?: string;
       cost_toggles?: CostToggles;
       terrain_profile?: TerrainProfile;
+      stochastic?: StochasticConfig;
+      optimization_mode?: OptimizationMode;
+      risk_aversion?: number;
     } = {};
+
+    if (advancedParams.optimizationMode !== 'expected_value') {
+      patch.optimization_mode = advancedParams.optimizationMode;
+    }
+
+    const riskAversion = parseNonNegativeOrDefault(
+      advancedParams.riskAversion,
+      'Risk aversion',
+      1.0,
+    );
+    if (riskAversion !== 1.0) {
+      patch.risk_aversion = riskAversion;
+    }
 
     if (advancedParams.paretoMethod !== 'dominance') {
       patch.pareto_method = advancedParams.paretoMethod;
@@ -633,6 +701,18 @@ export default function Page() {
         throw new Error('Departure time must be a valid date/time.');
       }
       patch.departure_time_utc = dt.toISOString();
+    }
+
+    if (advancedParams.stochasticEnabled) {
+      const sigma = parseBounded(advancedParams.stochasticSigma, 'Stochastic sigma', 0, 0.5);
+      const samples = parseBounded(advancedParams.stochasticSamples, 'Stochastic samples', 5, 200);
+      const seed = parseOptionalInteger(advancedParams.stochasticSeed, 'Stochastic seed');
+      patch.stochastic = {
+        enabled: true,
+        sigma,
+        samples: Math.round(samples),
+        ...(seed !== undefined ? { seed } : {}),
+      };
     }
 
     const fuelPriceMultiplier = parseNonNegativeOrDefault(
@@ -873,6 +953,7 @@ export default function Page() {
     }
 
     const cost = req.cost_toggles;
+    const stochastic = req.stochastic;
     setAdvancedParams({
       paretoMethod: req.pareto_method ?? 'dominance',
       epsilonDurationS: req.epsilon?.duration_s !== undefined ? String(req.epsilon.duration_s) : '',
@@ -885,6 +966,13 @@ export default function Page() {
       carbonPricePerKg: String(cost?.carbon_price_per_kg ?? 0.0),
       tollCostPerKm: String(cost?.toll_cost_per_km ?? 0.0),
       terrainProfile: req.terrain_profile ?? 'flat',
+      optimizationMode: req.optimization_mode ?? 'expected_value',
+      riskAversion: String(req.risk_aversion ?? 1.0),
+      stochasticEnabled: Boolean(stochastic?.enabled),
+      stochasticSeed:
+        stochastic?.seed !== undefined && stochastic?.seed !== null ? String(stochastic.seed) : '',
+      stochasticSigma: String(stochastic?.sigma ?? 0.08),
+      stochasticSamples: String(stochastic?.samples ?? 25),
     });
   }
 
@@ -999,6 +1087,30 @@ export default function Page() {
       return;
     }
 
+    let timeWindow: TimeWindowConstraints | undefined;
+    if (depEarliestArrivalLocal.trim() || depLatestArrivalLocal.trim()) {
+      const earliestDate = depEarliestArrivalLocal.trim()
+        ? new Date(depEarliestArrivalLocal)
+        : undefined;
+      const latestDate = depLatestArrivalLocal.trim() ? new Date(depLatestArrivalLocal) : undefined;
+      if (earliestDate && Number.isNaN(earliestDate.getTime())) {
+        setDepOptimizeError('Earliest arrival must be a valid date/time.');
+        return;
+      }
+      if (latestDate && Number.isNaN(latestDate.getTime())) {
+        setDepOptimizeError('Latest arrival must be a valid date/time.');
+        return;
+      }
+      if (earliestDate && latestDate && latestDate < earliestDate) {
+        setDepOptimizeError('Latest arrival must be later than or equal to earliest arrival.');
+        return;
+      }
+      timeWindow = {
+        ...(earliestDate ? { earliest_arrival_utc: earliestDate.toISOString() } : {}),
+        ...(latestDate ? { latest_arrival_utc: latestDate.toISOString() } : {}),
+      };
+    }
+
     const req: DepartureOptimizeRequest = {
       origin,
       destination,
@@ -1015,8 +1127,12 @@ export default function Page() {
       step_minutes: depStepMinutes,
       ...(advancedPatch.cost_toggles ? { cost_toggles: advancedPatch.cost_toggles } : {}),
       ...(advancedPatch.terrain_profile ? { terrain_profile: advancedPatch.terrain_profile } : {}),
+      ...(advancedPatch.stochastic ? { stochastic: advancedPatch.stochastic } : {}),
+      ...(advancedPatch.optimization_mode ? { optimization_mode: advancedPatch.optimization_mode } : {}),
+      ...(advancedPatch.risk_aversion !== undefined ? { risk_aversion: advancedPatch.risk_aversion } : {}),
       ...(advancedPatch.pareto_method ? { pareto_method: advancedPatch.pareto_method } : {}),
       ...(advancedPatch.epsilon ? { epsilon: advancedPatch.epsilon } : {}),
+      ...(timeWindow ? { time_window: timeWindow } : {}),
     };
 
     setDepOptimizeLoading(true);
@@ -1095,6 +1211,7 @@ export default function Page() {
           destination={destination}
           selectedMarker={selectedMarker}
           route={selectedRoute}
+          timeLapsePosition={timeLapsePosition}
           onMapClick={handleMapClick}
           onSelectMarker={setSelectedMarker}
           onMoveMarker={handleMoveMarker}
@@ -1365,6 +1482,8 @@ export default function Page() {
             </section>
           )}
 
+          <ScenarioTimeLapse route={selectedRoute} onPositionChange={setTimeLapsePosition} />
+
           {showRoutesSection && (
             <section className={`card routesSection ${isPending ? 'isUpdating' : ''}`}>
               <div className="sectionTitleRow">
@@ -1570,6 +1689,8 @@ export default function Page() {
           <DepartureOptimizerChart
             windowStartLocal={depWindowStartLocal}
             windowEndLocal={depWindowEndLocal}
+            earliestArrivalLocal={depEarliestArrivalLocal}
+            latestArrivalLocal={depLatestArrivalLocal}
             stepMinutes={depStepMinutes}
             loading={depOptimizeLoading}
             error={depOptimizeError}
@@ -1577,6 +1698,8 @@ export default function Page() {
             disabled={!origin || !destination || busy}
             onWindowStartChange={setDepWindowStartLocal}
             onWindowEndChange={setDepWindowEndLocal}
+            onEarliestArrivalChange={setDepEarliestArrivalLocal}
+            onLatestArrivalChange={setDepLatestArrivalLocal}
             onStepMinutesChange={setDepStepMinutes}
             onRun={optimizeDepartures}
             onApplyDepartureTime={applyOptimizedDeparture}

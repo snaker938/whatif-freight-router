@@ -5,6 +5,8 @@ import type { DepartureOptimizeResponse } from '../lib/types';
 type Props = {
   windowStartLocal: string;
   windowEndLocal: string;
+  earliestArrivalLocal: string;
+  latestArrivalLocal: string;
   stepMinutes: number;
   loading: boolean;
   error: string | null;
@@ -12,6 +14,8 @@ type Props = {
   disabled: boolean;
   onWindowStartChange: (value: string) => void;
   onWindowEndChange: (value: string) => void;
+  onEarliestArrivalChange: (value: string) => void;
+  onLatestArrivalChange: (value: string) => void;
   onStepMinutesChange: (value: number) => void;
   onRun: () => void;
   onApplyDepartureTime: (isoUtc: string) => void;
@@ -20,6 +24,8 @@ type Props = {
 export default function DepartureOptimizerChart({
   windowStartLocal,
   windowEndLocal,
+  earliestArrivalLocal,
+  latestArrivalLocal,
   stepMinutes,
   loading,
   error,
@@ -27,6 +33,8 @@ export default function DepartureOptimizerChart({
   disabled,
   onWindowStartChange,
   onWindowEndChange,
+  onEarliestArrivalChange,
+  onLatestArrivalChange,
   onStepMinutesChange,
   onRun,
   onApplyDepartureTime,
@@ -77,6 +85,30 @@ export default function DepartureOptimizerChart({
         value={stepMinutes}
         disabled={disabled || loading}
         onChange={(event) => onStepMinutesChange(Math.max(5, Number(event.target.value) || 5))}
+      />
+
+      <label className="fieldLabel" htmlFor="dep-earliest-arrival">
+        Earliest arrival (UTC, optional)
+      </label>
+      <input
+        id="dep-earliest-arrival"
+        className="input"
+        type="datetime-local"
+        value={earliestArrivalLocal}
+        disabled={disabled || loading}
+        onChange={(event) => onEarliestArrivalChange(event.target.value)}
+      />
+
+      <label className="fieldLabel" htmlFor="dep-latest-arrival">
+        Latest arrival (UTC, optional)
+      </label>
+      <input
+        id="dep-latest-arrival"
+        className="input"
+        type="datetime-local"
+        value={latestArrivalLocal}
+        disabled={disabled || loading}
+        onChange={(event) => onLatestArrivalChange(event.target.value)}
       />
 
       {error ? <div className="error">{error}</div> : null}
