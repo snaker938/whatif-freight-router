@@ -10,7 +10,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -36,6 +36,9 @@ from .models import (
     BatchParetoResult,
     CostToggles,
     CustomVehicleListResponse,
+    DepartureOptimizeCandidate,
+    DepartureOptimizeRequest,
+    DepartureOptimizeResponse,
     EpsilonConstraints,
     ExperimentBundle,
     ExperimentBundleInput,
@@ -61,7 +64,7 @@ from .models import (
     VehicleMutationResponse,
 )
 from .objectives_emissions import route_emissions_kg, speed_factor
-from .objectives_selection import pick_best_by_weighted_sum
+from .objectives_selection import normalise_weights, pick_best_by_weighted_sum
 from .pareto_methods import select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
@@ -1104,6 +1107,151 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
         raise
     finally:
         _record_endpoint_metric("route", t0, error=has_error)
+
+
+@app.post("/departure/optimize", response_model=DepartureOptimizeResponse)
+async def optimize_departure_time(
+    req: DepartureOptimizeRequest,
+    osrm: OSRMDep,
+) -> DepartureOptimizeResponse:
+    t0 = time.perf_counter()
+    has_error = False
+
+    try:
+        start_utc = req.window_start_utc
+        end_utc = req.window_end_utc
+        if start_utc.tzinfo is None:
+            start_utc = start_utc.replace(tzinfo=timezone.utc)
+        else:
+            start_utc = start_utc.astimezone(timezone.utc)
+        if end_utc.tzinfo is None:
+            end_utc = end_utc.replace(tzinfo=timezone.utc)
+        else:
+            end_utc = end_utc.astimezone(timezone.utc)
+
+        if end_utc <= start_utc:
+            raise HTTPException(status_code=422, detail="window_end_utc must be after window_start_utc")
+
+        departure_times: list[datetime] = []
+        cursor = start_utc
+        step = timedelta(minutes=req.step_minutes)
+        while cursor <= end_utc:
+            departure_times.append(cursor)
+            cursor = cursor + step
+        if departure_times[-1] != end_utc:
+            departure_times.append(end_utc)
+
+        selected_rows: list[dict[str, Any]] = []
+        for departure_time in departure_times:
+            cache_key = _candidate_cache_key(
+                origin=req.origin,
+                destination=req.destination,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode,
+                max_routes=req.max_alternatives,
+                cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
+                departure_time_utc=departure_time,
+            )
+            routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+                osrm=osrm,
+                origin=req.origin,
+                destination=req.destination,
+                max_routes=req.max_alternatives,
+                cache_key=cache_key,
+            )
+            options, build_warnings = _build_options(
+                routes,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode,
+                cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
+                departure_time_utc=departure_time,
+                option_prefix=f"departure_{departure_time.strftime('%H%M')}",
+            )
+            warnings.extend(build_warnings)
+            if not options:
+                continue
+
+            pareto = _finalize_pareto_options(
+                options,
+                max_alternatives=req.max_alternatives,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+            )
+            selected = pick_best_by_weighted_sum(
+                pareto,
+                w_time=req.weights.time,
+                w_money=req.weights.money,
+                w_co2=req.weights.co2,
+            )
+            selected_rows.append(
+                {
+                    "departure_time_utc": departure_time,
+                    "selected": selected,
+                    "warning_count": len(warnings),
+                    "fallback_used": fallback_used,
+                }
+            )
+
+        if not selected_rows:
+            raise HTTPException(status_code=502, detail="No departure candidates could be computed.")
+
+        durations = [row["selected"].metrics.duration_s for row in selected_rows]
+        costs = [row["selected"].metrics.monetary_cost for row in selected_rows]
+        emissions = [row["selected"].metrics.emissions_kg for row in selected_rows]
+        d_min, d_max = min(durations), max(durations)
+        c_min, c_max = min(costs), max(costs)
+        e_min, e_max = min(emissions), max(emissions)
+        wt, wm, we = normalise_weights(req.weights.time, req.weights.money, req.weights.co2)
+
+        def _norm(v: float, mn: float, mx: float) -> float:
+            return 0.0 if mx <= mn else (v - mn) / (mx - mn)
+
+        candidates: list[DepartureOptimizeCandidate] = []
+        for row in selected_rows:
+            selected = row["selected"]
+            score = (
+                wt * _norm(selected.metrics.duration_s, d_min, d_max)
+                + wm * _norm(selected.metrics.monetary_cost, c_min, c_max)
+                + we * _norm(selected.metrics.emissions_kg, e_min, e_max)
+            )
+            departure_time = row["departure_time_utc"]
+            candidates.append(
+                DepartureOptimizeCandidate(
+                    departure_time_utc=departure_time.isoformat().replace("+00:00", "Z"),
+                    selected=selected,
+                    score=round(score, 6),
+                    warning_count=int(row["warning_count"]),
+                    fallback_used=bool(row["fallback_used"]),
+                )
+            )
+
+        candidates.sort(key=lambda item: (item.score, item.departure_time_utc))
+        best = candidates[0] if candidates else None
+
+        log_event(
+            "departure_optimize_request",
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode.value,
+            pair={"origin": req.origin.model_dump(), "destination": req.destination.model_dump()},
+            step_minutes=req.step_minutes,
+            window_start_utc=start_utc.isoformat().replace("+00:00", "Z"),
+            window_end_utc=end_utc.isoformat().replace("+00:00", "Z"),
+            evaluated_count=len(candidates),
+            best_departure_time_utc=best.departure_time_utc if best else None,
+            duration_ms=round((time.perf_counter() - t0) * 1000.0, 2),
+        )
+
+        return DepartureOptimizeResponse(best=best, candidates=candidates, evaluated_count=len(candidates))
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("departure_optimize_post", t0, error=has_error)
 
 
 def _scenario_metric_deltas(

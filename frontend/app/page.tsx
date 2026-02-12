@@ -8,6 +8,8 @@ import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import type {
   CostToggles,
+  DepartureOptimizeRequest,
+  DepartureOptimizeResponse,
   EpsilonConstraints,
   ExperimentBundle,
   ExperimentListResponse,
@@ -104,6 +106,26 @@ const ExperimentManager = dynamic<
     onReplay: (experimentId: string) => Promise<void> | void;
   }
 >(() => import('./components/ExperimentManager'), {
+  ssr: false,
+  loading: () => null,
+});
+
+const DepartureOptimizerChart = dynamic<
+  {
+    windowStartLocal: string;
+    windowEndLocal: string;
+    stepMinutes: number;
+    loading: boolean;
+    error: string | null;
+    data: DepartureOptimizeResponse | null;
+    disabled: boolean;
+    onWindowStartChange: (value: string) => void;
+    onWindowEndChange: (value: string) => void;
+    onStepMinutesChange: (value: number) => void;
+    onRun: () => void;
+    onApplyDepartureTime: (isoUtc: string) => void;
+  }
+>(() => import('./components/DepartureOptimizerChart'), {
   ssr: false,
   loading: () => null,
 });
@@ -211,6 +233,12 @@ export default function Page() {
   const [experiments, setExperiments] = useState<ExperimentBundle[]>([]);
   const [experimentsLoading, setExperimentsLoading] = useState(false);
   const [experimentsError, setExperimentsError] = useState<string | null>(null);
+  const [depWindowStartLocal, setDepWindowStartLocal] = useState('');
+  const [depWindowEndLocal, setDepWindowEndLocal] = useState('');
+  const [depStepMinutes, setDepStepMinutes] = useState(60);
+  const [depOptimizeLoading, setDepOptimizeLoading] = useState(false);
+  const [depOptimizeError, setDepOptimizeError] = useState<string | null>(null);
+  const [depOptimizeData, setDepOptimizeData] = useState<DepartureOptimizeResponse | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -300,6 +328,9 @@ export default function Page() {
     setScenarioCompare(null);
     setScenarioCompareError(null);
     setScenarioCompareLoading(false);
+    setDepOptimizeData(null);
+    setDepOptimizeError(null);
+    setDepOptimizeLoading(false);
     setAdvancedError(null);
   }, [abortActiveCompute]);
 
@@ -347,6 +378,15 @@ export default function Page() {
   useEffect(() => {
     void loadExperiments();
   }, []);
+
+  useEffect(() => {
+    if (depWindowStartLocal || depWindowEndLocal) return;
+    const now = new Date();
+    const start = new Date(now.getTime() + 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+    setDepWindowStartLocal(start.toISOString().slice(0, 16));
+    setDepWindowEndLocal(end.toISOString().slice(0, 16));
+  }, [depWindowStartLocal, depWindowEndLocal]);
 
   useEffect(() => {
     const best = pickBestByWeightedSum(paretoRoutes, weights);
@@ -897,6 +937,73 @@ export default function Page() {
     }
   }
 
+  async function optimizeDepartures() {
+    if (!origin || !destination) {
+      setDepOptimizeError('Set origin and destination before optimizing departures.');
+      return;
+    }
+
+    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    try {
+      setAdvancedError(null);
+      advancedPatch = buildAdvancedRequestPatch();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
+      setAdvancedError(msg);
+      setDepOptimizeError(msg);
+      return;
+    }
+
+    const startDate = new Date(depWindowStartLocal);
+    const endDate = new Date(depWindowEndLocal);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      setDepOptimizeError('Departure window must include valid start and end times.');
+      return;
+    }
+    if (endDate <= startDate) {
+      setDepOptimizeError('Departure window end must be later than start.');
+      return;
+    }
+
+    const req: DepartureOptimizeRequest = {
+      origin,
+      destination,
+      vehicle_type: vehicleType,
+      scenario_mode: scenarioMode,
+      max_alternatives: 5,
+      weights: {
+        time: weights.time,
+        money: weights.money,
+        co2: weights.co2,
+      },
+      window_start_utc: startDate.toISOString(),
+      window_end_utc: endDate.toISOString(),
+      step_minutes: depStepMinutes,
+      ...(advancedPatch.cost_toggles ? { cost_toggles: advancedPatch.cost_toggles } : {}),
+      ...(advancedPatch.terrain_profile ? { terrain_profile: advancedPatch.terrain_profile } : {}),
+      ...(advancedPatch.pareto_method ? { pareto_method: advancedPatch.pareto_method } : {}),
+      ...(advancedPatch.epsilon ? { epsilon: advancedPatch.epsilon } : {}),
+    };
+
+    setDepOptimizeLoading(true);
+    setDepOptimizeError(null);
+    try {
+      const payload = await postJSON<DepartureOptimizeResponse>('/api/departure/optimize', req);
+      setDepOptimizeData(payload);
+    } catch (e: unknown) {
+      setDepOptimizeError(e instanceof Error ? e.message : 'Failed to optimize departures');
+    } finally {
+      setDepOptimizeLoading(false);
+    }
+  }
+
+  function applyOptimizedDeparture(isoUtc: string) {
+    setAdvancedParams((prev) => ({
+      ...prev,
+      departureTimeUtcLocal: toDatetimeLocalValue(isoUtc),
+    }));
+  }
+
   const m = selectedRoute?.metrics ?? null;
 
   const vehicleOptions = vehicles.length
@@ -1410,6 +1517,21 @@ export default function Page() {
               error={scenarioCompareError}
             />
           </section>
+
+          <DepartureOptimizerChart
+            windowStartLocal={depWindowStartLocal}
+            windowEndLocal={depWindowEndLocal}
+            stepMinutes={depStepMinutes}
+            loading={depOptimizeLoading}
+            error={depOptimizeError}
+            data={depOptimizeData}
+            disabled={!origin || !destination || busy}
+            onWindowStartChange={setDepWindowStartLocal}
+            onWindowEndChange={setDepWindowEndLocal}
+            onStepMinutesChange={setDepStepMinutes}
+            onRun={optimizeDepartures}
+            onApplyDepartureTime={applyOptimizedDeparture}
+          />
 
           <ExperimentManager
             experiments={experiments}

@@ -137,3 +137,33 @@ export type ExperimentBundle = {
 export type ExperimentListResponse = {
   experiments: ExperimentBundle[];
 };
+
+export type DepartureOptimizeRequest = {
+  origin: LatLng;
+  destination: LatLng;
+  vehicle_type?: string;
+  scenario_mode?: ScenarioMode;
+  weights?: { time: number; money: number; co2: number };
+  max_alternatives?: number;
+  cost_toggles?: CostToggles;
+  terrain_profile?: TerrainProfile;
+  pareto_method?: ParetoMethod;
+  epsilon?: EpsilonConstraints;
+  window_start_utc: string;
+  window_end_utc: string;
+  step_minutes: number;
+};
+
+export type DepartureOptimizeCandidate = {
+  departure_time_utc: string;
+  selected: RouteOption;
+  score: number;
+  warning_count: number;
+  fallback_used: boolean;
+};
+
+export type DepartureOptimizeResponse = {
+  best: DepartureOptimizeCandidate | null;
+  candidates: DepartureOptimizeCandidate[];
+  evaluated_count: number;
+};

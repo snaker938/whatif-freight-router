@@ -217,6 +217,36 @@ class ScenarioCompareResponse(BaseModel):
     scenario_signature_endpoint: str
 
 
+class DepartureOptimizeRequest(BaseModel):
+    origin: LatLng
+    destination: LatLng
+    vehicle_type: str = Field(default="rigid_hgv")
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
+    weights: Weights = Field(default_factory=lambda: Weights(time=1, money=1, co2=1))
+    max_alternatives: int = Field(default=5, ge=1, le=5)
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
+    window_start_utc: datetime
+    window_end_utc: datetime
+    step_minutes: int = Field(default=60, ge=5, le=720)
+
+
+class DepartureOptimizeCandidate(BaseModel):
+    departure_time_utc: str
+    selected: RouteOption
+    score: float
+    warning_count: int = 0
+    fallback_used: bool = False
+
+
+class DepartureOptimizeResponse(BaseModel):
+    best: DepartureOptimizeCandidate | None
+    candidates: list[DepartureOptimizeCandidate]
+    evaluated_count: int
+
+
 class ExperimentBundleInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
