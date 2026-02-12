@@ -34,5 +34,9 @@ SCENARIO_POLICIES: dict[ScenarioMode, ScenarioPolicy] = {
 }
 
 
+def scenario_duration_multiplier(mode: ScenarioMode) -> float:
+    return SCENARIO_POLICIES[mode].duration_multiplier
+
+
 def apply_scenario_duration(duration_s: float, mode: ScenarioMode) -> float:
-    return duration_s * SCENARIO_POLICIES[mode].duration_multiplier
+    return duration_s * scenario_duration_multiplier(mode)

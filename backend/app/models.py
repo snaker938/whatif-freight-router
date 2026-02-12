@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -49,6 +50,7 @@ class RouteRequest(BaseModel):
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    departure_time_utc: datetime | None = None
 
 
 class ParetoRequest(BaseModel):
@@ -60,6 +62,7 @@ class ParetoRequest(BaseModel):
     # (OSRM will still cap the number of alternatives it can produce.)
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    departure_time_utc: datetime | None = None
 
 
 class ODPair(BaseModel):
@@ -73,6 +76,7 @@ class BatchParetoRequest(BaseModel):
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    departure_time_utc: datetime | None = None
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None
@@ -84,6 +88,7 @@ class BatchCSVImportRequest(BaseModel):
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    departure_time_utc: datetime | None = None
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None
@@ -101,6 +106,8 @@ class RouteOption(BaseModel):
     id: str
     geometry: GeoJSONLineString
     metrics: RouteMetrics
+    eta_explanations: list[str] = Field(default_factory=list)
+    eta_timeline: list[dict[str, float | str]] = Field(default_factory=list)
 
 
 class RouteResponse(BaseModel):
