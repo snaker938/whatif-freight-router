@@ -113,6 +113,11 @@ Use this for full containerized verification. Do not run this at the same time a
   - run from `backend/`:
   - `uv run python scripts/run_sensitivity_analysis.py --mode inprocess-fake --pair-count 50 --include-no-tolls`
 
+- `backend/scripts/check_eta_concept_drift.py`
+  - compares predicted vs observed ETA CSV values and flags concept drift
+  - run from `backend/`:
+  - `uv run python scripts/check_eta_concept_drift.py --input-csv .\eta_observations.csv --mae-threshold-s 120 --mape-threshold-pct 10`
+
 - `scripts/demo_repro_run.ps1`
   - scripted reproducibility capsule run (fixed seed and pair count)
   - run from repo root:
@@ -136,6 +141,10 @@ Use this for full containerized verification. Do not run this at the same time a
   - deterministic demo run and capsule artifact workflow
 - `docs/backend-api-tools.md`
   - cost toggles, vehicle CRUD, cache, signatures, provenance, import/export, and analysis tools
+- `docs/eta-concept-drift.md`
+  - ETA drift-check input schema, metrics, thresholds, and output artifacts
+- `docs/jupyter-cookbook.md`
+  - notebook setup and guided API/artifact/drift workflows
 
 ## Troubleshooting
 
