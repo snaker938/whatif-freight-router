@@ -130,6 +130,14 @@ const DepartureOptimizerChart = dynamic<
   loading: () => null,
 });
 
+const CounterfactualPanel = dynamic<{ route: RouteOption | null }>(
+  () => import('./components/CounterfactualPanel'),
+  {
+    ssr: false,
+    loading: () => null,
+  },
+);
+
 const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   paretoMethod: 'dominance',
   epsilonDurationS: '',
@@ -1313,6 +1321,7 @@ export default function Page() {
               </div>
 
               <SegmentBreakdown route={selectedRoute} />
+              <CounterfactualPanel route={selectedRoute} />
             </section>
           )}
 

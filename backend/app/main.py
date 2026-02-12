@@ -327,6 +327,14 @@ def _downsample_coords(
     return out
 
 
+def _counterfactual_shift_scenario(mode: ScenarioMode) -> ScenarioMode:
+    if mode == ScenarioMode.NO_SHARING:
+        return ScenarioMode.PARTIAL_SHARING
+    if mode == ScenarioMode.PARTIAL_SHARING:
+        return ScenarioMode.FULL_SHARING
+    return ScenarioMode.PARTIAL_SHARING
+
+
 def build_option(
     route: dict[str, Any],
     *,
@@ -376,6 +384,10 @@ def build_option(
     total_monetary = 0.0
     total_distance_km = 0.0
     total_duration_s = 0.0
+    total_fuel_cost = 0.0
+    total_time_cost = 0.0
+    total_toll_cost = 0.0
+    total_carbon_cost = 0.0
 
     for idx, (d_m, t_s) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
         d_m = max(float(d_m), 0.0)
@@ -421,6 +433,10 @@ def build_option(
         total_duration_s += seg_duration_s
         total_emissions += seg_emissions
         total_monetary += seg_monetary
+        total_fuel_cost += seg_fuel_cost
+        total_time_cost += seg_time_cost
+        total_toll_cost += seg_toll_cost
+        total_carbon_cost += seg_carbon_cost
 
     avg_speed_kmh = total_distance_km / (total_duration_s / 3600.0) if total_duration_s > 0 else 0.0
 
@@ -470,6 +486,65 @@ def build_option(
         },
     ]
 
+    shifted_departure_duration = total_duration_s
+    if departure_time_utc is not None:
+        shifted_tod_multiplier = time_of_day_multiplier(departure_time_utc + timedelta(hours=2))
+        shifted_after_tod = base_duration_s * shifted_tod_multiplier
+        shifted_after_scenario = apply_scenario_duration(shifted_after_tod, mode=scenario_mode)
+        shifted_departure_duration = shifted_after_scenario * gradient_duration_multiplier
+
+    shifted_mode = _counterfactual_shift_scenario(scenario_mode)
+    shifted_mode_duration = (
+        apply_scenario_duration(duration_after_tod_s, mode=shifted_mode) * gradient_duration_multiplier
+    )
+    duration_ratio = shifted_mode_duration / total_duration_s if total_duration_s > 0 else 1.0
+    shifted_mode_emissions = total_emissions * duration_ratio
+    shifted_mode_time_cost = total_time_cost * duration_ratio
+    shifted_mode_monetary = (
+        total_fuel_cost + shifted_mode_time_cost + total_toll_cost + total_carbon_cost
+    )
+
+    counterfactuals: list[dict[str, str | float | bool]] = [
+        {
+            "id": "fuel_plus_10pct",
+            "label": "Fuel +10%",
+            "metric": "monetary_cost",
+            "baseline": round(total_monetary, 4),
+            "counterfactual": round(total_monetary + (total_fuel_cost * 0.10), 4),
+            "delta": round(total_fuel_cost * 0.10, 4),
+            "improves": False,
+        },
+        {
+            "id": "carbon_price_plus_0_10",
+            "label": "Carbon price +0.10/kg",
+            "metric": "monetary_cost",
+            "baseline": round(total_monetary, 4),
+            "counterfactual": round(total_monetary + (total_emissions * 0.10), 4),
+            "delta": round(total_emissions * 0.10, 4),
+            "improves": False,
+        },
+        {
+            "id": "departure_plus_2h",
+            "label": "Departure +2h",
+            "metric": "duration_s",
+            "baseline": round(total_duration_s, 4),
+            "counterfactual": round(shifted_departure_duration, 4),
+            "delta": round(shifted_departure_duration - total_duration_s, 4),
+            "improves": shifted_departure_duration < total_duration_s,
+        },
+        {
+            "id": "scenario_shift",
+            "label": f"Scenario shift to {shifted_mode.value}",
+            "metric": "duration_s",
+            "baseline": round(total_duration_s, 4),
+            "counterfactual": round(shifted_mode_duration, 4),
+            "delta": round(shifted_mode_duration - total_duration_s, 4),
+            "improves": shifted_mode_duration < total_duration_s,
+            "emissions_delta": round(shifted_mode_emissions - total_emissions, 4),
+            "monetary_delta": round(shifted_mode_monetary - total_monetary, 4),
+        },
+    ]
+
     return RouteOption(
         id=option_id,
         geometry=GeoJSONLineString(type="LineString", coordinates=coords),
@@ -483,6 +558,7 @@ def build_option(
         eta_explanations=eta_explanations,
         eta_timeline=eta_timeline,
         segment_breakdown=segment_breakdown,
+        counterfactuals=counterfactuals,
     )
 
 

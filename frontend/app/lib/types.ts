@@ -39,6 +39,7 @@ export type RouteOption = {
   eta_explanations?: string[];
   eta_timeline?: Array<Record<string, string | number>>;
   segment_breakdown?: Array<Record<string, string | number>>;
+  counterfactuals?: Array<Record<string, string | number | boolean>>;
 };
 
 export type ParetoResponse = { routes: RouteOption[] };

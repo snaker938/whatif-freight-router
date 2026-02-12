@@ -133,6 +133,7 @@ class RouteOption(BaseModel):
     eta_explanations: list[str] = Field(default_factory=list)
     eta_timeline: list[dict[str, float | str]] = Field(default_factory=list)
     segment_breakdown: list[dict[str, float | int]] = Field(default_factory=list)
+    counterfactuals: list[dict[str, str | float | bool]] = Field(default_factory=list)
 
 
 class RouteResponse(BaseModel):
