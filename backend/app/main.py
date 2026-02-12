@@ -49,6 +49,7 @@ from .models import (
     ExperimentListResponse,
     GeoJSONLineString,
     LatLng,
+    OptimizationMode,
     ParetoMethod,
     ParetoRequest,
     ParetoResponse,
@@ -68,7 +69,7 @@ from .models import (
     VehicleMutationResponse,
 )
 from .objectives_emissions import route_emissions_kg, speed_factor
-from .objectives_selection import normalise_weights, pick_best_by_weighted_sum
+from .objectives_selection import normalise_weights
 from .pareto_methods import select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .rbac import require_role
@@ -864,18 +865,157 @@ def _build_options(
     return options, warnings
 
 
+def _option_objective_value(
+    option: RouteOption,
+    objective: str,
+    *,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> float:
+    if objective == "duration":
+        deterministic = float(option.metrics.duration_s)
+        mean_key = "mean_duration_s"
+        std_key = "std_duration_s"
+    elif objective == "money":
+        deterministic = float(option.metrics.monetary_cost)
+        mean_key = "mean_monetary_cost"
+        std_key = "std_monetary_cost"
+    else:
+        deterministic = float(option.metrics.emissions_kg)
+        mean_key = "mean_emissions_kg"
+        std_key = "std_emissions_kg"
+
+    if not option.uncertainty:
+        return deterministic
+
+    mean_value = float(option.uncertainty.get(mean_key, deterministic))
+    std_value = max(0.0, float(option.uncertainty.get(std_key, 0.0)))
+    if optimization_mode == "robust":
+        return mean_value + (max(0.0, risk_aversion) * std_value)
+    return mean_value
+
+
+def _pick_best_option(
+    options: list[RouteOption],
+    *,
+    w_time: float,
+    w_money: float,
+    w_co2: float,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> RouteOption:
+    wt, wm, we = normalise_weights(w_time, w_money, w_co2)
+
+    times = [
+        _option_objective_value(
+            option,
+            "duration",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        for option in options
+    ]
+    moneys = [
+        _option_objective_value(
+            option,
+            "money",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        for option in options
+    ]
+    emissions = [
+        _option_objective_value(
+            option,
+            "co2",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        for option in options
+    ]
+
+    t_min, t_max = min(times), max(times)
+    m_min, m_max = min(moneys), max(moneys)
+    e_min, e_max = min(emissions), max(emissions)
+
+    def _norm(value: float, min_value: float, max_value: float) -> float:
+        return 0.0 if max_value <= min_value else (value - min_value) / (max_value - min_value)
+
+    best = options[0]
+    best_tuple = (float("inf"), float("inf"), "")
+    for option, time_v, money_v, co2_v in zip(options, times, moneys, emissions, strict=True):
+        score = (wt * _norm(time_v, t_min, t_max)) + (wm * _norm(money_v, m_min, m_max)) + (
+            we * _norm(co2_v, e_min, e_max)
+        )
+        tie_break = (
+            score,
+            _option_objective_value(
+                option,
+                "duration",
+                optimization_mode=optimization_mode,
+                risk_aversion=risk_aversion,
+            ),
+            option.id,
+        )
+        if tie_break < best_tuple:
+            best = option
+            best_tuple = tie_break
+    return best
+
+
+def _sort_options_by_mode(
+    options: list[RouteOption],
+    *,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> list[RouteOption]:
+    if optimization_mode != "robust":
+        return options
+    return sorted(
+        options,
+        key=lambda option: (
+            _option_objective_value(
+                option,
+                "duration",
+                optimization_mode=optimization_mode,
+                risk_aversion=risk_aversion,
+            ),
+            _option_objective_value(
+                option,
+                "money",
+                optimization_mode=optimization_mode,
+                risk_aversion=risk_aversion,
+            ),
+            _option_objective_value(
+                option,
+                "co2",
+                optimization_mode=optimization_mode,
+                risk_aversion=risk_aversion,
+            ),
+            option.id,
+        ),
+    )
+
+
 def _finalize_pareto_options(
     options: list[RouteOption],
     *,
     max_alternatives: int,
     pareto_method: ParetoMethod = "dominance",
     epsilon: EpsilonConstraints | None = None,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
 ) -> list[RouteOption]:
-    return select_pareto_routes(
+    pareto = select_pareto_routes(
         options,
         max_alternatives=max_alternatives,
         pareto_method=pareto_method,
         epsilon=epsilon,
+    )
+    return _sort_options_by_mode(
+        pareto,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
     )
 
 
@@ -986,6 +1126,8 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             max_alternatives=req.max_alternatives,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
         )
 
         log_event(
@@ -995,6 +1137,9 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             scenario_mode=req.scenario_mode.value,
             cost_toggles=req.cost_toggles.model_dump(),
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic.model_dump(mode="json"),
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
@@ -1129,6 +1274,8 @@ async def compute_pareto_stream(
                 max_alternatives=req.max_alternatives,
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
             )
 
             log_event(
@@ -1138,6 +1285,9 @@ async def compute_pareto_stream(
                 scenario_mode=req.scenario_mode.value,
                 cost_toggles=req.cost_toggles.model_dump(),
                 terrain_profile=req.terrain_profile,
+                stochastic=req.stochastic.model_dump(mode="json"),
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
@@ -1236,13 +1386,17 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             max_alternatives=5,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
         )
 
-        selected = pick_best_by_weighted_sum(
+        selected = _pick_best_option(
             pareto_options,
             w_time=req.weights.time,
             w_money=req.weights.money,
             w_co2=req.weights.co2,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
         )
 
         log_event(
@@ -1253,6 +1407,9 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             weights=req.weights.model_dump(),
             cost_toggles=req.cost_toggles.model_dump(),
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic.model_dump(mode="json"),
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
@@ -1376,12 +1533,16 @@ async def optimize_departure_time(
                 max_alternatives=req.max_alternatives,
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
             )
-            selected = pick_best_by_weighted_sum(
+            selected = _pick_best_option(
                 pareto,
                 w_time=req.weights.time,
                 w_money=req.weights.money,
                 w_co2=req.weights.co2,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
             )
             arrival_utc = departure_time + timedelta(seconds=selected.metrics.duration_s)
             if earliest_arrival_utc is not None and arrival_utc < earliest_arrival_utc:
@@ -1403,9 +1564,33 @@ async def optimize_departure_time(
                 raise HTTPException(status_code=422, detail="no feasible departures for provided time window")
             raise HTTPException(status_code=502, detail="No departure candidates could be computed.")
 
-        durations = [row["selected"].metrics.duration_s for row in selected_rows]
-        costs = [row["selected"].metrics.monetary_cost for row in selected_rows]
-        emissions = [row["selected"].metrics.emissions_kg for row in selected_rows]
+        durations = [
+            _option_objective_value(
+                row["selected"],
+                "duration",
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+            )
+            for row in selected_rows
+        ]
+        costs = [
+            _option_objective_value(
+                row["selected"],
+                "money",
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+            )
+            for row in selected_rows
+        ]
+        emissions = [
+            _option_objective_value(
+                row["selected"],
+                "co2",
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+            )
+            for row in selected_rows
+        ]
         d_min, d_max = min(durations), max(durations)
         c_min, c_max = min(costs), max(costs)
         e_min, e_max = min(emissions), max(emissions)
@@ -1418,9 +1603,39 @@ async def optimize_departure_time(
         for row in selected_rows:
             selected = row["selected"]
             score = (
-                wt * _norm(selected.metrics.duration_s, d_min, d_max)
-                + wm * _norm(selected.metrics.monetary_cost, c_min, c_max)
-                + we * _norm(selected.metrics.emissions_kg, e_min, e_max)
+                wt
+                * _norm(
+                    _option_objective_value(
+                        selected,
+                        "duration",
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
+                    ),
+                    d_min,
+                    d_max,
+                )
+                + wm
+                * _norm(
+                    _option_objective_value(
+                        selected,
+                        "money",
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
+                    ),
+                    c_min,
+                    c_max,
+                )
+                + we
+                * _norm(
+                    _option_objective_value(
+                        selected,
+                        "co2",
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
+                    ),
+                    e_min,
+                    e_max,
+                )
             )
             departure_time = row["departure_time_utc"]
             candidates.append(
@@ -1433,13 +1648,27 @@ async def optimize_departure_time(
                 )
             )
 
-        candidates.sort(key=lambda item: (item.score, item.departure_time_utc))
+        candidates.sort(
+            key=lambda item: (
+                item.score,
+                _option_objective_value(
+                    item.selected,
+                    "duration",
+                    optimization_mode=req.optimization_mode,
+                    risk_aversion=req.risk_aversion,
+                ),
+                item.selected.id,
+                item.departure_time_utc,
+            )
+        )
         best = candidates[0] if candidates else None
 
         log_event(
             "departure_optimize_request",
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
             pair={"origin": req.origin.model_dump(), "destination": req.destination.model_dump()},
             step_minutes=req.step_minutes,
             window_start_utc=start_utc.isoformat().replace("+00:00", "Z"),
@@ -1552,12 +1781,16 @@ async def _run_scenario_compare(
             max_alternatives=req.max_alternatives,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
         )
-        selected = pick_best_by_weighted_sum(
+        selected = _pick_best_option(
             pareto_options,
             w_time=req.weights.time,
             w_money=req.weights.money,
             w_co2=req.weights.co2,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
         )
         results.append(
             ScenarioCompareResult(
@@ -1603,6 +1836,9 @@ async def compare_scenarios(
                 "duration_ms": round((time.perf_counter() - t0) * 1000.0, 3),
                 "scenario_count": len(results),
                 "terrain_profile": req.terrain_profile,
+                "stochastic": req.stochastic.model_dump(mode="json"),
+                "optimization_mode": req.optimization_mode,
+                "risk_aversion": req.risk_aversion,
             },
         }
         scenario_manifest = write_scenario_manifest(run_id, manifest_payload)
@@ -1613,6 +1849,9 @@ async def compare_scenarios(
             vehicle_type=req.vehicle_type,
             max_alternatives=req.max_alternatives,
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic.model_dump(mode="json"),
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             scenario_manifest=str(scenario_manifest),
@@ -1976,6 +2215,8 @@ async def batch_import_csv(
         cost_toggles=req.cost_toggles,
         terrain_profile=req.terrain_profile,
         stochastic=req.stochastic,
+        optimization_mode=req.optimization_mode,
+        risk_aversion=req.risk_aversion,
         departure_time_utc=req.departure_time_utc,
         pareto_method=req.pareto_method,
         epsilon=req.epsilon,
@@ -2046,6 +2287,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                         max_alternatives=req.max_alternatives,
                         pareto_method=req.pareto_method,
                         epsilon=req.epsilon,
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
                     )
                     pair_stats["pareto_count"] = len(pareto)
 
@@ -2085,6 +2328,8 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                                 max_alternatives=req.max_alternatives,
                                 pareto_method=req.pareto_method,
                                 epsilon=req.epsilon,
+                                optimization_mode=req.optimization_mode,
+                                risk_aversion=req.risk_aversion,
                             )
                             pair_stats["pareto_count"] = len(pareto)
                             return (
@@ -2129,6 +2374,9 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 max_alternatives=req.max_alternatives,
                 cost_toggles=req.cost_toggles.model_dump(mode="json"),
                 terrain_profile=req.terrain_profile,
+                stochastic=req.stochastic.model_dump(mode="json"),
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
@@ -2216,6 +2464,9 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 "batch_concurrency": settings.batch_concurrency,
                 "cost_toggles": req.cost_toggles.model_dump(),
                 "terrain_profile": req.terrain_profile,
+                "stochastic": req.stochastic.model_dump(mode="json"),
+                "optimization_mode": req.optimization_mode,
+                "risk_aversion": req.risk_aversion,
                 "pareto_method": req.pareto_method,
                 "epsilon": req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 "departure_time_utc": (
@@ -2277,6 +2528,9 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
             scenario_mode=req.scenario_mode.value,
             cost_toggles=req.cost_toggles.model_dump(),
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic.model_dump(mode="json"),
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(

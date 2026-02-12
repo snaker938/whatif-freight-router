@@ -40,6 +40,7 @@ class CostToggles(BaseModel):
 
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
 TerrainProfile = Literal["flat", "rolling", "hilly"]
+OptimizationMode = Literal["expected_value", "robust"]
 
 
 class EpsilonConstraints(BaseModel):
@@ -74,6 +75,8 @@ class RouteRequest(BaseModel):
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -90,6 +93,8 @@ class ParetoRequest(BaseModel):
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -108,6 +113,8 @@ class BatchParetoRequest(BaseModel):
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -124,6 +131,8 @@ class BatchCSVImportRequest(BaseModel):
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -214,6 +223,8 @@ class ScenarioCompareRequest(BaseModel):
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -246,6 +257,8 @@ class DepartureOptimizeRequest(BaseModel):
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
     time_window: TimeWindowConstraints | None = None
