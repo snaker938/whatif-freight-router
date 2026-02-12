@@ -221,6 +221,7 @@ export default function Page() {
   const [scenarioMode, setScenarioMode] = useState<ScenarioMode>('no_sharing');
 
   const [weights, setWeights] = useState<WeightState>({ time: 60, money: 20, co2: 20 });
+  const [apiToken, setApiToken] = useState('');
   const [advancedParams, setAdvancedParams] = useState<ScenarioAdvancedParams>(DEFAULT_ADVANCED_PARAMS);
   const [advancedError, setAdvancedError] = useState<string | null>(null);
 
@@ -256,6 +257,10 @@ export default function Page() {
   const requestSeqRef = useRef(0);
   const routeBufferRef = useRef<RouteOption[]>([]);
   const flushTimerRef = useRef<number | null>(null);
+  const authHeaders = useMemo(() => {
+    const token = apiToken.trim();
+    return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
+  }, [apiToken]);
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current !== null) {
@@ -366,6 +371,7 @@ export default function Page() {
     void (async () => {
       try {
         const resp = await fetch('/api/vehicles', {
+          headers: authHeaders,
           signal: controller.signal,
           cache: 'no-store',
         });
@@ -385,7 +391,7 @@ export default function Page() {
 
   useEffect(() => {
     void loadExperiments();
-  }, []);
+  }, [authHeaders]);
 
   useEffect(() => {
     if (depWindowStartLocal || depWindowEndLocal) return;
@@ -740,6 +746,7 @@ export default function Page() {
     try {
       await postNDJSON<ParetoStreamEvent>('/api/pareto/stream', body, {
         signal: controller.signal,
+        headers: authHeaders,
         onEvent: (event) => {
           if (seq !== requestSeqRef.current) return;
 
@@ -830,7 +837,12 @@ export default function Page() {
     setScenarioCompareLoading(true);
     setScenarioCompareError(null);
     try {
-      const payload = await postJSON<ScenarioCompareResponse>('/api/scenario/compare', requestBody);
+      const payload = await postJSON<ScenarioCompareResponse>(
+        '/api/scenario/compare',
+        requestBody,
+        undefined,
+        authHeaders,
+      );
       setScenarioCompare(payload);
     } catch (e: unknown) {
       setScenarioCompareError(e instanceof Error ? e.message : 'Failed to compare scenarios');
@@ -880,7 +892,10 @@ export default function Page() {
     setExperimentsLoading(true);
     setExperimentsError(null);
     try {
-      const payload = await fetch('/api/experiments', { cache: 'no-store' });
+      const payload = await fetch('/api/experiments', {
+        cache: 'no-store',
+        headers: authHeaders,
+      });
       if (!payload.ok) {
         throw new Error(await payload.text());
       }
@@ -901,11 +916,16 @@ export default function Page() {
     try {
       setExperimentsError(null);
       const request = buildScenarioCompareRequest(origin, destination);
-      await postJSON<ExperimentBundle>('/api/experiments', {
-        name,
-        description: description || null,
-        request,
-      });
+      await postJSON<ExperimentBundle>(
+        '/api/experiments',
+        {
+          name,
+          description: description || null,
+          request,
+        },
+        undefined,
+        authHeaders,
+      );
       await loadExperiments();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to save experiment';
@@ -920,6 +940,7 @@ export default function Page() {
       const resp = await fetch(`/api/experiments/${experimentId}`, {
         method: 'DELETE',
         cache: 'no-store',
+        headers: authHeaders,
       });
       if (!resp.ok) {
         throw new Error(await resp.text());
@@ -934,9 +955,14 @@ export default function Page() {
     setScenarioCompareLoading(true);
     setScenarioCompareError(null);
     try {
-      const payload = await postJSON<ScenarioCompareResponse>(`/api/experiments/${experimentId}/compare`, {
-        overrides: {},
-      });
+      const payload = await postJSON<ScenarioCompareResponse>(
+        `/api/experiments/${experimentId}/compare`,
+        {
+          overrides: {},
+        },
+        undefined,
+        authHeaders,
+      );
       setScenarioCompare(payload);
     } catch (e: unknown) {
       setScenarioCompareError(e instanceof Error ? e.message : 'Failed to replay experiment');
@@ -996,7 +1022,12 @@ export default function Page() {
     setDepOptimizeLoading(true);
     setDepOptimizeError(null);
     try {
-      const payload = await postJSON<DepartureOptimizeResponse>('/api/departure/optimize', req);
+      const payload = await postJSON<DepartureOptimizeResponse>(
+        '/api/departure/optimize',
+        req,
+        undefined,
+        authHeaders,
+      );
       setDepOptimizeData(payload);
     } catch (e: unknown) {
       setDepOptimizeError(e instanceof Error ? e.message : 'Failed to optimize departures');
@@ -1138,6 +1169,15 @@ export default function Page() {
                   options={scenarioOptions}
                   onChange={setScenarioMode}
                   disabled={busy}
+                />
+
+                <div className="fieldLabel">API token (optional)</div>
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="x-api-token for RBAC-enabled backends"
+                  value={apiToken}
+                  onChange={(event) => setApiToken(event.target.value)}
                 />
 
                 <div className="helper">

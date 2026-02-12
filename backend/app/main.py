@@ -67,6 +67,7 @@ from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import normalise_weights, pick_best_by_weighted_sum
 from .pareto_methods import select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
+from .rbac import require_role
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import (
@@ -120,6 +121,18 @@ def osrm_client(request: Request) -> OSRMClient:
 OSRMDep = Annotated[OSRMClient, Depends(osrm_client)]
 
 
+def require_user_access(request: Request) -> None:
+    require_role(request, "user")
+
+
+def require_admin_access(request: Request) -> None:
+    require_role(request, "admin")
+
+
+UserAccessDep = Annotated[None, Depends(require_user_access)]
+AdminAccessDep = Annotated[None, Depends(require_admin_access)]
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     # Avoid confusion when opening the backend base URL directly.
@@ -143,7 +156,7 @@ async def list_custom_vehicle_profiles() -> CustomVehicleListResponse:
 
 
 @app.post("/vehicles/custom", response_model=VehicleMutationResponse)
-async def create_vehicle_profile(vehicle: VehicleProfile) -> VehicleMutationResponse:
+async def create_vehicle_profile(vehicle: VehicleProfile, _: AdminAccessDep) -> VehicleMutationResponse:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -163,7 +176,11 @@ async def create_vehicle_profile(vehicle: VehicleProfile) -> VehicleMutationResp
 
 
 @app.put("/vehicles/custom/{vehicle_id}", response_model=VehicleMutationResponse)
-async def update_vehicle_profile(vehicle_id: str, vehicle: VehicleProfile) -> VehicleMutationResponse:
+async def update_vehicle_profile(
+    vehicle_id: str,
+    vehicle: VehicleProfile,
+    _: AdminAccessDep,
+) -> VehicleMutationResponse:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -188,7 +205,7 @@ async def update_vehicle_profile(vehicle_id: str, vehicle: VehicleProfile) -> Ve
 
 
 @app.delete("/vehicles/custom/{vehicle_id}", response_model=VehicleDeleteResponse)
-async def delete_vehicle_profile(vehicle_id: str) -> VehicleDeleteResponse:
+async def delete_vehicle_profile(vehicle_id: str, _: AdminAccessDep) -> VehicleDeleteResponse:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -225,7 +242,7 @@ async def get_cache_stats() -> dict[str, int]:
 
 
 @app.delete("/cache")
-async def delete_cache() -> dict[str, int]:
+async def delete_cache(_: AdminAccessDep) -> dict[str, int]:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -850,7 +867,7 @@ async def _collect_candidate_routes(
 
 
 @app.post("/pareto", response_model=ParetoResponse)
-async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
+async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) -> ParetoResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
     has_error = False
@@ -936,6 +953,7 @@ async def compute_pareto_stream(
     req: ParetoRequest,
     request: Request,
     osrm: OSRMDep,
+    _: UserAccessDep,
 ) -> StreamingResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
@@ -1096,7 +1114,7 @@ async def compute_pareto_stream(
 
 
 @app.post("/route", response_model=RouteResponse)
-async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
+async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> RouteResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
     has_error = False
@@ -1189,6 +1207,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
 async def optimize_departure_time(
     req: DepartureOptimizeRequest,
     osrm: OSRMDep,
+    _: UserAccessDep,
 ) -> DepartureOptimizeResponse:
     t0 = time.perf_counter()
     has_error = False
@@ -1434,7 +1453,11 @@ async def _run_scenario_compare(
 
 
 @app.post("/scenario/compare", response_model=ScenarioCompareResponse)
-async def compare_scenarios(req: ScenarioCompareRequest, osrm: OSRMDep) -> ScenarioCompareResponse:
+async def compare_scenarios(
+    req: ScenarioCompareRequest,
+    osrm: OSRMDep,
+    _: UserAccessDep,
+) -> ScenarioCompareResponse:
     run_id = str(uuid.uuid4())
     t0 = time.perf_counter()
     has_error = False
@@ -1498,7 +1521,7 @@ async def get_experiments() -> ExperimentListResponse:
 
 
 @app.post("/experiments", response_model=ExperimentBundle)
-async def post_experiment(payload: ExperimentBundleInput) -> ExperimentBundle:
+async def post_experiment(payload: ExperimentBundleInput, _: AdminAccessDep) -> ExperimentBundle:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -1532,7 +1555,11 @@ async def get_experiment_by_id(experiment_id: str) -> ExperimentBundle:
 
 
 @app.put("/experiments/{experiment_id}", response_model=ExperimentBundle)
-async def put_experiment(experiment_id: str, payload: ExperimentBundleInput) -> ExperimentBundle:
+async def put_experiment(
+    experiment_id: str,
+    payload: ExperimentBundleInput,
+    _: AdminAccessDep,
+) -> ExperimentBundle:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -1553,7 +1580,7 @@ async def put_experiment(experiment_id: str, payload: ExperimentBundleInput) -> 
 
 
 @app.delete("/experiments/{experiment_id}")
-async def delete_experiment_by_id(experiment_id: str) -> dict[str, object]:
+async def delete_experiment_by_id(experiment_id: str, _: AdminAccessDep) -> dict[str, object]:
     t0 = time.perf_counter()
     has_error = False
     try:
@@ -1578,6 +1605,7 @@ async def replay_experiment_compare(
     experiment_id: str,
     payload: ExperimentCompareRequest,
     osrm: OSRMDep,
+    _: UserAccessDep,
 ) -> ScenarioCompareResponse:
     t0 = time.perf_counter()
     has_error = False
@@ -1806,7 +1834,11 @@ def _parse_pairs_from_csv_text(csv_text: str) -> list[dict[str, Any]]:
 
 
 @app.post("/batch/import/csv", response_model=BatchParetoResponse)
-async def batch_import_csv(req: BatchCSVImportRequest, osrm: OSRMDep) -> BatchParetoResponse:
+async def batch_import_csv(
+    req: BatchCSVImportRequest,
+    osrm: OSRMDep,
+    _: UserAccessDep,
+) -> BatchParetoResponse:
     pairs = _parse_pairs_from_csv_text(req.csv_text)
     batch_req = BatchParetoRequest(
         pairs=pairs,
@@ -1822,11 +1854,11 @@ async def batch_import_csv(req: BatchCSVImportRequest, osrm: OSRMDep) -> BatchPa
         toggles=req.toggles,
         model_version=req.model_version,
     )
-    return await batch_pareto(batch_req, osrm)
+    return await batch_pareto(batch_req, osrm, None)
 
 
 @app.post("/batch/pareto", response_model=BatchParetoResponse)
-async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoResponse:
+async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep) -> BatchParetoResponse:
     run_id = str(uuid.uuid4())
     t0 = time.perf_counter()
     has_error = False

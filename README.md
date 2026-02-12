@@ -37,6 +37,8 @@ URLs:
 - Backend docs: `http://localhost:8000/docs`
 - OSRM: `http://localhost:5000`
 
+If RBAC is enabled, provide the API token in the frontend sidebar (`API token`) so requests are forwarded with `X-API-Token`.
+
 ## Stopping the dev workflow
 
 1. In backend window: `Ctrl+C`

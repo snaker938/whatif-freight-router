@@ -9,12 +9,21 @@ function backendBaseUrl(): string {
   );
 }
 
+function forwardedAuthHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const auth = req.headers.get('authorization');
+  const token = req.headers.get('x-api-token');
+  if (auth) headers.authorization = auth;
+  if (token) headers['x-api-token'] = token;
+  return headers;
+}
+
 export async function POST(req: Request): Promise<Response> {
   const body = await req.text();
 
   const resp = await fetch(`${backendBaseUrl()}/api/pareto/stream`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...forwardedAuthHeaders(req) },
     body,
     cache: 'no-store',
   });

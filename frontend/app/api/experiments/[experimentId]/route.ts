@@ -4,11 +4,23 @@ function backendBase(): string {
   return process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
 }
 
+function forwardedAuthHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const auth = req.headers.get('authorization');
+  const token = req.headers.get('x-api-token');
+  if (auth) headers.authorization = auth;
+  if (token) headers['x-api-token'] = token;
+  return headers;
+}
+
 type Ctx = { params: Promise<{ experimentId: string }> };
 
-export async function GET(_: Request, ctx: Ctx) {
+export async function GET(req: Request, ctx: Ctx) {
   const { experimentId } = await ctx.params;
-  const resp = await fetch(`${backendBase()}/experiments/${experimentId}`, { cache: 'no-store' });
+  const resp = await fetch(`${backendBase()}/experiments/${experimentId}`, {
+    cache: 'no-store',
+    headers: forwardedAuthHeaders(req),
+  });
   const text = await resp.text();
   return new NextResponse(text, { status: resp.status, headers: { 'content-type': 'application/json' } });
 }
@@ -18,7 +30,7 @@ export async function PUT(req: Request, ctx: Ctx) {
   const body = await req.text();
   const resp = await fetch(`${backendBase()}/experiments/${experimentId}`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...forwardedAuthHeaders(req) },
     body,
     cache: 'no-store',
   });
@@ -26,11 +38,12 @@ export async function PUT(req: Request, ctx: Ctx) {
   return new NextResponse(text, { status: resp.status, headers: { 'content-type': 'application/json' } });
 }
 
-export async function DELETE(_: Request, ctx: Ctx) {
+export async function DELETE(req: Request, ctx: Ctx) {
   const { experimentId } = await ctx.params;
   const resp = await fetch(`${backendBase()}/experiments/${experimentId}`, {
     method: 'DELETE',
     cache: 'no-store',
+    headers: forwardedAuthHeaders(req),
   });
   const text = await resp.text();
   return new NextResponse(text, { status: resp.status, headers: { 'content-type': 'application/json' } });

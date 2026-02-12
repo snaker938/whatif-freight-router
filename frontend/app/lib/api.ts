@@ -44,10 +44,15 @@ async function readJSON<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-export async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+export async function postJSON<T>(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+  headers?: HeadersInit,
+): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(headers ?? {}) },
     body: JSON.stringify(body),
     cache: 'no-store',
     signal,
@@ -58,6 +63,7 @@ export async function postJSON<T>(path: string, body: unknown, signal?: AbortSig
 
 type PostNDJSONOptions<TEvent> = {
   signal?: AbortSignal;
+  headers?: HeadersInit;
   onEvent: (event: TEvent) => void;
 };
 
@@ -68,7 +74,7 @@ export async function postNDJSON<TEvent extends object>(
 ): Promise<void> {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
     body: JSON.stringify(body),
     cache: 'no-store',
     signal: options.signal,
