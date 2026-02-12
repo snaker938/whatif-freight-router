@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .logging_utils import log_event
+from .metrics_store import metrics_snapshot, record_request
 from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
@@ -82,6 +83,19 @@ async def health() -> dict[str, str]:
 @app.get("/vehicles", response_model=VehicleListResponse)
 async def list_vehicles() -> VehicleListResponse:
     return VehicleListResponse(vehicles=list(VEHICLES.values()))
+
+
+@app.get("/metrics")
+async def get_metrics() -> dict[str, object]:
+    return metrics_snapshot()
+
+
+def _record_endpoint_metric(endpoint: str, t0: float, *, error: bool = False) -> None:
+    record_request(
+        endpoint=endpoint,
+        duration_ms=(time.perf_counter() - t0) * 1000.0,
+        error=error,
+    )
 
 
 def _validate_osrm_geometry(route: dict[str, Any]) -> list[tuple[float, float]]:
@@ -504,45 +518,54 @@ async def _collect_candidate_routes(
 async def compute_pareto(req: ParetoRequest, osrm: OSRMDep) -> ParetoResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
+    has_error = False
+    try:
+        routes, warnings, candidate_fetches = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=req.origin,
+            destination=req.destination,
+            max_routes=req.max_alternatives,
+        )
 
-    routes, warnings, candidate_fetches = await _collect_candidate_routes(
-        osrm=osrm,
-        origin=req.origin,
-        destination=req.destination,
-        max_routes=req.max_alternatives,
-    )
+        options, build_warnings = _build_options(
+            routes,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode,
+            option_prefix="route",
+        )
+        warnings.extend(build_warnings)
 
-    options, build_warnings = _build_options(
-        routes,
-        vehicle_type=req.vehicle_type,
-        scenario_mode=req.scenario_mode,
-        option_prefix="route",
-    )
-    warnings.extend(build_warnings)
+        if not options:
+            detail = "No route candidates could be computed."
+            if warnings:
+                detail = f"{detail} {warnings[0]}"
+            raise HTTPException(status_code=502, detail=detail)
 
-    if not options:
-        detail = "No route candidates could be computed."
-        if warnings:
-            detail = f"{detail} {warnings[0]}"
-        raise HTTPException(status_code=502, detail=detail)
+        pareto_sorted = _finalize_pareto_options(options, max_alternatives=req.max_alternatives)
 
-    pareto_sorted = _finalize_pareto_options(options, max_alternatives=req.max_alternatives)
+        log_event(
+            "pareto_request",
+            request_id=request_id,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode.value,
+            origin=req.origin.model_dump(),
+            destination=req.destination.model_dump(),
+            candidate_fetches=candidate_fetches,
+            candidate_count=len(options),
+            pareto_count=len(pareto_sorted),
+            warning_count=len(warnings),
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
 
-    log_event(
-        "pareto_request",
-        request_id=request_id,
-        vehicle_type=req.vehicle_type,
-        scenario_mode=req.scenario_mode.value,
-        origin=req.origin.model_dump(),
-        destination=req.destination.model_dump(),
-        candidate_fetches=candidate_fetches,
-        candidate_count=len(options),
-        pareto_count=len(pareto_sorted),
-        warning_count=len(warnings),
-        duration_ms=round((time.perf_counter() - t0) * 1000, 2),
-    )
-
-    return ParetoResponse(routes=pareto_sorted)
+        return ParetoResponse(routes=pareto_sorted)
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("pareto", t0, error=has_error)
 
 
 @app.post("/pareto/stream")
@@ -565,6 +588,7 @@ async def compute_pareto_stream(
         unique_raw_routes: list[dict[str, Any]] = []
         seen_signatures: set[str] = set()
         streamed_option_count = 0
+        stream_has_error = False
 
         try:
             yield _ndjson_line({"type": "meta", "total": len(specs)})
@@ -672,6 +696,7 @@ async def compute_pareto_stream(
             )
             raise
         except Exception as e:
+            stream_has_error = True
             msg = str(e).strip() or type(e).__name__
             log_event(
                 "pareto_stream_fatal",
@@ -680,6 +705,8 @@ async def compute_pareto_stream(
                 duration_ms=round((time.perf_counter() - t0) * 1000, 2),
             )
             yield _ndjson_line({"type": "fatal", "message": msg})
+        finally:
+            _record_endpoint_metric("pareto_stream", t0, error=stream_has_error)
 
     return StreamingResponse(
         stream(),
@@ -692,134 +719,153 @@ async def compute_pareto_stream(
 async def compute_route(req: RouteRequest, osrm: OSRMDep) -> RouteResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
+    has_error = False
+    try:
+        routes, warnings, candidate_fetches = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=req.origin,
+            destination=req.destination,
+            max_routes=5,
+        )
 
-    routes, warnings, candidate_fetches = await _collect_candidate_routes(
-        osrm=osrm,
-        origin=req.origin,
-        destination=req.destination,
-        max_routes=5,
-    )
+        options, build_warnings = _build_options(
+            routes,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode,
+            option_prefix="route",
+        )
+        warnings.extend(build_warnings)
 
-    options, build_warnings = _build_options(
-        routes,
-        vehicle_type=req.vehicle_type,
-        scenario_mode=req.scenario_mode,
-        option_prefix="route",
-    )
-    warnings.extend(build_warnings)
+        if not options:
+            detail = "No route candidates could be computed."
+            if warnings:
+                detail = f"{detail} {warnings[0]}"
+            raise HTTPException(status_code=502, detail=detail)
 
-    if not options:
-        detail = "No route candidates could be computed."
-        if warnings:
-            detail = f"{detail} {warnings[0]}"
-        raise HTTPException(status_code=502, detail=detail)
+        selected = pick_best_by_weighted_sum(
+            options,
+            w_time=req.weights.time,
+            w_money=req.weights.money,
+            w_co2=req.weights.co2,
+        )
 
-    selected = pick_best_by_weighted_sum(
-        options,
-        w_time=req.weights.time,
-        w_money=req.weights.money,
-        w_co2=req.weights.co2,
-    )
+        log_event(
+            "route_request",
+            request_id=request_id,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode.value,
+            weights=req.weights.model_dump(),
+            origin=req.origin.model_dump(),
+            destination=req.destination.model_dump(),
+            candidate_fetches=candidate_fetches,
+            candidate_count=len(options),
+            warning_count=len(warnings),
+            selected_id=selected.id,
+            selected_metrics=selected.metrics.model_dump(),
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
 
-    log_event(
-        "route_request",
-        request_id=request_id,
-        vehicle_type=req.vehicle_type,
-        scenario_mode=req.scenario_mode.value,
-        weights=req.weights.model_dump(),
-        origin=req.origin.model_dump(),
-        destination=req.destination.model_dump(),
-        candidate_fetches=candidate_fetches,
-        candidate_count=len(options),
-        warning_count=len(warnings),
-        selected_id=selected.id,
-        selected_metrics=selected.metrics.model_dump(),
-        duration_ms=round((time.perf_counter() - t0) * 1000, 2),
-    )
-
-    return RouteResponse(selected=selected, candidates=options)
+        return RouteResponse(selected=selected, candidates=options)
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("route", t0, error=has_error)
 
 
 @app.post("/batch/pareto", response_model=BatchParetoResponse)
 async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep) -> BatchParetoResponse:
     run_id = str(uuid.uuid4())
     t0 = time.perf_counter()
+    has_error = False
 
-    sem = asyncio.Semaphore(settings.batch_concurrency)
+    try:
+        sem = asyncio.Semaphore(settings.batch_concurrency)
 
-    async def one(pair_idx: int) -> BatchParetoResult:
-        async with sem:
-            try:
-                routes = await osrm.fetch_routes(
-                    origin_lat=req.pairs[pair_idx].origin.lat,
-                    origin_lon=req.pairs[pair_idx].origin.lon,
-                    dest_lat=req.pairs[pair_idx].destination.lat,
-                    dest_lon=req.pairs[pair_idx].destination.lon,
-                    alternatives=req.max_alternatives,
-                )
-                routes = routes[: req.max_alternatives]
-                options: list[RouteOption] = [
-                    build_option(
-                        r,
-                        option_id=f"pair{pair_idx}_route{i}",
-                        vehicle_type=req.vehicle_type,
-                        scenario_mode=req.scenario_mode,
+        async def one(pair_idx: int) -> BatchParetoResult:
+            async with sem:
+                try:
+                    routes = await osrm.fetch_routes(
+                        origin_lat=req.pairs[pair_idx].origin.lat,
+                        origin_lon=req.pairs[pair_idx].origin.lon,
+                        dest_lat=req.pairs[pair_idx].destination.lat,
+                        dest_lon=req.pairs[pair_idx].destination.lon,
+                        alternatives=req.max_alternatives,
                     )
-                    for i, r in enumerate(routes)
-                ]
-                pareto = pareto_filter(
-                    options,
-                    key=lambda o: (
-                        o.metrics.duration_s,
-                        o.metrics.monetary_cost,
-                        o.metrics.emissions_kg,
-                    ),
-                )
-                pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
+                    routes = routes[: req.max_alternatives]
+                    options: list[RouteOption] = [
+                        build_option(
+                            r,
+                            option_id=f"pair{pair_idx}_route{i}",
+                            vehicle_type=req.vehicle_type,
+                            scenario_mode=req.scenario_mode,
+                        )
+                        for i, r in enumerate(routes)
+                    ]
+                    pareto = pareto_filter(
+                        options,
+                        key=lambda o: (
+                            o.metrics.duration_s,
+                            o.metrics.monetary_cost,
+                            o.metrics.emissions_kg,
+                        ),
+                    )
+                    pareto_sorted = sorted(pareto, key=lambda o: o.metrics.duration_s)
 
-                return BatchParetoResult(
-                    origin=req.pairs[pair_idx].origin,
-                    destination=req.pairs[pair_idx].destination,
-                    routes=pareto_sorted,
-                )
-            except (OSRMError, ValueError) as e:
-                return BatchParetoResult(
-                    origin=req.pairs[pair_idx].origin,
-                    destination=req.pairs[pair_idx].destination,
-                    error=str(e),
-                )
+                    return BatchParetoResult(
+                        origin=req.pairs[pair_idx].origin,
+                        destination=req.pairs[pair_idx].destination,
+                        routes=pareto_sorted,
+                    )
+                except (OSRMError, ValueError) as e:
+                    return BatchParetoResult(
+                        origin=req.pairs[pair_idx].origin,
+                        destination=req.pairs[pair_idx].destination,
+                        error=str(e),
+                    )
 
-    results = await asyncio.gather(*[one(i) for i in range(len(req.pairs))])
+        results = await asyncio.gather(*[one(i) for i in range(len(req.pairs))])
 
-    duration_ms = round((time.perf_counter() - t0) * 1000, 2)
-    error_count = sum(1 for r in results if r.error)
+        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+        error_count = sum(1 for r in results if r.error)
 
-    manifest_path = write_manifest(
-        run_id,
-        {
-            "type": "batch_pareto",
-            "pair_count": len(req.pairs),
-            "vehicle_type": req.vehicle_type,
-            "scenario_mode": req.scenario_mode.value,
-            "max_alternatives": req.max_alternatives,
-            "batch_concurrency": settings.batch_concurrency,
-            "duration_ms": duration_ms,
-            "error_count": error_count,
-        },
-    )
+        manifest_path = write_manifest(
+            run_id,
+            {
+                "type": "batch_pareto",
+                "pair_count": len(req.pairs),
+                "vehicle_type": req.vehicle_type,
+                "scenario_mode": req.scenario_mode.value,
+                "max_alternatives": req.max_alternatives,
+                "batch_concurrency": settings.batch_concurrency,
+                "duration_ms": duration_ms,
+                "error_count": error_count,
+            },
+        )
 
-    log_event(
-        "batch_pareto_request",
-        run_id=run_id,
-        pair_count=len(req.pairs),
-        vehicle_type=req.vehicle_type,
-        scenario_mode=req.scenario_mode.value,
-        duration_ms=duration_ms,
-        error_count=error_count,
-        manifest=str(manifest_path),
-    )
+        log_event(
+            "batch_pareto_request",
+            run_id=run_id,
+            pair_count=len(req.pairs),
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode.value,
+            duration_ms=duration_ms,
+            error_count=error_count,
+            manifest=str(manifest_path),
+        )
 
-    return BatchParetoResponse(run_id=run_id, results=results)
+        return BatchParetoResponse(run_id=run_id, results=results)
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("batch_pareto", t0, error=has_error)
 
 
 def _manifest_path_for_id(run_id: str) -> Path:
@@ -840,7 +886,18 @@ def _manifest_path_for_id(run_id: str) -> Path:
 
 @app.get("/runs/{run_id}/manifest")
 async def get_manifest(run_id: str):
-    path = _manifest_path_for_id(run_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="manifest not found")
-    return FileResponse(str(path), media_type="application/json")
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        path = _manifest_path_for_id(run_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="manifest not found")
+        return FileResponse(str(path), media_type="application/json")
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("runs_manifest_get", t0, error=has_error)
