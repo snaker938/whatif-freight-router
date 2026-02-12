@@ -103,6 +103,16 @@ Use this for full containerized verification. Do not run this at the same time a
   - run from `backend/` with CSV input:
   - `uv run python scripts/run_headless_scenario.py --input-csv .\pairs.csv`
 
+- `backend/scripts/run_robustness_analysis.py`
+  - multi-seed robustness analysis runner
+  - run from `backend/`:
+  - `uv run python scripts/run_robustness_analysis.py --mode inprocess-fake --seeds 11,22,33 --pair-count 100`
+
+- `backend/scripts/run_sensitivity_analysis.py`
+  - one-factor sensitivity sweep runner for cost toggles
+  - run from `backend/`:
+  - `uv run python scripts/run_sensitivity_analysis.py --mode inprocess-fake --pair-count 50 --include-no-tolls`
+
 - `scripts/demo_repro_run.ps1`
   - scripted reproducibility capsule run (fixed seed and pair count)
   - run from repo root:
@@ -124,6 +134,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - benchmark usage, profiling workflow, and optimization notes
 - `docs/reproducibility-capsule.md`
   - deterministic demo run and capsule artifact workflow
+- `docs/backend-api-tools.md`
+  - cost toggles, vehicle CRUD, cache, signatures, provenance, import/export, and analysis tools
 
 ## Troubleshooting
 
