@@ -5,6 +5,9 @@ import csv
 import hashlib
 import io
 import json
+import math
+import random
+import statistics
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -58,6 +61,7 @@ from .models import (
     ScenarioCompareResult,
     SignatureVerificationRequest,
     SignatureVerificationResponse,
+    StochasticConfig,
     TerrainProfile,
     VehicleDeleteResponse,
     VehicleListResponse,
@@ -352,6 +356,67 @@ def _counterfactual_shift_scenario(mode: ScenarioMode) -> ScenarioMode:
     return ScenarioMode.PARTIAL_SHARING
 
 
+def _quantile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = max(0, min(len(ordered) - 1, int(math.ceil(q * len(ordered))) - 1))
+    return ordered[idx]
+
+
+def _route_stochastic_uncertainty(
+    option: RouteOption,
+    *,
+    stochastic: StochasticConfig,
+) -> dict[str, float] | None:
+    if not stochastic.enabled:
+        return None
+
+    base_duration_s = max(float(option.metrics.duration_s), 1e-6)
+    base_monetary_cost = max(float(option.metrics.monetary_cost), 0.0)
+    base_emissions_kg = max(float(option.metrics.emissions_kg), 0.0)
+    sigma = max(0.0, min(float(stochastic.sigma), 0.5))
+    samples = max(5, min(int(stochastic.samples), 200))
+
+    seed_base = stochastic.seed if stochastic.seed is not None else 0
+    seed_material = (
+        f"{option.id}|{base_duration_s:.6f}|{base_monetary_cost:.6f}|"
+        f"{base_emissions_kg:.6f}|{seed_base}"
+    )
+    route_seed = int(hashlib.sha1(seed_material.encode("utf-8")).hexdigest()[:12], 16)
+    rng = random.Random(route_seed)
+
+    sampled_durations: list[float] = []
+    sampled_monetary: list[float] = []
+    sampled_emissions: list[float] = []
+
+    for _ in range(samples):
+        factor = max(0.5, min(1.8, rng.gauss(1.0, sigma)))
+        sampled_duration = base_duration_s * factor
+        ratio = sampled_duration / base_duration_s if base_duration_s > 0 else 1.0
+        sampled_durations.append(sampled_duration)
+        sampled_monetary.append(base_monetary_cost * ratio)
+        sampled_emissions.append(base_emissions_kg * ratio)
+
+    mean_duration = statistics.fmean(sampled_durations)
+    std_duration = statistics.pstdev(sampled_durations) if len(sampled_durations) > 1 else 0.0
+    mean_monetary = statistics.fmean(sampled_monetary)
+    std_monetary = statistics.pstdev(sampled_monetary) if len(sampled_monetary) > 1 else 0.0
+    mean_emissions = statistics.fmean(sampled_emissions)
+    std_emissions = statistics.pstdev(sampled_emissions) if len(sampled_emissions) > 1 else 0.0
+
+    return {
+        "mean_duration_s": round(mean_duration, 6),
+        "std_duration_s": round(std_duration, 6),
+        "p95_duration_s": round(_quantile(sampled_durations, 0.95), 6),
+        "mean_monetary_cost": round(mean_monetary, 6),
+        "std_monetary_cost": round(std_monetary, 6),
+        "mean_emissions_kg": round(mean_emissions, 6),
+        "std_emissions_kg": round(std_emissions, 6),
+        "robust_score": round(mean_duration + std_duration, 6),
+    }
+
+
 def build_option(
     route: dict[str, Any],
     *,
@@ -360,6 +425,7 @@ def build_option(
     scenario_mode: ScenarioMode,
     cost_toggles: CostToggles,
     terrain_profile: TerrainProfile = "flat",
+    stochastic: StochasticConfig | None = None,
     departure_time_utc: datetime | None = None,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
@@ -562,7 +628,7 @@ def build_option(
         },
     ]
 
-    return RouteOption(
+    option = RouteOption(
         id=option_id,
         geometry=GeoJSONLineString(type="LineString", coordinates=coords),
         metrics=RouteMetrics(
@@ -577,6 +643,11 @@ def build_option(
         segment_breakdown=segment_breakdown,
         counterfactuals=counterfactuals,
     )
+    option.uncertainty = _route_stochastic_uncertainty(
+        option,
+        stochastic=stochastic or StochasticConfig(),
+    )
+    return option
 
 
 def _route_signature(route: dict[str, Any]) -> str:
@@ -765,6 +836,7 @@ def _build_options(
     scenario_mode: ScenarioMode,
     cost_toggles: CostToggles,
     terrain_profile: TerrainProfile = "flat",
+    stochastic: StochasticConfig | None = None,
     departure_time_utc: datetime | None,
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str]]:
@@ -782,6 +854,7 @@ def _build_options(
                     scenario_mode=scenario_mode,
                     cost_toggles=cost_toggles,
                     terrain_profile=terrain_profile,
+                    stochastic=stochastic,
                     departure_time_utc=departure_time_utc,
                 )
             )
@@ -896,6 +969,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             scenario_mode=req.scenario_mode,
             cost_toggles=req.cost_toggles,
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1019,6 +1093,7 @@ async def compute_pareto_stream(
                             scenario_mode=req.scenario_mode,
                             cost_toggles=req.cost_toggles,
                             terrain_profile=req.terrain_profile,
+                            stochastic=req.stochastic,
                             departure_time_utc=req.departure_time_utc,
                         )
                     except (OSRMError, ValueError) as e:
@@ -1044,6 +1119,7 @@ async def compute_pareto_stream(
                 scenario_mode=req.scenario_mode,
                 cost_toggles=req.cost_toggles,
                 terrain_profile=req.terrain_profile,
+                stochastic=req.stochastic,
                 departure_time_utc=req.departure_time_utc,
                 option_prefix="route",
             )
@@ -1143,6 +1219,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             scenario_mode=req.scenario_mode,
             cost_toggles=req.cost_toggles,
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1286,6 +1363,7 @@ async def optimize_departure_time(
                 scenario_mode=req.scenario_mode,
                 cost_toggles=req.cost_toggles,
                 terrain_profile=req.terrain_profile,
+                stochastic=req.stochastic,
                 departure_time_utc=departure_time,
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
             )
@@ -1450,6 +1528,7 @@ async def _run_scenario_compare(
             scenario_mode=scenario_mode,
             cost_toggles=req.cost_toggles,
             terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic,
             departure_time_utc=req.departure_time_utc,
             option_prefix=f"scenario_{scenario_mode.value}",
         )
@@ -1896,6 +1975,7 @@ async def batch_import_csv(
         max_alternatives=req.max_alternatives,
         cost_toggles=req.cost_toggles,
         terrain_profile=req.terrain_profile,
+        stochastic=req.stochastic,
         departure_time_utc=req.departure_time_utc,
         pareto_method=req.pareto_method,
         epsilon=req.epsilon,
@@ -1955,6 +2035,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                             scenario_mode=req.scenario_mode,
                             cost_toggles=req.cost_toggles,
                             terrain_profile=req.terrain_profile,
+                            stochastic=req.stochastic,
                             departure_time_utc=req.departure_time_utc,
                         )
                         for i, r in enumerate(routes)
@@ -1993,6 +2074,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                                     scenario_mode=req.scenario_mode,
                                     cost_toggles=req.cost_toggles,
                                     terrain_profile=req.terrain_profile,
+                                    stochastic=req.stochastic,
                                     departure_time_utc=req.departure_time_utc,
                                 )
                                 for i, r in enumerate(routes)

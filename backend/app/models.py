@@ -53,6 +53,13 @@ class TimeWindowConstraints(BaseModel):
     latest_arrival_utc: datetime | None = None
 
 
+class StochasticConfig(BaseModel):
+    enabled: bool = False
+    seed: int | None = None
+    sigma: float = Field(default=0.08, ge=0.0, le=0.5)
+    samples: int = Field(default=25, ge=5, le=200)
+
+
 class GeoJSONLineString(BaseModel):
     type: Literal["LineString"]
     coordinates: list[tuple[float, float]]  # [lon, lat]
@@ -66,6 +73,7 @@ class RouteRequest(BaseModel):
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -81,6 +89,7 @@ class ParetoRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -98,6 +107,7 @@ class BatchParetoRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -113,6 +123,7 @@ class BatchCSVImportRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -139,6 +150,7 @@ class RouteOption(BaseModel):
     eta_timeline: list[dict[str, float | str]] = Field(default_factory=list)
     segment_breakdown: list[dict[str, float | int]] = Field(default_factory=list)
     counterfactuals: list[dict[str, str | float | bool]] = Field(default_factory=list)
+    uncertainty: dict[str, float] | None = None
 
 
 class RouteResponse(BaseModel):
@@ -201,6 +213,7 @@ class ScenarioCompareRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -232,6 +245,7 @@ class DepartureOptimizeRequest(BaseModel):
     max_alternatives: int = Field(default=5, ge=1, le=5)
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
     time_window: TimeWindowConstraints | None = None
