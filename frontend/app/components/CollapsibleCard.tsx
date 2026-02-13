@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 type Props = {
   title: ReactNode;
@@ -44,20 +52,57 @@ export default function CollapsibleCard({
   const contentInnerRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const contentId = useId();
+  const headerId = useId();
+
+  const measureHeight = useCallback(() => {
+    const node = contentInnerRef.current;
+    if (!node) return;
+    setContentHeight(Math.ceil(node.scrollHeight));
+  }, []);
+
+  useLayoutEffect(() => {
+    measureHeight();
+  }, [measureHeight]);
+
+  useEffect(() => {
+    setOpen(!defaultCollapsed);
+  }, [defaultCollapsed]);
+
+  useEffect(() => {
+    if (open) measureHeight();
+  }, [open, measureHeight]);
 
   useEffect(() => {
     const node = contentInnerRef.current;
     if (!node) return;
 
-    const updateHeight = () => {
-      setContentHeight(node.scrollHeight);
-    };
+    measureHeight();
 
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        measureHeight();
+      });
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    const onResize = () => measureHeight();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [measureHeight]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !('fonts' in document)) return;
+    let cancelled = false;
+    // Re-measure after font faces load to avoid clipped text in expanded cards.
+    void (document as Document & { fonts?: FontFaceSet }).fonts?.ready.then(() => {
+      if (cancelled) return;
+      measureHeight();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [measureHeight]);
 
   return (
     <section
@@ -66,6 +111,7 @@ export default function CollapsibleCard({
     >
       <button
         type="button"
+        id={headerId}
         className="collapsibleCard__header"
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
@@ -78,10 +124,11 @@ export default function CollapsibleCard({
       <div
         id={contentId}
         role="region"
+        aria-labelledby={headerId}
         className="collapsibleCard__content"
         aria-hidden={!open}
         style={{
-          maxHeight: open ? `${Math.max(contentHeight + 2, 2)}px` : '0px',
+          maxHeight: open ? `${Math.max(contentHeight + 32, 32)}px` : '0px',
           opacity: open ? 1 : 0,
           pointerEvents: open ? 'auto' : 'none',
           visibility: open ? 'visible' : 'hidden',
