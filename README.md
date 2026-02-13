@@ -156,6 +156,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - interactive tutorial behavior and PDF report artifact usage
 - `docs/frontend-accessibility-i18n.md`
   - language selector behavior, locale formatting helpers, and keyboard/screen-reader support
+- `docs/map-overlays-tooltips.md`
+  - map-level stop/incident overlays, adaptive segment tooltips, and performance limits
 - `docs/synthetic-incidents-weather.md`
   - weather multiplier behavior, synthetic incident generation, determinism, and API usage
 
