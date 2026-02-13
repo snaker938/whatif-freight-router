@@ -319,6 +319,34 @@ function MapInteractionLockHandler({
   return null;
 }
 
+function ZoomControlVisibilityHandler({
+  hideZoomControls,
+}: {
+  hideZoomControls: boolean;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    const control = map.zoomControl as L.Control.Zoom | undefined;
+    if (!control) return;
+    const container = control.getContainer();
+    const isMounted = Boolean(container && container.parentElement);
+
+    if (hideZoomControls) {
+      if (isMounted) {
+        map.removeControl(control);
+      }
+      return;
+    }
+
+    if (!isMounted) {
+      map.addControl(control);
+    }
+  }, [hideZoomControls, map]);
+
+  return null;
+}
+
 function fmtCoord(v: number) {
   return Number.isFinite(v) ? v.toFixed(5) : String(v);
 }
@@ -787,6 +815,7 @@ export default function MapView({
     <div
       className={`mapPane ${tutorialMapLocked ? 'mapPane--tutorialLocked' : ''} ${tutorialGuideVisible ? 'mapPane--guide' : ''}`.trim()}
       data-segment-tooltips={showSegmentTooltips ? 'on' : 'off'}
+      data-tutorial-hide-zoom-controls={tutorialHideZoomControls ? 'true' : 'false'}
       data-tutorial-id="map.interactive"
     >
       <MapContainer
@@ -795,7 +824,7 @@ export default function MapView({
         zoom={11}
         minZoom={5}
         maxZoom={18}
-        zoomControl={!tutorialHideZoomControls}
+        zoomControl={true}
         dragging={!tutorialMapLocked}
         scrollWheelZoom={!tutorialMapLocked}
         doubleClickZoom={!tutorialMapLocked}
@@ -828,6 +857,7 @@ export default function MapView({
           viewportLocked={tutorialViewportLocked}
         />
         <MapInteractionLockHandler viewportLocked={tutorialViewportLocked} />
+        <ZoomControlVisibilityHandler hideZoomControls={tutorialHideZoomControls} />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'

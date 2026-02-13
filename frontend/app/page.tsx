@@ -679,7 +679,7 @@ type TutorialPlacementStage = 'newcastle_origin' | 'london_destination' | 'done'
 
 const TUTORIAL_CITY_TARGETS = {
   newcastle: { lat: 54.9783, lon: -1.6178, radiusKm: 20, zoom: 11 },
-  london: { lat: 51.5072, lon: -0.1276, radiusKm: 20, zoom: 10.5 },
+  london: { lat: 51.5072, lon: -0.1276, radiusKm: 20, zoom: 10 },
 } as const;
 
 function haversineDistanceKm(a: LatLng, b: LatLng): number {
@@ -779,8 +779,6 @@ export default function Page() {
     description: string;
   } | null>(null);
   const [tutorialResetNonce, setTutorialResetNonce] = useState(0);
-  const [tutorialPlacementStage, setTutorialPlacementStage] = useState<TutorialPlacementStage>('newcastle_origin');
-  const [tutorialGuidePanNonce, setTutorialGuidePanNonce] = useState(0);
   const [liveMessage, setLiveMessage] = useState('');
 
   const [error, setError] = useState<string | null>(null);
@@ -837,6 +835,18 @@ export default function Page() {
     const pending = tutorialStep.required.find((item) => !tutorialActionSet.has(item.actionId));
     return pending?.actionId ?? null;
   }, [tutorialActionSet, tutorialStep]);
+  const tutorialPlacementStage = useMemo<TutorialPlacementStage>(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return 'done';
+    if (tutorialNextRequiredActionId === 'map.set_origin_newcastle') return 'newcastle_origin';
+    if (tutorialNextRequiredActionId === 'map.set_destination_london') return 'london_destination';
+    return 'done';
+  }, [tutorialNextRequiredActionId, tutorialRunning, tutorialStep?.id]);
+  const tutorialGuidePanNonce = useMemo(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return tutorialStepIndex;
+    if (tutorialPlacementStage === 'newcastle_origin') return tutorialStepIndex * 1000 + 1;
+    if (tutorialPlacementStage === 'london_destination') return tutorialStepIndex * 1000 + 2;
+    return tutorialStepIndex * 1000 + 3;
+  }, [tutorialPlacementStage, tutorialRunning, tutorialStep?.id, tutorialStepIndex]);
   const tutorialOptionalState = useMemo(() => {
     if (!tutorialStep?.optional) return null;
     const resolved = tutorialOptionalSet.has(tutorialStep.optional.id);
@@ -948,11 +958,11 @@ export default function Page() {
   }, []);
 
   const markTutorialAction = useCallback(
-    (actionId: string) => {
+    (actionId: string, options?: { force?: boolean }) => {
       if (!actionId || !tutorialRunning || !tutorialStepId) return;
       const nextRequiredAction = tutorialNextRequiredActionId;
       const actionAlreadyDone = tutorialActionSet.has(actionId);
-      if (!actionAlreadyDone && nextRequiredAction && actionId !== nextRequiredAction) {
+      if (!options?.force && !actionAlreadyDone && nextRequiredAction && actionId !== nextRequiredAction) {
         return;
       }
       setTutorialStepActionsById((prev) => {
@@ -1373,24 +1383,6 @@ export default function Page() {
 
   useEffect(() => {
     if (!tutorialRunning) return;
-    if (tutorialStep?.id === 'map_set_pins') {
-      const hasOrigin = tutorialActionSet.has('map.set_origin_newcastle');
-      const hasDestination = tutorialActionSet.has('map.set_destination_london');
-      if (hasDestination) {
-        setTutorialPlacementStage('done');
-      } else if (hasOrigin) {
-        setTutorialPlacementStage('london_destination');
-      } else {
-        setTutorialPlacementStage('newcastle_origin');
-      }
-      setTutorialGuidePanNonce((prev) => prev + 1);
-      return;
-    }
-    setTutorialPlacementStage('done');
-  }, [tutorialActionSet, tutorialRunning, tutorialStep?.id]);
-
-  useEffect(() => {
-    if (!tutorialRunning) return;
     const handleActionEvent = (event: Event) => {
       const target = event.target as HTMLElement | null;
       const actionable = target?.closest<HTMLElement>('[data-tutorial-action]');
@@ -1804,9 +1796,7 @@ export default function Page() {
         setOrigin({ lat, lon });
         setSelectedPinId('origin');
         clearComputed();
-        markTutorialAction('map.set_origin_newcastle');
-        setTutorialPlacementStage('london_destination');
-        setTutorialGuidePanNonce((prev) => prev + 1);
+        markTutorialAction('map.set_origin_newcastle', { force: true });
         setLiveMessage('Start set near Newcastle. Now place End near London.');
         return;
       }
@@ -1814,8 +1804,7 @@ export default function Page() {
       setDestination({ lat, lon });
       setSelectedPinId('destination');
       clearComputed();
-      markTutorialAction('map.set_destination_london');
-      setTutorialPlacementStage('done');
+      markTutorialAction('map.set_destination_london', { force: true });
       setLiveMessage('End set near London. Click and drag both markers to finish Step 1.');
       return;
     }
@@ -1990,8 +1979,6 @@ export default function Page() {
     setTutorialTargetRect(null);
     setTutorialTargetMissing(false);
     setTutorialPrefilledSteps([]);
-    setTutorialPlacementStage('newcastle_origin');
-    setTutorialGuidePanNonce((prev) => prev + 1);
     setTutorialExperimentPrefill(null);
     setTutorialSavedProgress(null);
     setTutorialResetNonce((prev) => prev + 1);

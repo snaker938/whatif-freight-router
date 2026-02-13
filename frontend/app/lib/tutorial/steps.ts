@@ -99,7 +99,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
           lat: 51.5072,
           lon: -0.1276,
           radiusKm: 20,
-          zoom: 10.5,
+          zoom: 10,
         },
       ],
     },
