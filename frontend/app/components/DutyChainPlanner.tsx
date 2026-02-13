@@ -66,7 +66,7 @@ export default function DutyChainPlanner({
         <div className="error">Too Many Stops For One-Stop Mode. Remove Extra Lines Before Running.</div>
       ) : null}
 
-      <div className="row row--actions" style={{ marginTop: 12 }}>
+      <div className="actionGrid actionGrid--single" style={{ marginTop: 12 }}>
         <button
           className="secondary"
           onClick={onRun}

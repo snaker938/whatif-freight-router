@@ -2,6 +2,7 @@
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import Select, { type SelectOption } from './Select';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
   SIDEBAR_FIELD_HELP,
@@ -35,6 +36,26 @@ type Props = {
   validationError: string | null;
 };
 
+const OPTIMIZATION_MODE_OPTIONS: SelectOption<OptimizationMode>[] = [
+  { value: 'expected_value', label: 'Expected Value', description: 'Ranks by average objective values.' },
+  { value: 'robust', label: 'Robust', description: 'Ranks by average plus risk penalty.' },
+];
+
+const PARETO_METHOD_OPTIONS: SelectOption<ParetoMethod>[] = [
+  { value: 'dominance', label: 'Dominance', description: 'Keep only non-dominated routes.' },
+  {
+    value: 'epsilon_constraint',
+    label: 'Epsilon Constraint',
+    description: 'Apply caps, then choose non-dominated routes.',
+  },
+];
+
+const TERRAIN_PROFILE_OPTIONS: SelectOption<TerrainProfile>[] = [
+  { value: 'flat', label: 'Flat', description: 'Minimal gradient effect.' },
+  { value: 'rolling', label: 'Rolling', description: 'Moderate gradient effect.' },
+  { value: 'hilly', label: 'Hilly', description: 'Higher gradient penalty.' },
+];
+
 export default function ScenarioParameterEditor({
   value,
   onChange,
@@ -56,17 +77,17 @@ export default function ScenarioParameterEditor({
         <div className="fieldLabel">Optimization Mode</div>
         <FieldInfo text={SIDEBAR_FIELD_HELP.optimizationMode} />
       </div>
-      <select
-        className="input"
+      <Select
+        id="optimization-mode"
+        ariaLabel="Optimization mode"
         value={value.optimizationMode}
+        options={OPTIMIZATION_MODE_OPTIONS}
         disabled={disabled}
-        onChange={(event) => patch('optimizationMode', event.target.value as OptimizationMode)}
-        data-tutorial-id="advanced.optimization_mode"
-        data-tutorial-action="advanced.optimization_mode_select"
-      >
-        <option value="expected_value">Expected Value</option>
-        <option value="robust">Robust</option>
-      </select>
+        onChange={(next) => patch('optimizationMode', next)}
+        tutorialId="advanced.optimization_mode"
+        tutorialAction="advanced.optimization_mode_select"
+        showSelectionHint={true}
+      />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.optimizationMode}</div>
 
       <div className="fieldLabelRow">
@@ -92,17 +113,17 @@ export default function ScenarioParameterEditor({
         <div className="fieldLabel">Pareto Method</div>
         <FieldInfo text={SIDEBAR_FIELD_HELP.paretoMethod} />
       </div>
-      <select
-        className="input"
+      <Select
+        id="pareto-method"
+        ariaLabel="Pareto method"
         value={value.paretoMethod}
+        options={PARETO_METHOD_OPTIONS}
         disabled={disabled}
-        onChange={(event) => patch('paretoMethod', event.target.value as ParetoMethod)}
-        data-tutorial-id="advanced.pareto_method"
-        data-tutorial-action="advanced.pareto_method_select"
-      >
-        <option value="dominance">Dominance</option>
-        <option value="epsilon_constraint">Epsilon Constraint</option>
-      </select>
+        onChange={(next) => patch('paretoMethod', next)}
+        tutorialId="advanced.pareto_method"
+        tutorialAction="advanced.pareto_method_select"
+        showSelectionHint={true}
+      />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.paretoMethod}</div>
 
       {value.paretoMethod === 'epsilon_constraint' && (
@@ -260,18 +281,17 @@ export default function ScenarioParameterEditor({
         <div className="fieldLabel">Terrain Profile</div>
         <FieldInfo text={SIDEBAR_FIELD_HELP.terrainProfile} />
       </div>
-      <select
-        className="input"
+      <Select
+        id="terrain-profile"
+        ariaLabel="Terrain profile"
         value={value.terrainProfile}
+        options={TERRAIN_PROFILE_OPTIONS}
         disabled={disabled}
-        onChange={(event) => patch('terrainProfile', event.target.value as TerrainProfile)}
-        data-tutorial-id="advanced.terrain"
-        data-tutorial-action="advanced.terrain_select"
-      >
-        <option value="flat">Flat</option>
-        <option value="rolling">Rolling</option>
-        <option value="hilly">Hilly</option>
-      </select>
+        onChange={(next) => patch('terrainProfile', next)}
+        tutorialId="advanced.terrain"
+        tutorialAction="advanced.terrain_select"
+        showSelectionHint={true}
+      />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.terrainProfile}</div>
 
       <div className="checkboxRow">

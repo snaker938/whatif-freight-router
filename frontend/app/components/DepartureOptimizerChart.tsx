@@ -143,7 +143,7 @@ export default function DepartureOptimizerChart({
         data-tutorial-action="dep.latest_input"
       />
 
-      <div className="row row--actions" style={{ marginTop: 12 }}>
+      <div className="actionGrid actionGrid--single" style={{ marginTop: 12 }}>
         <button
           className="secondary"
           onClick={onRun}

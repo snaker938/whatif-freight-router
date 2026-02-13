@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import Select, { type SelectOption } from './Select';
 import { formatDateTime } from '../lib/format';
 import type { Locale } from '../lib/i18n';
 import {
@@ -39,6 +40,20 @@ type Props = {
   defaultDescription?: string;
   tutorialResetNonce?: number;
 };
+
+const SCENARIO_FILTER_OPTIONS: SelectOption<'' | ScenarioMode>[] = [
+  { value: '', label: 'All Scenarios', description: 'No scenario filter.' },
+  { value: 'no_sharing', label: 'No Sharing', description: 'Only no-sharing bundles.' },
+  { value: 'partial_sharing', label: 'Partial Sharing', description: 'Only partial-sharing bundles.' },
+  { value: 'full_sharing', label: 'Full Sharing', description: 'Only full-sharing bundles.' },
+];
+
+const EXPERIMENT_SORT_OPTIONS: SelectOption<ExperimentCatalogSort>[] = [
+  { value: 'updated_desc', label: 'Updated (Newest)', description: 'Most recently updated first.' },
+  { value: 'updated_asc', label: 'Updated (Oldest)', description: 'Least recently updated first.' },
+  { value: 'name_asc', label: 'Name (A-Z)', description: 'Alphabetical ascending.' },
+  { value: 'name_desc', label: 'Name (Z-A)', description: 'Alphabetical descending.' },
+];
 
 export default function ExperimentManager({
   experiments,
@@ -97,6 +112,11 @@ export default function ExperimentManager({
     setDescription('');
   }
 
+  const vehicleFilterOptions: SelectOption<string>[] = [
+    { value: '', label: 'All Vehicles', description: 'No vehicle filter.' },
+    ...vehicleOptions.map((opt) => ({ value: opt.value, label: opt.label })),
+  ];
+
   return (
     <CollapsibleCard
       title="Experiments"
@@ -132,21 +152,16 @@ export default function ExperimentManager({
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.filterVehicle} />
         </div>
-        <select
+        <Select
           id="experiment-filter-vehicle"
-          className="input"
+          ariaLabel="Filter vehicle"
           value={catalogVehicleType}
+          options={vehicleFilterOptions}
           disabled={disabled || loading}
-          onChange={(event) => onCatalogVehicleTypeChange(event.target.value)}
-          data-tutorial-action="exp.filter_vehicle_select"
-        >
-          <option value="">All vehicles</option>
-          {vehicleOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          onChange={onCatalogVehicleTypeChange}
+          tutorialAction="exp.filter_vehicle_select"
+          showSelectionHint={true}
+        />
 
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="experiment-filter-scenario">
@@ -154,19 +169,16 @@ export default function ExperimentManager({
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.filterScenario} />
         </div>
-        <select
+        <Select
           id="experiment-filter-scenario"
-          className="input"
+          ariaLabel="Filter scenario"
           value={catalogScenarioMode}
+          options={SCENARIO_FILTER_OPTIONS}
           disabled={disabled || loading}
-          onChange={(event) => onCatalogScenarioModeChange(event.target.value as '' | ScenarioMode)}
-          data-tutorial-action="exp.filter_scenario_select"
-        >
-          <option value="">All Scenarios</option>
-          <option value="no_sharing">No Sharing</option>
-          <option value="partial_sharing">Partial Sharing</option>
-          <option value="full_sharing">Full Sharing</option>
-        </select>
+          onChange={onCatalogScenarioModeChange}
+          tutorialAction="exp.filter_scenario_select"
+          showSelectionHint={true}
+        />
         <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentFilterScenario}</div>
 
         <div className="fieldLabelRow">
@@ -175,23 +187,20 @@ export default function ExperimentManager({
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.sort} />
         </div>
-        <select
+        <Select
           id="experiment-sort"
-          className="input"
+          ariaLabel="Experiment sort order"
           value={catalogSort}
+          options={EXPERIMENT_SORT_OPTIONS}
           disabled={disabled || loading}
-          onChange={(event) => onCatalogSortChange(event.target.value as ExperimentCatalogSort)}
-          data-tutorial-action="exp.sort_select"
-        >
-          <option value="updated_desc">Updated (Newest)</option>
-          <option value="updated_asc">Updated (Oldest)</option>
-          <option value="name_asc">Name (A-Z)</option>
-          <option value="name_desc">Name (Z-A)</option>
-        </select>
+          onChange={onCatalogSortChange}
+          tutorialAction="exp.sort_select"
+          showSelectionHint={true}
+        />
         <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentSort}</div>
       </div>
 
-      <div className="row row--actions" style={{ marginTop: 10 }}>
+      <div className="actionGrid actionGrid--single" style={{ marginTop: 10 }}>
         <button
           className="secondary"
           onClick={onRefresh}
@@ -261,7 +270,7 @@ export default function ExperimentManager({
         data-tutorial-action="exp.description_input"
       />
 
-      <div className="row row--actions" style={{ marginTop: 10 }}>
+      <div className="actionGrid" style={{ marginTop: 10 }}>
         <button
           className="primary"
           onClick={handleSave}

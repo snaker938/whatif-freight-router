@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 
 import CollapsibleCard from './components/CollapsibleCard';
 import FieldInfo from './components/FieldInfo';
-import Select from './components/Select';
+import Select, { type SelectOption } from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
@@ -2395,6 +2395,18 @@ export default function Page() {
     },
   ];
 
+  const localeOptions: SelectOption<Locale>[] = LOCALE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+    description: option.value === 'en' ? 'English locale formatting.' : 'Spanish locale formatting.',
+  }));
+
+  const routeSortOptions: SelectOption<'duration' | 'cost' | 'co2'>[] = [
+    { value: 'duration', label: 'Sort By ETA', description: 'Show fastest routes first.' },
+    { value: 'cost', label: 'Sort By Cost', description: 'Show lowest-cost routes first.' },
+    { value: 'co2', label: 'Sort By CO2', description: 'Show lowest-emission routes first.' },
+  ];
+
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
   const canCompareScenarios = Boolean(origin && destination) && !busy && !scenarioCompareLoading;
   const canSaveExperiment = Boolean(origin && destination) && !busy;
@@ -2529,21 +2541,17 @@ export default function Page() {
                   </label>
                   <FieldInfo text={SIDEBAR_FIELD_HELP.language} />
                 </div>
-                <select
+                <Select
                   id="ui-language"
-                  className="input"
+                  ariaLabel="Language"
                   value={locale}
+                  options={localeOptions}
                   disabled={busy}
-                  onChange={(event) => setLocale(event.target.value as Locale)}
-                  data-tutorial-id="setup.language"
-                  data-tutorial-action="setup.language_select"
-                >
-                  {LOCALE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setLocale}
+                  tutorialId="setup.language"
+                  tutorialAction="setup.language_select"
+                  showSelectionHint={true}
+                />
 
                 <div className="helper">
                   Scenario mode applies a policy-based delay multiplier and adds idle emissions (and
@@ -2551,7 +2559,7 @@ export default function Page() {
                   swapped for a detailed simulator later.
                 </div>
 
-                <div className="row" style={{ marginTop: 12 }}>
+                <div className="actionGrid" style={{ marginTop: 12 }}>
                   <button
                     className="secondary"
                     onClick={() => {
@@ -2702,7 +2710,7 @@ export default function Page() {
                   />
                 </div>
 
-                <div className="row row--actions" style={{ marginTop: 12 }}>
+                <div className="actionGrid" style={{ marginTop: 12 }}>
                   {WEIGHT_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
@@ -2716,7 +2724,7 @@ export default function Page() {
                   ))}
                 </div>
 
-                <div className="row row--actions" style={{ marginTop: 10 }}>
+                <div className="actionGrid" style={{ marginTop: 10 }}>
                   <button
                     className="primary"
                     onClick={computePareto}
@@ -2823,7 +2831,7 @@ export default function Page() {
                 )}
               </div>
 
-              <div className="row row--actions" style={{ marginTop: 10 }}>
+              <div className="actionGrid" style={{ marginTop: 10 }}>
                 <button
                   className="secondary"
                   onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
@@ -2948,17 +2956,14 @@ export default function Page() {
                 <>
                   {paretoRoutes.length > 0 && (
                     <>
-                      <div className="row row--actions" style={{ marginBottom: 10 }}>
-                        <select
-                          className="input"
+                      <div className="actionGrid actionGrid--single" style={{ marginBottom: 10 }}>
+                        <Select
+                          id="route-sort"
+                          ariaLabel="Sort routes"
                           value={routeSort}
-                          onChange={(event) => setRouteSort(event.target.value as 'duration' | 'cost' | 'co2')}
-                          aria-label="Sort Routes"
-                        >
-                          <option value="duration">Sort By ETA</option>
-                          <option value="cost">Sort By Cost</option>
-                          <option value="co2">Sort By CO2</option>
-                        </select>
+                          options={routeSortOptions}
+                          onChange={setRouteSort}
+                        />
                       </div>
 
                       <div className="chartWrap" data-tutorial-id="routes.chart">

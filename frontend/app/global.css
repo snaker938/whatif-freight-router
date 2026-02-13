@@ -1018,6 +1018,39 @@ a {
     flex-wrap: wrap;
   }
 
+  .actionGrid {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .actionGrid.actionGrid--single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actionGrid > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .actionGrid button,
+  .actionGrid .buttonLink {
+    min-height: 46px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+
+  .actionGrid .buttonLink {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .buttonLabel {
     display: inline-flex;
     align-items: center;
@@ -2427,6 +2460,12 @@ a {
   }
 
   /* ---------- Responsive ---------- */
+
+  @media (max-width: 560px) {
+    .actionGrid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 
   @media (max-width: 900px) {
     .panel {

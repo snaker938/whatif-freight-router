@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import Select, { type SelectOption } from './Select';
 import { formatDateTime, formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
 import {
@@ -30,6 +31,14 @@ type Props = {
   tutorialResetNonce?: number;
 };
 
+type SignatureState = 'unknown' | 'valid' | 'invalid';
+
+const SIGNATURE_STATE_OPTIONS: SelectOption<SignatureState>[] = [
+  { value: 'unknown', label: 'Unknown', description: 'Signature check not provided.' },
+  { value: 'valid', label: 'Valid', description: 'Signature check passed.' },
+  { value: 'invalid', label: 'Invalid', description: 'Signature check failed.' },
+];
+
 export default function OracleQualityDashboard({
   dashboard,
   loading,
@@ -44,7 +53,7 @@ export default function OracleQualityDashboard({
 }: Props) {
   const [source, setSource] = useState('oracle_demo');
   const [schemaValid, setSchemaValid] = useState(true);
-  const [signatureState, setSignatureState] = useState<'unknown' | 'valid' | 'invalid'>('unknown');
+  const [signatureState, setSignatureState] = useState<SignatureState>('unknown');
   const [freshnessS, setFreshnessS] = useState('');
   const [latencyMs, setLatencyMs] = useState('');
   const [recordCount, setRecordCount] = useState('');
@@ -173,21 +182,19 @@ export default function OracleQualityDashboard({
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.signatureState} />
       </div>
-      <select
+      <Select
         id="oracle-signature-state"
-        className="input"
+        ariaLabel="Signature state"
         value={signatureState}
+        options={SIGNATURE_STATE_OPTIONS}
         disabled={disabled || ingesting}
-        onChange={(event) => {
-          setSignatureState(event.target.value as 'unknown' | 'valid' | 'invalid');
+        onChange={(next) => {
+          setSignatureState(next);
           if (validationError) setValidationError(null);
         }}
-        data-tutorial-action="oracle.signature_select"
-      >
-        <option value="unknown">Unknown</option>
-        <option value="valid">Valid</option>
-        <option value="invalid">Invalid</option>
-      </select>
+        tutorialAction="oracle.signature_select"
+        showSelectionHint={true}
+      />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.signatureState}</div>
 
       <div className="advancedGrid">
@@ -271,7 +278,7 @@ export default function OracleQualityDashboard({
         data-tutorial-action="oracle.error_note_input"
       />
 
-      <div className="row row--actions" style={{ marginTop: 12 }}>
+      <div className="actionGrid" style={{ marginTop: 12 }}>
         <button
           className="secondary"
           onClick={applySampleValues}

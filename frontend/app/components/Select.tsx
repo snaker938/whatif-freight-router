@@ -11,6 +11,7 @@ export type SelectOption<T extends string> = {
 };
 
 type Props<T extends string> = {
+  id?: string;
   value: T;
   options: SelectOption<T>[];
   onChange: (value: T) => void;
@@ -19,6 +20,7 @@ type Props<T extends string> = {
   ariaLabel: string;
   showSelectionHint?: boolean;
   tutorialId?: string;
+  tutorialAction?: string;
   tutorialActionPrefix?: string;
 };
 
@@ -59,6 +61,7 @@ function CheckIcon() {
 }
 
 export default function Select<T extends string>({
+  id: providedId,
   value,
   options,
   onChange,
@@ -67,9 +70,11 @@ export default function Select<T extends string>({
   ariaLabel,
   showSelectionHint = false,
   tutorialId,
+  tutorialAction,
   tutorialActionPrefix,
 }: Props<T>) {
-  const id = useId();
+  const generatedId = useId();
+  const id = providedId ?? generatedId;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -237,6 +242,7 @@ export default function Select<T extends string>({
         disabled={isDisabled}
         onClick={() => !isDisabled && setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
+        {...(tutorialAction ? { 'data-tutorial-action': tutorialAction } : {})}
         {...(tutorialActionPrefix ? { 'data-tutorial-action': `${tutorialActionPrefix}:open` } : {})}
       >
         <span className="select__value">

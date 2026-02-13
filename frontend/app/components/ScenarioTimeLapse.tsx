@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import Select, { type SelectOption } from './Select';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
   SIDEBAR_FIELD_HELP,
@@ -18,6 +19,13 @@ type Props = {
 
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
 const TIME_LAPSE_SPEED_KEY = 'timelapse_speed_v1';
+type PlaybackSpeedValue = '0.5' | '1' | '2' | '4';
+const PLAYBACK_SPEED_OPTIONS: SelectOption<PlaybackSpeedValue>[] = [
+  { value: '0.5', label: 'x0.5', description: 'Slower playback for detailed inspection.' },
+  { value: '1', label: 'x1', description: 'Normal playback speed.' },
+  { value: '2', label: 'x2', description: 'Faster playback.' },
+  { value: '4', label: 'x4', description: 'Fastest playback.' },
+];
 
 function pointAlongRoute(coords: [number, number][], progress: number): LatLng | null {
   if (coords.length < 2) {
@@ -164,7 +172,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>
       </div>
 
-      <div className="row">
+      <div className="actionGrid">
         <button
           className="secondary"
           onClick={() => {
@@ -215,23 +223,19 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.playbackSpeed} />
       </div>
-      <select
+      <Select
         id="time-lapse-speed"
-        className="input"
-        value={String(speed)}
-        onChange={(event) => {
-          const next = Number(event.target.value);
+        ariaLabel="Playback speed"
+        value={String(speed) as PlaybackSpeedValue}
+        options={PLAYBACK_SPEED_OPTIONS}
+        onChange={(nextValue) => {
+          const next = Number(nextValue);
           if (!Number.isFinite(next) || !PLAYBACK_SPEEDS.includes(next)) return;
           setSpeed(next);
         }}
-        data-tutorial-action="timelapse.speed_select"
-      >
-        {PLAYBACK_SPEEDS.map((value) => (
-          <option key={value} value={String(value)}>
-            x{value}
-          </option>
-        ))}
-      </select>
+        tutorialAction="timelapse.speed_select"
+        showSelectionHint={true}
+      />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.timeLapseSpeed}</div>
 
       <label className="fieldLabel" htmlFor="time-lapse-progress">
@@ -257,7 +261,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         data-tutorial-action="timelapse.scrubber_input"
       />
 
-      <div className="row" style={{ marginTop: 8 }}>
+      <div className="actionGrid" style={{ marginTop: 8 }}>
         <button
           className="secondary"
           onClick={() => {
