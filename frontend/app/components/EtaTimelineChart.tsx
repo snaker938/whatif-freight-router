@@ -2,10 +2,11 @@
 
 import { Chart as ChartJS, Legend, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { CategoryScale } from 'chart.js';
 
 import type { RouteOption } from '../lib/types';
 
-ChartJS.register(LineElement, PointElement, LinearScale, Tooltip, Legend);
+ChartJS.register(CategoryScale, LineElement, PointElement, LinearScale, Tooltip, Legend);
 
 type Props = {
   route: RouteOption | null;
@@ -59,4 +60,3 @@ export default function EtaTimelineChart({ route }: Props) {
     </div>
   );
 }
-
