@@ -29,6 +29,24 @@ export type TimeWindowConstraints = {
 };
 
 export type LatLng = { lat: number; lon: number };
+export type PinNodeKind = 'origin' | 'destination' | 'stop';
+export type PinSelectionId = 'origin' | 'destination' | 'stop-1';
+
+export type ManagedStop = {
+  id: 'stop-1';
+  lat: number;
+  lon: number;
+  label: string;
+};
+
+export type PinDisplayNode = {
+  id: PinSelectionId;
+  kind: PinNodeKind;
+  lat: number;
+  lon: number;
+  label: string;
+  order: number;
+};
 
 export type IncidentEventType = 'dwell' | 'accident' | 'closure';
 

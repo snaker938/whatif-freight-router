@@ -48,7 +48,6 @@ type Props = {
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
-  onRemoveMarker: (kind: MarkerKind) => void;
   onSwapMarkers?: () => void;
 };
 
@@ -137,28 +136,6 @@ function CloseIcon() {
     >
       <path d="M18 6L6 18" />
       <path d="M6 6l12 12" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M6 6l1 16h10l1-16" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
     </svg>
   );
 }
@@ -297,7 +274,6 @@ export default function MapView({
   onMapClick,
   onSelectMarker,
   onMoveMarker,
-  onRemoveMarker,
   onSwapMarkers,
 }: Props) {
   const originRef = useRef<L.Marker>(null);
@@ -464,22 +440,6 @@ export default function MapView({
 
                     <button
                       type="button"
-                      className="markerPopup__iconBtn markerPopup__iconBtn--danger"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveMarker('origin');
-                        onSelectMarker(null);
-                        onTutorialAction?.('map.popup_remove');
-                      }}
-                      aria-label="Remove start"
-                      title="Remove start"
-                      data-tutorial-action="map.popup_remove"
-                    >
-                      <TrashIcon />
-                    </button>
-
-                    <button
-                      type="button"
                       className="markerPopup__iconBtn"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -572,22 +532,6 @@ export default function MapView({
                         <SwapIcon />
                       </button>
                     )}
-
-                    <button
-                      type="button"
-                      className="markerPopup__iconBtn markerPopup__iconBtn--danger"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveMarker('destination');
-                        onSelectMarker(null);
-                        onTutorialAction?.('map.popup_remove');
-                      }}
-                      aria-label="Remove destination"
-                      title="Remove destination"
-                      data-tutorial-action="map.popup_remove"
-                    >
-                      <TrashIcon />
-                    </button>
 
                     <button
                       type="button"

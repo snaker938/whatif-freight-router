@@ -51,6 +51,7 @@ import type {
   OptimizationMode,
   ParetoMethod,
   ParetoStreamEvent,
+  ManagedStop,
   RouteOption,
   ScenarioMode,
   ScenarioCompareResponse,
@@ -90,7 +91,6 @@ type MapViewProps = {
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
-  onRemoveMarker: (kind: MarkerKind) => void;
   onSwapMarkers?: () => void;
 };
 
@@ -344,6 +344,129 @@ function dedupeWarnings(items: string[]): string[] {
   return out;
 }
 
+function sameLatLng(a: LatLng | null, b: LatLng | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return Math.abs(a.lat - b.lat) <= 1e-9 && Math.abs(a.lon - b.lon) <= 1e-9;
+}
+
+function sameManagedStop(a: ManagedStop | null, b: ManagedStop | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    Math.abs(a.lat - b.lat) <= 1e-9 &&
+    Math.abs(a.lon - b.lon) <= 1e-9 &&
+    (a.label ?? '') === (b.label ?? '')
+  );
+}
+
+function toDutyLine(lat: number, lon: number, label?: string): string {
+  const base = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  const trimmed = (label ?? '').trim();
+  return trimmed ? `${base},${trimmed}` : base;
+}
+
+function serializePinsToDutyText(
+  origin: LatLng | null,
+  stop: ManagedStop | null,
+  destination: LatLng | null,
+  labels: {
+    startLabel: string;
+    destinationLabel: string;
+  },
+): string {
+  const lines: string[] = [];
+  if (origin) {
+    lines.push(toDutyLine(origin.lat, origin.lon, labels.startLabel || 'Start'));
+  }
+  if (stop) {
+    lines.push(toDutyLine(stop.lat, stop.lon, stop.label || 'Stop #1'));
+  }
+  if (destination) {
+    lines.push(toDutyLine(destination.lat, destination.lon, labels.destinationLabel || 'Destination'));
+  }
+  return lines.join('\n');
+}
+
+type ParsedPinSync =
+  | {
+      ok: true;
+      origin: LatLng | null;
+      destination: LatLng | null;
+      stop: ManagedStop | null;
+      startLabel: string;
+      destinationLabel: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+function parseDutyTextToPins(text: string): ParsedPinSync {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return {
+      ok: true,
+      origin: null,
+      destination: null,
+      stop: null,
+      startLabel: 'Start',
+      destinationLabel: 'Destination',
+    };
+  }
+
+  if (lines.length < 2) {
+    return { ok: false, error: 'Duty chain text requires at least two lines (start and destination).' };
+  }
+  if (lines.length > 3) {
+    return { ok: false, error: 'One-stop mode allows at most one intermediate stop (three lines total).' };
+  }
+
+  const parsed = lines.map((line, idx) => {
+    const parts = line.split(',');
+    if (parts.length < 2) {
+      throw new Error(`Line ${idx + 1} must be "lat,lon,label(optional)".`);
+    }
+    const lat = Number(parts[0].trim());
+    const lon = Number(parts[1].trim());
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      throw new Error(`Line ${idx + 1} has invalid latitude/longitude.`);
+    }
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      throw new Error(`Line ${idx + 1} is out of bounds.`);
+    }
+    const label = parts
+      .slice(2)
+      .join(',')
+      .trim();
+    return { lat, lon, label };
+  });
+
+  const first = parsed[0];
+  const last = parsed[parsed.length - 1];
+  const mid = parsed.length === 3 ? parsed[1] : null;
+  return {
+    ok: true,
+    origin: { lat: first.lat, lon: first.lon },
+    destination: { lat: last.lat, lon: last.lon },
+    stop: mid
+      ? {
+          id: 'stop-1',
+          lat: mid.lat,
+          lon: mid.lon,
+          label: mid.label || 'Stop #1',
+        }
+      : null,
+    startLabel: first.label || 'Start',
+    destinationLabel: last.label || 'Destination',
+  };
+}
+
 function RoutesSkeleton() {
   return (
     <div className="routesSkeleton" aria-hidden="true">
@@ -384,6 +507,9 @@ function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
+  const [managedStop, setManagedStop] = useState<ManagedStop | null>(null);
+  const [startLabel, setStartLabel] = useState('Start');
+  const [destinationLabel, setDestinationLabel] = useState('Destination');
   const [selectedMarker, setSelectedMarker] = useState<MarkerKind | null>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [locale, setLocale] = useState<Locale>('en');
@@ -427,6 +553,7 @@ export default function Page() {
   const [depOptimizeError, setDepOptimizeError] = useState<string | null>(null);
   const [depOptimizeData, setDepOptimizeData] = useState<DepartureOptimizeResponse | null>(null);
   const [dutyStopsText, setDutyStopsText] = useState('');
+  const [dutySyncError, setDutySyncError] = useState<string | null>(null);
   const [dutyChainLoading, setDutyChainLoading] = useState(false);
   const [dutyChainError, setDutyChainError] = useState<string | null>(null);
   const [dutyChainData, setDutyChainData] = useState<DutyChainResponse | null>(null);
@@ -472,6 +599,7 @@ export default function Page() {
   const routeBufferRef = useRef<RouteOption[]>([]);
   const flushTimerRef = useRef<number | null>(null);
   const tutorialBootstrappedRef = useRef(false);
+  const dutySyncSourceRef = useRef<'pins' | 'text' | null>(null);
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
@@ -570,12 +698,18 @@ export default function Page() {
       if (prefillId === 'clear_map') {
         setOrigin(null);
         setDestination(null);
+        setManagedStop(null);
+        setStartLabel('Start');
+        setDestinationLabel('Destination');
         setSelectedMarker(null);
       }
 
       if (prefillId === 'canonical_map') {
         setOrigin(TUTORIAL_CANONICAL_ORIGIN);
         setDestination(TUTORIAL_CANONICAL_DESTINATION);
+        setManagedStop(null);
+        setStartLabel('Start');
+        setDestinationLabel('Destination');
       }
 
       if (prefillId === 'canonical_setup') {
@@ -800,14 +934,56 @@ export default function Page() {
   }, [depWindowStartLocal, depWindowEndLocal]);
 
   useEffect(() => {
-    if (dutyStopsText.trim()) return;
-    const lines: string[] = [];
-    if (origin) lines.push(`${origin.lat.toFixed(6)},${origin.lon.toFixed(6)},origin`);
-    if (destination) lines.push(`${destination.lat.toFixed(6)},${destination.lon.toFixed(6)},destination`);
-    if (lines.length > 0) {
-      setDutyStopsText(lines.join('\n'));
+    if (dutySyncSourceRef.current === 'text') {
+      dutySyncSourceRef.current = null;
+      return;
     }
-  }, [origin, destination, dutyStopsText]);
+
+    const nextText = serializePinsToDutyText(origin, managedStop, destination, {
+      startLabel,
+      destinationLabel,
+    });
+    if (nextText === dutyStopsText) return;
+    dutySyncSourceRef.current = 'pins';
+    setDutyStopsText(nextText);
+    setDutySyncError(null);
+  }, [origin, destination, managedStop, startLabel, destinationLabel, dutyStopsText]);
+
+  useEffect(() => {
+    if (dutySyncSourceRef.current === 'pins') {
+      dutySyncSourceRef.current = null;
+      return;
+    }
+    let parsed: ParsedPinSync;
+    try {
+      parsed = parseDutyTextToPins(dutyStopsText);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Invalid duty input.';
+      setDutySyncError(msg);
+      return;
+    }
+    if (!parsed.ok) {
+      setDutySyncError(parsed.error);
+      return;
+    }
+    setDutySyncError(null);
+    dutySyncSourceRef.current = 'text';
+    if (!sameLatLng(origin, parsed.origin)) {
+      setOrigin(parsed.origin);
+    }
+    if (!sameLatLng(destination, parsed.destination)) {
+      setDestination(parsed.destination);
+    }
+    if (!sameManagedStop(managedStop, parsed.stop)) {
+      setManagedStop(parsed.stop);
+    }
+    if (startLabel !== parsed.startLabel) {
+      setStartLabel(parsed.startLabel);
+    }
+    if (destinationLabel !== parsed.destinationLabel) {
+      setDestinationLabel(parsed.destinationLabel);
+    }
+  }, [dutyStopsText, origin, destination, managedStop, startLabel, destinationLabel]);
 
   useEffect(() => {
     try {
@@ -1181,17 +1357,6 @@ export default function Page() {
     }
   }
 
-  function handleRemoveMarker(kind: MarkerKind) {
-    setError(null);
-
-    if (kind === 'origin') setOrigin(null);
-    else setDestination(null);
-
-    setSelectedMarker(null);
-    clearComputed();
-    markTutorialAction('map.popup_remove');
-  }
-
   function swapMarkers() {
     if (!origin || !destination) return;
     setOrigin(destination);
@@ -1205,9 +1370,13 @@ export default function Page() {
   function reset() {
     setOrigin(null);
     setDestination(null);
+    setManagedStop(null);
+    setStartLabel('Start');
+    setDestinationLabel('Destination');
     setSelectedMarker(null);
     clearComputed();
     setError(null);
+    setDutySyncError(null);
     markTutorialAction('setup.clear_pins_button');
   }
 
@@ -1230,6 +1399,9 @@ export default function Page() {
     clearComputed();
     setOrigin(null);
     setDestination(null);
+    setManagedStop(null);
+    setStartLabel('Start');
+    setDestinationLabel('Destination');
     setSelectedMarker(null);
     setVehicleType('rigid_hgv');
     setScenarioMode('no_sharing');
@@ -1239,6 +1411,7 @@ export default function Page() {
     setDepEarliestArrivalLocal('');
     setDepLatestArrivalLocal('');
     setDutyStopsText('');
+    setDutySyncError(null);
     setShowStopOverlay(true);
     setShowIncidentOverlay(true);
     setShowSegmentTooltips(true);
@@ -1793,6 +1966,9 @@ export default function Page() {
     if (lines.length < 2) {
       throw new Error('Duty chain requires at least two stops (one per line).');
     }
+    if (lines.length > 3) {
+      throw new Error('One-stop mode allows at most one intermediate stop (three lines total).');
+    }
 
     return lines.map((line, idx) => {
       const parts = line.split(',');
@@ -2102,7 +2278,6 @@ export default function Page() {
           onMapClick={handleMapClick}
           onSelectMarker={setSelectedMarker}
           onMoveMarker={handleMoveMarker}
-          onRemoveMarker={handleRemoveMarker}
           onSwapMarkers={swapMarkers}
           onTutorialAction={markTutorialAction}
           onTutorialTargetState={(state) => {
@@ -2793,7 +2968,7 @@ export default function Page() {
             onStopsTextChange={setDutyStopsText}
             onRun={runDutyChain}
             loading={dutyChainLoading}
-            error={dutyChainError}
+            error={dutyChainError ?? dutySyncError}
             data={dutyChainData}
             disabled={busy}
             locale={locale}

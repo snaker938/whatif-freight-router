@@ -2,6 +2,8 @@ import type {
   DutyChainStop,
   IncidentEventType,
   LatLng,
+  ManagedStop,
+  PinDisplayNode,
   RouteOption,
   RouteSegmentBreakdownRow,
   SimulatedIncidentEvent,
@@ -142,7 +144,7 @@ export function buildStopOverlayPoints(
   dutyStops: DutyChainStop[],
 ): StopOverlayPoint[] {
   const points: StopOverlayPoint[] = [];
-  let sequence = 1;
+  let dutySequence = 1;
 
   if (origin) {
     points.push({
@@ -150,10 +152,9 @@ export function buildStopOverlayPoints(
       kind: 'origin',
       lat: origin.lat,
       lon: origin.lon,
-      sequence,
+      sequence: 0,
       label: 'Start',
     });
-    sequence += 1;
   }
 
   for (let idx = 0; idx < dutyStops.length; idx += 1) {
@@ -167,10 +168,10 @@ export function buildStopOverlayPoints(
       kind: 'duty',
       lat: stop.lat,
       lon: stop.lon,
-      sequence,
+      sequence: dutySequence,
       label: stop.label ?? null,
     });
-    sequence += 1;
+    dutySequence += 1;
   }
 
   if (destination && !hasPoint(points, destination.lat, destination.lon)) {
@@ -179,12 +180,55 @@ export function buildStopOverlayPoints(
       kind: 'destination',
       lat: destination.lat,
       lon: destination.lon,
-      sequence,
+      sequence: 0,
       label: 'Destination',
     });
   }
 
   return points;
+}
+
+export function buildManagedPinNodes(
+  origin: LatLng | null,
+  destination: LatLng | null,
+  stop: ManagedStop | null,
+  labels: {
+    origin?: string;
+    destination?: string;
+  } = {},
+): PinDisplayNode[] {
+  const out: PinDisplayNode[] = [];
+  if (origin) {
+    out.push({
+      id: 'origin',
+      kind: 'origin',
+      lat: origin.lat,
+      lon: origin.lon,
+      label: labels.origin?.trim() || 'Start',
+      order: 1,
+    });
+  }
+  if (stop) {
+    out.push({
+      id: 'stop-1',
+      kind: 'stop',
+      lat: stop.lat,
+      lon: stop.lon,
+      label: stop.label?.trim() || 'Stop #1',
+      order: 2,
+    });
+  }
+  if (destination) {
+    out.push({
+      id: 'destination',
+      kind: 'destination',
+      lat: destination.lat,
+      lon: destination.lon,
+      label: labels.destination?.trim() || 'Destination',
+      order: stop ? 3 : 2,
+    });
+  }
+  return out;
 }
 
 export function buildIncidentOverlayPoints(route: RouteOption | null): IncidentOverlayPoint[] {
