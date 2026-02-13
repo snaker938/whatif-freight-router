@@ -448,9 +448,6 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
     };
   }
 
-  if (lines.length < 2) {
-    return { ok: false, error: 'Duty chain text requires at least two lines (start and destination).' };
-  }
   if (lines.length > 3) {
     return { ok: false, error: 'One-stop mode allows at most one intermediate stop (three lines total).' };
   }
@@ -474,6 +471,18 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
       .trim();
     return { lat, lon, label };
   });
+
+  if (parsed.length === 1) {
+    const first = parsed[0];
+    return {
+      ok: true,
+      origin: { lat: first.lat, lon: first.lon },
+      destination: null,
+      stop: null,
+      startLabel: first.label || 'Start',
+      destinationLabel: 'Destination',
+    };
+  }
 
   const first = parsed[0];
   const last = parsed[parsed.length - 1];
