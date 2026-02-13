@@ -50,7 +50,6 @@ type Props = {
   showStopOverlay?: boolean;
   showIncidentOverlay?: boolean;
   showSegmentTooltips?: boolean;
-  showStopIds?: boolean;
   overlayLabels?: {
     stopLabel: string;
     segmentLabel: string;
@@ -368,26 +367,11 @@ function incidentPalette(eventType: IncidentEventType): {
   };
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function formatStopDisplayName(name: string, id: string, showIds: boolean): string {
-  const base = name.trim() || 'Stop #1';
-  return showIds ? `${base} (${id})` : base;
-}
-
-function makeDutyStopIcon(sequence: number, selected = false, name = 'Stop #1') {
-  const safeName = escapeHtml(name.trim() || 'Stop #1');
+function makeDutyStopIcon(sequence: number, selected = false) {
   return L.divIcon({
     className: `dutyStopPin ${selected ? 'isSelected' : ''}`.trim(),
-    html: `<span class="dutyStopPin__label">${sequence}</span><span class="dutyStopPin__name">${safeName}</span>`,
-    iconSize: [130, 34],
+    html: `<span class="dutyStopPin__label">${sequence}</span>`,
+    iconSize: [30, 30],
     iconAnchor: [15, 15],
     popupAnchor: [0, -14],
   });
@@ -469,7 +453,6 @@ export default function MapView({
   showStopOverlay = true,
   showIncidentOverlay = true,
   showSegmentTooltips = true,
-  showStopIds = false,
   overlayLabels,
   onTutorialAction,
   onTutorialTargetState,
@@ -576,6 +559,7 @@ export default function MapView({
   );
 
   useEffect(() => {
+    if (draggingPinId !== null) return;
     try {
       if (originRef.current) {
         if (selectedPinId === 'origin') originRef.current.openPopup();
@@ -592,12 +576,12 @@ export default function MapView({
     } catch {
       // no-op
     }
-  }, [selectedPinId]);
+  }, [selectedPinId, draggingPinId]);
 
   const effectiveOrigin = dragPreview.origin ?? origin;
   const effectiveDestination = dragPreview.destination ?? destination;
   const effectiveStop = dragPreview.stop ?? (managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null);
-  const stopDisplayName = formatStopDisplayName(managedStop?.label ?? 'Stop #1', managedStop?.id ?? 'stop-1', showStopIds);
+  const stopDisplayName = managedStop?.label?.trim() || 'Stop #1';
   const effectiveDutyStops = useMemo(() => {
     if (effectiveStop) {
       return [{ lat: effectiveStop.lat, lon: effectiveStop.lon, label: stopDisplayName }];
@@ -728,6 +712,11 @@ export default function MapView({
               },
               dragstart() {
                 suppressInteractionsBriefly();
+                try {
+                  originRef.current?.closePopup();
+                } catch {
+                  // no-op
+                }
                 setDraggingPinId('origin');
               },
               drag(e) {
@@ -857,6 +846,11 @@ export default function MapView({
               },
               dragstart() {
                 suppressInteractionsBriefly();
+                try {
+                  destRef.current?.closePopup();
+                } catch {
+                  // no-op
+                }
                 setDraggingPinId('destination');
               },
               drag(e) {
@@ -965,7 +959,7 @@ export default function MapView({
           <Marker
             ref={stopRef}
             position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
-            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1', stopDisplayName)}
+            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1')}
             draggable={true}
             eventHandlers={{
               click(e) {
@@ -985,6 +979,11 @@ export default function MapView({
               },
               dragstart() {
                 suppressInteractionsBriefly();
+                try {
+                  stopRef.current?.closePopup();
+                } catch {
+                  // no-op
+                }
                 setDraggingPinId('stop-1');
               },
               drag(e) {

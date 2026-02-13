@@ -70,12 +70,6 @@ import type { ScenarioAdvancedParams } from './components/ScenarioParameterEdito
 type MarkerKind = 'origin' | 'destination';
 type ProgressState = { done: number; total: number };
 
-function formatStopDisplayName(name: string, id: string, showIds: boolean): string {
-  const base = name.trim() || 'Stop #1';
-  if (!showIds) return base;
-  return `${base} (${id})`;
-}
-
 type MapViewProps = {
   origin: LatLng | null;
   destination: LatLng | null;
@@ -93,7 +87,6 @@ type MapViewProps = {
   showStopOverlay?: boolean;
   showIncidentOverlay?: boolean;
   showSegmentTooltips?: boolean;
-  showStopIds?: boolean;
   overlayLabels?: {
     stopLabel: string;
     segmentLabel: string;
@@ -310,8 +303,6 @@ const PinManager = dynamic<
     hasStop: boolean;
     canAddStop: boolean;
     oneStopHint?: string | null;
-    showStopIds: boolean;
-    onToggleShowStopIds: () => void;
     onSelectPin: (id: 'origin' | 'destination' | 'stop-1') => void;
     onRenameStop: (name: string) => void;
     onAddStop: () => void;
@@ -618,7 +609,6 @@ export default function Page() {
   const [showStopOverlay, setShowStopOverlay] = useState(true);
   const [showIncidentOverlay, setShowIncidentOverlay] = useState(true);
   const [showSegmentTooltips, setShowSegmentTooltips] = useState(true);
-  const [showStopIds, setShowStopIds] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [tutorialMode, setTutorialMode] = useState<'blocked' | 'chooser' | 'running' | 'completed'>(
     'chooser',
@@ -2446,7 +2436,6 @@ export default function Page() {
           showStopOverlay={showStopOverlay}
           showIncidentOverlay={showIncidentOverlay}
           showSegmentTooltips={showSegmentTooltips}
-          showStopIds={showStopIds}
           overlayLabels={mapOverlayLabels}
           onMapClick={handleMapClick}
           onSelectPinId={setSelectedPinId}
@@ -2699,8 +2688,6 @@ export default function Page() {
                 hasStop={Boolean(managedStop)}
                 canAddStop={canAddStop}
                 oneStopHint={dutySyncError}
-                showStopIds={showStopIds}
-                onToggleShowStopIds={() => setShowStopIds((prev) => !prev)}
                 onSelectPin={selectPinFromSidebar}
                 onRenameStop={renameStop}
                 onAddStop={addStopFromMidpoint}

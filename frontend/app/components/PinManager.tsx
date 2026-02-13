@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import type { PinDisplayNode, PinSelectionId } from '../lib/types';
 
@@ -11,8 +11,6 @@ type Props = {
   hasStop: boolean;
   canAddStop: boolean;
   oneStopHint?: string | null;
-  showStopIds: boolean;
-  onToggleShowStopIds: () => void;
   onSelectPin: (id: PinSelectionId) => void;
   onRenameStop: (name: string) => void;
   onAddStop: () => void;
@@ -21,36 +19,8 @@ type Props = {
   onClearPins: () => void;
 };
 
-function formatStopDisplayName(name: string, id: string, showIds: boolean): string {
-  const base = name.trim() || 'Stop #1';
-  return showIds ? `${base} (${id})` : base;
-}
-
 function fmtCoord(value: number): string {
   return Number.isFinite(value) ? value.toFixed(5) : String(value);
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      ta.style.pointerEvents = 'none';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 export default function PinManager({
@@ -60,8 +30,6 @@ export default function PinManager({
   hasStop,
   canAddStop,
   oneStopHint = null,
-  showStopIds,
-  onToggleShowStopIds,
   onSelectPin,
   onRenameStop,
   onAddStop,
@@ -69,8 +37,6 @@ export default function PinManager({
   onSwapPins,
   onClearPins,
 }: Props) {
-  const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
-
   const originNode = useMemo(() => nodes.find((node) => node.id === 'origin') ?? null, [nodes]);
   const stopNode = useMemo(() => nodes.find((node) => node.id === 'stop-1') ?? null, [nodes]);
   const destinationNode = useMemo(
@@ -121,24 +87,10 @@ export default function PinManager({
             />
           ) : (
             <div className="pinManager__lockedTag" aria-label={`${label} name is fixed`}>
-              Fixed name
+              <span className="pinManager__lockedDot" aria-hidden="true">•</span>
+              <span>Locked</span>
             </div>
           )}
-          <button
-            type="button"
-            className="secondary pinManager__copyBtn"
-            disabled={disabled}
-            onClick={async () => {
-              const copied = await copyToClipboard(`${fmtCoord(node.lat)}, ${fmtCoord(node.lon)}`);
-              if (!copied) return;
-              setCopiedNodeId(node.id);
-              window.setTimeout(() => {
-                setCopiedNodeId((prev) => (prev === node.id ? null : prev));
-              }, 900);
-            }}
-          >
-            {copiedNodeId === node.id ? 'Copied' : 'Copy'}
-          </button>
         </div>
       </li>
     );
@@ -148,16 +100,6 @@ export default function PinManager({
     <section className="card pinManager" data-tutorial-id="pins.section">
       <div className="sectionTitle">Pins & stops</div>
       <div className="sectionHint">Start/End are fixed labels. Stop #1 can be renamed and moved.</div>
-      <label className="pinManager__toggle">
-        <input
-          type="checkbox"
-          checked={showStopIds}
-          onChange={onToggleShowStopIds}
-          disabled={disabled}
-          aria-label="Show stop IDs"
-        />
-        <span>Show stop IDs</span>
-      </label>
 
       <div className="pinManager__rail" aria-hidden="true">
         <span>Start</span>
@@ -175,7 +117,7 @@ export default function PinManager({
             })
           : null}
         {stopNode
-          ? renderNodeRow(stopNode, formatStopDisplayName(stopNode.label, stopNode.id, showStopIds), {
+          ? renderNodeRow(stopNode, stopNode.label || 'Stop #1', {
               editable: true,
               onRename: onRenameStop,
               description: 'Optional intermediate stop. Name is editable.',
