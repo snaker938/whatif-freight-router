@@ -45,6 +45,7 @@ export type PreviewRouteNode = {
   role: 'start' | 'stop' | 'end';
   lat: number;
   lon: number;
+  color: string;
 };
 
 export type PreviewDotSegment = {
@@ -58,11 +59,8 @@ export type PreviewDotSegment = {
   color: string;
 };
 
-const PREVIEW_NODE_COLORS: Record<PreviewRouteNode['role'], string> = {
-  start: '#7C3AED',
-  stop: '#0EA5E9',
-  end: '#06B6D4',
-};
+const PREVIEW_START_COLOR = '#7C3AED';
+const PREVIEW_END_COLOR = '#06B6D4';
 const EARTH_RADIUS_M = 6_371_000;
 
 function isFiniteNumber(value: unknown): value is number {
@@ -150,22 +148,27 @@ function interpolateHexColor(startHex: string, endHex: string, t: number): strin
   const r = Math.round(sr + (er - sr) * clamped);
   const g = Math.round(sg + (eg - sg) * clamped);
   const b = Math.round(sb + (eb - sb) * clamped);
-  return `rgb(${r}, ${g}, ${b})`;
+  const toHex = (value: number) => value.toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-function hasPreviewNode(nodes: PreviewRouteNode[], lat: number, lon: number): boolean {
+function hasRawPreviewNode(
+  nodes: Array<Omit<PreviewRouteNode, 'color'>>,
+  lat: number,
+  lon: number,
+): boolean {
   return nodes.some((node) => sameCoord(node.lat, node.lon, lat, lon));
 }
 
-function buildPreviewNodes(
+export function buildPreviewRouteNodes(
   origin: LatLng | null,
   destination: LatLng | null,
   dutyStops: DutyChainStop[],
 ): PreviewRouteNode[] {
-  const nodes: PreviewRouteNode[] = [];
+  const rawNodes: Array<Omit<PreviewRouteNode, 'color'>> = [];
 
   if (origin) {
-    nodes.push({
+    rawNodes.push({
       id: 'origin',
       role: 'start',
       lat: origin.lat,
@@ -177,9 +180,9 @@ function buildPreviewNodes(
     const stop = dutyStops[idx];
     if (!isFiniteNumber(stop.lat) || !isFiniteNumber(stop.lon)) continue;
     if (stop.lat < -90 || stop.lat > 90 || stop.lon < -180 || stop.lon > 180) continue;
-    if (hasPreviewNode(nodes, stop.lat, stop.lon)) continue;
+    if (hasRawPreviewNode(rawNodes, stop.lat, stop.lon)) continue;
 
-    nodes.push({
+    rawNodes.push({
       id: `stop-${idx + 1}`,
       role: 'stop',
       lat: stop.lat,
@@ -187,8 +190,8 @@ function buildPreviewNodes(
     });
   }
 
-  if (destination && !hasPreviewNode(nodes, destination.lat, destination.lon)) {
-    nodes.push({
+  if (destination && !hasRawPreviewNode(rawNodes, destination.lat, destination.lon)) {
+    rawNodes.push({
       id: 'destination',
       role: 'end',
       lat: destination.lat,
@@ -196,7 +199,12 @@ function buildPreviewNodes(
     });
   }
 
-  return nodes;
+  if (rawNodes.length === 0) return [];
+  const denom = Math.max(1, rawNodes.length - 1);
+  return rawNodes.map((node, idx) => ({
+    ...node,
+    color: interpolateHexColor(PREVIEW_START_COLOR, PREVIEW_END_COLOR, idx / denom),
+  }));
 }
 
 function buildRoadLikeLegPoints(
@@ -275,12 +283,7 @@ function buildRoadLikeLegPoints(
   return points.length >= 2 ? points : [start, end];
 }
 
-export function buildPreviewRouteSegments(
-  origin: LatLng | null,
-  destination: LatLng | null,
-  dutyStops: DutyChainStop[],
-): PreviewDotSegment[] {
-  const nodes = buildPreviewNodes(origin, destination, dutyStops);
+export function buildPreviewRouteSegmentsFromNodes(nodes: PreviewRouteNode[]): PreviewDotSegment[] {
   if (nodes.length < 2) return [];
 
   const segments: PreviewDotSegment[] = [];
@@ -294,8 +297,8 @@ export function buildPreviewRouteSegments(
     );
     if (legPoints.length < 2) continue;
 
-    const startColor = PREVIEW_NODE_COLORS[fromNode.role];
-    const endColor = PREVIEW_NODE_COLORS[toNode.role];
+    const startColor = fromNode.color;
+    const endColor = toNode.color;
     const denom = Math.max(1, legPoints.length - 1);
 
     for (let segmentIndex = 0; segmentIndex < legPoints.length - 1; segmentIndex += 1) {
@@ -319,6 +322,15 @@ export function buildPreviewRouteSegments(
   }
 
   return segments;
+}
+
+export function buildPreviewRouteSegments(
+  origin: LatLng | null,
+  destination: LatLng | null,
+  dutyStops: DutyChainStop[],
+): PreviewDotSegment[] {
+  const nodes = buildPreviewRouteNodes(origin, destination, dutyStops);
+  return buildPreviewRouteSegmentsFromNodes(nodes);
 }
 
 export function parseDutyStopsForOverlay(text: string): DutyChainStop[] {

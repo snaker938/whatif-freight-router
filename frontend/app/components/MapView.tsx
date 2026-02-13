@@ -21,7 +21,8 @@ import {
 
 import {
   buildIncidentOverlayPoints,
-  buildPreviewRouteSegments,
+  buildPreviewRouteNodes,
+  buildPreviewRouteSegmentsFromNodes,
   buildSegmentBuckets,
   buildStopOverlayPoints,
 } from '../lib/mapOverlays';
@@ -372,10 +373,37 @@ function incidentPalette(eventType: IncidentEventType): {
   };
 }
 
-function makeDutyStopIcon(sequence: number, selected = false) {
+function parseHexColor(hex: string): [number, number, number] {
+  const raw = hex.trim().replace('#', '');
+  if (raw.length !== 6) return [14, 165, 233];
+  const r = Number.parseInt(raw.slice(0, 2), 16);
+  const g = Number.parseInt(raw.slice(2, 4), 16);
+  const b = Number.parseInt(raw.slice(4, 6), 16);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+    return [14, 165, 233];
+  }
+  return [r, g, b];
+}
+
+function darkenHexColor(hex: string, factor = 0.78): string {
+  const [r, g, b] = parseHexColor(hex);
+  const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+  return `#${toHex(r * factor)}${toHex(g * factor)}${toHex(b * factor)}`;
+}
+
+function rgbaFromHex(hex: string, alpha: number): string {
+  const [r, g, b] = parseHexColor(hex);
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${clampedAlpha})`;
+}
+
+function makeDutyStopIcon(sequence: number, colorHex: string, selected = false) {
+  const darkHex = darkenHexColor(colorHex, 0.72);
+  const shadowColor = rgbaFromHex(colorHex, 0.48);
+  const ringColor = rgbaFromHex(colorHex, 0.24);
   return L.divIcon({
     className: `dutyStopPin ${selected ? 'isSelected' : ''}`.trim(),
-    html: `<span class="dutyStopPin__label">${sequence}</span>`,
+    html: `<span class="dutyStopPin__label" style="--stop-pin-color:${colorHex}; --stop-pin-color-deep:${darkHex}; --stop-pin-shadow:${shadowColor}; --stop-pin-ring:${ringColor};">${sequence}</span>`,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
     popupAnchor: [0, -14],
@@ -554,19 +582,6 @@ export default function MapView({
     suppressMarkerClickUntilRef.current = until;
   }, []);
 
-  const originIcon = useMemo(
-    () => makePinIcon('origin', selectedPinId === 'origin'),
-    [selectedPinId],
-  );
-  const destIcon = useMemo(
-    () => makePinIcon('destination', selectedPinId === 'destination'),
-    [selectedPinId],
-  );
-  const stopIcon = useMemo(
-    () => makeDutyStopIcon(1, selectedPinId === 'stop-1'),
-    [selectedPinId],
-  );
-
   useEffect(() => {
     if (draggingPinId !== null) return;
     try {
@@ -597,6 +612,27 @@ export default function MapView({
     }
     return dutyStops;
   }, [effectiveStop, stopDisplayName, dutyStops]);
+  const previewNodes = useMemo(
+    () => buildPreviewRouteNodes(effectiveOrigin, effectiveDestination, effectiveDutyStops),
+    [effectiveOrigin, effectiveDestination, effectiveDutyStops],
+  );
+  const stopNodeColor = useMemo(
+    () => previewNodes.find((node) => node.id === 'stop-1')?.color ?? '#0EA5E9',
+    [previewNodes],
+  );
+
+  const originIcon = useMemo(
+    () => makePinIcon('origin', selectedPinId === 'origin'),
+    [selectedPinId],
+  );
+  const destIcon = useMemo(
+    () => makePinIcon('destination', selectedPinId === 'destination'),
+    [selectedPinId],
+  );
+  const stopIcon = useMemo(
+    () => makeDutyStopIcon(1, stopNodeColor, selectedPinId === 'stop-1'),
+    [selectedPinId, stopNodeColor],
+  );
 
   const polylinePositions: LatLngExpression[] = useMemo(() => {
     const coords = route?.geometry?.coordinates ?? [];
@@ -609,8 +645,8 @@ export default function MapView({
     return buildStopOverlayPoints(effectiveOrigin, effectiveDestination, effectiveDutyStops);
   }, [showStopOverlay, effectiveOrigin, effectiveDestination, effectiveDutyStops]);
   const previewDotSegments = useMemo(
-    () => buildPreviewRouteSegments(effectiveOrigin, effectiveDestination, effectiveDutyStops),
-    [effectiveOrigin, effectiveDestination, effectiveDutyStops],
+    () => buildPreviewRouteSegmentsFromNodes(previewNodes),
+    [previewNodes],
   );
 
   const incidentOverlayPoints = useMemo(() => {
