@@ -364,6 +364,129 @@ a {
     box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.14);
   }
 
+  .pinManager {
+    border-color: rgba(6, 182, 212, 0.22);
+    background: linear-gradient(180deg, rgba(6, 182, 212, 0.08), rgba(0, 0, 0, 0.2));
+  }
+
+  .pinManager__rail {
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .pinManager__arrow {
+    color: rgba(6, 182, 212, 0.88);
+  }
+
+  .pinManager__list {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+  }
+
+  .pinManager__row {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    display: grid;
+    gap: 8px;
+  }
+
+  .pinManager__row.isSelected {
+    border-color: rgba(6, 182, 212, 0.55);
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.18) inset;
+  }
+
+  .pinManager__nodeBtn {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    padding: 0;
+  }
+
+  .pinManager__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+  }
+
+  .pinManager__dot--origin {
+    background: rgba(124, 58, 237, 0.95);
+  }
+
+  .pinManager__dot--destination {
+    background: rgba(6, 182, 212, 0.95);
+  }
+
+  .pinManager__dot--stop {
+    background: rgba(14, 165, 233, 0.95);
+  }
+
+  .pinManager__nodeText {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  .pinManager__nodeTitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .pinManager__nodeCoords {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.64);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }
+
+  .pinManager__inlineActions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .pinManager__nameInput {
+    margin: 0;
+  }
+
+  .pinManager__copyBtn {
+    min-width: 74px;
+  }
+
+  .pinManager__actions {
+    margin-top: 10px;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pinManager__reorder {
+    margin-top: 8px;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .input {
     width: 100%;
     padding: 11px 12px;

@@ -9,7 +9,7 @@ import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
-import { buildStopOverlayPoints } from './lib/mapOverlays';
+import { buildManagedPinNodes, buildStopOverlayPoints } from './lib/mapOverlays';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
   SIDEBAR_FIELD_HELP,
@@ -286,6 +286,27 @@ const DutyChainPlanner = dynamic<
     locale: Locale;
   }
 >(() => import('./components/DutyChainPlanner'), {
+  ssr: false,
+  loading: () => null,
+});
+
+const PinManager = dynamic<
+  {
+    nodes: import('./lib/types').PinDisplayNode[];
+    selectedPinId: 'origin' | 'destination' | 'stop-1' | null;
+    disabled: boolean;
+    hasStop: boolean;
+    canAddStop: boolean;
+    onSelectPin: (id: 'origin' | 'destination' | 'stop-1') => void;
+    onRenameStart: (name: string) => void;
+    onRenameDestination: (name: string) => void;
+    onRenameStop: (name: string) => void;
+    onAddStop: () => void;
+    onDeleteStop: () => void;
+    onSwapPins: () => void;
+    onClearPins: () => void;
+  }
+>(() => import('./components/PinManager'), {
   ssr: false,
   loading: () => null,
 });
@@ -1202,6 +1223,15 @@ export default function Page() {
         : [],
     [managedStop],
   );
+  const pinNodes = useMemo(
+    () =>
+      buildManagedPinNodes(origin, destination, managedStop, {
+        origin: startLabel,
+        destination: destinationLabel,
+      }),
+    [origin, destination, managedStop, startLabel, destinationLabel],
+  );
+  const canAddStop = Boolean(origin && destination);
   const stopOverlayCount = useMemo(
     () => buildStopOverlayPoints(origin, destination, dutyStopsForOverlay).length,
     [origin, destination, dutyStopsForOverlay],
@@ -1400,7 +1430,6 @@ export default function Page() {
       if (prev.label === nextLabel) return prev;
       return { ...prev, label: nextLabel };
     });
-    clearComputed();
     markTutorialAction('map.rename_stop');
   }
 
@@ -1412,6 +1441,23 @@ export default function Page() {
     }
     clearComputed();
     markTutorialAction('map.delete_stop');
+  }
+
+  function renameStart(name: string) {
+    const next = name.trim() || 'Start';
+    setStartLabel(next);
+    markTutorialAction('pins.rename_start');
+  }
+
+  function renameDestination(name: string) {
+    const next = name.trim() || 'Destination';
+    setDestinationLabel(next);
+    markTutorialAction('pins.rename_destination');
+  }
+
+  function selectPinFromSidebar(id: 'origin' | 'destination' | 'stop-1') {
+    setSelectedPinId(id);
+    markTutorialAction('pins.sidebar_select');
   }
 
   function swapMarkers() {
@@ -2575,6 +2621,22 @@ export default function Page() {
                   </button>
                 </div>
               </section>
+
+              <PinManager
+                nodes={pinNodes}
+                selectedPinId={selectedPinId}
+                disabled={busy}
+                hasStop={Boolean(managedStop)}
+                canAddStop={canAddStop}
+                onSelectPin={selectPinFromSidebar}
+                onRenameStart={renameStart}
+                onRenameDestination={renameDestination}
+                onRenameStop={renameStop}
+                onAddStop={() => addStopFromMidpoint('origin')}
+                onDeleteStop={deleteStop}
+                onSwapPins={swapMarkers}
+                onClearPins={reset}
+              />
 
               <ScenarioParameterEditor
                 value={advancedParams}
