@@ -110,16 +110,18 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'map_destructive_actions',
     chapterId: 'chapter_map',
-    title: 'Run destructive pin actions and recover',
+    title: 'Run full pin lifecycle actions and recover',
     what:
-      'Use remove and swap once, then restore a valid destination pin so computation remains enabled.',
+      'Use add-stop midpoint, stop deletion, swap, and clear/reset once to verify full lifecycle controls.',
     impact:
-      'This proves the full pin lifecycle: destructive edits are reversible, and compute gating responds correctly to missing markers.',
+      'This proves pin and stop lifecycle behavior: endpoints are protected, stop edits are reversible, and clear-all reset restores a deterministic baseline.',
     targetIds: ['map.interactive'],
     required: [
-      { actionId: 'map.popup_remove', label: 'Remove one marker from popup controls.' },
+      { actionId: 'map.add_stop_midpoint', label: 'Add or replace a midpoint stop from a pin popup.' },
+      { actionId: 'map.delete_stop', label: 'Delete the stop from stop controls.' },
       { actionId: 'map.popup_swap', label: 'Swap start/destination once from popup or setup controls.' },
-      { actionId: 'map.set_destination', label: 'Restore destination after destructive actions.' },
+      { actionId: 'setup.clear_pins_button', label: 'Clear all pins once using the global clear action.' },
+      { actionId: 'map.set_destination', label: 'Restore destination after clear-all reset.' },
     ],
     prefillId: 'canonical_map',
   },

@@ -262,9 +262,9 @@ function incidentPalette(eventType: IncidentEventType): {
   };
 }
 
-function makeDutyStopIcon(sequence: number) {
+function makeDutyStopIcon(sequence: number, selected = false) {
   return L.divIcon({
-    className: 'dutyStopPin',
+    className: `dutyStopPin ${selected ? 'isSelected' : ''}`.trim(),
     html: `<span class="dutyStopPin__label">${sequence}</span>`,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
@@ -307,6 +307,28 @@ function SaveIcon() {
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
       <path d="M17 21v-8H7v8" />
       <path d="M7 3v5h8" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M6 6l1 14h10l1-14" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
     </svg>
   );
 }
@@ -695,7 +717,7 @@ export default function MapView({
           <Marker
             ref={stopRef}
             position={[managedStop.lat, managedStop.lon]}
-            icon={makeDutyStopIcon(1)}
+            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1')}
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
@@ -724,7 +746,7 @@ export default function MapView({
                         title="Delete stop"
                         data-tutorial-action="map.delete_stop"
                       >
-                        <CloseIcon />
+                        <TrashIcon />
                       </button>
                     ) : null}
                     <button
@@ -752,6 +774,7 @@ export default function MapView({
                     value={stopDraftLabel}
                     onChange={(e) => setStopDraftLabel(e.target.value)}
                     placeholder="Stop #1"
+                    aria-label="Stop name"
                   />
                   <button
                     type="button"
