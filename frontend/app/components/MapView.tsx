@@ -14,11 +14,12 @@ import {
   Polyline,
   Popup,
   TileLayer,
+  Tooltip,
   useMap,
   useMapEvents,
 } from 'react-leaflet';
 
-import { buildIncidentOverlayPoints, buildStopOverlayPoints } from '../lib/mapOverlays';
+import { buildIncidentOverlayPoints, buildSegmentBuckets, buildStopOverlayPoints } from '../lib/mapOverlays';
 import type { DutyChainStop, IncidentEventType, LatLng, RouteOption } from '../lib/types';
 
 export type MarkerKind = 'origin' | 'destination';
@@ -299,12 +300,17 @@ export default function MapView({
   const destRef = useRef<L.Marker>(null);
 
   const [copied, setCopied] = useState<MarkerKind | null>(null);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!copied) return;
     const t = window.setTimeout(() => setCopied(null), 900);
     return () => window.clearTimeout(t);
   }, [copied]);
+
+  useEffect(() => {
+    setActiveSegmentId(null);
+  }, [route?.id, showSegmentTooltips]);
 
   const originIcon = useMemo(
     () => makePinIcon('origin', selectedMarker === 'origin'),
@@ -349,6 +355,10 @@ export default function MapView({
     if (!showIncidentOverlay || !route) return [];
     return buildIncidentOverlayPoints(route);
   }, [showIncidentOverlay, route]);
+  const segmentBuckets = useMemo(() => {
+    if (!showSegmentTooltips || !route) return [];
+    return buildSegmentBuckets(route, 120);
+  }, [showSegmentTooltips, route]);
 
   // Default center: Birmingham-ish (West Midlands)
   const center: LatLngExpression = useMemo(() => {
@@ -611,6 +621,57 @@ export default function MapView({
             />
           </>
         )}
+
+        {segmentBuckets.map((bucket) => {
+          const positions = bucket.coordinates.map(([lon, lat]) => [lat, lon] as [number, number]);
+          if (positions.length < 2) return null;
+          const isActive = activeSegmentId === bucket.id;
+          return (
+            <Polyline
+              key={bucket.id}
+              positions={positions}
+              eventHandlers={{
+                mouseover() {
+                  setActiveSegmentId(bucket.id);
+                },
+                mouseout() {
+                  setActiveSegmentId((prev) => (prev === bucket.id ? null : prev));
+                },
+              }}
+              pathOptions={{
+                className: `segmentOverlayPath ${isActive ? 'segmentOverlayPath--active' : ''}`,
+                color: isActive ? 'rgba(245, 158, 11, 0.94)' : 'rgba(241, 245, 249, 0.48)',
+                weight: isActive ? 6 : 4,
+                opacity: isActive ? 0.95 : 0.75,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            >
+              <Tooltip
+                sticky={true}
+                direction="top"
+                offset={[0, -2]}
+                className="segmentTooltip"
+                opacity={1}
+              >
+                <div className="segmentTooltip__card">
+                  <div className="segmentTooltip__title">
+                    {overlayLabels?.segmentLabel ?? 'Segment'} {bucket.label}
+                  </div>
+                  <div className="segmentTooltip__row">Distance: {bucket.distance_km.toFixed(3)} km</div>
+                  <div className="segmentTooltip__row">ETA: {bucket.duration_s.toFixed(1)} s</div>
+                  <div className="segmentTooltip__row">
+                    Cost: {bucket.monetary_cost.toFixed(3)} GBP
+                  </div>
+                  <div className="segmentTooltip__row">CO2: {bucket.emissions_kg.toFixed(3)} kg</div>
+                  <div className="segmentTooltip__row">
+                    Incident delay: {bucket.incident_delay_s.toFixed(1)} s
+                  </div>
+                </div>
+              </Tooltip>
+            </Polyline>
+          );
+        })}
 
         {stopOverlayPolyline.length > 0 && (
           <Polyline
