@@ -42,6 +42,8 @@ type Props = {
     segmentLabel: string;
     incidentTypeLabels: Record<'dwell' | 'accident' | 'closure', string>;
   };
+  onTutorialAction?: (actionId: string) => void;
+  onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
@@ -290,6 +292,8 @@ export default function MapView({
   showIncidentOverlay = true,
   showSegmentTooltips = true,
   overlayLabels,
+  onTutorialAction,
+  onTutorialTargetState,
   onMapClick,
   onSelectMarker,
   onMoveMarker,
@@ -360,6 +364,13 @@ export default function MapView({
     return buildSegmentBuckets(route, 120);
   }, [showSegmentTooltips, route]);
 
+  useEffect(() => {
+    onTutorialTargetState?.({
+      hasSegmentTooltipPath: segmentBuckets.length > 0,
+      hasIncidentMarkers: incidentOverlayPoints.length > 0,
+    });
+  }, [incidentOverlayPoints.length, onTutorialTargetState, segmentBuckets.length]);
+
   // Default center: Birmingham-ish (West Midlands)
   const center: LatLngExpression = useMemo(() => {
     return origin
@@ -370,11 +381,18 @@ export default function MapView({
   const handleCopyCoords = useCallback(async (kind: MarkerKind, lat: number, lon: number) => {
     const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
     const ok = await copyToClipboard(text);
-    if (ok) setCopied(kind);
-  }, []);
+    if (ok) {
+      setCopied(kind);
+      onTutorialAction?.('map.popup_copy');
+    }
+  }, [onTutorialAction]);
 
   return (
-    <div className="mapPane" data-segment-tooltips={showSegmentTooltips ? 'on' : 'off'}>
+    <div
+      className="mapPane"
+      data-segment-tooltips={showSegmentTooltips ? 'on' : 'off'}
+      data-tutorial-id="map.interactive"
+    >
       <MapContainer
         key={MAP_HOT_RELOAD_KEY}
         center={center}
@@ -432,9 +450,11 @@ export default function MapView({
                         onClick={(e) => {
                           e.stopPropagation();
                           onSwapMarkers();
+                          onTutorialAction?.('map.popup_swap');
                         }}
                         aria-label="Swap start and destination"
                         title="Swap start and destination"
+                        data-tutorial-action="map.popup_swap"
                       >
                         <SwapIcon />
                       </button>
@@ -447,9 +467,11 @@ export default function MapView({
                         e.stopPropagation();
                         onRemoveMarker('origin');
                         onSelectMarker(null);
+                        onTutorialAction?.('map.popup_remove');
                       }}
                       aria-label="Remove start"
                       title="Remove start"
+                      data-tutorial-action="map.popup_remove"
                     >
                       <TrashIcon />
                     </button>
@@ -460,9 +482,11 @@ export default function MapView({
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectMarker(null);
+                        onTutorialAction?.('map.popup_close');
                       }}
                       aria-label="Close"
                       title="Close"
+                      data-tutorial-action="map.popup_close"
                     >
                       <CloseIcon />
                     </button>
@@ -479,6 +503,7 @@ export default function MapView({
                     }}
                     aria-label="Copy coordinates"
                     title="Copy coordinates"
+                    data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
                       {fmtCoord(origin.lat)}, {fmtCoord(origin.lon)}
@@ -534,9 +559,11 @@ export default function MapView({
                         onClick={(e) => {
                           e.stopPropagation();
                           onSwapMarkers();
+                          onTutorialAction?.('map.popup_swap');
                         }}
                         aria-label="Swap start and destination"
                         title="Swap start and destination"
+                        data-tutorial-action="map.popup_swap"
                       >
                         <SwapIcon />
                       </button>
@@ -549,9 +576,11 @@ export default function MapView({
                         e.stopPropagation();
                         onRemoveMarker('destination');
                         onSelectMarker(null);
+                        onTutorialAction?.('map.popup_remove');
                       }}
                       aria-label="Remove destination"
                       title="Remove destination"
+                      data-tutorial-action="map.popup_remove"
                     >
                       <TrashIcon />
                     </button>
@@ -562,9 +591,11 @@ export default function MapView({
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectMarker(null);
+                        onTutorialAction?.('map.popup_close');
                       }}
                       aria-label="Close"
                       title="Close"
+                      data-tutorial-action="map.popup_close"
                     >
                       <CloseIcon />
                     </button>
@@ -581,6 +612,7 @@ export default function MapView({
                     }}
                     aria-label="Copy coordinates"
                     title="Copy coordinates"
+                    data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
                       {fmtCoord(destination.lat)}, {fmtCoord(destination.lon)}
@@ -633,6 +665,7 @@ export default function MapView({
               eventHandlers={{
                 mouseover() {
                   setActiveSegmentId(bucket.id);
+                  onTutorialAction?.('map.segment_tooltip_hover');
                 },
                 mouseout() {
                   setActiveSegmentId((prev) => (prev === bucket.id ? null : prev));

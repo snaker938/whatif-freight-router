@@ -39,12 +39,12 @@ export default function OracleQualityDashboard({
   onIngest,
   locale,
 }: Props) {
-  const [source, setSource] = useState('oracle_demo');
+  const [source, setSource] = useState('tutorial_oracle');
   const [schemaValid, setSchemaValid] = useState(true);
-  const [signatureState, setSignatureState] = useState<'unknown' | 'valid' | 'invalid'>('unknown');
-  const [freshnessS, setFreshnessS] = useState('');
-  const [latencyMs, setLatencyMs] = useState('');
-  const [recordCount, setRecordCount] = useState('');
+  const [signatureState, setSignatureState] = useState<'unknown' | 'valid' | 'invalid'>('valid');
+  const [freshnessS, setFreshnessS] = useState('120');
+  const [latencyMs, setLatencyMs] = useState('85');
+  const [recordCount, setRecordCount] = useState('18');
   const [errorText, setErrorText] = useState('');
 
   const csvHref = useMemo(() => '/api/oracle/quality/dashboard.csv', []);
@@ -82,7 +82,7 @@ export default function OracleQualityDashboard({
   }
 
   return (
-    <section className="card">
+    <section className="card" data-tutorial-id="oracle.section">
       <div className="sectionTitleRow">
         <div className="sectionTitle">Oracle quality dashboard</div>
         <div className="row" style={{ marginTop: 0 }}>
@@ -91,10 +91,18 @@ export default function OracleQualityDashboard({
             onClick={onRefresh}
             disabled={disabled || loading || ingesting}
             aria-label="Refresh oracle quality dashboard"
+            data-tutorial-action="oracle.refresh_click"
           >
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
-          <a className="buttonLink" href={csvHref} aria-label="Download oracle dashboard CSV">
+          <a
+            className="buttonLink"
+            href={csvHref}
+            aria-label="Download oracle dashboard CSV"
+            data-tutorial-action="oracle.download_csv_click"
+            target="_blank"
+            rel="noreferrer"
+          >
             Download CSV
           </a>
         </div>
@@ -117,6 +125,7 @@ export default function OracleQualityDashboard({
         value={source}
         disabled={disabled || ingesting}
         onChange={(event) => setSource(event.target.value)}
+        data-tutorial-action="oracle.source_input"
       />
 
       <div className="checkboxRow">
@@ -126,6 +135,7 @@ export default function OracleQualityDashboard({
           checked={schemaValid}
           disabled={disabled || ingesting}
           onChange={(event) => setSchemaValid(event.target.checked)}
+          data-tutorial-action="oracle.schema_toggle"
         />
         <label htmlFor="oracle-schema-valid">Schema valid</label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.schemaValid} />
@@ -143,6 +153,7 @@ export default function OracleQualityDashboard({
         value={signatureState}
         disabled={disabled || ingesting}
         onChange={(event) => setSignatureState(event.target.value as 'unknown' | 'valid' | 'invalid')}
+        data-tutorial-action="oracle.signature_select"
       >
         <option value="unknown">Unknown</option>
         <option value="valid">Valid</option>
@@ -166,6 +177,7 @@ export default function OracleQualityDashboard({
           value={freshnessS}
           disabled={disabled || ingesting}
           onChange={(event) => setFreshnessS(event.target.value)}
+          data-tutorial-action="oracle.freshness_input"
         />
         <div className="dropdownOptionsHint">Freshness shows how old source data is at check time.</div>
 
@@ -184,6 +196,7 @@ export default function OracleQualityDashboard({
           value={latencyMs}
           disabled={disabled || ingesting}
           onChange={(event) => setLatencyMs(event.target.value)}
+          data-tutorial-action="oracle.latency_input"
         />
 
         <div className="fieldLabelRow">
@@ -201,6 +214,7 @@ export default function OracleQualityDashboard({
           value={recordCount}
           disabled={disabled || ingesting}
           onChange={(event) => setRecordCount(event.target.value)}
+          data-tutorial-action="oracle.record_count_input"
         />
       </div>
 
@@ -216,10 +230,16 @@ export default function OracleQualityDashboard({
         value={errorText}
         disabled={disabled || ingesting}
         onChange={(event) => setErrorText(event.target.value)}
+        data-tutorial-action="oracle.error_note_input"
       />
 
       <div className="row row--actions" style={{ marginTop: 10 }}>
-        <button className="secondary" onClick={handleIngest} disabled={disabled || ingesting || loading}>
+        <button
+          className="secondary"
+          onClick={handleIngest}
+          disabled={disabled || ingesting || loading}
+          data-tutorial-action="oracle.record_check_click"
+        >
           {ingesting ? 'Recording...' : 'Record check'}
         </button>
       </div>

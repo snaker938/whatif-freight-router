@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import FieldInfo from './FieldInfo';
 import { formatDateTime } from '../lib/format';
@@ -34,6 +34,8 @@ type Props = {
   onCatalogSortChange: (value: ExperimentCatalogSort) => void;
   onApplyCatalogFilters: () => void;
   locale: Locale;
+  defaultName?: string;
+  defaultDescription?: string;
 };
 
 export default function ExperimentManager({
@@ -58,9 +60,23 @@ export default function ExperimentManager({
   onCatalogSortChange,
   onApplyCatalogFilters,
   locale,
+  defaultName = '',
+  defaultDescription = '',
 }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+
+  useEffect(() => {
+    if (defaultName) {
+      setName(defaultName);
+    }
+  }, [defaultName]);
+
+  useEffect(() => {
+    if (defaultDescription) {
+      setDescription(defaultDescription);
+    }
+  }, [defaultDescription]);
 
   async function handleSave() {
     const trimmed = name.trim();
@@ -71,10 +87,15 @@ export default function ExperimentManager({
   }
 
   return (
-    <section className="card">
+    <section className="card" data-tutorial-id="experiments.section">
       <div className="sectionTitleRow">
         <div className="sectionTitle">Experiments</div>
-        <button className="secondary" onClick={onRefresh} disabled={loading || disabled}>
+        <button
+          className="secondary"
+          onClick={onRefresh}
+          disabled={loading || disabled}
+          data-tutorial-action="exp.refresh_click"
+        >
           Refresh
         </button>
       </div>
@@ -93,6 +114,7 @@ export default function ExperimentManager({
         value={catalogQuery}
         disabled={disabled || loading}
         onChange={(event) => onCatalogQueryChange(event.target.value)}
+        data-tutorial-action="exp.search_input"
       />
 
       <div className="advancedGrid" style={{ marginTop: 8 }}>
@@ -108,6 +130,7 @@ export default function ExperimentManager({
           value={catalogVehicleType}
           disabled={disabled || loading}
           onChange={(event) => onCatalogVehicleTypeChange(event.target.value)}
+          data-tutorial-action="exp.filter_vehicle_select"
         >
           <option value="">All vehicles</option>
           {vehicleOptions.map((opt) => (
@@ -129,6 +152,7 @@ export default function ExperimentManager({
           value={catalogScenarioMode}
           disabled={disabled || loading}
           onChange={(event) => onCatalogScenarioModeChange(event.target.value as '' | ScenarioMode)}
+          data-tutorial-action="exp.filter_scenario_select"
         >
           <option value="">All scenarios</option>
           <option value="no_sharing">No sharing</option>
@@ -149,6 +173,7 @@ export default function ExperimentManager({
           value={catalogSort}
           disabled={disabled || loading}
           onChange={(event) => onCatalogSortChange(event.target.value as ExperimentCatalogSort)}
+          data-tutorial-action="exp.sort_select"
         >
           <option value="updated_desc">Updated (newest)</option>
           <option value="updated_asc">Updated (oldest)</option>
@@ -159,7 +184,12 @@ export default function ExperimentManager({
       </div>
 
       <div className="row row--actions" style={{ marginTop: 10 }}>
-        <button className="secondary" onClick={onApplyCatalogFilters} disabled={loading || disabled}>
+        <button
+          className="secondary"
+          onClick={onApplyCatalogFilters}
+          disabled={loading || disabled}
+          data-tutorial-action="exp.apply_filters_click"
+        >
           Apply filters
         </button>
       </div>
@@ -177,6 +207,7 @@ export default function ExperimentManager({
         value={name}
         disabled={disabled}
         onChange={(event) => setName(event.target.value)}
+        data-tutorial-action="exp.name_input"
       />
 
       <div className="fieldLabelRow">
@@ -192,10 +223,16 @@ export default function ExperimentManager({
         value={description}
         disabled={disabled}
         onChange={(event) => setDescription(event.target.value)}
+        data-tutorial-action="exp.description_input"
       />
 
       <div className="row row--actions" style={{ marginTop: 10 }}>
-        <button className="primary" onClick={handleSave} disabled={!canSave || !name.trim() || disabled}>
+        <button
+          className="primary"
+          onClick={handleSave}
+          disabled={!canSave || !name.trim() || disabled}
+          data-tutorial-action="exp.save_click"
+        >
           Save current bundle
         </button>
       </div>
@@ -212,13 +249,28 @@ export default function ExperimentManager({
               </div>
             {bundle.description ? <div className="helper">{bundle.description}</div> : null}
             <div className="row" style={{ marginTop: 10 }}>
-              <button className="secondary" onClick={() => onLoad(bundle)} disabled={disabled || loading}>
+              <button
+                className="secondary"
+                onClick={() => onLoad(bundle)}
+                disabled={disabled || loading}
+                data-tutorial-action="exp.load_click"
+              >
                 Load
               </button>
-              <button className="secondary" onClick={() => onReplay(bundle.id)} disabled={disabled || loading}>
+              <button
+                className="secondary"
+                onClick={() => onReplay(bundle.id)}
+                disabled={disabled || loading}
+                data-tutorial-action="exp.replay_click"
+              >
                 Run compare
               </button>
-              <button className="secondary" onClick={() => onDelete(bundle.id)} disabled={disabled || loading}>
+              <button
+                className="secondary"
+                onClick={() => onDelete(bundle.id)}
+                disabled={disabled || loading}
+                data-tutorial-action="exp.delete_click"
+              >
                 Delete
               </button>
             </div>

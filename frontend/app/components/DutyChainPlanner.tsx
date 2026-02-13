@@ -28,10 +28,15 @@ export default function DutyChainPlanner({
   locale,
 }: Props) {
   return (
-    <section className="card">
+    <section className="card" data-tutorial-id="duty.section">
       <div className="sectionTitleRow">
         <div className="sectionTitle">Duty chain planner</div>
-        <button className="secondary" onClick={onRun} disabled={disabled || loading}>
+        <button
+          className="secondary"
+          onClick={onRun}
+          disabled={disabled || loading}
+          data-tutorial-action="duty.run_click"
+        >
           {loading ? 'Running...' : 'Run duty chain'}
         </button>
       </div>
@@ -54,6 +59,7 @@ export default function DutyChainPlanner({
         value={stopsText}
         disabled={disabled || loading}
         onChange={(event) => onStopsTextChange(event.target.value)}
+        data-tutorial-action="duty.stops_input"
       />
 
       {error ? <div className="error">{error}</div> : null}

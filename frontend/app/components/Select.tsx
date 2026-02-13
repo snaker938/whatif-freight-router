@@ -18,6 +18,8 @@ type Props<T extends string> = {
   placeholder?: string;
   ariaLabel: string;
   showSelectionHint?: boolean;
+  tutorialId?: string;
+  tutorialActionPrefix?: string;
 };
 
 function ChevronDownIcon() {
@@ -64,6 +66,8 @@ export default function Select<T extends string>({
   placeholder,
   ariaLabel,
   showSelectionHint = false,
+  tutorialId,
+  tutorialActionPrefix,
 }: Props<T>) {
   const id = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -175,7 +179,11 @@ export default function Select<T extends string>({
   }
 
   return (
-    <div ref={rootRef} className={`select ${disabled ? 'isDisabled' : ''}`}>
+    <div
+      ref={rootRef}
+      className={`select ${disabled ? 'isDisabled' : ''}`}
+      {...(tutorialId ? { 'data-tutorial-id': tutorialId } : {})}
+    >
       <button
         ref={buttonRef}
         id={id}
@@ -188,6 +196,7 @@ export default function Select<T extends string>({
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
+        {...(tutorialActionPrefix ? { 'data-tutorial-action': `${tutorialActionPrefix}:open` } : {})}
       >
         <span className="select__value">{selected?.label ?? placeholder ?? 'Select…'}</span>
         <span className={`select__chev ${open ? 'isOpen' : ''}`}>
@@ -219,6 +228,9 @@ export default function Select<T extends string>({
                 }`}
                 onMouseEnter={() => setActiveIndex(idx)}
                 onClick={() => commit(idx)}
+                {...(tutorialActionPrefix
+                  ? { 'data-tutorial-action': `${tutorialActionPrefix}:${String(opt.value)}` }
+                  : {})}
               >
                 <span className="select__optionText">
                   <span className="select__optionLabel">{opt.label}</span>

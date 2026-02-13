@@ -127,7 +127,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
 
   if (!route || coords.length < 2) {
     return (
-      <section className="card">
+      <section className="card" data-tutorial-id="timelapse.section">
         <div className="sectionTitle">Scenario time-lapse</div>
         <div className="sectionHint">{SIDEBAR_SECTION_HINTS.scenarioTimeLapse}</div>
         <div className="helper">Compute and select a route to play a route animation.</div>
@@ -138,7 +138,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
   const elapsedS = durationS * progress;
 
   return (
-    <section className="card">
+    <section className="card" data-tutorial-id="timelapse.section">
       <div className="sectionTitleRow">
         <div className="sectionTitle">Scenario time-lapse</div>
         <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>
@@ -146,7 +146,11 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
       <div className="sectionHint">{SIDEBAR_SECTION_HINTS.scenarioTimeLapse}</div>
 
       <div className="row">
-        <button className="secondary" onClick={() => setIsPlaying((prev) => !prev)}>
+        <button
+          className="secondary"
+          onClick={() => setIsPlaying((prev) => !prev)}
+          data-tutorial-action={isPlaying ? 'timelapse.pause' : 'timelapse.play'}
+        >
           {isPlaying ? 'Pause' : 'Play'}
         </button>
         <button
@@ -155,6 +159,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
             setIsPlaying(false);
             setProgress(0);
           }}
+          data-tutorial-action="timelapse.reset"
         >
           Reset
         </button>
@@ -171,6 +176,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         className="input"
         value={String(speed)}
         onChange={(event) => setSpeed(Number(event.target.value))}
+        data-tutorial-action="timelapse.speed_select"
       >
         {PLAYBACK_SPEEDS.map((value) => (
           <option key={value} value={String(value)}>
@@ -190,6 +196,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         max={1000}
         value={Math.round(progress * 1000)}
         onChange={(event) => setProgress(Number(event.target.value) / 1000)}
+        data-tutorial-action="timelapse.scrubber_input"
       />
 
       <div className="tiny">

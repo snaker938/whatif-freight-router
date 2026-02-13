@@ -45,7 +45,7 @@ export default function ScenarioParameterEditor({
   }
 
   return (
-    <section className="card">
+    <section className="card" data-tutorial-id="advanced.section">
       <div className="sectionTitle">Advanced Parameters</div>
       <div className="sectionHint">{SIDEBAR_SECTION_HINTS.advancedParameters}</div>
 
@@ -58,6 +58,8 @@ export default function ScenarioParameterEditor({
         value={value.optimizationMode}
         disabled={disabled}
         onChange={(event) => patch('optimizationMode', event.target.value as OptimizationMode)}
+        data-tutorial-id="advanced.optimization_mode"
+        data-tutorial-action="advanced.optimization_mode_select"
       >
         <option value="expected_value">Expected value</option>
         <option value="robust">Robust</option>
@@ -79,6 +81,8 @@ export default function ScenarioParameterEditor({
         value={value.riskAversion}
         disabled={disabled}
         onChange={(event) => patch('riskAversion', event.target.value)}
+        data-tutorial-id="advanced.risk_aversion"
+        data-tutorial-action="advanced.risk_aversion_input"
       />
 
       <div className="fieldLabelRow">
@@ -90,6 +94,8 @@ export default function ScenarioParameterEditor({
         value={value.paretoMethod}
         disabled={disabled}
         onChange={(event) => patch('paretoMethod', event.target.value as ParetoMethod)}
+        data-tutorial-id="advanced.pareto_method"
+        data-tutorial-action="advanced.pareto_method_select"
       >
         <option value="dominance">Dominance</option>
         <option value="epsilon_constraint">Epsilon constraint</option>
@@ -97,7 +103,7 @@ export default function ScenarioParameterEditor({
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.paretoMethod}</div>
 
       {value.paretoMethod === 'epsilon_constraint' && (
-        <div className="advancedGrid">
+        <div className="advancedGrid" data-tutorial-id="advanced.epsilon_grid">
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="epsilon-duration">
               Epsilon duration (s)
@@ -114,6 +120,7 @@ export default function ScenarioParameterEditor({
             value={value.epsilonDurationS}
             disabled={disabled}
             onChange={(event) => patch('epsilonDurationS', event.target.value)}
+            data-tutorial-action="advanced.epsilon_duration_input"
           />
 
           <div className="fieldLabelRow">
@@ -132,6 +139,7 @@ export default function ScenarioParameterEditor({
             value={value.epsilonMonetaryCost}
             disabled={disabled}
             onChange={(event) => patch('epsilonMonetaryCost', event.target.value)}
+            data-tutorial-action="advanced.epsilon_money_input"
           />
 
           <div className="fieldLabelRow">
@@ -150,6 +158,7 @@ export default function ScenarioParameterEditor({
             value={value.epsilonEmissionsKg}
             disabled={disabled}
             onChange={(event) => patch('epsilonEmissionsKg', event.target.value)}
+            data-tutorial-action="advanced.epsilon_emissions_input"
           />
         </div>
       )}
@@ -167,6 +176,8 @@ export default function ScenarioParameterEditor({
         value={value.departureTimeUtcLocal}
         disabled={disabled}
         onChange={(event) => patch('departureTimeUtcLocal', event.target.value)}
+        data-tutorial-id="advanced.departure_time"
+        data-tutorial-action="advanced.departure_time_input"
       />
 
       <div className="checkboxRow">
@@ -176,13 +187,15 @@ export default function ScenarioParameterEditor({
           checked={value.stochasticEnabled}
           disabled={disabled}
           onChange={(event) => patch('stochasticEnabled', event.target.checked)}
+          data-tutorial-id="advanced.stochastic_toggle"
+          data-tutorial-action="advanced.stochastic_toggle"
         />
         <label htmlFor="stochastic-enabled">Enable stochastic travel-time sampling</label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.stochasticEnabled} />
       </div>
 
       {value.stochasticEnabled ? (
-        <div className="advancedGrid">
+        <div className="advancedGrid" data-tutorial-id="advanced.stochastic_grid">
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="stochastic-seed">
               Stochastic seed (optional)
@@ -197,6 +210,7 @@ export default function ScenarioParameterEditor({
             value={value.stochasticSeed}
             disabled={disabled}
             onChange={(event) => patch('stochasticSeed', event.target.value)}
+            data-tutorial-action="advanced.stochastic_seed_input"
           />
 
           <div className="fieldLabelRow">
@@ -215,6 +229,7 @@ export default function ScenarioParameterEditor({
             value={value.stochasticSigma}
             disabled={disabled}
             onChange={(event) => patch('stochasticSigma', event.target.value)}
+            data-tutorial-action="advanced.stochastic_sigma_input"
           />
 
           <div className="fieldLabelRow">
@@ -233,6 +248,7 @@ export default function ScenarioParameterEditor({
             value={value.stochasticSamples}
             disabled={disabled}
             onChange={(event) => patch('stochasticSamples', event.target.value)}
+            data-tutorial-action="advanced.stochastic_samples_input"
           />
         </div>
       ) : null}
@@ -246,6 +262,8 @@ export default function ScenarioParameterEditor({
         value={value.terrainProfile}
         disabled={disabled}
         onChange={(event) => patch('terrainProfile', event.target.value as TerrainProfile)}
+        data-tutorial-id="advanced.terrain"
+        data-tutorial-action="advanced.terrain_select"
       >
         <option value="flat">Flat</option>
         <option value="rolling">Rolling</option>
@@ -260,12 +278,13 @@ export default function ScenarioParameterEditor({
           checked={value.useTolls}
           disabled={disabled}
           onChange={(event) => patch('useTolls', event.target.checked)}
+          data-tutorial-action="advanced.use_tolls_toggle"
         />
         <label htmlFor="use-tolls">Use toll costs</label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.useTolls} />
       </div>
 
-      <div className="advancedGrid">
+      <div className="advancedGrid" data-tutorial-id="advanced.cost_toggles">
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="fuel-price-mult">
             Fuel price multiplier
@@ -281,6 +300,7 @@ export default function ScenarioParameterEditor({
           value={value.fuelPriceMultiplier}
           disabled={disabled}
           onChange={(event) => patch('fuelPriceMultiplier', event.target.value)}
+          data-tutorial-action="advanced.fuel_multiplier_input"
         />
 
         <div className="fieldLabelRow">
@@ -298,6 +318,7 @@ export default function ScenarioParameterEditor({
           value={value.carbonPricePerKg}
           disabled={disabled}
           onChange={(event) => patch('carbonPricePerKg', event.target.value)}
+          data-tutorial-action="advanced.carbon_price_input"
         />
 
         <div className="fieldLabelRow">
@@ -315,6 +336,7 @@ export default function ScenarioParameterEditor({
           value={value.tollCostPerKm}
           disabled={disabled}
           onChange={(event) => patch('tollCostPerKm', event.target.value)}
+          data-tutorial-action="advanced.toll_per_km_input"
         />
       </div>
 

@@ -49,10 +49,15 @@ export default function DepartureOptimizerChart({
   locale,
 }: Props) {
   return (
-    <section className="card">
+    <section className="card" data-tutorial-id="departure.section">
       <div className="sectionTitleRow">
         <div className="sectionTitle">Departure optimization</div>
-        <button className="secondary" onClick={onRun} disabled={disabled || loading}>
+        <button
+          className="secondary"
+          onClick={onRun}
+          disabled={disabled || loading}
+          data-tutorial-action="dep.optimize_click"
+        >
           {loading ? 'Optimizing...' : 'Optimize departures'}
         </button>
       </div>
@@ -71,6 +76,7 @@ export default function DepartureOptimizerChart({
         value={windowStartLocal}
         disabled={disabled || loading}
         onChange={(event) => onWindowStartChange(event.target.value)}
+        data-tutorial-action="dep.window_start_input"
       />
 
       <div className="fieldLabelRow">
@@ -86,6 +92,7 @@ export default function DepartureOptimizerChart({
         value={windowEndLocal}
         disabled={disabled || loading}
         onChange={(event) => onWindowEndChange(event.target.value)}
+        data-tutorial-action="dep.window_end_input"
       />
 
       <div className="fieldLabelRow">
@@ -104,6 +111,7 @@ export default function DepartureOptimizerChart({
         value={stepMinutes}
         disabled={disabled || loading}
         onChange={(event) => onStepMinutesChange(Math.max(5, Number(event.target.value) || 5))}
+        data-tutorial-action="dep.step_input"
       />
 
       <div className="fieldLabelRow">
@@ -119,6 +127,7 @@ export default function DepartureOptimizerChart({
         value={earliestArrivalLocal}
         disabled={disabled || loading}
         onChange={(event) => onEarliestArrivalChange(event.target.value)}
+        data-tutorial-action="dep.earliest_input"
       />
 
       <div className="fieldLabelRow">
@@ -134,6 +143,7 @@ export default function DepartureOptimizerChart({
         value={latestArrivalLocal}
         disabled={disabled || loading}
         onChange={(event) => onLatestArrivalChange(event.target.value)}
+        data-tutorial-action="dep.latest_input"
       />
 
       {error ? <div className="error">{error}</div> : null}
@@ -175,6 +185,7 @@ export default function DepartureOptimizerChart({
                   className="secondary"
                   onClick={() => onApplyDepartureTime(candidate.departure_time_utc)}
                   disabled={disabled}
+                  data-tutorial-action="dep.apply_departure"
                 >
                   Apply departure
                 </button>

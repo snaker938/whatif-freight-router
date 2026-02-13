@@ -16,6 +16,24 @@ import {
   SIDEBAR_SECTION_HINTS,
   vehicleDescriptionFromId,
 } from './lib/sidebarHelpText';
+import {
+  TUTORIAL_CANONICAL_DESTINATION,
+  TUTORIAL_CANONICAL_DUTY_STOPS,
+  TUTORIAL_CANONICAL_ORIGIN,
+  TUTORIAL_COMPLETED_KEY,
+  TUTORIAL_PROGRESS_KEY,
+  defaultDepartureWindow,
+  nextUtcHourLocalInput,
+} from './lib/tutorial/prefills';
+import {
+  clearTutorialProgress,
+  loadTutorialCompleted,
+  loadTutorialProgress,
+  saveTutorialCompleted,
+  saveTutorialProgress,
+} from './lib/tutorial/progress';
+import { TUTORIAL_CHAPTERS, TUTORIAL_STEPS } from './lib/tutorial/steps';
+import type { TutorialStep, TutorialTargetRect } from './lib/tutorial/types';
 import type {
   CostToggles,
   DutyChainRequest,
@@ -66,6 +84,8 @@ type MapViewProps = {
     segmentLabel: string;
     incidentTypeLabels: Record<'dwell' | 'accident' | 'closure', string>;
   };
+  onTutorialAction?: (actionId: string) => void;
+  onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
@@ -111,7 +131,7 @@ const ScenarioComparison = dynamic<
   loading: () => null,
 });
 
-const SegmentBreakdown = dynamic<{ route: RouteOption | null }>(
+const SegmentBreakdown = dynamic<{ route: RouteOption | null; onTutorialAction?: (actionId: string) => void }>(
   () => import('./components/SegmentBreakdown'),
   {
     ssr: false,
@@ -149,6 +169,8 @@ const ExperimentManager = dynamic<
     onCatalogSortChange: (value: ExperimentCatalogSort) => void;
     onApplyCatalogFilters: () => void;
     locale: Locale;
+    defaultName?: string;
+    defaultDescription?: string;
   }
 >(() => import('./components/ExperimentManager'), {
   ssr: false,
@@ -196,7 +218,43 @@ const ScenarioTimeLapse = dynamic<
 });
 
 const TutorialOverlay = dynamic<
-  { open: boolean; onClose: (markSeen: boolean) => void }
+  {
+    open: boolean;
+    mode: 'blocked' | 'chooser' | 'running' | 'completed';
+    isDesktop: boolean;
+    hasSavedProgress: boolean;
+    chapterTitle: string;
+    chapterDescription: string;
+    chapterIndex: number;
+    chapterCount: number;
+    stepTitle: string;
+    stepWhat: string;
+    stepImpact: string;
+    stepIndex: number;
+    stepCount: number;
+    canGoNext: boolean;
+    atStart: boolean;
+    atEnd: boolean;
+    checklist: Array<{ actionId: string; label: string; done: boolean; kind?: 'ui' | 'manual' }>;
+    optionalDecision: {
+      id: string;
+      label: string;
+      resolved: boolean;
+      defaultLabel: string;
+      actionTouched: boolean;
+    } | null;
+    targetRect: TutorialTargetRect | null;
+    targetMissing: boolean;
+    onClose: () => void;
+    onStartNew: () => void;
+    onResume: () => void;
+    onRestart: () => void;
+    onBack: () => void;
+    onNext: () => void;
+    onFinish: () => void;
+    onMarkManual: (actionId: string) => void;
+    onUseOptionalDefault: (optionalDecisionId: string) => void;
+  }
 >(() => import('./components/TutorialOverlay'), {
   ssr: false,
   loading: () => null,
@@ -254,7 +312,6 @@ const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   stochasticSamples: '25',
 };
 
-const TUTORIAL_STORAGE_KEY = 'tutorial_v1_seen';
 const LOCALE_STORAGE_KEY = 'ui_locale_v1';
 
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
@@ -375,6 +432,28 @@ export default function Page() {
   const [showIncidentOverlay, setShowIncidentOverlay] = useState(true);
   const [showSegmentTooltips, setShowSegmentTooltips] = useState(true);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialMode, setTutorialMode] = useState<'blocked' | 'chooser' | 'running' | 'completed'>(
+    'chooser',
+  );
+  const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
+  const [tutorialActions, setTutorialActions] = useState<string[]>([]);
+  const [tutorialOptionalDecisions, setTutorialOptionalDecisions] = useState<string[]>([]);
+  const [tutorialTargetRect, setTutorialTargetRect] = useState<TutorialTargetRect | null>(null);
+  const [tutorialTargetMissing, setTutorialTargetMissing] = useState(false);
+  const [tutorialSavedProgress, setTutorialSavedProgress] = useState<{
+    stepIndex: number;
+    actions: string[];
+    optionalDecisions: string[];
+  } | null>(null);
+  const [tutorialCompleted, setTutorialCompleted] = useState(false);
+  const [tutorialPrefilledSteps, setTutorialPrefilledSteps] = useState<string[]>([]);
+  const [tutorialIsDesktop, setTutorialIsDesktop] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth >= 1100,
+  );
+  const [tutorialExperimentPrefill, setTutorialExperimentPrefill] = useState<{
+    name: string;
+    description: string;
+  } | null>(null);
   const [liveMessage, setLiveMessage] = useState('');
 
   const [error, setError] = useState<string | null>(null);
@@ -385,11 +464,57 @@ export default function Page() {
   const requestSeqRef = useRef(0);
   const routeBufferRef = useRef<RouteOption[]>([]);
   const flushTimerRef = useRef<number | null>(null);
+  const tutorialBootstrappedRef = useRef(false);
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
   }, [apiToken]);
   const t = useMemo(() => createTranslator(locale), [locale]);
+  const tutorialActionSet = useMemo(() => new Set(tutorialActions), [tutorialActions]);
+  const tutorialOptionalSet = useMemo(() => new Set(tutorialOptionalDecisions), [tutorialOptionalDecisions]);
+  const tutorialStep = useMemo<TutorialStep | null>(() => {
+    if (tutorialStepIndex < 0 || tutorialStepIndex >= TUTORIAL_STEPS.length) return null;
+    return TUTORIAL_STEPS[tutorialStepIndex] ?? null;
+  }, [tutorialStepIndex]);
+  const tutorialChapter = useMemo(() => {
+    if (!tutorialStep) return null;
+    return TUTORIAL_CHAPTERS.find((chapter) => chapter.id === tutorialStep.chapterId) ?? null;
+  }, [tutorialStep]);
+  const tutorialChapterIndex = useMemo(() => {
+    if (!tutorialChapter) return 0;
+    return Math.max(0, TUTORIAL_CHAPTERS.findIndex((chapter) => chapter.id === tutorialChapter.id)) + 1;
+  }, [tutorialChapter]);
+  const tutorialChecklist = useMemo(() => {
+    if (!tutorialStep) return [];
+    return tutorialStep.required.map((item) => ({
+      actionId: item.actionId,
+      label: item.label,
+      done: tutorialActionSet.has(item.actionId),
+      kind: item.kind,
+    }));
+  }, [tutorialActionSet, tutorialStep]);
+  const tutorialOptionalState = useMemo(() => {
+    if (!tutorialStep?.optional) return null;
+    const resolved = tutorialOptionalSet.has(tutorialStep.optional.id);
+    const actionTouched = tutorialStep.optional.actionIds.some((id) => tutorialActionSet.has(id));
+    return {
+      id: tutorialStep.optional.id,
+      label: tutorialStep.optional.label,
+      resolved,
+      defaultLabel: tutorialStep.optional.defaultLabel,
+      actionTouched,
+    };
+  }, [tutorialOptionalSet, tutorialActionSet, tutorialStep]);
+  const tutorialCanAdvance = useMemo(() => {
+    if (!tutorialStep) return false;
+    const requiredDone = tutorialStep.required.every((item) => tutorialActionSet.has(item.actionId));
+    if (!requiredDone) return false;
+    if (!tutorialOptionalState) return true;
+    return tutorialOptionalState.resolved || tutorialOptionalState.actionTouched;
+  }, [tutorialActionSet, tutorialOptionalState, tutorialStep]);
+  const tutorialAtStart = tutorialStepIndex <= 0;
+  const tutorialAtEnd = tutorialStepIndex >= TUTORIAL_STEPS.length - 1;
+  const tutorialRunning = tutorialOpen && tutorialMode === 'running';
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current !== null) {
@@ -397,6 +522,86 @@ export default function Page() {
       flushTimerRef.current = null;
     }
   }, []);
+
+  const markTutorialAction = useCallback((actionId: string) => {
+    if (!actionId) return;
+    setTutorialActions((prev) => (prev.includes(actionId) ? prev : [...prev, actionId]));
+  }, []);
+
+  const markTutorialOptionalDefault = useCallback((decisionId: string) => {
+    if (!decisionId) return;
+    setTutorialOptionalDecisions((prev) => (prev.includes(decisionId) ? prev : [...prev, decisionId]));
+  }, []);
+
+  const applyTutorialPrefill = useCallback(
+    (prefillId: TutorialStep['prefillId']) => {
+      if (!prefillId) return;
+      if (tutorialPrefilledSteps.includes(prefillId)) return;
+
+      if (prefillId === 'canonical_map') {
+        setOrigin(TUTORIAL_CANONICAL_ORIGIN);
+        setDestination(TUTORIAL_CANONICAL_DESTINATION);
+      }
+
+      if (prefillId === 'canonical_setup') {
+        setVehicleType('rigid_hgv');
+        setScenarioMode('no_sharing');
+      }
+
+      if (prefillId === 'canonical_advanced') {
+        setAdvancedParams((prev) => ({
+          ...prev,
+          optimizationMode: 'robust',
+          riskAversion: '1.4',
+          paretoMethod: 'epsilon_constraint',
+          epsilonDurationS: '9000',
+          epsilonMonetaryCost: '250',
+          epsilonEmissionsKg: '900',
+          departureTimeUtcLocal: nextUtcHourLocalInput(),
+          stochasticEnabled: true,
+          stochasticSeed: '42',
+          stochasticSigma: '0.08',
+          stochasticSamples: '25',
+          terrainProfile: 'rolling',
+          useTolls: true,
+          fuelPriceMultiplier: '1.1',
+          carbonPricePerKg: '0.08',
+          tollCostPerKm: '0.12',
+        }));
+      }
+
+      if (prefillId === 'canonical_preferences') {
+        setWeights({ time: 55, money: 25, co2: 20 });
+      }
+
+      if (prefillId === 'canonical_departure') {
+        const win = defaultDepartureWindow();
+        setDepWindowStartLocal(win.start);
+        setDepWindowEndLocal(win.end);
+        setDepStepMinutes(60);
+        setDepEarliestArrivalLocal('');
+        setDepLatestArrivalLocal('');
+      }
+
+      if (prefillId === 'canonical_duty') {
+        setDutyStopsText(TUTORIAL_CANONICAL_DUTY_STOPS);
+      }
+
+      if (prefillId === 'canonical_oracle') {
+        // Oracle panel carries canonical defaults in-component for tutorial mode.
+      }
+
+      if (prefillId === 'canonical_experiment') {
+        setTutorialExperimentPrefill({
+          name: 'Tutorial Full Walkthrough',
+          description: 'Created by guided tutorial',
+        });
+      }
+
+      setTutorialPrefilledSteps((prev) => (prev.includes(prefillId) ? prev : [...prev, prefillId]));
+    },
+    [tutorialPrefilledSteps],
+  );
 
   const flushRouteBuffer = useCallback(
     (seq: number) => {
@@ -478,6 +683,27 @@ export default function Page() {
     setTimeLapsePosition(null);
     setAdvancedError(null);
   }, [abortActiveCompute]);
+
+  const clearComputedFromUi = useCallback(() => {
+    markTutorialAction('pref.clear_results_click');
+    clearComputed();
+  }, [clearComputed, markTutorialAction]);
+
+  const selectRouteFromChart = useCallback(
+    (routeId: string) => {
+      setSelectedId(routeId);
+      markTutorialAction('routes.select_chart');
+    },
+    [markTutorialAction],
+  );
+
+  const selectRouteFromCard = useCallback(
+    (routeId: string) => {
+      setSelectedId(routeId);
+      markTutorialAction('routes.select_card');
+    },
+    [markTutorialAction],
+  );
 
   const cancelCompute = useCallback(() => {
     requestSeqRef.current += 1;
@@ -569,15 +795,139 @@ export default function Page() {
   }, [locale]);
 
   useEffect(() => {
-    try {
-      const seen = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
-      if (seen !== '1') {
-        setTutorialOpen(true);
-      }
-    } catch {
-      // Ignore localStorage access errors in restricted browser contexts.
-    }
+    const evaluateDesktop = () => {
+      setTutorialIsDesktop(window.innerWidth >= 1100);
+    };
+    evaluateDesktop();
+    window.addEventListener('resize', evaluateDesktop);
+    return () => window.removeEventListener('resize', evaluateDesktop);
   }, []);
+
+  useEffect(() => {
+    if (!tutorialOpen) return;
+    if (!tutorialIsDesktop && tutorialMode === 'running') {
+      setTutorialMode('blocked');
+      return;
+    }
+    if (tutorialIsDesktop && tutorialMode === 'blocked') {
+      setTutorialMode(tutorialSavedProgress ? 'chooser' : 'running');
+    }
+  }, [tutorialIsDesktop, tutorialMode, tutorialOpen, tutorialSavedProgress]);
+
+  useEffect(() => {
+    if (tutorialBootstrappedRef.current) return;
+    tutorialBootstrappedRef.current = true;
+    const savedProgress = loadTutorialProgress(TUTORIAL_PROGRESS_KEY);
+    const isCompleted = loadTutorialCompleted(TUTORIAL_COMPLETED_KEY);
+    setTutorialSavedProgress(savedProgress);
+    setTutorialCompleted(isCompleted);
+    if (!isCompleted) {
+      setTutorialMode(savedProgress ? 'chooser' : tutorialIsDesktop ? 'running' : 'blocked');
+      setTutorialOpen(true);
+      if (!savedProgress) {
+        setTutorialActions([]);
+        setTutorialOptionalDecisions([]);
+        setTutorialStepIndex(0);
+      }
+    }
+  }, [tutorialIsDesktop]);
+
+  useEffect(() => {
+    if (!tutorialRunning || !tutorialStep) return;
+    applyTutorialPrefill(tutorialStep.prefillId);
+  }, [applyTutorialPrefill, tutorialRunning, tutorialStep]);
+
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    const handleActionEvent = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      const actionable = target?.closest<HTMLElement>('[data-tutorial-action]');
+      const actionId = actionable?.dataset.tutorialAction;
+      if (actionId) {
+        markTutorialAction(actionId);
+      }
+    };
+
+    document.addEventListener('click', handleActionEvent, true);
+    document.addEventListener('change', handleActionEvent, true);
+    document.addEventListener('input', handleActionEvent, true);
+    return () => {
+      document.removeEventListener('click', handleActionEvent, true);
+      document.removeEventListener('change', handleActionEvent, true);
+      document.removeEventListener('input', handleActionEvent, true);
+    };
+  }, [markTutorialAction, tutorialRunning]);
+
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    const payload = {
+      stepIndex: tutorialStepIndex,
+      actions: tutorialActions,
+      optionalDecisions: tutorialOptionalDecisions,
+      updatedAt: new Date().toISOString(),
+    };
+    saveTutorialProgress(TUTORIAL_PROGRESS_KEY, payload);
+    setTutorialSavedProgress({
+      stepIndex: payload.stepIndex,
+      actions: payload.actions,
+      optionalDecisions: payload.optionalDecisions,
+    });
+  }, [tutorialActions, tutorialOptionalDecisions, tutorialRunning, tutorialStepIndex]);
+
+  useEffect(() => {
+    if (!tutorialRunning || !tutorialStep) return;
+
+    let raf = 0;
+    let timeoutId = 0;
+    const resolveTarget = (scrollIntoViewTarget: boolean) => {
+      if (!tutorialStep.targetIds.length) {
+        setTutorialTargetRect(null);
+        setTutorialTargetMissing(false);
+        return;
+      }
+      const element = tutorialStep.targetIds
+        .map((targetId) =>
+          document.querySelector<HTMLElement>(`[data-tutorial-id=\"${targetId}\"]`),
+        )
+        .find((candidate) => Boolean(candidate));
+
+      if (!element) {
+        setTutorialTargetRect(null);
+        setTutorialTargetMissing(true);
+        return;
+      }
+
+      if (isPanelCollapsed && element.closest('.panel')) {
+        setIsPanelCollapsed(false);
+      }
+      if (scrollIntoViewTarget) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      }
+      const rect = element.getBoundingClientRect();
+      setTutorialTargetRect({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
+      setTutorialTargetMissing(false);
+    };
+
+    timeoutId = window.setTimeout(() => {
+      resolveTarget(true);
+      raf = window.requestAnimationFrame(() => resolveTarget(false));
+    }, 120);
+    const onResize = () => resolveTarget(false);
+    const onScroll = () => resolveTarget(false);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [isPanelCollapsed, tutorialRunning, tutorialStep]);
 
   useEffect(() => {
     const best = pickBestByWeightedSum(paretoRoutes, weights);
@@ -699,8 +1049,9 @@ export default function Page() {
       if (busy) return;
       setEditingRouteId(routeId);
       setEditingName(routeNames[routeId] ?? labelsById[routeId] ?? '');
+      markTutorialAction('routes.rename_start');
     },
-    [busy, labelsById, routeNames],
+    [busy, labelsById, markTutorialAction, routeNames],
   );
 
   const cancelRename = useCallback(() => {
@@ -722,14 +1073,16 @@ export default function Page() {
 
     setEditingRouteId(null);
     setEditingName('');
-  }, [defaultLabelsById, editingName, editingRouteId]);
+    markTutorialAction('routes.rename_save');
+  }, [defaultLabelsById, editingName, editingRouteId, markTutorialAction]);
 
   const resetRouteNames = useCallback(() => {
     if (busy) return;
     setRouteNames({});
     setEditingRouteId(null);
     setEditingName('');
-  }, [busy]);
+    markTutorialAction('routes.reset_names');
+  }, [busy, markTutorialAction]);
 
   function handleMapClick(lat: number, lon: number) {
     setError(null);
@@ -738,6 +1091,7 @@ export default function Page() {
       setOrigin({ lat, lon });
       setSelectedMarker('origin');
       clearComputed();
+      markTutorialAction('map.set_origin');
       return;
     }
 
@@ -745,18 +1099,21 @@ export default function Page() {
       setDestination({ lat, lon });
       setSelectedMarker('destination');
       clearComputed();
+      markTutorialAction('map.set_destination');
       return;
     }
 
     if (selectedMarker === 'origin') {
       setOrigin({ lat, lon });
       clearComputed();
+      markTutorialAction('map.set_origin');
       return;
     }
 
     setDestination({ lat, lon });
     setSelectedMarker('destination');
     clearComputed();
+    markTutorialAction('map.set_destination');
   }
 
   function handleMoveMarker(kind: MarkerKind, lat: number, lon: number) {
@@ -767,6 +1124,7 @@ export default function Page() {
 
     setSelectedMarker(kind);
     clearComputed();
+    markTutorialAction('map.drag_marker');
   }
 
   function handleRemoveMarker(kind: MarkerKind) {
@@ -777,6 +1135,7 @@ export default function Page() {
 
     setSelectedMarker(null);
     clearComputed();
+    markTutorialAction('map.popup_remove');
   }
 
   function swapMarkers() {
@@ -785,6 +1144,8 @@ export default function Page() {
     setDestination(origin);
     setSelectedMarker(null);
     clearComputed();
+    markTutorialAction('setup.swap_pins_button');
+    markTutorialAction('map.popup_swap');
   }
 
   function reset() {
@@ -793,17 +1154,63 @@ export default function Page() {
     setSelectedMarker(null);
     clearComputed();
     setError(null);
+    markTutorialAction('setup.clear_pins_button');
   }
 
-  function closeTutorial(markSeen: boolean) {
-    if (markSeen) {
-      try {
-        window.localStorage.setItem(TUTORIAL_STORAGE_KEY, '1');
-      } catch {
-        // Ignore localStorage access errors.
-      }
-    }
+  function closeTutorial() {
     setTutorialOpen(false);
+  }
+
+  function startTutorialFresh() {
+    setTutorialMode(tutorialIsDesktop ? 'running' : 'blocked');
+    setTutorialActions([]);
+    setTutorialOptionalDecisions([]);
+    setTutorialStepIndex(0);
+    setTutorialTargetRect(null);
+    setTutorialTargetMissing(false);
+    setTutorialPrefilledSteps([]);
+    setTutorialExperimentPrefill(null);
+    clearTutorialProgress(TUTORIAL_PROGRESS_KEY);
+    saveTutorialCompleted(TUTORIAL_COMPLETED_KEY, false);
+    setTutorialCompleted(false);
+    setTutorialOpen(true);
+  }
+
+  function resumeTutorialProgress() {
+    if (!tutorialSavedProgress) {
+      startTutorialFresh();
+      return;
+    }
+    setTutorialActions(tutorialSavedProgress.actions);
+    setTutorialOptionalDecisions(tutorialSavedProgress.optionalDecisions);
+    setTutorialStepIndex(
+      Math.max(0, Math.min(tutorialSavedProgress.stepIndex, Math.max(0, TUTORIAL_STEPS.length - 1))),
+    );
+    setTutorialMode(tutorialIsDesktop ? 'running' : 'blocked');
+    setTutorialOpen(true);
+  }
+
+  function restartTutorialProgress() {
+    startTutorialFresh();
+    setTutorialSavedProgress(null);
+  }
+
+  function tutorialBack() {
+    setTutorialStepIndex((prev) => Math.max(0, prev - 1));
+  }
+
+  function tutorialNext() {
+    if (!tutorialCanAdvance) return;
+    setTutorialStepIndex((prev) => Math.min(TUTORIAL_STEPS.length - 1, prev + 1));
+  }
+
+  function tutorialFinish() {
+    if (!tutorialCanAdvance) return;
+    setTutorialMode('completed');
+    setTutorialCompleted(true);
+    saveTutorialCompleted(TUTORIAL_COMPLETED_KEY, true);
+    clearTutorialProgress(TUTORIAL_PROGRESS_KEY);
+    setTutorialSavedProgress(null);
   }
 
   function parseNonNegativeOrDefault(raw: string, field: string, fallback: number): number {
@@ -980,6 +1387,7 @@ export default function Page() {
       setError('Click the map to set Start, then Destination.');
       return;
     }
+    markTutorialAction('pref.compute_pareto_click');
 
     const seq = requestSeqRef.current + 1;
     requestSeqRef.current = seq;
@@ -1064,6 +1472,7 @@ export default function Page() {
             case 'done': {
               sawDone = true;
               flushRouteBufferNow(seq);
+              markTutorialAction('pref.compute_pareto_done');
 
               const finalRoutes = sortRoutesDeterministic(event.routes ?? []);
               startTransition(() => {
@@ -1109,6 +1518,7 @@ export default function Page() {
       setScenarioCompareError('Set origin and destination before comparing scenarios.');
       return;
     }
+    markTutorialAction('compare.run_click');
 
     let requestBody: ScenarioCompareRequest;
     try {
@@ -1131,6 +1541,7 @@ export default function Page() {
         authHeaders,
       );
       setScenarioCompare(payload);
+      markTutorialAction('compare.run_done');
       setLiveMessage(t('live_compare_complete'));
     } catch (e: unknown) {
       setScenarioCompareError(e instanceof Error ? e.message : 'Failed to compare scenarios');
@@ -1233,6 +1644,7 @@ export default function Page() {
     }
     try {
       setExperimentsError(null);
+      markTutorialAction('exp.save_click');
       const request = buildScenarioCompareRequest(origin, destination);
       await postJSON<ExperimentBundle>(
         '/api/experiments',
@@ -1255,6 +1667,7 @@ export default function Page() {
   async function deleteExperimentById(experimentId: string) {
     try {
       setExperimentsError(null);
+      markTutorialAction('exp.delete_click');
       const resp = await fetch(`/api/experiments/${experimentId}`, {
         method: 'DELETE',
         cache: 'no-store',
@@ -1273,6 +1686,7 @@ export default function Page() {
     setScenarioCompareLoading(true);
     setScenarioCompareError(null);
     try {
+      markTutorialAction('exp.replay_click');
       const payload = await postJSON<ScenarioCompareResponse>(
         `/api/experiments/${experimentId}/compare`,
         {
@@ -1358,6 +1772,7 @@ export default function Page() {
 
     setDutyChainLoading(true);
     try {
+      markTutorialAction('duty.run_click');
       const payload = await postJSON<DutyChainResponse>(
         '/api/duty/chain',
         req,
@@ -1365,6 +1780,7 @@ export default function Page() {
         authHeaders,
       );
       setDutyChainData(payload);
+      markTutorialAction('duty.run_done');
       setLiveMessage(t('live_duty_complete'));
     } catch (e: unknown) {
       setDutyChainError(e instanceof Error ? e.message : 'Failed to run duty chain.');
@@ -1377,6 +1793,7 @@ export default function Page() {
   async function refreshOracleDashboard(opts: { silent?: boolean } = {}) {
     if (!opts.silent) {
       setOracleDashboardLoading(true);
+      markTutorialAction('oracle.refresh_click');
     }
     setOracleError(null);
     try {
@@ -1403,6 +1820,7 @@ export default function Page() {
     setOracleIngestLoading(true);
     setOracleError(null);
     try {
+      markTutorialAction('oracle.record_check_click');
       const record = await postJSON<OracleFeedCheckRecord>(
         '/api/oracle/quality/check',
         payload,
@@ -1410,6 +1828,7 @@ export default function Page() {
         authHeaders,
       );
       setOracleLatestCheck(record);
+      markTutorialAction('oracle.record_check_done');
       await refreshOracleDashboard({ silent: true });
     } catch (e: unknown) {
       setOracleError(e instanceof Error ? e.message : 'Failed to record oracle quality check.');
@@ -1497,6 +1916,7 @@ export default function Page() {
     setDepOptimizeLoading(true);
     setDepOptimizeError(null);
     try {
+      markTutorialAction('dep.optimize_click');
       const payload = await postJSON<DepartureOptimizeResponse>(
         '/api/departure/optimize',
         req,
@@ -1504,6 +1924,7 @@ export default function Page() {
         authHeaders,
       );
       setDepOptimizeData(payload);
+      markTutorialAction('dep.optimize_done');
       setLiveMessage(t('live_departure_complete'));
     } catch (e: unknown) {
       setDepOptimizeError(e instanceof Error ? e.message : 'Failed to optimize departures');
@@ -1518,6 +1939,7 @@ export default function Page() {
       ...prev,
       departureTimeUtcLocal: toDatetimeLocalValue(isoUtc),
     }));
+    markTutorialAction('dep.apply_departure');
   }
 
   const m = selectedRoute?.metrics ?? null;
@@ -1584,7 +2006,7 @@ export default function Page() {
       <div className="srOnly" role="status" aria-live="polite" aria-atomic="true">
         {liveMessage}
       </div>
-      <div className="mapStage">
+      <div className="mapStage" data-tutorial-id="map.interactive">
         <MapView
           origin={origin}
           destination={destination}
@@ -1601,6 +2023,15 @@ export default function Page() {
           onMoveMarker={handleMoveMarker}
           onRemoveMarker={handleRemoveMarker}
           onSwapMarkers={swapMarkers}
+          onTutorialAction={markTutorialAction}
+          onTutorialTargetState={(state) => {
+            if (state.hasSegmentTooltipPath) {
+              markTutorialAction('map.segment_tooltip_available');
+            }
+            if (state.hasIncidentMarkers) {
+              markTutorialAction('map.incidents_available');
+            }
+          }}
         />
 
         <div className="mapHUD">
@@ -1623,15 +2054,24 @@ export default function Page() {
           )}
 
           <div className="mapHUD__hint">{mapHint}</div>
-          <div className="mapHUD__overlayCard" role="group" aria-label={t('map_overlays')}>
+          <div
+            className="mapHUD__overlayCard"
+            role="group"
+            aria-label={t('map_overlays')}
+            data-tutorial-id="map.overlay_controls"
+          >
             <div className="mapHUD__overlayTitle">{t('map_overlays')}</div>
             <div className="mapHUD__overlayControls">
               <button
                 type="button"
                 className={`mapOverlayToggle ${showStopOverlay ? 'isOn' : ''}`}
-                onClick={() => setShowStopOverlay((prev) => !prev)}
+                onClick={() => {
+                  setShowStopOverlay((prev) => !prev);
+                  markTutorialAction('map.overlay_stops_toggle');
+                }}
                 aria-pressed={showStopOverlay}
                 aria-label={`${t('overlay_stops')} (${stopOverlayCount})`}
+                data-tutorial-action="map.overlay_stops_toggle"
               >
                 <span>{t('overlay_stops')}</span>
                 <span className="mapOverlayToggle__count">{stopOverlayCount}</span>
@@ -1639,9 +2079,13 @@ export default function Page() {
               <button
                 type="button"
                 className={`mapOverlayToggle ${showIncidentOverlay ? 'isOn' : ''}`}
-                onClick={() => setShowIncidentOverlay((prev) => !prev)}
+                onClick={() => {
+                  setShowIncidentOverlay((prev) => !prev);
+                  markTutorialAction('map.overlay_incidents_toggle');
+                }}
                 aria-pressed={showIncidentOverlay}
                 aria-label={`${t('overlay_incidents')} (${incidentOverlayCount})`}
+                data-tutorial-action="map.overlay_incidents_toggle"
               >
                 <span>{t('overlay_incidents')}</span>
                 <span className="mapOverlayToggle__count">{incidentOverlayCount}</span>
@@ -1649,9 +2093,13 @@ export default function Page() {
               <button
                 type="button"
                 className={`mapOverlayToggle ${showSegmentTooltips ? 'isOn' : ''}`}
-                onClick={() => setShowSegmentTooltips((prev) => !prev)}
+                onClick={() => {
+                  setShowSegmentTooltips((prev) => !prev);
+                  markTutorialAction('map.overlay_segments_toggle');
+                }}
                 aria-pressed={showSegmentTooltips}
                 aria-label={`${t('overlay_segments')} (${segmentOverlayCount})`}
+                data-tutorial-action="map.overlay_segments_toggle"
               >
                 <span>{t('overlay_segments')}</span>
                 <span className="mapOverlayToggle__count">{segmentOverlayCount}</span>
@@ -1684,7 +2132,7 @@ export default function Page() {
             </header>
 
             <div id="app-sidebar-content" className="panelBody">
-              <section className="card">
+              <section className="card" data-tutorial-id="setup.section">
                 <div className="sectionTitle">{t('setup')}</div>
                 <div className="sectionHint">{SIDEBAR_SECTION_HINTS.setup}</div>
 
@@ -1696,9 +2144,14 @@ export default function Page() {
                   ariaLabel="Vehicle type"
                   value={vehicleType}
                   options={vehicleOptions}
-                  onChange={setVehicleType}
+                  onChange={(next) => {
+                    setVehicleType(next);
+                    markTutorialAction('setup.vehicle_select');
+                  }}
                   disabled={busy}
                   showSelectionHint={true}
+                  tutorialId="setup.vehicle"
+                  tutorialActionPrefix="setup.vehicle_option"
                 />
 
                 <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.scenarioMode}</div>
@@ -1711,9 +2164,14 @@ export default function Page() {
                   ariaLabel="Scenario mode"
                   value={scenarioMode}
                   options={scenarioOptions}
-                  onChange={setScenarioMode}
+                  onChange={(next) => {
+                    setScenarioMode(next);
+                    markTutorialAction('setup.scenario_select');
+                  }}
                   disabled={busy}
                   showSelectionHint={true}
+                  tutorialId="setup.scenario"
+                  tutorialActionPrefix="setup.scenario_option"
                 />
 
                 <div className="fieldLabelRow">
@@ -1726,6 +2184,8 @@ export default function Page() {
                   placeholder="x-api-token for RBAC-enabled backends"
                   value={apiToken}
                   onChange={(event) => setApiToken(event.target.value)}
+                  data-tutorial-id="setup.api_token"
+                  data-tutorial-action="setup.api_token_input"
                 />
 
                 <div className="fieldLabelRow">
@@ -1740,6 +2200,8 @@ export default function Page() {
                   value={locale}
                   disabled={busy}
                   onChange={(event) => setLocale(event.target.value as Locale)}
+                  data-tutorial-id="setup.language"
+                  data-tutorial-action="setup.language_select"
                 >
                   {LOCALE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -1760,16 +2222,37 @@ export default function Page() {
                     onClick={swapMarkers}
                     disabled={!origin || !destination || busy}
                     title="Swap start and destination"
+                    data-tutorial-action="setup.swap_pins_button"
                   >
                     Swap pins
                   </button>
-                  <button className="secondary" onClick={reset} disabled={busy}>
+                  <button
+                    className="secondary"
+                    onClick={reset}
+                    disabled={busy}
+                    data-tutorial-action="setup.clear_pins_button"
+                  >
                     Clear pins
                   </button>
                   <button
                     className="secondary"
                     onClick={() => {
-                      setTutorialOpen(true);
+                      if (!tutorialIsDesktop) {
+                        setTutorialMode('blocked');
+                        setTutorialOpen(true);
+                        return;
+                      }
+                      if (tutorialSavedProgress && !tutorialCompleted) {
+                        setTutorialMode('chooser');
+                        setTutorialOpen(true);
+                        return;
+                      }
+                      if (tutorialCompleted) {
+                        setTutorialMode('completed');
+                        setTutorialOpen(true);
+                        return;
+                      }
+                      startTutorialFresh();
                     }}
                     disabled={busy}
                   >
@@ -1785,11 +2268,11 @@ export default function Page() {
                 validationError={advancedError}
               />
 
-              <section className="card">
+              <section className="card" data-tutorial-id="preferences.section">
                 <div className="sectionTitle">{t('preferences')}</div>
                 <div className="sectionHint">{SIDEBAR_SECTION_HINTS.preferences}</div>
 
-                <div className="sliderField">
+                <div className="sliderField" data-tutorial-id="preferences.weights">
                   <div className="sliderField__head">
                     <label htmlFor="weight-time">Time</label>
                     <span className="sliderField__value">{weights.time}</span>
@@ -1805,6 +2288,7 @@ export default function Page() {
                     value={weights.time}
                     aria-describedby="weight-time-help"
                     onChange={(e) => setWeights((w) => ({ ...w, time: Number(e.target.value) }))}
+                    data-tutorial-action="pref.weight_time"
                   />
                 </div>
 
@@ -1824,6 +2308,7 @@ export default function Page() {
                     value={weights.money}
                     aria-describedby="weight-money-help"
                     onChange={(e) => setWeights((w) => ({ ...w, money: Number(e.target.value) }))}
+                    data-tutorial-action="pref.weight_money"
                   />
                 </div>
 
@@ -1843,11 +2328,18 @@ export default function Page() {
                     value={weights.co2}
                     aria-describedby="weight-co2-help"
                     onChange={(e) => setWeights((w) => ({ ...w, co2: Number(e.target.value) }))}
+                    data-tutorial-action="pref.weight_co2"
                   />
                 </div>
 
                 <div className="row row--actions" style={{ marginTop: 12 }}>
-                  <button className="primary" onClick={computePareto} disabled={!canCompute}>
+                  <button
+                    className="primary"
+                    onClick={computePareto}
+                    disabled={!canCompute}
+                    data-tutorial-id="preferences.compute_button"
+                    data-tutorial-action="pref.compute_pareto_click"
+                  >
                     {busy ? (
                       <span className="buttonLabel">
                         <span className="spinner spinner--inline" />
@@ -1863,8 +2355,9 @@ export default function Page() {
 
                   <button
                     className="secondary"
-                    onClick={clearComputed}
+                    onClick={clearComputedFromUi}
                     disabled={busy || paretoRoutes.length === 0}
+                    data-tutorial-action="pref.clear_results_click"
                   >
                     {t('clear_results')}
                   </button>
@@ -1896,7 +2389,7 @@ export default function Page() {
               </section>
 
           {m && (
-            <section className="card">
+            <section className="card" data-tutorial-id="selected.route_panel">
               <div className="sectionTitle">Selected route</div>
               <div className="sectionHint">{SIDEBAR_SECTION_HINTS.selectedRoute}</div>
               <div className="metrics">
@@ -1960,7 +2453,7 @@ export default function Page() {
                 <EtaTimelineChart route={selectedRoute} />
               </div>
 
-              <SegmentBreakdown route={selectedRoute} />
+              <SegmentBreakdown route={selectedRoute} onTutorialAction={markTutorialAction} />
               <CounterfactualPanel route={selectedRoute} />
             </section>
           )}
@@ -1968,7 +2461,7 @@ export default function Page() {
           <ScenarioTimeLapse route={selectedRoute} onPositionChange={setTimeLapsePosition} />
 
           {showRoutesSection && (
-            <section className={`card routesSection ${isPending ? 'isUpdating' : ''}`}>
+            <section className={`card routesSection ${isPending ? 'isUpdating' : ''}`} data-tutorial-id="routes.list">
               <div className="sectionTitleRow">
                 <div className="sectionTitle">Routes</div>
 
@@ -1993,6 +2486,8 @@ export default function Page() {
                       className="ghostButton"
                       onClick={resetRouteNames}
                       disabled={busy}
+                      data-tutorial-id="routes.reset_names"
+                      data-tutorial-action="routes.reset_names"
                     >
                       Reset names
                     </button>
@@ -2028,12 +2523,12 @@ export default function Page() {
                 <>
                   {paretoRoutes.length > 0 && (
                     <>
-                      <div className="chartWrap">
+                      <div className="chartWrap" data-tutorial-id="routes.chart">
                         <ParetoChart
                           routes={paretoRoutes}
                           selectedId={selectedId}
                           labelsById={labelsById}
-                          onSelect={setSelectedId}
+                          onSelect={selectRouteFromChart}
                         />
                       </div>
 
@@ -2063,13 +2558,14 @@ export default function Page() {
                               tabIndex={0}
                               aria-label={`Select ${label}`}
                               aria-pressed={isSelected}
-                              onClick={() => setSelectedId(route.id)}
+                              onClick={() => selectRouteFromCard(route.id)}
                               onKeyDown={(event) => {
                                 if (event.key === 'Enter' || event.key === ' ') {
                                   event.preventDefault();
-                                  setSelectedId(route.id);
+                                  selectRouteFromCard(route.id);
                                 }
                               }}
+                              data-tutorial-action="routes.select_card"
                             >
                               <div className="routeCard__top">
                                 {isEditing ? (
@@ -2098,6 +2594,7 @@ export default function Page() {
                                       type="button"
                                       className="routeRename__btn"
                                       onClick={commitRename}
+                                      data-tutorial-action="routes.rename_save"
                                     >
                                       Save
                                     </button>
@@ -2129,6 +2626,7 @@ export default function Page() {
                                         event.stopPropagation();
                                         beginRename(route.id);
                                       }}
+                                      data-tutorial-action="routes.rename_start"
                                     >
                                       Rename
                                     </button>
@@ -2169,10 +2667,15 @@ export default function Page() {
             </section>
           )}
 
-          <section className="card">
+          <section className="card" data-tutorial-id="compare.section">
             <div className="sectionTitleRow">
               <div className="sectionTitle">{t('compare_scenarios')}</div>
-              <button className="secondary" onClick={compareScenarios} disabled={!canCompareScenarios}>
+              <button
+                className="secondary"
+                onClick={compareScenarios}
+                disabled={!canCompareScenarios}
+                data-tutorial-action="compare.run_click"
+              >
                 {scenarioCompareLoading ? t('comparing_scenarios') : t('compare_scenarios')}
               </button>
             </div>
@@ -2241,6 +2744,7 @@ export default function Page() {
             }}
             onSave={saveCurrentExperiment}
             onLoad={(bundle) => {
+              markTutorialAction('exp.load_click');
               applyScenarioRequestToState(bundle.request);
               clearComputed();
             }}
@@ -2264,11 +2768,43 @@ export default function Page() {
               });
             }}
             locale={locale}
+            defaultName={tutorialExperimentPrefill?.name}
+            defaultDescription={tutorialExperimentPrefill?.description}
           />
             </div>
       </aside>
 
-      <TutorialOverlay open={tutorialOpen} onClose={closeTutorial} />
+      <TutorialOverlay
+        open={tutorialOpen}
+        mode={tutorialMode}
+        isDesktop={tutorialIsDesktop}
+        hasSavedProgress={Boolean(tutorialSavedProgress)}
+        chapterTitle={tutorialChapter?.title ?? 'Tutorial'}
+        chapterDescription={tutorialChapter?.description ?? ''}
+        chapterIndex={tutorialChapterIndex}
+        chapterCount={TUTORIAL_CHAPTERS.length}
+        stepTitle={tutorialStep?.title ?? 'Tutorial'}
+        stepWhat={tutorialStep?.what ?? 'Follow the guided checklist.'}
+        stepImpact={tutorialStep?.impact ?? 'Each step explains how controls affect outcomes.'}
+        stepIndex={tutorialStepIndex + 1}
+        stepCount={TUTORIAL_STEPS.length}
+        canGoNext={tutorialCanAdvance}
+        atStart={tutorialAtStart}
+        atEnd={tutorialAtEnd}
+        checklist={tutorialChecklist}
+        optionalDecision={tutorialOptionalState}
+        targetRect={tutorialTargetRect}
+        targetMissing={tutorialTargetMissing && !(tutorialStep?.allowMissingTarget ?? false)}
+        onClose={closeTutorial}
+        onStartNew={startTutorialFresh}
+        onResume={resumeTutorialProgress}
+        onRestart={restartTutorialProgress}
+        onBack={tutorialBack}
+        onNext={tutorialNext}
+        onFinish={tutorialFinish}
+        onMarkManual={markTutorialAction}
+        onUseOptionalDefault={markTutorialOptionalDefault}
+      />
     </div>
   );
 }

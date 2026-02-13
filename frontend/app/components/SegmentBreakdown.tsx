@@ -6,11 +6,12 @@ import type { RouteOption } from '../lib/types';
 
 type Props = {
   route: RouteOption | null;
+  onTutorialAction?: (actionId: string) => void;
 };
 
 const PREVIEW_ROW_COUNT = 40;
 
-export default function SegmentBreakdown({ route }: Props) {
+export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
   const segments = Array.isArray(route?.segment_breakdown) ? route?.segment_breakdown : [];
   const [expanded, setExpanded] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
@@ -25,7 +26,7 @@ export default function SegmentBreakdown({ route }: Props) {
   const hiddenRowCount = Math.max(0, segments.length - visibleSegments.length);
 
   return (
-    <div className="segmentBreakdown">
+    <div className="segmentBreakdown" data-tutorial-id="selected.segment_breakdown">
       <div className="segmentBreakdown__header">
         <div className="segmentBreakdown__titleWrap">
           <div className="fieldLabel" style={{ margin: 0 }}>
@@ -36,7 +37,10 @@ export default function SegmentBreakdown({ route }: Props) {
         <button
           type="button"
           className="ghostButton segmentBreakdown__toggle"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={() => {
+            setExpanded((prev) => !prev);
+            onTutorialAction?.(expanded ? 'selected.segment_collapse' : 'selected.segment_expand');
+          }}
           aria-expanded={expanded}
           aria-controls="segment-breakdown-scroll-region"
         >
@@ -91,7 +95,10 @@ export default function SegmentBreakdown({ route }: Props) {
           <button
             type="button"
             className="ghostButton segmentBreakdown__footerBtn"
-            onClick={() => setShowAllRows(true)}
+            onClick={() => {
+              setShowAllRows(true);
+              onTutorialAction?.('selected.segment_show_all');
+            }}
           >
             Show all rows
           </button>
@@ -103,7 +110,10 @@ export default function SegmentBreakdown({ route }: Props) {
           <button
             type="button"
             className="ghostButton segmentBreakdown__footerBtn"
-            onClick={() => setShowAllRows(false)}
+            onClick={() => {
+              setShowAllRows(false);
+              onTutorialAction?.('selected.segment_show_fewer');
+            }}
           >
             Show fewer rows
           </button>
