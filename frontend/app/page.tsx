@@ -1455,11 +1455,7 @@ export default function Page() {
           return;
         }
 
-        const actionlessControl = target.closest<HTMLElement>(
-          'button, input, select, textarea, a, [role="button"], [role="option"], [contenteditable="true"]',
-        );
-
-        if (isTargetAllowedByStep(target) && !tutorialUsesSectionTarget && !actionlessControl) {
+        if (isTargetAllowedByStep(target) && !tutorialUsesSectionTarget) {
           return;
         }
 
