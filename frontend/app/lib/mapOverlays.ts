@@ -63,6 +63,7 @@ const PREVIEW_NODE_COLORS: Record<PreviewRouteNode['role'], string> = {
   stop: '#0EA5E9',
   end: '#06B6D4',
 };
+const EARTH_RADIUS_M = 6_371_000;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -85,6 +86,35 @@ function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
   return value;
+}
+
+function toRad(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function toDeg(value: number): number {
+  return (value * 180) / Math.PI;
+}
+
+function wrapAngle(angle: number): number {
+  let out = angle;
+  while (out <= -Math.PI) out += 2 * Math.PI;
+  while (out > Math.PI) out -= 2 * Math.PI;
+  return out;
+}
+
+function projectLonLat(lon: number, lat: number, refLatRad: number): [number, number] {
+  const lonRad = toRad(lon);
+  const latRad = toRad(lat);
+  const x = lonRad * EARTH_RADIUS_M * Math.cos(refLatRad);
+  const y = latRad * EARTH_RADIUS_M;
+  return [x, y];
+}
+
+function unprojectXY(x: number, y: number, refLatRad: number): [number, number] {
+  const lonRad = x / (EARTH_RADIUS_M * Math.cos(refLatRad));
+  const latRad = y / EARTH_RADIUS_M;
+  return [toDeg(lonRad), toDeg(latRad)];
 }
 
 function sameCoord(aLat: number, aLon: number, bLat: number, bLon: number): boolean {
@@ -169,59 +199,79 @@ function buildPreviewNodes(
   return nodes;
 }
 
-function buildCurvedLegPoints(
+function buildRoadLikeLegPoints(
   start: [number, number],
   end: [number, number],
   legIndex: number,
 ): [number, number][] {
   const [startLon, startLat] = start;
   const [endLon, endLat] = end;
-  const dx = endLon - startLon;
-  const dy = endLat - startLat;
-  const length = Math.hypot(dx, dy);
-
-  if (length <= 1e-9) {
+  const refLatRad = toRad((startLat + endLat) * 0.5);
+  const [startX, startY] = projectLonLat(startLon, startLat, refLatRad);
+  const [endX, endY] = projectLonLat(endLon, endLat, refLatRad);
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const totalDistanceM = Math.hypot(dx, dy);
+  if (totalDistanceM <= 1) {
     return [start, end];
   }
 
-  const normalX = dx / length;
-  const normalY = dy / length;
-  const perpX = -normalY;
-  const perpY = normalX;
-  const sign = legIndex % 2 === 0 ? 1 : -1;
-  const amp = clamp(length * 0.18, 0.004, 0.022) * sign;
-
-  const c1: [number, number] = [
-    startLon + dx * 0.28 + perpX * amp * 0.75,
-    startLat + dy * 0.28 + perpY * amp * 0.75,
-  ];
-  const c2: [number, number] = [
-    endLon - dx * 0.28 + perpX * amp * 0.75,
-    endLat - dy * 0.28 + perpY * amp * 0.75,
-  ];
-
-  const samples = Math.round(clamp(length * 260, 24, 48));
+  const targetSteps = Math.round(clamp(totalDistanceM / 1200, 18, 650));
+  const stepM = Math.max(450, totalDistanceM / targetSteps);
+  const quantStepRad = Math.PI / 12; // 15deg headings to mimic road-like legs
+  const maxTurnRad = Math.PI / 16; // smooth turn rate
+  const biasSign = legIndex % 2 === 0 ? 1 : -1;
+  const maxBiasRad = clamp(totalDistanceM / 4_500_000, 0.03, 0.16); // 1.7deg..9.2deg
   const points: [number, number][] = [];
-  for (let idx = 0; idx <= samples; idx += 1) {
-    const t = idx / samples;
-    const inv = 1 - t;
-    const lon =
-      inv * inv * inv * startLon +
-      3 * inv * inv * t * c1[0] +
-      3 * inv * t * t * c2[0] +
-      t * t * t * endLon;
-    const lat =
-      inv * inv * inv * startLat +
-      3 * inv * inv * t * c1[1] +
-      3 * inv * t * t * c2[1] +
-      t * t * t * endLat;
+  points.push(start);
 
+  let x = startX;
+  let y = startY;
+  let heading = Math.atan2(endY - startY, endX - startX);
+  let prevRemainingM = totalDistanceM;
+
+  for (let idx = 0; idx < targetSteps - 1; idx += 1) {
+    const remainingX = endX - x;
+    const remainingY = endY - y;
+    const remainingM = Math.hypot(remainingX, remainingY);
+    if (remainingM <= stepM * 1.05) break;
+
+    const progress = clamp01(1 - remainingM / totalDistanceM);
+    const desiredHeading = Math.atan2(remainingY, remainingX);
+    const biasedHeading =
+      desiredHeading + Math.sin(progress * Math.PI) * maxBiasRad * biasSign;
+    const quantizedHeading =
+      Math.round(biasedHeading / quantStepRad) * quantStepRad;
+    const steeringDelta = clamp(
+      wrapAngle(quantizedHeading - heading),
+      -maxTurnRad,
+      maxTurnRad,
+    );
+    heading += steeringDelta;
+
+    x += Math.cos(heading) * stepM;
+    y += Math.sin(heading) * stepM;
+
+    const nextRemainingM = Math.hypot(endX - x, endY - y);
+    if (nextRemainingM > prevRemainingM + stepM * 0.12) {
+      // Snap back toward destination if quantized steering diverges.
+      heading = desiredHeading;
+      x += Math.cos(heading) * stepM * 0.75;
+      y += Math.sin(heading) * stepM * 0.75;
+    }
+    prevRemainingM = Math.min(prevRemainingM, nextRemainingM);
+
+    const [lon, lat] = unprojectXY(x, y, refLatRad);
     const prev = points[points.length - 1];
-    if (!prev || Math.hypot(lon - prev[0], lat - prev[1]) > 1e-9) {
+    if (!prev || Math.hypot(lon - prev[0], lat - prev[1]) > 1e-6) {
       points.push([lon, lat]);
     }
   }
 
+  const last = points[points.length - 1];
+  if (!last || Math.hypot(last[0] - end[0], last[1] - end[1]) > 1e-6) {
+    points.push(end);
+  }
   return points.length >= 2 ? points : [start, end];
 }
 
@@ -237,7 +287,7 @@ export function buildPreviewRouteSegments(
   for (let legIndex = 0; legIndex < nodes.length - 1; legIndex += 1) {
     const fromNode = nodes[legIndex];
     const toNode = nodes[legIndex + 1];
-    const legPoints = buildCurvedLegPoints(
+    const legPoints = buildRoadLikeLegPoints(
       [fromNode.lon, fromNode.lat],
       [toNode.lon, toNode.lat],
       legIndex,
