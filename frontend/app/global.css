@@ -151,26 +151,11 @@ a {
     gap: 12px;
   }
 
-  .panelHeader__actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
   .panelHeader h1 {
     font-family: var(--font-space), var(--font-inter), system-ui;
     font-size: 18px;
     letter-spacing: -0.02em;
     margin: 0;
-  }
-
-  .badge {
-    font-size: 11px;
-    padding: 4px 8px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.82);
   }
 
   .subtitle {

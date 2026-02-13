@@ -2432,9 +2432,6 @@ export default function Page() {
             <header className="panelHeader">
               <div className="panelHeader__top">
                 <h1>{t('panel_title')}</h1>
-                <div className="panelHeader__actions">
-                  <span className="badge">v0</span>
-                </div>
               </div>
               <p className="subtitle">{t('panel_subtitle')}</p>
             </header>
