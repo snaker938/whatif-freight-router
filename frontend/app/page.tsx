@@ -12,7 +12,6 @@ import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
 import { buildManagedPinNodes } from './lib/mapOverlays';
 import {
-  SIDEBAR_DROPDOWN_OPTIONS_HELP,
   SIDEBAR_FIELD_HELP,
   SIDEBAR_SECTION_HINTS,
   vehicleDescriptionFromId,
@@ -544,6 +543,26 @@ function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.8" />
       <path d="M14 5v14" />
       <path d="M10.5 10l-2.5 2 2.5 2" />
+    </svg>
+  );
+}
+
+function TutorialSparkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 14.6l-1.6-4.2L6 8.8l4.4-1.6L12 3z" />
+      <path d="M19 14l.8 2 .2.8.8.2 2 .8-2 .8-.8.2-.2.8-.8 2-.8-2-.2-.8-.8-.2-2-.8 2-.8.8-.2.2-.8.8-2z" />
+      <path d="M5 14l.6 1.5.2.5.5.2 1.5.6-1.5.6-.5.2-.2.5L5 20l-.6-1.5-.2-.5-.5-.2-1.5-.6 1.5-.6.5-.2.2-.5L5 14z" />
     </svg>
   );
 }
@@ -2496,12 +2515,9 @@ export default function Page() {
                     markTutorialAction('setup.vehicle_select');
                   }}
                   disabled={busy}
-                  showSelectionHint={true}
                   tutorialId="setup.vehicle"
                   tutorialActionPrefix="setup.vehicle_option"
                 />
-
-                <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.scenarioMode}</div>
 
                 <div className="fieldLabelRow">
                   <div className="fieldLabel">Scenario mode</div>
@@ -2516,7 +2532,6 @@ export default function Page() {
                     markTutorialAction('setup.scenario_select');
                   }}
                   disabled={busy}
-                  showSelectionHint={true}
                   tutorialId="setup.scenario"
                   tutorialActionPrefix="setup.scenario_option"
                 />
@@ -2550,75 +2565,89 @@ export default function Page() {
                   onChange={setLocale}
                   tutorialId="setup.language"
                   tutorialAction="setup.language_select"
-                  showSelectionHint={true}
                 />
 
-                <div className="helper">
-                  Scenario mode applies a policy-based delay multiplier and adds idle emissions (and
-                  driver time cost) for the extra delay. This is a lightweight stub that can be
-                  swapped for a detailed simulator later.
-                </div>
+                {scenarioMode !== 'no_sharing' ? (
+                  <div className="contextNote">
+                    Sharing Mode Is Active. Current Scenario Logic Applies Policy-Based Delay And
+                    Idle Emissions As A Lightweight Simulation Stub.
+                  </div>
+                ) : null}
 
-                <div className="actionGrid" style={{ marginTop: 12 }}>
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      setOrigin(TUTORIAL_CANONICAL_ORIGIN);
-                      setDestination(TUTORIAL_CANONICAL_DESTINATION);
-                      setManagedStop(null);
-                      setSelectedPinId(null);
-                      clearComputed();
-                      setFitAllRequestNonce((prev) => prev + 1);
-                    }}
-                    disabled={busy}
-                    data-tutorial-action="setup.sample_pins_button"
-                  >
-                    Use Sample Pins
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
-                    disabled={busy || (!origin && !destination && !managedStop)}
-                    data-tutorial-action="setup.fit_map_button"
-                  >
-                    Fit Map To Pins
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={swapMarkers}
-                    disabled={!origin || !destination || busy}
-                    title="Swap Start and End"
-                    data-tutorial-action="setup.swap_pins_button"
-                  >
-                    Swap pins
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={reset}
-                    disabled={busy}
-                    data-tutorial-action="setup.clear_pins_button"
-                  >
-                    Clear pins
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      if (!tutorialIsDesktop) {
-                        setTutorialMode('blocked');
-                        setTutorialOpen(true);
-                        return;
-                      }
-                      if (tutorialSavedProgress && !tutorialCompleted) {
-                        setTutorialMode('chooser');
-                        setTutorialOpen(true);
-                        return;
-                      }
-                      startTutorialFresh();
-                    }}
-                    disabled={busy}
-                  >
-                    {t('start_tutorial')}
-                  </button>
+                <div className="setupActionGroup">
+                  <div className="setupActionGroup__head">
+                    <div>
+                      <div className="setupActionGroup__title">Map Actions</div>
+                      <div className="setupActionGroup__hint">
+                        Quick controls for pin setup, viewport fit, and reset.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="iconActionButton"
+                      onClick={() => {
+                        if (!tutorialIsDesktop) {
+                          setTutorialMode('blocked');
+                          setTutorialOpen(true);
+                          return;
+                        }
+                        if (tutorialSavedProgress && !tutorialCompleted) {
+                          setTutorialMode('chooser');
+                          setTutorialOpen(true);
+                          return;
+                        }
+                        startTutorialFresh();
+                      }}
+                      disabled={busy}
+                      title={t('start_tutorial')}
+                      aria-label={t('start_tutorial')}
+                    >
+                      <TutorialSparkIcon />
+                    </button>
+                  </div>
+
+                  <div className="actionGrid" style={{ marginTop: 12 }}>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setOrigin(TUTORIAL_CANONICAL_ORIGIN);
+                        setDestination(TUTORIAL_CANONICAL_DESTINATION);
+                        setManagedStop(null);
+                        setSelectedPinId(null);
+                        clearComputed();
+                        setFitAllRequestNonce((prev) => prev + 1);
+                      }}
+                      disabled={busy}
+                      data-tutorial-action="setup.sample_pins_button"
+                    >
+                      Use Sample Pins
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
+                      disabled={busy || (!origin && !destination && !managedStop)}
+                      data-tutorial-action="setup.fit_map_button"
+                    >
+                      Fit Map To Pins
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={swapMarkers}
+                      disabled={!origin || !destination || busy}
+                      title="Swap Start and End"
+                      data-tutorial-action="setup.swap_pins_button"
+                    >
+                      Swap Pins
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={reset}
+                      disabled={busy}
+                      data-tutorial-action="setup.clear_pins_button"
+                    >
+                      Clear Pins
+                    </button>
+                  </div>
                 </div>
               </CollapsibleCard>
 

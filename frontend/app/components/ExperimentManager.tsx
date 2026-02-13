@@ -160,7 +160,6 @@ export default function ExperimentManager({
           disabled={disabled || loading}
           onChange={onCatalogVehicleTypeChange}
           tutorialAction="exp.filter_vehicle_select"
-          showSelectionHint={true}
         />
 
         <div className="fieldLabelRow">
@@ -177,7 +176,6 @@ export default function ExperimentManager({
           disabled={disabled || loading}
           onChange={onCatalogScenarioModeChange}
           tutorialAction="exp.filter_scenario_select"
-          showSelectionHint={true}
         />
         <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentFilterScenario}</div>
 
@@ -195,7 +193,6 @@ export default function ExperimentManager({
           disabled={disabled || loading}
           onChange={onCatalogSortChange}
           tutorialAction="exp.sort_select"
-          showSelectionHint={true}
         />
         <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentSort}</div>
       </div>

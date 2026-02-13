@@ -193,7 +193,6 @@ export default function OracleQualityDashboard({
           if (validationError) setValidationError(null);
         }}
         tutorialAction="oracle.signature_select"
-        showSelectionHint={true}
       />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.signatureState}</div>
 

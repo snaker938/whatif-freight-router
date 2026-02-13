@@ -407,10 +407,7 @@ a {
   }
 
   .dropdownOptionsHint {
-    margin-top: 6px;
-    font-size: 11px;
-    line-height: 1.32;
-    color: rgba(255, 255, 255, 0.58);
+    display: none;
   }
 
   .tiny {
@@ -1049,6 +1046,70 @@ a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .setupActionGroup {
+    margin-top: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
+    padding: 12px;
+  }
+
+  .setupActionGroup__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .setupActionGroup__title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .setupActionGroup__hint {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .iconActionButton {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    flex: 0 0 auto;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(6, 182, 212, 0.35);
+    background: rgba(6, 182, 212, 0.12);
+    color: rgba(210, 246, 255, 0.95);
+    box-shadow: none;
+  }
+
+  .iconActionButton:hover {
+    transform: none;
+    border-color: rgba(6, 182, 212, 0.6);
+    background: rgba(6, 182, 212, 0.18);
+    box-shadow: none;
+  }
+
+  .contextNote {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(6, 182, 212, 0.22);
+    background: rgba(6, 182, 212, 0.08);
+    color: rgba(220, 247, 255, 0.88);
+    font-size: 11.5px;
+    line-height: 1.35;
   }
 
   .buttonLabel {

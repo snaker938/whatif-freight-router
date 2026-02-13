@@ -86,7 +86,6 @@ export default function ScenarioParameterEditor({
         onChange={(next) => patch('optimizationMode', next)}
         tutorialId="advanced.optimization_mode"
         tutorialAction="advanced.optimization_mode_select"
-        showSelectionHint={true}
       />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.optimizationMode}</div>
 
@@ -122,7 +121,6 @@ export default function ScenarioParameterEditor({
         onChange={(next) => patch('paretoMethod', next)}
         tutorialId="advanced.pareto_method"
         tutorialAction="advanced.pareto_method_select"
-        showSelectionHint={true}
       />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.paretoMethod}</div>
 
@@ -290,7 +288,6 @@ export default function ScenarioParameterEditor({
         onChange={(next) => patch('terrainProfile', next)}
         tutorialId="advanced.terrain"
         tutorialAction="advanced.terrain_select"
-        showSelectionHint={true}
       />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.terrainProfile}</div>
 

@@ -234,7 +234,6 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
           setSpeed(next);
         }}
         tutorialAction="timelapse.speed_select"
-        showSelectionHint={true}
       />
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.timeLapseSpeed}</div>
 
