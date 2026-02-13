@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 type Props = {
   title: ReactNode;
@@ -41,6 +41,23 @@ export default function CollapsibleCard({
   defaultCollapsed = true,
 }: Props) {
   const [open, setOpen] = useState(!defaultCollapsed);
+  const contentInnerRef = useRef<HTMLDivElement | null>(null);
+  const [contentHeight, setContentHeight] = useState(0);
+  const contentId = useId();
+
+  useEffect(() => {
+    const node = contentInnerRef.current;
+    if (!node) return;
+
+    const updateHeight = () => {
+      setContentHeight(node.scrollHeight);
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section
@@ -52,13 +69,25 @@ export default function CollapsibleCard({
         className="collapsibleCard__header"
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
+        aria-controls={contentId}
       >
         <span className="sectionTitle">{title}</span>
         <ChevronIcon open={open} />
       </button>
 
-      <div className="collapsibleCard__content" aria-hidden={!open}>
-        <div className={`collapsibleCard__contentInner ${bodyClassName}`.trim()}>
+      <div
+        id={contentId}
+        role="region"
+        className="collapsibleCard__content"
+        aria-hidden={!open}
+        style={{
+          maxHeight: open ? `${Math.max(contentHeight + 2, 2)}px` : '0px',
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? 'auto' : 'none',
+          visibility: open ? 'visible' : 'hidden',
+        }}
+      >
+        <div ref={contentInnerRef} className={`collapsibleCard__contentInner ${bodyClassName}`.trim()}>
           {hint ? <div className="sectionHint">{hint}</div> : null}
           {children}
         </div>

@@ -255,19 +255,19 @@ a {
   }
 
   .collapsibleCard__content {
-    display: grid;
-    grid-template-rows: 0fr;
-    transition: grid-template-rows 240ms ease;
-  }
-
-  .collapsibleCard.isOpen .collapsibleCard__content {
-    grid-template-rows: 1fr;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition:
+      max-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 180ms ease;
+    will-change: max-height;
   }
 
   .collapsibleCard__contentInner {
-    overflow: hidden;
+    overflow: visible;
     min-height: 0;
-    padding: 16px 14px 14px;
+    padding: 20px 14px 14px;
     min-width: 0;
   }
 
