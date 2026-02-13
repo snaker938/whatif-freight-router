@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
@@ -127,23 +128,27 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
 
   if (!route || coords.length < 2) {
     return (
-      <section className="card" data-tutorial-id="timelapse.section">
-        <div className="sectionTitle">Scenario time-lapse</div>
-        <div className="sectionHint">{SIDEBAR_SECTION_HINTS.scenarioTimeLapse}</div>
+      <CollapsibleCard
+        title="Scenario time-lapse"
+        hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
+        dataTutorialId="timelapse.section"
+      >
         <div className="helper">Compute and select a route to play a route animation.</div>
-      </section>
+      </CollapsibleCard>
     );
   }
 
   const elapsedS = durationS * progress;
 
   return (
-    <section className="card" data-tutorial-id="timelapse.section">
+    <CollapsibleCard
+      title="Scenario time-lapse"
+      hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
+      dataTutorialId="timelapse.section"
+    >
       <div className="sectionTitleRow">
-        <div className="sectionTitle">Scenario time-lapse</div>
         <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>
       </div>
-      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.scenarioTimeLapse}</div>
 
       <div className="row">
         <button
@@ -202,6 +207,6 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
       <div className="tiny">
         Elapsed {(elapsedS / 60).toFixed(1)} min of {(durationS / 60).toFixed(1)} min
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }

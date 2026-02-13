@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 
+import CollapsibleCard from './CollapsibleCard';
 import type { PinDisplayNode, PinSelectionId } from '../lib/types';
 
 type Props = {
@@ -101,9 +102,11 @@ export default function PinManager({
   }
 
   return (
-    <section className="card pinManager" data-tutorial-id="pins.section">
-      <div className="sectionTitle">Pins & stops</div>
-
+    <CollapsibleCard
+      className="pinManager"
+      title="Pins & stops"
+      dataTutorialId="pins.section"
+    >
       <div className="pinManager__rail" role="list" aria-label="Pin route order">
         {railNodes.length === 0 ? (
           <span className="pinManager__railEmpty">Add Start and End pins to build a route.</span>
@@ -206,6 +209,6 @@ export default function PinManager({
       <div className="tiny">Reorder is disabled in one-stop mode. Enable when multi-stop support is added.</div>
       <div className="tiny">Tip: click into Stop #1 name to rename, then drag the stop marker on the map.</div>
       {oneStopHint ? <div className="pinManager__hintError">{oneStopHint}</div> : null}
-    </section>
+    </CollapsibleCard>
   );
 }

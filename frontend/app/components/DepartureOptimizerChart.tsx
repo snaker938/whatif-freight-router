@@ -1,5 +1,6 @@
 'use client';
 
+import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
 import { formatDateTime, formatNumber } from '../lib/format';
 import {
@@ -49,9 +50,12 @@ export default function DepartureOptimizerChart({
   locale,
 }: Props) {
   return (
-    <section className="card" data-tutorial-id="departure.section">
-      <div className="sectionTitleRow">
-        <div className="sectionTitle">Departure optimization</div>
+    <CollapsibleCard
+      title="Departure optimization"
+      hint={SIDEBAR_SECTION_HINTS.departureOptimization}
+      dataTutorialId="departure.section"
+    >
+      <div className="sectionTitleRow" style={{ marginTop: 8 }}>
         <button
           className="secondary"
           onClick={onRun}
@@ -61,7 +65,6 @@ export default function DepartureOptimizerChart({
           {loading ? 'Optimizing...' : 'Optimize departures'}
         </button>
       </div>
-      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.departureOptimization}</div>
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-window-start">
@@ -194,6 +197,6 @@ export default function DepartureOptimizerChart({
           ))}
         </ul>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

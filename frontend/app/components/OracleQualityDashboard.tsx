@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
 import { formatDateTime, formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
@@ -95,32 +96,32 @@ export default function OracleQualityDashboard({
   }
 
   return (
-    <section className="card" data-tutorial-id="oracle.section">
-      <div className="sectionTitleRow">
-        <div className="sectionTitle">Oracle quality dashboard</div>
-        <div className="row" style={{ marginTop: 0 }}>
-          <button
-            className="secondary"
-            onClick={onRefresh}
-            disabled={disabled || loading || ingesting}
-            aria-label="Refresh oracle quality dashboard"
-            data-tutorial-action="oracle.refresh_click"
-          >
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <a
-            className="buttonLink"
-            href={csvHref}
-            aria-label="Download oracle dashboard CSV"
-            data-tutorial-action="oracle.download_csv_click"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Download CSV
-          </a>
-        </div>
+    <CollapsibleCard
+      title="Oracle quality dashboard"
+      hint={SIDEBAR_SECTION_HINTS.oracleQualityDashboard}
+      dataTutorialId="oracle.section"
+    >
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          className="secondary"
+          onClick={onRefresh}
+          disabled={disabled || loading || ingesting}
+          aria-label="Refresh oracle quality dashboard"
+          data-tutorial-action="oracle.refresh_click"
+        >
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+        <a
+          className="buttonLink"
+          href={csvHref}
+          aria-label="Download oracle dashboard CSV"
+          data-tutorial-action="oracle.download_csv_click"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Download CSV
+        </a>
       </div>
-      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.oracleQualityDashboard}</div>
 
       <div className="helper">
         Record feed checks and inspect source-level pass rates, freshness, and signature health.
@@ -326,6 +327,6 @@ export default function OracleQualityDashboard({
           </ul>
         </div>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

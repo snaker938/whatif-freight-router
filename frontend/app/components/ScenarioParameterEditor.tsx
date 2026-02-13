@@ -1,5 +1,6 @@
 'use client';
 
+import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
@@ -45,9 +46,11 @@ export default function ScenarioParameterEditor({
   }
 
   return (
-    <section className="card" data-tutorial-id="advanced.section">
-      <div className="sectionTitle">Advanced Parameters</div>
-      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.advancedParameters}</div>
+    <CollapsibleCard
+      title="Advanced Parameters"
+      hint={SIDEBAR_SECTION_HINTS.advancedParameters}
+      dataTutorialId="advanced.section"
+    >
 
       <div className="fieldLabelRow">
         <div className="fieldLabel">Optimization mode</div>
@@ -341,6 +344,6 @@ export default function ScenarioParameterEditor({
       </div>
 
       {validationError ? <div className="error">{validationError}</div> : null}
-    </section>
+    </CollapsibleCard>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
 import { formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
@@ -28,9 +29,12 @@ export default function DutyChainPlanner({
   locale,
 }: Props) {
   return (
-    <section className="card" data-tutorial-id="duty.section">
-      <div className="sectionTitleRow">
-        <div className="sectionTitle">Duty chain planner</div>
+    <CollapsibleCard
+      title="Duty chain planner"
+      hint={SIDEBAR_SECTION_HINTS.dutyChainPlanner}
+      dataTutorialId="duty.section"
+    >
+      <div className="sectionTitleRow" style={{ marginTop: 8 }}>
         <button
           className="secondary"
           onClick={onRun}
@@ -40,7 +44,6 @@ export default function DutyChainPlanner({
           {loading ? 'Running...' : 'Run duty chain'}
         </button>
       </div>
-      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.dutyChainPlanner}</div>
 
       <div className="helper">
         Ordered stops, one per line: <code>lat,lon,label(optional)</code>.
@@ -150,6 +153,6 @@ export default function DutyChainPlanner({
           </ul>
         </div>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

@@ -4,6 +4,7 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
+import CollapsibleCard from './components/CollapsibleCard';
 import FieldInfo from './components/FieldInfo';
 import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
@@ -2433,13 +2434,14 @@ export default function Page() {
               <div className="panelHeader__top">
                 <h1>{t('panel_title')}</h1>
               </div>
-              <p className="subtitle">{t('panel_subtitle')}</p>
             </header>
 
             <div id="app-sidebar-content" className="panelBody">
-              <section className="card" data-tutorial-id="setup.section">
-                <div className="sectionTitle">{t('setup')}</div>
-                <div className="sectionHint">{SIDEBAR_SECTION_HINTS.setup}</div>
+              <CollapsibleCard
+                title={t('setup')}
+                hint={SIDEBAR_SECTION_HINTS.setup}
+                dataTutorialId="setup.section"
+              >
 
                 <div className="fieldLabelRow">
                   <div className="fieldLabel">Vehicle type</div>
@@ -2559,7 +2561,7 @@ export default function Page() {
                     {t('start_tutorial')}
                   </button>
                 </div>
-              </section>
+              </CollapsibleCard>
 
               <PinManager
                 nodes={pinNodes}
@@ -2583,9 +2585,11 @@ export default function Page() {
                 validationError={advancedError}
               />
 
-              <section className="card" data-tutorial-id="preferences.section">
-                <div className="sectionTitle">{t('preferences')}</div>
-                <div className="sectionHint">{SIDEBAR_SECTION_HINTS.preferences}</div>
+              <CollapsibleCard
+                title={t('preferences')}
+                hint={SIDEBAR_SECTION_HINTS.preferences}
+                dataTutorialId="preferences.section"
+              >
 
                 <div className="sliderField" data-tutorial-id="preferences.weights">
                   <div className="sliderField__head">
@@ -2701,16 +2705,16 @@ export default function Page() {
                 </div>
 
                 {error && <div className="error">{error}</div>}
-              </section>
+              </CollapsibleCard>
 
           {m && (
-            <section
-              className="card"
-              data-tutorial-id="selected.route_panel"
-              data-tutorial-action="selected.panel_click"
+            <CollapsibleCard
+              title="Selected route"
+              hint={SIDEBAR_SECTION_HINTS.selectedRoute}
+              dataTutorialId="selected.route_panel"
+              className="selectedRouteCard"
             >
-              <div className="sectionTitle">Selected route</div>
-              <div className="sectionHint">{SIDEBAR_SECTION_HINTS.selectedRoute}</div>
+              <div data-tutorial-action="selected.panel_click">
               <div className="metrics">
                 <div className="metric">
                   <div className="metric__label">Distance</div>
@@ -2774,16 +2778,20 @@ export default function Page() {
 
               <SegmentBreakdown route={selectedRoute} onTutorialAction={markTutorialAction} />
               <CounterfactualPanel route={selectedRoute} />
-            </section>
+              </div>
+            </CollapsibleCard>
           )}
 
           <ScenarioTimeLapse route={selectedRoute} onPositionChange={setTimeLapsePosition} />
 
           {showRoutesSection && (
-            <section className={`card routesSection ${isPending ? 'isUpdating' : ''}`} data-tutorial-id="routes.list">
+            <CollapsibleCard
+              className={`routesSection ${isPending ? 'isUpdating' : ''}`}
+              title="Routes"
+              hint={SIDEBAR_SECTION_HINTS.routes}
+              dataTutorialId="routes.list"
+            >
               <div className="sectionTitleRow">
-                <div className="sectionTitle">Routes</div>
-
                 <div className="sectionTitleMeta">
                   {loading && <span className="statusPill">Computing {progressText ?? '...'}</span>}
 
@@ -2813,7 +2821,6 @@ export default function Page() {
                   )}
                 </div>
               </div>
-              <div className="sectionHint">{SIDEBAR_SECTION_HINTS.routes}</div>
 
               {warnings.length > 0 && showWarnings && (
                 <div
@@ -2983,12 +2990,15 @@ export default function Page() {
                   )}
                 </>
               )}
-            </section>
+            </CollapsibleCard>
           )}
 
-          <section className="card" data-tutorial-id="compare.section">
+          <CollapsibleCard
+            title={t('compare_scenarios')}
+            hint={SIDEBAR_SECTION_HINTS.compareScenarios}
+            dataTutorialId="compare.section"
+          >
             <div className="sectionTitleRow">
-              <div className="sectionTitle">{t('compare_scenarios')}</div>
               <button
                 className="secondary"
                 onClick={compareScenarios}
@@ -2998,14 +3008,13 @@ export default function Page() {
                 {scenarioCompareLoading ? t('comparing_scenarios') : t('compare_scenarios')}
               </button>
             </div>
-            <div className="sectionHint">{SIDEBAR_SECTION_HINTS.compareScenarios}</div>
             <ScenarioComparison
               data={scenarioCompare}
               loading={scenarioCompareLoading}
               error={scenarioCompareError}
               locale={locale}
             />
-          </section>
+          </CollapsibleCard>
 
           <DepartureOptimizerChart
             windowStartLocal={depWindowStartLocal}

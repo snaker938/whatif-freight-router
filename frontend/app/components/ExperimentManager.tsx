@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
+import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
 import { formatDateTime } from '../lib/format';
 import type { Locale } from '../lib/i18n';
@@ -95,9 +96,12 @@ export default function ExperimentManager({
   }
 
   return (
-    <section className="card" data-tutorial-id="experiments.section">
-      <div className="sectionTitleRow">
-        <div className="sectionTitle">Experiments</div>
+    <CollapsibleCard
+      title="Experiments"
+      hint={SIDEBAR_SECTION_HINTS.experiments}
+      dataTutorialId="experiments.section"
+    >
+      <div className="row" style={{ marginTop: 8 }}>
         <button
           className="secondary"
           onClick={onRefresh}
@@ -107,7 +111,6 @@ export default function ExperimentManager({
           Refresh
         </button>
       </div>
-      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.experiments}</div>
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="experiment-search">
@@ -285,6 +288,6 @@ export default function ExperimentManager({
           </li>
         ))}
       </ul>
-    </section>
+    </CollapsibleCard>
   );
 }
