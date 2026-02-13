@@ -95,6 +95,7 @@ type MapViewProps = {
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: 'origin' | 'destination' | 'stop-1' | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onMoveStop?: (lat: number, lon: number) => void;
   onAddStopFromPin?: (kind: MarkerKind) => void;
   onRenameStop?: (name: string) => void;
   onDeleteStop?: () => void;
@@ -1413,6 +1414,13 @@ export default function Page() {
       return;
     }
 
+    if (selectedPinId === 'stop-1' && managedStop) {
+      setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
+      clearComputed();
+      markTutorialAction('map.move_stop_click');
+      return;
+    }
+
     setDestination({ lat, lon });
     setSelectedPinId('destination');
     clearComputed();
@@ -1433,6 +1441,14 @@ export default function Page() {
     } else {
       markTutorialAction('map.drag_destination_marker');
     }
+  }
+
+  function handleMoveStop(lat: number, lon: number) {
+    setError(null);
+    setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
+    setSelectedPinId('stop-1');
+    clearComputed();
+    markTutorialAction('map.drag_stop_marker');
   }
 
   function addStopFromMidpoint(_kind: MarkerKind) {
@@ -2433,6 +2449,7 @@ export default function Page() {
           onMapClick={handleMapClick}
           onSelectPinId={setSelectedPinId}
           onMoveMarker={handleMoveMarker}
+          onMoveStop={handleMoveStop}
           onAddStopFromPin={addStopFromMidpoint}
           onRenameStop={renameStop}
           onDeleteStop={deleteStop}

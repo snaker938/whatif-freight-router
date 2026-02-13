@@ -58,6 +58,7 @@ type Props = {
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: PinSelectionId | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onMoveStop?: (lat: number, lon: number) => void;
   onAddStopFromPin?: (kind: MarkerKind) => void;
   onRenameStop?: (name: string) => void;
   onDeleteStop?: () => void;
@@ -352,6 +353,7 @@ export default function MapView({
   onMapClick,
   onSelectPinId,
   onMoveMarker,
+  onMoveStop,
   onAddStopFromPin,
   onRenameStop,
   onDeleteStop,
@@ -718,12 +720,19 @@ export default function MapView({
             ref={stopRef}
             position={[managedStop.lat, managedStop.lon]}
             icon={makeDutyStopIcon(1, selectedPinId === 'stop-1')}
+            draggable={true}
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
                 onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
                 onFocusPin?.('stop-1');
                 onTutorialAction?.('map.click_stop_marker');
+              },
+              dragend(e) {
+                const marker = e.target as L.Marker;
+                const pos = marker.getLatLng();
+                onMoveStop?.(pos.lat, pos.lng);
+                onTutorialAction?.('map.drag_stop_marker');
               },
             }}
           >
