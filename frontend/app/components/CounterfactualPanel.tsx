@@ -42,8 +42,8 @@ export default function CounterfactualPanel({ route }: Props) {
                 ) : null}
               </div>
               <div className="routeCard__meta">
-                <span>metric: {metric}</span>
-                <span>{improves ? 'improves outcome' : 'worse outcome'}</span>
+                <span>Metric: {metric}</span>
+                <span>{improves ? 'Improves Outcome' : 'Worse Outcome'}</span>
               </div>
             </li>
           );

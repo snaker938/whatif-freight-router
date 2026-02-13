@@ -17,12 +17,12 @@ export const SIDEBAR_FIELD_HELP = {
   scenarioMode: 'Applies sharing policy assumptions to route outcomes.',
   apiToken: 'Only needed when RBAC-protected endpoints are enabled.',
   language: 'Controls UI language and locale formatting.',
-  optimizationMode: 'Expected value favors mean outcome; robust penalizes variance.',
+  optimizationMode: 'Expected Value favors mean outcome; Robust penalizes variance.',
   riskAversion: 'Higher values prefer safer, lower-variance choices.',
   paretoMethod: 'Choose dominance-only or epsilon-constrained filtering.',
-  epsilonDuration: 'Optional max allowed route duration in seconds.',
-  epsilonMonetaryCost: 'Optional max allowed monetary proxy value.',
-  epsilonEmissions: 'Optional max allowed emissions in kilograms.',
+  epsilonDuration: 'Optional maximum allowed route duration in seconds.',
+  epsilonMonetaryCost: 'Optional maximum allowed monetary proxy value.',
+  epsilonEmissions: 'Optional maximum allowed emissions in kilograms.',
   departureTimeUtc: 'Sets route evaluation time for profile effects.',
   stochasticEnabled: 'Simulates travel-time uncertainty using repeated samples.',
   stochasticSeed: 'Fixes random sampling for reproducible runs.',
@@ -31,7 +31,7 @@ export const SIDEBAR_FIELD_HELP = {
   terrainProfile: 'Approximates road-gradient impact on duration/emissions.',
   useTolls: 'Includes toll charges in monetary proxy calculations.',
   fuelPriceMultiplier: 'Scales fuel-cost contribution up or down.',
-  carbonPrice: 'Adds emissions-linked carbon cost to money objective.',
+  carbonPrice: 'Adds emissions-linked carbon cost to the money objective.',
   tollCostPerKm: 'Per-kilometer toll amount when tolls are enabled.',
   windowStartEnd: 'Defines the departure search interval in UTC.',
   stepMinutes: 'Sampling interval between evaluated departures.',
@@ -44,7 +44,7 @@ export const SIDEBAR_FIELD_HELP = {
   latencyMs: 'Source delivery latency in milliseconds.',
   recordCount: 'Number of records observed in this check.',
   errorNote: 'Optional detail about failure or degradation.',
-  catalogSearch: 'Find experiments by name, id, or description.',
+  catalogSearch: 'Find experiments by name, ID, or description.',
   filterVehicle: 'Show only bundles using selected vehicle profile.',
   filterScenario: 'Show only bundles for a selected scenario mode.',
   sort: 'Controls experiment list ordering.',
@@ -55,19 +55,19 @@ export const SIDEBAR_FIELD_HELP = {
 
 export const SIDEBAR_DROPDOWN_OPTIONS_HELP = {
   scenarioMode:
-    'Options: No sharing (baseline), Partial sharing (moderate coordination), Full sharing (maximum coordination).',
+    'Options: No Sharing (baseline), Partial Sharing (moderate coordination), Full Sharing (maximum coordination).',
   optimizationMode:
-    'Options: Expected value (average objective ranking), Robust (average plus risk penalty).',
+    'Options: Expected Value (average objective ranking), Robust (average plus risk penalty).',
   paretoMethod:
-    'Options: Dominance (non-dominated only), Epsilon constraint (apply caps then non-dominance).',
+    'Options: Dominance (non-dominated only), Epsilon Constraint (apply caps then non-dominance).',
   terrainProfile:
     'Options: Flat (minimal gradient effect), Rolling (moderate), Hilly (higher penalty).',
   signatureState:
     'Options: Unknown (not provided), Valid (passed), Invalid (failed).',
   experimentFilterScenario:
-    'Options: All scenarios, No sharing, Partial sharing, Full sharing.',
+    'Options: All Scenarios, No Sharing, Partial Sharing, Full Sharing.',
   experimentSort:
-    'Options: Updated newest, Updated oldest, Name A-Z, Name Z-A.',
+    'Options: Updated Newest, Updated Oldest, Name A-Z, Name Z-A.',
   timeLapseSpeed:
     'Options: x0.5 (slower), x1 (normal), x2 (faster), x4 (fastest).',
 } as const;

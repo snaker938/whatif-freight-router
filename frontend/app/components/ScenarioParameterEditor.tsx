@@ -53,7 +53,7 @@ export default function ScenarioParameterEditor({
     >
 
       <div className="fieldLabelRow">
-        <div className="fieldLabel">Optimization mode</div>
+        <div className="fieldLabel">Optimization Mode</div>
         <FieldInfo text={SIDEBAR_FIELD_HELP.optimizationMode} />
       </div>
       <select
@@ -64,14 +64,14 @@ export default function ScenarioParameterEditor({
         data-tutorial-id="advanced.optimization_mode"
         data-tutorial-action="advanced.optimization_mode_select"
       >
-        <option value="expected_value">Expected value</option>
+        <option value="expected_value">Expected Value</option>
         <option value="robust">Robust</option>
       </select>
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.optimizationMode}</div>
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="risk-aversion">
-          Risk aversion
+          Risk Aversion
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.riskAversion} />
       </div>
@@ -89,7 +89,7 @@ export default function ScenarioParameterEditor({
       />
 
       <div className="fieldLabelRow">
-        <div className="fieldLabel">Pareto method</div>
+        <div className="fieldLabel">Pareto Method</div>
         <FieldInfo text={SIDEBAR_FIELD_HELP.paretoMethod} />
       </div>
       <select
@@ -101,7 +101,7 @@ export default function ScenarioParameterEditor({
         data-tutorial-action="advanced.pareto_method_select"
       >
         <option value="dominance">Dominance</option>
-        <option value="epsilon_constraint">Epsilon constraint</option>
+        <option value="epsilon_constraint">Epsilon Constraint</option>
       </select>
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.paretoMethod}</div>
 
@@ -128,7 +128,7 @@ export default function ScenarioParameterEditor({
 
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="epsilon-money">
-              Epsilon monetary cost
+              Epsilon Monetary Cost
             </label>
             <FieldInfo text={SIDEBAR_FIELD_HELP.epsilonMonetaryCost} />
           </div>
@@ -147,7 +147,7 @@ export default function ScenarioParameterEditor({
 
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="epsilon-emissions">
-              Epsilon emissions (kg)
+              Epsilon Emissions (kg)
             </label>
             <FieldInfo text={SIDEBAR_FIELD_HELP.epsilonEmissions} />
           </div>
@@ -168,7 +168,7 @@ export default function ScenarioParameterEditor({
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="departure-time-utc">
-          Departure time (UTC)
+          Departure Time (UTC)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.departureTimeUtc} />
       </div>
@@ -193,7 +193,7 @@ export default function ScenarioParameterEditor({
           data-tutorial-id="advanced.stochastic_toggle"
           data-tutorial-action="advanced.stochastic_toggle"
         />
-        <label htmlFor="stochastic-enabled">Enable stochastic travel-time sampling</label>
+        <label htmlFor="stochastic-enabled">Enable Stochastic Travel-Time Sampling</label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.stochasticEnabled} />
       </div>
 
@@ -201,7 +201,7 @@ export default function ScenarioParameterEditor({
         <div className="advancedGrid" data-tutorial-id="advanced.stochastic_grid">
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="stochastic-seed">
-              Stochastic seed (optional)
+              Stochastic Seed (optional)
             </label>
             <FieldInfo text={SIDEBAR_FIELD_HELP.stochasticSeed} />
           </div>
@@ -218,7 +218,7 @@ export default function ScenarioParameterEditor({
 
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="stochastic-sigma">
-              Stochastic sigma (0-0.5)
+              Stochastic Sigma (0-0.5)
             </label>
             <FieldInfo text={SIDEBAR_FIELD_HELP.stochasticSigma} />
           </div>
@@ -237,7 +237,7 @@ export default function ScenarioParameterEditor({
 
           <div className="fieldLabelRow">
             <label className="fieldLabel" htmlFor="stochastic-samples">
-              Stochastic samples (5-200)
+              Stochastic Samples (5-200)
             </label>
             <FieldInfo text={SIDEBAR_FIELD_HELP.stochasticSamples} />
           </div>
@@ -257,7 +257,7 @@ export default function ScenarioParameterEditor({
       ) : null}
 
       <div className="fieldLabelRow">
-        <div className="fieldLabel">Terrain profile</div>
+        <div className="fieldLabel">Terrain Profile</div>
         <FieldInfo text={SIDEBAR_FIELD_HELP.terrainProfile} />
       </div>
       <select
@@ -283,14 +283,14 @@ export default function ScenarioParameterEditor({
           onChange={(event) => patch('useTolls', event.target.checked)}
           data-tutorial-action="advanced.use_tolls_toggle"
         />
-        <label htmlFor="use-tolls">Use toll costs</label>
+        <label htmlFor="use-tolls">Use Toll Costs</label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.useTolls} />
       </div>
 
       <div className="advancedGrid" data-tutorial-id="advanced.cost_toggles">
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="fuel-price-mult">
-            Fuel price multiplier
+            Fuel Price Multiplier
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.fuelPriceMultiplier} />
         </div>
@@ -308,7 +308,7 @@ export default function ScenarioParameterEditor({
 
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="carbon-price">
-            Carbon price (per kg)
+            Carbon Price (per kg)
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.carbonPrice} />
         </div>
@@ -326,7 +326,7 @@ export default function ScenarioParameterEditor({
 
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="toll-per-km">
-            Toll cost (per km)
+            Toll Cost (per km)
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.tollCostPerKm} />
         </div>

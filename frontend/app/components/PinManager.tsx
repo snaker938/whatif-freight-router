@@ -67,7 +67,7 @@ export default function PinManager({
           onClick={() => onSelectPin(node.id)}
           disabled={disabled}
           aria-pressed={isSelected}
-          aria-label={`${isSelected ? 'Deselect' : 'Select'} ${label} pin`}
+          aria-label={`${isSelected ? 'Deselect' : 'Select'} ${label} Pin`}
           data-tutorial-action="pins.sidebar_select"
         >
           <span className={`pinManager__dot pinManager__dot--${node.kind}`} style={{ background: node.color }} />
@@ -88,10 +88,10 @@ export default function PinManager({
               onChange={(event) => options.onRename?.(event.target.value)}
               placeholder={node.label || 'Stop #1'}
               disabled={disabled}
-              aria-label={`${label} name`}
+              aria-label={`${label} Name`}
             />
           ) : (
-            <div className="pinManager__lockedTag" aria-label={`${label} name is fixed`}>
+            <div className="pinManager__lockedTag" aria-label={`${label} Name Is Fixed`}>
               <span className="pinManager__lockedDot" aria-hidden="true">•</span>
               <span>Locked</span>
             </div>
@@ -103,9 +103,9 @@ export default function PinManager({
 
   return (
     <CollapsibleCard title="Pins & Stops" dataTutorialId="pins.section">
-      <div className="pinManager__rail" role="list" aria-label="Pin route order">
+      <div className="pinManager__rail" role="list" aria-label="Pin Route Order">
         {railNodes.length === 0 ? (
-          <span className="pinManager__railEmpty">Add Start and End pins to build a route.</span>
+          <span className="pinManager__railEmpty">Add Start And End Pins To Build A Route.</span>
         ) : (
           railNodes.map((node, idx) => {
             const isSelected = selectedPinId === node.id;
@@ -135,20 +135,20 @@ export default function PinManager({
         {originNode
           ? renderNodeRow(originNode, 'Start', {
               editable: false,
-              description: 'Route start point.',
+              description: 'Route Start Point.',
             })
           : null}
         {stopNode
           ? renderNodeRow(stopNode, stopNode.label || 'Stop #1', {
               editable: true,
               onRename: onRenameStop,
-              description: 'Optional intermediate stop. Name is editable.',
+              description: 'Optional Intermediate Stop. Name Is Editable.',
             })
           : null}
         {destinationNode
           ? renderNodeRow(destinationNode, 'End', {
               editable: false,
-              description: 'Route end point.',
+              description: 'Route End Point.',
             })
           : null}
       </ul>
@@ -159,26 +159,26 @@ export default function PinManager({
           className="secondary"
           disabled={disabled || !canAddStop}
           onClick={onAddStop}
-          title={!canAddStop ? 'Set both Start and End to add a stop.' : 'Add midpoint stop'}
+          title={!canAddStop ? 'Set Both Start And End To Add A Stop.' : 'Add Midpoint Stop'}
           data-tutorial-action="pins.add_stop"
         >
-          {hasStop ? 'Replace stop' : 'Add stop'}
+          {hasStop ? 'Replace Stop' : 'Add Stop'}
         </button>
         <button
           type="button"
           className="secondary"
           disabled={disabled || !hasStop}
           onClick={onDeleteStop}
-          title={!hasStop ? 'No stop exists to delete.' : 'Delete stop'}
+          title={!hasStop ? 'No Stop Exists To Delete.' : 'Delete Stop'}
           data-tutorial-action="pins.delete_stop"
         >
-          Delete stop
+          Delete Stop
         </button>
         <button type="button" className="secondary" disabled={disabled} onClick={onSwapPins}>
-          Swap start/end
+          Swap Start/End
         </button>
         <button type="button" className="secondary" disabled={disabled} onClick={onClearPins}>
-          Clear pins
+          Clear Pins
         </button>
       </div>
 
@@ -186,24 +186,24 @@ export default function PinManager({
         <button
           type="button"
           className="secondary"
-          disabled={true}
-          title="Unavailable in one-stop mode"
+          disabled
+          title="Unavailable In One-Stop Mode"
           aria-disabled="true"
         >
-          Move stop up
+          Move Stop Up
         </button>
         <button
           type="button"
           className="secondary"
-          disabled={true}
-          title="Unavailable in one-stop mode"
+          disabled
+          title="Unavailable In One-Stop Mode"
           aria-disabled="true"
         >
-          Move stop down
+          Move Stop Down
         </button>
       </div>
-      <div className="tiny">Reorder is disabled in one-stop mode. Enable when multi-stop support is added.</div>
-      <div className="tiny">Tip: click into Stop #1 name to rename, then drag the stop marker on the map.</div>
+      <div className="tiny">Reorder Is Disabled In One-Stop Mode. Enable When Multi-Stop Support Is Added.</div>
+      <div className="tiny">Tip: Click Into Stop #1 Name To Rename, Then Drag The Stop Marker On The Map.</div>
       {oneStopHint ? <div className="pinManager__hintError">{oneStopHint}</div> : null}
     </CollapsibleCard>
   );

@@ -103,14 +103,14 @@ export default function ExperimentManager({
     >
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="experiment-search">
-          Catalog search
+          Catalog Search
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.catalogSearch} />
       </div>
       <input
         id="experiment-search"
         className="input"
-        placeholder="Search by name, id, or description"
+        placeholder="Search By Name, ID, Or Description"
         value={catalogQuery}
         disabled={disabled || loading}
         onChange={(event) => onCatalogQueryChange(event.target.value)}
@@ -120,7 +120,7 @@ export default function ExperimentManager({
       <div className="advancedGrid" style={{ marginTop: 8 }}>
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="experiment-filter-vehicle">
-            Filter vehicle
+            Filter Vehicle
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.filterVehicle} />
         </div>
@@ -142,7 +142,7 @@ export default function ExperimentManager({
 
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="experiment-filter-scenario">
-            Filter scenario
+            Filter Scenario
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.filterScenario} />
         </div>
@@ -154,10 +154,10 @@ export default function ExperimentManager({
           onChange={(event) => onCatalogScenarioModeChange(event.target.value as '' | ScenarioMode)}
           data-tutorial-action="exp.filter_scenario_select"
         >
-          <option value="">All scenarios</option>
-          <option value="no_sharing">No sharing</option>
-          <option value="partial_sharing">Partial sharing</option>
-          <option value="full_sharing">Full sharing</option>
+          <option value="">All Scenarios</option>
+          <option value="no_sharing">No Sharing</option>
+          <option value="partial_sharing">Partial Sharing</option>
+          <option value="full_sharing">Full Sharing</option>
         </select>
         <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentFilterScenario}</div>
 
@@ -175,8 +175,8 @@ export default function ExperimentManager({
           onChange={(event) => onCatalogSortChange(event.target.value as ExperimentCatalogSort)}
           data-tutorial-action="exp.sort_select"
         >
-          <option value="updated_desc">Updated (newest)</option>
-          <option value="updated_asc">Updated (oldest)</option>
+          <option value="updated_desc">Updated (Newest)</option>
+          <option value="updated_asc">Updated (Oldest)</option>
           <option value="name_asc">Name (A-Z)</option>
           <option value="name_desc">Name (Z-A)</option>
         </select>
@@ -198,7 +198,7 @@ export default function ExperimentManager({
           disabled={loading || disabled}
           data-tutorial-action="exp.apply_filters_click"
         >
-          Apply filters
+          Apply Filters
         </button>
       </div>
 
@@ -220,7 +220,7 @@ export default function ExperimentManager({
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="experiment-description">
-          Description (optional)
+          Description (Optional)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.experimentDescription} />
       </div>
@@ -241,14 +241,14 @@ export default function ExperimentManager({
           disabled={!canSave || !name.trim() || disabled}
           data-tutorial-action="exp.save_click"
         >
-          Save current bundle
+          Save Current Bundle
         </button>
       </div>
 
       {error ? <div className="error">{error}</div> : null}
 
       <ul className="routeList" style={{ marginTop: 10 }}>
-        {experiments.length === 0 ? <li className="helper">No experiments match the current filters.</li> : null}
+        {experiments.length === 0 ? <li className="helper">No Experiments Match The Current Filters.</li> : null}
         {experiments.map((bundle) => (
           <li key={bundle.id} className="routeCard" style={{ cursor: 'default' }}>
             <div className="routeCard__top">
@@ -265,14 +265,14 @@ export default function ExperimentManager({
               >
                 Load
               </button>
-              <button
-                className="secondary"
-                onClick={() => onReplay(bundle.id)}
-                disabled={disabled || loading}
-                data-tutorial-action="exp.replay_click"
-              >
-                Run compare
-              </button>
+                <button
+                  className="secondary"
+                  onClick={() => onReplay(bundle.id)}
+                  disabled={disabled || loading}
+                  data-tutorial-action="exp.replay_click"
+                >
+                  Run Compare
+                </button>
               <button
                 className="secondary"
                 onClick={() => onDelete(bundle.id)}

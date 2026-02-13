@@ -35,17 +35,17 @@ export default function DutyChainPlanner({
       dataTutorialId="duty.section"
     >
       <div className="helper">
-        Ordered stops, one per line: <code>lat,lon,label(optional)</code>.
+        Ordered Stops, One Per Line: <code>lat,lon,label(optional)</code>.
       </div>
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="duty-stops-textarea">
-          Stops input
+          Stops Input
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.dutyStopsTextarea} />
       </div>
       <textarea
         id="duty-stops-textarea"
-        aria-label="Duty chain stops"
+        aria-label="Duty Chain Stops"
         className="input"
         style={{ minHeight: 110, marginTop: 8, resize: 'vertical' }}
         value={stopsText}
@@ -70,24 +70,24 @@ export default function DutyChainPlanner({
       {data ? (
         <div style={{ marginTop: 10 }}>
           <div className="tiny">
-            Legs: {data.leg_count} | Successful: {data.successful_leg_count}
+            Legs: {data.leg_count} | Successful Legs: {data.successful_leg_count}
           </div>
           <div className="metrics" style={{ marginTop: 10 }}>
             <div className="metric">
-              <div className="metric__label">Total distance</div>
+              <div className="metric__label">Total Distance</div>
               <div className="metric__value">
                 {formatNumber(data.total_metrics.distance_km, locale, { maximumFractionDigits: 2 })} km
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Total duration</div>
+              <div className="metric__label">Total Duration</div>
               <div className="metric__value">
                 {formatNumber(data.total_metrics.duration_s / 60, locale, { maximumFractionDigits: 1 })}{' '}
                 min
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Total cost</div>
+              <div className="metric__label">Total Cost</div>
               <div className="metric__value">
                 £
                 {formatNumber(data.total_metrics.monetary_cost, locale, {
@@ -103,7 +103,7 @@ export default function DutyChainPlanner({
             </div>
             {data.total_metrics.energy_kwh !== null && data.total_metrics.energy_kwh !== undefined ? (
               <div className="metric">
-                <div className="metric__label">Total energy</div>
+                <div className="metric__label">Total Energy</div>
                 <div className="metric__value">
                   {formatNumber(data.total_metrics.energy_kwh, locale, { maximumFractionDigits: 2 })} kWh
                 </div>
@@ -120,10 +120,10 @@ export default function DutyChainPlanner({
               >
                 <div className="routeCard__top">
                   <div className="routeCard__id">
-                    Leg {leg.leg_index + 1}: {leg.origin.label ?? 'Origin'} {'->'}{' '}
+                    Leg {leg.leg_index + 1}: {leg.origin.label ?? 'Origin'} {'→'}{' '}
                     {leg.destination.label ?? 'End'}
                   </div>
-                  <div className="routeCard__pill">{leg.selected ? 'OK' : 'No route'}</div>
+                  <div className="routeCard__pill">{leg.selected ? 'OK' : 'No Route'}</div>
                 </div>
                 {leg.error ? <div className="error">{leg.error}</div> : null}
                 {leg.selected ? (
