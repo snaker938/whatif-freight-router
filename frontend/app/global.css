@@ -1769,7 +1769,7 @@ a {
 
   .tutorialChecklist__item {
     display: grid;
-    grid-template-columns: 14px minmax(0, 1fr) auto auto;
+    grid-template-columns: 22px minmax(0, 1fr) auto auto;
     align-items: start;
     gap: 8px;
     font-size: 12px;
@@ -1786,9 +1786,31 @@ a {
     color: rgba(226, 251, 255, 0.92);
   }
 
-  .tutorialChecklist__icon {
+  .tutorialChecklist__item.isCurrent {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.1);
+    color: rgba(254, 243, 199, 0.95);
+  }
+
+  .tutorialChecklist__item.isLocked {
+    opacity: 0.78;
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(148, 163, 184, 0.08);
+  }
+
+  .tutorialChecklist__number {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 12px;
-    line-height: 1.2;
+    line-height: 1;
+    font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.86);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .tutorialChecklist__labelWrap {
@@ -1826,6 +1848,18 @@ a {
     border-color: rgba(245, 158, 11, 0.34);
     background: rgba(245, 158, 11, 0.1);
     color: rgba(254, 243, 199, 0.92);
+  }
+
+  .tutorialChecklist__state.isCurrent {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.2);
+    color: rgba(254, 243, 199, 0.98);
+  }
+
+  .tutorialChecklist__state.isLocked {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(148, 163, 184, 0.16);
+    color: rgba(226, 232, 240, 0.9);
   }
 
   .tutorialChecklist__manualBtn {

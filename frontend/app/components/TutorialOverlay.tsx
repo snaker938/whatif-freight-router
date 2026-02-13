@@ -125,6 +125,10 @@ export default function TutorialOverlay({
       arrowClass: preferRight ? 'isLeftAnchor' : 'isRightAnchor',
     };
   }, [mode, targetRect]);
+  const firstPendingIndex = useMemo(
+    () => checklist.findIndex((item) => !item.done),
+    [checklist],
+  );
 
   if (!open) return null;
   const mapFocusedRunning = mode === 'running' && runningScope === 'map_only';
@@ -271,33 +275,52 @@ export default function TutorialOverlay({
             ) : null}
 
             {checklist.length > 0 ? (
-              <ul className="tutorialChecklist">
-                {checklist.map((item) => (
-                  <li key={item.actionId} className={`tutorialChecklist__item ${item.done ? 'isDone' : ''}`}>
-                    <span className="tutorialChecklist__icon" aria-hidden="true">
-                      {item.done ? '✓' : '•'}
-                    </span>
-                    <span className="tutorialChecklist__labelWrap">
-                      <span className="tutorialChecklist__label">{item.label}</span>
-                      {item.details ? (
-                        <span className="tutorialChecklist__details">{item.details}</span>
+              <ol className="tutorialChecklist" aria-label="Step tasks in required order">
+                {checklist.map((item, idx) => {
+                  const previousDone = checklist.slice(0, idx).every((entry) => entry.done);
+                  const isLocked = !item.done && !previousDone;
+                  const isCurrent =
+                    !item.done && previousDone && (firstPendingIndex === idx || firstPendingIndex === -1);
+                  const stateClass = item.done
+                    ? 'isDone'
+                    : isCurrent
+                      ? 'isCurrent'
+                      : isLocked
+                        ? 'isLocked'
+                        : 'isPending';
+                  const stateLabel = item.done
+                    ? 'Done'
+                    : isCurrent
+                      ? 'Now'
+                      : isLocked
+                        ? 'Locked'
+                        : 'Pending';
+
+                  return (
+                    <li key={item.actionId} className={`tutorialChecklist__item ${stateClass}`}>
+                      <span className="tutorialChecklist__number" aria-hidden="true">
+                        {idx + 1}
+                      </span>
+                      <span className="tutorialChecklist__labelWrap">
+                        <span className="tutorialChecklist__label">{item.label}</span>
+                        {item.details ? (
+                          <span className="tutorialChecklist__details">{item.details}</span>
+                        ) : null}
+                      </span>
+                      <span className={`tutorialChecklist__state ${stateClass}`}>{stateLabel}</span>
+                      {!item.done && item.kind === 'manual' && !isLocked ? (
+                        <button
+                          type="button"
+                          className="ghostButton tutorialChecklist__manualBtn"
+                          onClick={() => onMarkManual(item.actionId)}
+                        >
+                          Mark done
+                        </button>
                       ) : null}
-                    </span>
-                    <span className={`tutorialChecklist__state ${item.done ? 'isDone' : 'isPending'}`}>
-                      {item.done ? 'Done' : 'Pending'}
-                    </span>
-                    {!item.done && item.kind === 'manual' ? (
-                  <button
-                    type="button"
-                    className="ghostButton tutorialChecklist__manualBtn"
-                    onClick={() => onMarkManual(item.actionId)}
-                      >
-                        Mark done
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  );
+                })}
+              </ol>
             ) : null}
 
             {optionalDecision ? (

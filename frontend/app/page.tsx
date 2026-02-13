@@ -104,6 +104,7 @@ type MapViewProps = {
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
   tutorialViewportLocked?: boolean;
+  tutorialHideZoomControls?: boolean;
   tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
@@ -902,6 +903,7 @@ export default function Page() {
   );
   const tutorialMapLocked = tutorialRunning && tutorialLockScope === 'sidebar_section_only';
   const tutorialViewportLocked = tutorialRunning && tutorialStep?.id === 'map_set_pins';
+  const tutorialHideZoomControls = tutorialRunning && tutorialLockScope === 'map_only';
   const tutorialGuideTarget = useMemo<TutorialGuideTarget | null>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
     if (tutorialPlacementStage === 'done') return null;
@@ -2864,6 +2866,7 @@ export default function Page() {
           overlayLabels={mapOverlayLabels}
           tutorialMapLocked={tutorialMapLocked}
           tutorialViewportLocked={tutorialViewportLocked}
+          tutorialHideZoomControls={tutorialHideZoomControls}
           tutorialExpectedAction={tutorialRunning ? tutorialNextRequiredActionId : null}
           tutorialGuideTarget={tutorialGuideTarget}
           tutorialGuideVisible={tutorialGuideVisible}

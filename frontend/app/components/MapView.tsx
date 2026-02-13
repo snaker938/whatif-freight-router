@@ -4,7 +4,6 @@
 import L, {
   type LatLngBoundsExpression,
   type LatLngExpression,
-  latLng as leafletLatLng,
   type LeafletMouseEvent,
 } from 'leaflet';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
@@ -68,6 +67,7 @@ type Props = {
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
   tutorialViewportLocked?: boolean;
+  tutorialHideZoomControls?: boolean;
   tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
@@ -253,31 +253,35 @@ function FitAllRequestHandler({
 function TutorialGuidePanHandler({
   guideTarget,
   visible,
+  viewportLocked,
 }: {
   guideTarget: TutorialGuideTarget | null | undefined;
   visible: boolean;
+  viewportLocked: boolean;
 }) {
   const map = useMap();
 
   useEffect(() => {
     if (!visible || !guideTarget) return;
+    if (viewportLocked) {
+      map.setView([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
+        animate: false,
+      });
+      return;
+    }
     map.flyTo([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
       animate: true,
       duration: 0.55,
     });
-  }, [guideTarget?.pan_nonce, guideTarget?.stage, visible, map, guideTarget]);
+  }, [guideTarget?.pan_nonce, guideTarget?.stage, visible, map, guideTarget, viewportLocked]);
 
   return null;
 }
 
 function MapInteractionLockHandler({
   viewportLocked,
-  guideTarget,
-  guideVisible,
 }: {
   viewportLocked: boolean;
-  guideTarget: TutorialGuideTarget | null | undefined;
-  guideVisible: boolean;
 }) {
   const map = useMap();
 
@@ -307,29 +311,10 @@ function MapInteractionLockHandler({
 
     disableInteractions();
 
-    const recenterToGuide = () => {
-      if (!guideVisible || !guideTarget) return;
-      const center = map.getCenter();
-      const target = leafletLatLng(guideTarget.lat, guideTarget.lon);
-      const distance = center.distanceTo(target);
-      const zoomDelta = Math.abs(map.getZoom() - guideTarget.zoom);
-      if (distance > 12 || zoomDelta > 0.01) {
-        map.setView([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
-          animate: false,
-        });
-      }
-    };
-
-    recenterToGuide();
-    map.on('moveend', recenterToGuide);
-    map.on('zoomend', recenterToGuide);
-
     return () => {
-      map.off('moveend', recenterToGuide);
-      map.off('zoomend', recenterToGuide);
       enableInteractions();
     };
-  }, [guideTarget, guideVisible, map, viewportLocked]);
+  }, [map, viewportLocked]);
 
   return null;
 }
@@ -583,6 +568,7 @@ export default function MapView({
   onTutorialTargetState,
   tutorialMapLocked = false,
   tutorialViewportLocked = false,
+  tutorialHideZoomControls = false,
   tutorialExpectedAction = null,
   tutorialGuideTarget = null,
   tutorialGuideVisible = false,
@@ -809,6 +795,7 @@ export default function MapView({
         zoom={11}
         minZoom={5}
         maxZoom={18}
+        zoomControl={!tutorialHideZoomControls}
         dragging={!tutorialMapLocked}
         scrollWheelZoom={!tutorialMapLocked}
         doubleClickZoom={!tutorialMapLocked}
@@ -835,12 +822,12 @@ export default function MapView({
           managedStop={managedStop}
           route={route}
         />
-        <TutorialGuidePanHandler guideTarget={tutorialGuideTarget} visible={tutorialGuideVisible} />
-        <MapInteractionLockHandler
-          viewportLocked={tutorialViewportLocked}
+        <TutorialGuidePanHandler
           guideTarget={tutorialGuideTarget}
-          guideVisible={tutorialGuideVisible}
+          visible={tutorialGuideVisible}
+          viewportLocked={tutorialViewportLocked}
         />
+        <MapInteractionLockHandler viewportLocked={tutorialViewportLocked} />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
