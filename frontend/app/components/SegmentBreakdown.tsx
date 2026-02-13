@@ -71,6 +71,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
           }}
           aria-expanded={expanded}
           aria-controls={scrollRegionId}
+          data-tutorial-action={expanded ? 'selected.segment_collapse' : 'selected.segment_expand'}
         >
           {expanded ? 'Collapse' : 'Expand'}
         </button>
@@ -135,6 +136,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
                 setShowAllRows(true);
                 onTutorialAction?.('selected.segment_show_all');
               }}
+              data-tutorial-action="selected.segment_show_all"
             >
               Show All Rows
             </button>
@@ -159,6 +161,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
                 setShowAllRows(false);
                 onTutorialAction?.('selected.segment_show_fewer');
               }}
+              data-tutorial-action="selected.segment_show_fewer"
             >
               Show Fewer Rows
             </button>

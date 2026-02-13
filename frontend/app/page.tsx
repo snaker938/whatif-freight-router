@@ -17,6 +17,8 @@ import {
   vehicleDescriptionFromId,
 } from './lib/sidebarHelpText';
 import {
+  LEGACY_TUTORIAL_COMPLETED_KEYS,
+  LEGACY_TUTORIAL_PROGRESS_KEYS,
   TUTORIAL_CANONICAL_DESTINATION,
   TUTORIAL_CANONICAL_DUTY_STOPS,
   TUTORIAL_CANONICAL_ORIGIN,
@@ -860,6 +862,13 @@ export default function Page() {
   const tutorialTargetIdSet = useMemo(() => {
     return new Set<string>(tutorialStep?.targetIds ?? []);
   }, [tutorialStep]);
+  const tutorialUsesSectionTarget = useMemo(
+    () =>
+      (tutorialStep?.targetIds ?? []).some((targetId) =>
+        TUTORIAL_SECTION_IDS.includes(targetId as TutorialSectionId),
+      ),
+    [tutorialStep],
+  );
   const tutorialSidebarLocked = tutorialRunning && tutorialLockScope === 'map_only';
   const tutorialSectionControlFor = useCallback(
     (sectionId: TutorialSectionId): TutorialSectionControl | undefined => {
@@ -1299,8 +1308,34 @@ export default function Page() {
   useEffect(() => {
     if (tutorialBootstrappedRef.current) return;
     tutorialBootstrappedRef.current = true;
-    const savedProgress = loadTutorialProgress(TUTORIAL_PROGRESS_KEY);
-    const isCompleted = loadTutorialCompleted(TUTORIAL_COMPLETED_KEY);
+    let savedProgress = loadTutorialProgress(TUTORIAL_PROGRESS_KEY);
+    if (!savedProgress) {
+      for (const legacyKey of LEGACY_TUTORIAL_PROGRESS_KEYS) {
+        const legacyProgress = loadTutorialProgress(legacyKey);
+        if (!legacyProgress) continue;
+        savedProgress = legacyProgress;
+        saveTutorialProgress(TUTORIAL_PROGRESS_KEY, legacyProgress);
+        break;
+      }
+    }
+
+    let isCompleted = loadTutorialCompleted(TUTORIAL_COMPLETED_KEY);
+    if (!isCompleted) {
+      for (const legacyCompletedKey of LEGACY_TUTORIAL_COMPLETED_KEYS) {
+        if (!loadTutorialCompleted(legacyCompletedKey)) continue;
+        isCompleted = true;
+        saveTutorialCompleted(TUTORIAL_COMPLETED_KEY, true);
+        break;
+      }
+    }
+
+    for (const legacyKey of LEGACY_TUTORIAL_PROGRESS_KEYS) {
+      clearTutorialProgress(legacyKey);
+    }
+    for (const legacyCompletedKey of LEGACY_TUTORIAL_COMPLETED_KEYS) {
+      saveTutorialCompleted(legacyCompletedKey, false);
+    }
+
     setTutorialSavedProgress(savedProgress);
     setTutorialCompleted(isCompleted);
     if (!isCompleted) {
@@ -1323,12 +1358,20 @@ export default function Page() {
   useEffect(() => {
     if (!tutorialRunning) return;
     if (tutorialStep?.id === 'map_set_pins') {
-      setTutorialPlacementStage('newcastle_origin');
+      const hasOrigin = tutorialActionSet.has('map.set_origin_newcastle');
+      const hasDestination = tutorialActionSet.has('map.set_destination_london');
+      if (hasDestination) {
+        setTutorialPlacementStage('done');
+      } else if (hasOrigin) {
+        setTutorialPlacementStage('london_destination');
+      } else {
+        setTutorialPlacementStage('newcastle_origin');
+      }
       setTutorialGuidePanNonce((prev) => prev + 1);
       return;
     }
     setTutorialPlacementStage('done');
-  }, [tutorialRunning, tutorialStep?.id]);
+  }, [tutorialActionSet, tutorialRunning, tutorialStep?.id]);
 
   useEffect(() => {
     if (!tutorialRunning) return;
@@ -1412,7 +1455,11 @@ export default function Page() {
           return;
         }
 
-        if (isTargetAllowedByStep(target)) {
+        const actionlessControl = target.closest<HTMLElement>(
+          'button, input, select, textarea, a, [role="button"], [role="option"], [contenteditable="true"]',
+        );
+
+        if (isTargetAllowedByStep(target) && !tutorialUsesSectionTarget && !actionlessControl) {
           return;
         }
 
@@ -1436,6 +1483,7 @@ export default function Page() {
     tutorialLockScope,
     tutorialRunning,
     tutorialTargetIdSet,
+    tutorialUsesSectionTarget,
   ]);
 
   useEffect(() => {
@@ -2782,7 +2830,6 @@ export default function Page() {
       </div>
       <div
         className={`mapStage ${tutorialMapLocked ? 'isTutorialLocked' : ''} ${tutorialGuideVisible ? 'isTutorialGuided' : ''}`.trim()}
-        data-tutorial-id="map.interactive"
       >
         <MapView
           origin={origin}
@@ -2835,7 +2882,10 @@ export default function Page() {
         <SidebarToggleIcon collapsed={isPanelCollapsed} />
       </button>
 
-      <aside className={`panel ${isPanelCollapsed ? 'isCollapsed' : ''}`} aria-hidden={isPanelCollapsed}>
+      <aside
+        className={`panel ${isPanelCollapsed ? 'isCollapsed' : ''} ${tutorialSidebarLocked ? 'isTutorialLocked' : ''}`.trim()}
+        aria-hidden={isPanelCollapsed}
+      >
             <header className="panelHeader">
               <div className="panelHeader__top">
                 <h1>{t('panel_title')}</h1>
@@ -3357,6 +3407,7 @@ export default function Page() {
                           value={routeSort}
                           options={routeSortOptions}
                           onChange={setRouteSort}
+                          tutorialAction="routes.sort_select"
                         />
                       </div>
 

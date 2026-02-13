@@ -661,6 +661,24 @@ export default function MapView({
     () => makeDutyStopIcon(1, stopNodeColor, selectedPinId === 'stop-1'),
     [selectedPinId, stopNodeColor],
   );
+  const tutorialGuideArrowIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'tutorialGuideArrowPin',
+        html: '<span class="tutorialGuideArrowPin__inner" aria-hidden="true"></span>',
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      }),
+    [],
+  );
+  const tutorialGuideArrowPosition = useMemo(() => {
+    if (!tutorialGuideVisible || !tutorialGuideTarget) return null;
+    const latOffset = Math.max(0.08, tutorialGuideTarget.radius_km / 55);
+    return {
+      from: [tutorialGuideTarget.lat + latOffset, tutorialGuideTarget.lon] as [number, number],
+      to: [tutorialGuideTarget.lat, tutorialGuideTarget.lon] as [number, number],
+    };
+  }, [tutorialGuideTarget, tutorialGuideVisible]);
 
   const polylinePositions: LatLngExpression[] = useMemo(() => {
     const coords = route?.geometry?.coordinates ?? [];
@@ -771,6 +789,32 @@ export default function MapView({
 
         {tutorialGuideVisible && tutorialGuideTarget ? (
           <>
+            {tutorialGuideArrowPosition ? (
+              <>
+                <Polyline
+                  positions={[
+                    tutorialGuideArrowPosition.from,
+                    tutorialGuideArrowPosition.to,
+                  ]}
+                  pathOptions={{
+                    className: 'tutorialGuideArrowStem',
+                    color: 'rgba(34, 211, 238, 0.92)',
+                    weight: 2.2,
+                    opacity: 0.95,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    dashArray: '4 5',
+                  }}
+                  interactive={false}
+                />
+                <Marker
+                  position={tutorialGuideArrowPosition.from}
+                  icon={tutorialGuideArrowIcon}
+                  interactive={false}
+                  keyboard={false}
+                />
+              </>
+            ) : null}
             <Circle
               center={[tutorialGuideTarget.lat, tutorialGuideTarget.lon]}
               radius={tutorialGuideTarget.radius_km * 1000}

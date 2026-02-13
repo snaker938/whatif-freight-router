@@ -242,8 +242,6 @@ export default function Select<T extends string>({
         disabled={isDisabled}
         onClick={() => !isDisabled && setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
-        {...(tutorialAction ? { 'data-tutorial-action': tutorialAction } : {})}
-        {...(tutorialActionPrefix ? { 'data-tutorial-action': `${tutorialActionPrefix}:open` } : {})}
       >
         <span className="select__value">
           {selected?.label ?? placeholder ?? (options.length ? 'Select…' : 'No Options')}
@@ -267,6 +265,9 @@ export default function Select<T extends string>({
           {options.map((opt, idx) => {
             const isSelected = opt.value === value;
             const isActive = idx === activeIndex;
+            const optionTutorialAction = tutorialActionPrefix
+              ? `${tutorialActionPrefix}:${String(opt.value)}`
+              : tutorialAction;
             return (
               <button
                 key={opt.value}
@@ -282,8 +283,8 @@ export default function Select<T extends string>({
                 }`}
                 onMouseEnter={() => setActiveIndex(idx)}
                 onClick={() => commit(idx)}
-                {...(tutorialActionPrefix
-                  ? { 'data-tutorial-action': `${tutorialActionPrefix}:${String(opt.value)}` }
+                {...(optionTutorialAction
+                  ? { 'data-tutorial-action': optionTutorialAction }
                   : {})}
               >
                 <span className="select__optionText">

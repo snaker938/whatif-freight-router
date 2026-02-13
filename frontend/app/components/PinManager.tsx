@@ -114,6 +114,7 @@ export default function PinManager({
               placeholder={node.label || 'Stop #1'}
               disabled={disabled}
               aria-label={`${label} Name`}
+              data-tutorial-action="pins.rename_stop"
             />
           ) : (
             <div className="pinManager__lockedTag" aria-label={`${label} Name Is Fixed`}>
@@ -205,10 +206,22 @@ export default function PinManager({
         >
           Delete Stop
         </button>
-        <button type="button" className="secondary" disabled={disabled} onClick={onSwapPins}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={disabled}
+          onClick={onSwapPins}
+          data-tutorial-action="pins.swap_start_end"
+        >
           Swap Start/End
         </button>
-        <button type="button" className="secondary" disabled={disabled} onClick={onClearPins}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={disabled}
+          onClick={onClearPins}
+          data-tutorial-action="pins.clear_pins"
+        >
           Clear Pins
         </button>
       </div>

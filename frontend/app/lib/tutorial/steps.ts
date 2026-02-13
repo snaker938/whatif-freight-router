@@ -66,13 +66,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       },
       {
         actionId: 'map.click_destination_marker',
-        label: 'Click the Destination marker once.',
-        details: 'Use marker click interaction on the B pin.',
+        label: 'Click the End marker once.',
+        details: 'Use marker click interaction on the End pin.',
       },
       {
         actionId: 'map.drag_origin_marker',
         label: 'Drag the Start marker once.',
-        details: 'Drag A to a nearby location and drop.',
+        details: 'Drag Start to a nearby location and drop.',
       },
       {
         actionId: 'map.drag_destination_marker',
@@ -105,17 +105,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
   },
   {
-    id: 'map_drag_pin',
-    chapterId: 'chapter_map',
-    title: 'Refine marker coordinates with drag-and-drop',
-    what:
-      'Drag at least one marker to a nearby road and drop it. This demonstrates precision editing after initial placement when you want to test nearby alternatives.',
-    impact:
-      'Small pin movements can change snapped roads, total distance, ETA, and candidate dominance. Drag is the fastest way to run local what-if checks.',
-    targetIds: ['map.interactive'],
-    required: [{ actionId: 'map.drag_marker', label: 'Drag any map marker once.' }],
-  },
-  {
     id: 'map_popup_actions',
     chapterId: 'chapter_map',
     title: 'Use marker popups for fast pin operations',
@@ -128,24 +117,25 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'map.popup_copy', label: 'Copy coordinates from any marker popup.' },
       { actionId: 'map.popup_close', label: 'Close a marker popup using its close action.' },
     ],
+    lockScope: 'map_only',
   },
   {
-    id: 'map_destructive_actions',
+    id: 'map_stop_lifecycle',
     chapterId: 'chapter_map',
-    title: 'Run full pin lifecycle actions and recover',
+    title: 'Run full stop lifecycle actions on the map',
     what:
-      'Use add-stop midpoint, stop deletion, swap, and clear/reset once to verify full lifecycle controls.',
+      'Add a midpoint stop from a marker popup, rename it, drag it to a nearby location, and delete it.',
     impact:
-      'This proves pin and stop lifecycle behavior: endpoints are protected, stop edits are reversible, and clear-all reset restores a deterministic baseline.',
+      'This proves stop lifecycle reliability: creation, editing, repositioning, and deletion all work without destabilizing Start/End pins.',
     targetIds: ['map.interactive'],
     required: [
       { actionId: 'map.add_stop_midpoint', label: 'Add or replace a midpoint stop from a pin popup.' },
+      { actionId: 'map.rename_stop', label: 'Rename the stop from map popup controls.' },
+      { actionId: 'map.drag_stop_marker', label: 'Drag the stop marker to a nearby location.' },
       { actionId: 'map.delete_stop', label: 'Delete the stop from stop controls.' },
-      { actionId: 'map.popup_swap', label: 'Swap start/destination once from popup or setup controls.' },
-      { actionId: 'setup.clear_pins_button', label: 'Clear all pins once using the global clear action.' },
-      { actionId: 'map.set_destination', label: 'Restore destination after clear-all reset.' },
     ],
     prefillId: 'canonical_map',
+    lockScope: 'map_only',
   },
   {
     id: 'setup_vehicle',
@@ -158,6 +148,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     targetIds: ['setup.vehicle'],
     required: [{ actionId: 'setup.vehicle_select', label: 'Select a vehicle option.' }],
     prefillId: 'canonical_setup',
+    activeSectionId: 'setup.section',
+    lockScope: 'sidebar_section_only',
+    allowedActions: ['setup.vehicle_option:*'],
   },
   {
     id: 'setup_scenario',
@@ -169,6 +162,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       'Scenario mode changes delay assumptions and can materially shift ETA, money, and CO2 values across candidates.',
     targetIds: ['setup.scenario'],
     required: [{ actionId: 'setup.scenario_select', label: 'Select a scenario option.' }],
+    activeSectionId: 'setup.section',
+    lockScope: 'sidebar_section_only',
+    allowedActions: ['setup.scenario_option:*'],
   },
   {
     id: 'setup_language',
@@ -180,6 +176,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       'Locale improves operator readability and changes how metrics are rendered during review and reporting.',
     targetIds: ['setup.language'],
     required: [{ actionId: 'setup.language_select', label: 'Change language selection once.' }],
+    activeSectionId: 'setup.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'setup_api_token_optional',
@@ -197,6 +195,45 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       actionIds: ['setup.api_token_input'],
       defaultLabel: 'Keep API token empty (default).',
     },
+    activeSectionId: 'setup.section',
+    lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'setup_map_actions',
+    chapterId: 'chapter_setup',
+    title: 'Use setup map action buttons',
+    what:
+      'Run setup map actions once: clear pins, restore sample pins, fit map to pins, then swap Start/End.',
+    impact:
+      'These quick actions speed up scenario setup and let operators recover, reframe, and reorder endpoints without manual re-entry.',
+    targetIds: ['setup.section'],
+    required: [
+      { actionId: 'setup.clear_pins_button', label: 'Clear all pins once.' },
+      { actionId: 'setup.sample_pins_button', label: 'Restore sample Start/End pins.' },
+      { actionId: 'setup.fit_map_button', label: 'Fit map to current pins.' },
+      { actionId: 'setup.swap_pins_button', label: 'Swap Start and End once.' },
+    ],
+    activeSectionId: 'setup.section',
+    lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'pins_sidebar_manage',
+    chapterId: 'chapter_setup',
+    title: 'Manage pin state from Pins and Stops',
+    what:
+      'Use the Pins and Stops section to select pins, add or replace a stop, rename the stop, and remove it.',
+    impact:
+      'Sidebar pin controls provide deterministic pin-state management without relying on map popups during constrained workflows.',
+    targetIds: ['pins.section'],
+    required: [
+      { actionId: 'pins.sidebar_select', label: 'Select or deselect a pin from the sidebar rail/list.' },
+      { actionId: 'pins.add_stop', label: 'Add or replace the midpoint stop from sidebar controls.' },
+      { actionId: 'pins.rename_stop', label: 'Rename Stop #1 from the sidebar input.' },
+      { actionId: 'pins.delete_stop', label: 'Delete the stop from sidebar controls.' },
+    ],
+    prefillId: 'canonical_map',
+    activeSectionId: 'pins.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'advanced_optimization_and_risk',
@@ -212,6 +249,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'advanced.risk_aversion_input', label: 'Update risk aversion value.' },
     ],
     prefillId: 'canonical_advanced',
+    activeSectionId: 'advanced.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'advanced_pareto_method',
@@ -228,6 +267,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'advanced.epsilon_money_input', label: 'Set epsilon monetary bound.' },
       { actionId: 'advanced.epsilon_emissions_input', label: 'Set epsilon emissions bound.' },
     ],
+    activeSectionId: 'advanced.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'advanced_departure_optional',
@@ -245,6 +286,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       actionIds: ['advanced.departure_time_input'],
       defaultLabel: 'Keep departure time at default behavior.',
     },
+    activeSectionId: 'advanced.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'advanced_stochastic',
@@ -261,6 +304,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'advanced.stochastic_sigma_input', label: 'Set stochastic sigma.' },
       { actionId: 'advanced.stochastic_samples_input', label: 'Set sample count.' },
     ],
+    activeSectionId: 'advanced.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'advanced_terrain_and_cost',
@@ -278,6 +323,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'advanced.carbon_price_input', label: 'Set carbon price per kg.' },
       { actionId: 'advanced.toll_per_km_input', label: 'Set toll cost per km.' },
     ],
+    activeSectionId: 'advanced.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'preferences_weights',
@@ -294,6 +341,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'pref.weight_co2', label: 'Adjust CO2 weight.' },
     ],
     prefillId: 'canonical_preferences',
+    activeSectionId: 'preferences.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'preferences_compute',
@@ -308,6 +357,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'pref.compute_pareto_click', label: 'Click Compute Pareto.' },
       { actionId: 'pref.compute_pareto_done', label: 'Wait for route computation to finish.' },
     ],
+    activeSectionId: 'preferences.section',
+    lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'routes_sort_options',
+    chapterId: 'chapter_routes',
+    title: 'Apply route sorting control',
+    what:
+      'Change the route sort selector to inspect candidate ordering by ETA, cost, or emissions.',
+    impact:
+      'Sorting improves review flow and helps you inspect candidate sets from different operational priorities.',
+    targetIds: ['routes.list'],
+    required: [{ actionId: 'routes.sort_select', label: 'Change route sort order once.' }],
+    activeSectionId: 'routes.list',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'routes_select_from_chart',
@@ -319,6 +383,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       'Chart selection updates selected-route metrics and all dependent panels (timeline, segment table, counterfactuals).',
     targetIds: ['routes.chart'],
     required: [{ actionId: 'routes.select_chart', label: 'Select one route from the chart.' }],
+    activeSectionId: 'routes.list',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'routes_select_and_rename',
@@ -334,6 +400,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'routes.rename_start', label: 'Start rename flow.' },
       { actionId: 'routes.rename_save', label: 'Save renamed route label.' },
     ],
+    activeSectionId: 'routes.list',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'routes_names_reset',
@@ -345,6 +413,24 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       'Reset avoids stale labeling errors and returns deterministic default naming.',
     targetIds: ['routes.reset_names'],
     required: [{ actionId: 'routes.reset_names', label: 'Click Reset names.' }],
+    activeSectionId: 'routes.list',
+    lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'selected_panel_utilities',
+    chapterId: 'chapter_routes',
+    title: 'Use selected route utility actions',
+    what:
+      'Use the selected-route utility controls to fit the map to the active route and copy its metrics summary.',
+    impact:
+      'These controls speed QA and reporting by centering route context and extracting quick summaries.',
+    targetIds: ['selected.route_panel'],
+    required: [
+      { actionId: 'selected.fit_route', label: 'Click Fit Route To Map.' },
+      { actionId: 'selected.copy_summary', label: 'Copy selected-route summary once.' },
+    ],
+    activeSectionId: 'selected.route_panel',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'selected_segment_controls',
@@ -365,6 +451,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       actionIds: ['selected.segment_show_all', 'selected.segment_show_fewer'],
       defaultLabel: 'Keep compact preview mode.',
     },
+    activeSectionId: 'selected.route_panel',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'selected_read_panels',
@@ -397,6 +485,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
         details: 'Counterfactual section should be shown for selected route context.',
       },
     ],
+    activeSectionId: 'selected.route_panel',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'scenario_compare_run',
@@ -411,6 +501,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'compare.run_click', label: 'Click Compare scenarios.' },
       { actionId: 'compare.run_done', label: 'Wait for comparison response.' },
     ],
+    activeSectionId: 'compare.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'departure_controls',
@@ -433,6 +525,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       defaultLabel: 'Keep arrival constraints empty (default).',
     },
     prefillId: 'canonical_departure',
+    activeSectionId: 'departure.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'departure_run_and_apply',
@@ -448,6 +542,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'dep.optimize_done', label: 'Wait for optimization results.' },
       { actionId: 'dep.apply_departure', label: 'Apply one suggested departure.' },
     ],
+    activeSectionId: 'departure.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'timelapse_controls',
@@ -462,8 +558,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'timelapse.play', label: 'Start playback.' },
       { actionId: 'timelapse.speed_select', label: 'Change playback speed.' },
       { actionId: 'timelapse.scrubber_input', label: 'Move scrubber slider.' },
+      { actionId: 'timelapse.back_10', label: 'Use the back 10% jump control.' },
+      { actionId: 'timelapse.forward_10', label: 'Use the forward 10% jump control.' },
+      { actionId: 'timelapse.jump_start', label: 'Jump playback to route start.' },
+      { actionId: 'timelapse.jump_end', label: 'Jump playback to route end.' },
       { actionId: 'timelapse.reset', label: 'Reset playback.' },
     ],
+    activeSectionId: 'timelapse.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'duty_chain',
@@ -480,6 +582,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'duty.run_done', label: 'Wait for duty-chain response.' },
     ],
     prefillId: 'canonical_duty',
+    activeSectionId: 'duty.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'oracle_fields',
@@ -505,6 +609,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       defaultLabel: 'Keep error note empty (default).',
     },
     prefillId: 'canonical_oracle',
+    activeSectionId: 'oracle.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'oracle_actions',
@@ -521,6 +627,24 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'oracle.record_check_done', label: 'Wait for ingestion completion.' },
       { actionId: 'oracle.download_csv_click', label: 'Trigger dashboard CSV download link.' },
     ],
+    activeSectionId: 'oracle.section',
+    lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'oracle_utility_controls',
+    chapterId: 'chapter_ops',
+    title: 'Use oracle utility controls',
+    what:
+      'Load sample check values, then clear the form back to defaults.',
+    impact:
+      'Utility controls accelerate repeat testing and safe reset between oracle quality checks.',
+    targetIds: ['oracle.section'],
+    required: [
+      { actionId: 'oracle.load_sample_click', label: 'Load sample oracle values once.' },
+      { actionId: 'oracle.clear_form_click', label: 'Clear oracle form fields once.' },
+    ],
+    activeSectionId: 'oracle.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'experiments_filters',
@@ -538,6 +662,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'exp.sort_select', label: 'Select catalog sort.' },
       { actionId: 'exp.apply_filters_click', label: 'Apply catalog filters.' },
     ],
+    activeSectionId: 'experiments.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'experiments_lifecycle',
@@ -557,6 +683,24 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { actionId: 'exp.delete_click', label: 'Delete saved bundle.' },
     ],
     prefillId: 'canonical_experiment',
+    activeSectionId: 'experiments.section',
+    lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'experiments_utility_controls',
+    chapterId: 'chapter_ops',
+    title: 'Use experiment utility controls',
+    what:
+      'Refresh experiment catalog data and run the clear-filters shortcut.',
+    impact:
+      'Utility actions keep catalog views deterministic during repeated save/load cycles.',
+    targetIds: ['experiments.section'],
+    required: [
+      { actionId: 'exp.refresh_click', label: 'Refresh experiment catalog once.' },
+      { actionId: 'exp.clear_filters_click', label: 'Run clear-filters once.' },
+    ],
+    activeSectionId: 'experiments.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'tutorial_completion',
