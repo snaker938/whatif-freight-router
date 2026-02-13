@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,9 @@ class VehicleProfile(BaseModel):
 
     # Used when scenarios add 'extra time' (idle/queuing) to a route
     idle_emissions_kg_per_hour: float = Field(default=0.0, ge=0)
+    powertrain: Literal["ice", "ev"] = "ice"
+    ev_kwh_per_km: float | None = Field(default=None, ge=0.0)
+    grid_co2_kg_per_kwh: float | None = Field(default=None, ge=0.0)
 
 
 VEHICLES: dict[str, VehicleProfile] = {

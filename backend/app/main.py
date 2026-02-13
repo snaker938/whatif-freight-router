@@ -42,6 +42,7 @@ from .models import (
     DepartureOptimizeCandidate,
     DepartureOptimizeRequest,
     DepartureOptimizeResponse,
+    EmissionsContext,
     EpsilonConstraints,
     ExperimentBundle,
     ExperimentBundleInput,
@@ -419,6 +420,32 @@ def _route_stochastic_uncertainty(
     }
 
 
+def _ice_fuel_multiplier(fuel_type: str) -> float:
+    if fuel_type == "petrol":
+        return 1.08
+    if fuel_type == "lng":
+        return 0.90
+    return 1.0
+
+
+def _ice_euro_multiplier(euro_class: str) -> float:
+    if euro_class == "euro4":
+        return 1.12
+    if euro_class == "euro5":
+        return 1.06
+    return 1.0
+
+
+def _ice_temperature_multiplier(ambient_temp_c: float) -> float:
+    if ambient_temp_c < 15.0:
+        return 1.0 + min(0.25, (15.0 - ambient_temp_c) * 0.008)
+    return 1.0 + min(0.12, (ambient_temp_c - 15.0) * 0.003)
+
+
+def _ev_energy_temperature_multiplier(ambient_temp_c: float) -> float:
+    return 1.0 + min(0.35, abs(ambient_temp_c - 20.0) * 0.01)
+
+
 def build_option(
     route: dict[str, Any],
     *,
@@ -428,9 +455,28 @@ def build_option(
     cost_toggles: CostToggles,
     terrain_profile: TerrainProfile = "flat",
     stochastic: StochasticConfig | None = None,
+    emissions_context: EmissionsContext | None = None,
     departure_time_utc: datetime | None = None,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
+    ctx = emissions_context or EmissionsContext()
+    is_ev_mode = ctx.fuel_type == "ev" or vehicle.powertrain == "ev"
+    ev_kwh_per_km = (
+        float(vehicle.ev_kwh_per_km)
+        if vehicle.ev_kwh_per_km is not None and vehicle.ev_kwh_per_km > 0
+        else 1.25
+    )
+    grid_co2_kg_per_kwh = (
+        float(vehicle.grid_co2_kg_per_kwh)
+        if vehicle.grid_co2_kg_per_kwh is not None and vehicle.grid_co2_kg_per_kwh >= 0
+        else 0.20
+    )
+    ice_context_multiplier = (
+        _ice_fuel_multiplier(ctx.fuel_type)
+        * _ice_euro_multiplier(ctx.euro_class)
+        * _ice_temperature_multiplier(ctx.ambient_temp_c)
+    )
+    ev_temp_energy_multiplier = _ev_energy_temperature_multiplier(ctx.ambient_temp_c)
 
     coords = _downsample_coords(_validate_osrm_geometry(route))
     seg_d_m, seg_t_s = extract_segment_annotations(route)
@@ -466,6 +512,7 @@ def build_option(
 
     segment_breakdown: list[dict[str, float | int]] = []
     total_emissions = 0.0
+    total_energy_kwh = 0.0
     total_monetary = 0.0
     total_distance_km = 0.0
     total_duration_s = 0.0
@@ -485,17 +532,23 @@ def build_option(
         base_seg_fuel_cost = seg_distance_km * vehicle.cost_per_km * speed_factor(base_speed_kmh)
         seg_fuel_cost = base_seg_fuel_cost * fuel_multiplier
 
-        base_seg_emissions = route_emissions_kg(
-            vehicle=vehicle,
-            segment_distances_m=[d_m],
-            segment_durations_s=[t_s],
-        )
-
         seg_duration_s = t_s * total_duration_multiplier
         seg_extra_delay_s = max(seg_duration_s - t_s, 0.0)
-        seg_emissions = (base_seg_emissions * gradient_emissions_multiplier) + (
-            (seg_extra_delay_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
-        )
+        seg_energy_kwh = 0.0
+        if is_ev_mode:
+            seg_energy_kwh = (seg_distance_km * ev_kwh_per_km * ev_temp_energy_multiplier) + (
+                (seg_extra_delay_s / 3600.0) * 0.4
+            )
+            seg_emissions = seg_energy_kwh * grid_co2_kg_per_kwh
+        else:
+            base_seg_emissions = route_emissions_kg(
+                vehicle=vehicle,
+                segment_distances_m=[d_m],
+                segment_durations_s=[t_s],
+            )
+            seg_emissions = (base_seg_emissions * gradient_emissions_multiplier * ice_context_multiplier) + (
+                (seg_extra_delay_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
+            )
 
         toll_share = (seg_distance_km / distance_km) if distance_km > 0 else 0.0
         seg_toll_cost = toll_component_total * toll_share
@@ -517,6 +570,7 @@ def build_option(
 
         total_duration_s += seg_duration_s
         total_emissions += seg_emissions
+        total_energy_kwh += seg_energy_kwh
         total_monetary += seg_monetary
         total_fuel_cost += seg_fuel_cost
         total_time_cost += seg_time_cost
@@ -547,6 +601,15 @@ def build_option(
         )
     else:
         eta_explanations.append(f"Terrain profile '{terrain_profile}' added no material delay.")
+    if is_ev_mode:
+        eta_explanations.append(
+            f"EV energy model active ({ev_kwh_per_km:.2f} kWh/km, grid {grid_co2_kg_per_kwh:.2f} kg/kWh)."
+        )
+    elif ctx.fuel_type != "diesel" or ctx.euro_class != "euro6" or abs(ctx.ambient_temp_c - 15.0) > 1e-6:
+        eta_explanations.append(
+            "Emissions context adjusted for "
+            f"fuel={ctx.fuel_type}, euro={ctx.euro_class}, temp={ctx.ambient_temp_c:.1f}C."
+        )
 
     eta_timeline: list[dict[str, float | str]] = [
         {"stage": "baseline", "duration_s": round(base_duration_s, 2), "delta_s": 0.0},
@@ -639,6 +702,7 @@ def build_option(
             monetary_cost=round(total_monetary, 2),
             emissions_kg=round(total_emissions, 3),
             avg_speed_kmh=round(avg_speed_kmh, 2),
+            energy_kwh=round(total_energy_kwh, 3) if is_ev_mode else None,
         ),
         eta_explanations=eta_explanations,
         eta_timeline=eta_timeline,
@@ -839,6 +903,7 @@ def _build_options(
     cost_toggles: CostToggles,
     terrain_profile: TerrainProfile = "flat",
     stochastic: StochasticConfig | None = None,
+    emissions_context: EmissionsContext | None = None,
     departure_time_utc: datetime | None,
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str]]:
@@ -857,6 +922,7 @@ def _build_options(
                     cost_toggles=cost_toggles,
                     terrain_profile=terrain_profile,
                     stochastic=stochastic,
+                    emissions_context=emissions_context,
                     departure_time_utc=departure_time_utc,
                 )
             )
@@ -1111,6 +1177,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             cost_toggles=req.cost_toggles,
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic,
+            emissions_context=req.emissions_context,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1141,6 +1208,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             stochastic=req.stochastic.model_dump(mode="json"),
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
+            emissions_context=req.emissions_context.model_dump(mode="json"),
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
@@ -1240,6 +1308,7 @@ async def compute_pareto_stream(
                             cost_toggles=req.cost_toggles,
                             terrain_profile=req.terrain_profile,
                             stochastic=req.stochastic,
+                            emissions_context=req.emissions_context,
                             departure_time_utc=req.departure_time_utc,
                         )
                     except (OSRMError, ValueError) as e:
@@ -1266,6 +1335,7 @@ async def compute_pareto_stream(
                 cost_toggles=req.cost_toggles,
                 terrain_profile=req.terrain_profile,
                 stochastic=req.stochastic,
+                emissions_context=req.emissions_context,
                 departure_time_utc=req.departure_time_utc,
                 option_prefix="route",
             )
@@ -1289,6 +1359,7 @@ async def compute_pareto_stream(
                 stochastic=req.stochastic.model_dump(mode="json"),
                 optimization_mode=req.optimization_mode,
                 risk_aversion=req.risk_aversion,
+                emissions_context=req.emissions_context.model_dump(mode="json"),
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
@@ -1371,6 +1442,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             cost_toggles=req.cost_toggles,
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic,
+            emissions_context=req.emissions_context,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1411,6 +1483,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             stochastic=req.stochastic.model_dump(mode="json"),
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
+            emissions_context=req.emissions_context.model_dump(mode="json"),
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(
@@ -1522,6 +1595,7 @@ async def optimize_departure_time(
                 cost_toggles=req.cost_toggles,
                 terrain_profile=req.terrain_profile,
                 stochastic=req.stochastic,
+                emissions_context=req.emissions_context,
                 departure_time_utc=departure_time,
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
             )
@@ -1670,6 +1744,7 @@ async def optimize_departure_time(
             scenario_mode=req.scenario_mode.value,
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
+            emissions_context=req.emissions_context.model_dump(mode="json"),
             pair={"origin": req.origin.model_dump(), "destination": req.destination.model_dump()},
             step_minutes=req.step_minutes,
             window_start_utc=start_utc.isoformat().replace("+00:00", "Z"),
@@ -1759,6 +1834,7 @@ async def _run_scenario_compare(
             cost_toggles=req.cost_toggles,
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic,
+            emissions_context=req.emissions_context,
             departure_time_utc=req.departure_time_utc,
             option_prefix=f"scenario_{scenario_mode.value}",
         )
@@ -1840,6 +1916,7 @@ async def compare_scenarios(
                 "stochastic": req.stochastic.model_dump(mode="json"),
                 "optimization_mode": req.optimization_mode,
                 "risk_aversion": req.risk_aversion,
+                "emissions_context": req.emissions_context.model_dump(mode="json"),
             },
         }
         scenario_manifest = write_scenario_manifest(run_id, manifest_payload)
@@ -1853,6 +1930,7 @@ async def compare_scenarios(
             stochastic=req.stochastic.model_dump(mode="json"),
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
+            emissions_context=req.emissions_context.model_dump(mode="json"),
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             scenario_manifest=str(scenario_manifest),
@@ -2218,6 +2296,7 @@ async def batch_import_csv(
         stochastic=req.stochastic,
         optimization_mode=req.optimization_mode,
         risk_aversion=req.risk_aversion,
+        emissions_context=req.emissions_context,
         departure_time_utc=req.departure_time_utc,
         pareto_method=req.pareto_method,
         epsilon=req.epsilon,
@@ -2278,6 +2357,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                             cost_toggles=req.cost_toggles,
                             terrain_profile=req.terrain_profile,
                             stochastic=req.stochastic,
+                            emissions_context=req.emissions_context,
                             departure_time_utc=req.departure_time_utc,
                         )
                         for i, r in enumerate(routes)
@@ -2319,6 +2399,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                                     cost_toggles=req.cost_toggles,
                                     terrain_profile=req.terrain_profile,
                                     stochastic=req.stochastic,
+                                    emissions_context=req.emissions_context,
                                     departure_time_utc=req.departure_time_utc,
                                 )
                                 for i, r in enumerate(routes)
@@ -2378,6 +2459,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 stochastic=req.stochastic.model_dump(mode="json"),
                 optimization_mode=req.optimization_mode,
                 risk_aversion=req.risk_aversion,
+                emissions_context=req.emissions_context.model_dump(mode="json"),
                 pareto_method=req.pareto_method,
                 epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 departure_time_utc=(
@@ -2468,6 +2550,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 "stochastic": req.stochastic.model_dump(mode="json"),
                 "optimization_mode": req.optimization_mode,
                 "risk_aversion": req.risk_aversion,
+                "emissions_context": req.emissions_context.model_dump(mode="json"),
                 "pareto_method": req.pareto_method,
                 "epsilon": req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
                 "departure_time_utc": (
@@ -2541,6 +2624,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
             stochastic=req.stochastic.model_dump(mode="json"),
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
+            emissions_context=req.emissions_context.model_dump(mode="json"),
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
             departure_time_utc=(

@@ -41,12 +41,20 @@ class CostToggles(BaseModel):
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
 TerrainProfile = Literal["flat", "rolling", "hilly"]
 OptimizationMode = Literal["expected_value", "robust"]
+FuelType = Literal["diesel", "petrol", "lng", "ev"]
+EuroClass = Literal["euro4", "euro5", "euro6"]
 
 
 class EpsilonConstraints(BaseModel):
     duration_s: float | None = Field(default=None, ge=0.0)
     monetary_cost: float | None = Field(default=None, ge=0.0)
     emissions_kg: float | None = Field(default=None, ge=0.0)
+
+
+class EmissionsContext(BaseModel):
+    fuel_type: FuelType = "diesel"
+    euro_class: EuroClass = "euro6"
+    ambient_temp_c: float = 15.0
 
 
 class TimeWindowConstraints(BaseModel):
@@ -77,6 +85,7 @@ class RouteRequest(BaseModel):
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -95,6 +104,7 @@ class ParetoRequest(BaseModel):
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -115,6 +125,7 @@ class BatchParetoRequest(BaseModel):
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -133,6 +144,7 @@ class BatchCSVImportRequest(BaseModel):
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -147,6 +159,7 @@ class RouteMetrics(BaseModel):
     monetary_cost: float
     emissions_kg: float
     avg_speed_kmh: float
+    energy_kwh: float | None = None
 
 
 class RouteOption(BaseModel):
@@ -225,6 +238,7 @@ class ScenarioCompareRequest(BaseModel):
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -259,6 +273,7 @@ class DepartureOptimizeRequest(BaseModel):
     stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
     time_window: TimeWindowConstraints | None = None
