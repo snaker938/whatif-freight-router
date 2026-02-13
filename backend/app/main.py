@@ -75,6 +75,7 @@ from .models import (
     VehicleDeleteResponse,
     VehicleListResponse,
     VehicleMutationResponse,
+    WeatherImpactConfig,
 )
 from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import normalise_weights
@@ -103,6 +104,7 @@ from .scenario import ScenarioMode, apply_scenario_duration, scenario_duration_m
 from .settings import settings
 from .signatures import SIGNATURE_ALGORITHM, verify_payload_signature
 from .time_of_day import time_of_day_multiplier
+from .weather_adapter import weather_incident_multiplier, weather_speed_multiplier, weather_summary
 from .vehicles import (
     VehicleProfile,
     all_vehicles,
@@ -576,10 +578,14 @@ def build_option(
     terrain_profile: TerrainProfile = "flat",
     stochastic: StochasticConfig | None = None,
     emissions_context: EmissionsContext | None = None,
+    weather: WeatherImpactConfig | None = None,
     departure_time_utc: datetime | None = None,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
     ctx = emissions_context or EmissionsContext()
+    weather_cfg = weather or WeatherImpactConfig()
+    weather_speed = weather_speed_multiplier(weather_cfg)
+    weather_incident = weather_incident_multiplier(weather_cfg)
     is_ev_mode = ctx.fuel_type == "ev" or vehicle.powertrain == "ev"
     ev_kwh_per_km = (
         float(vehicle.ev_kwh_per_km)
@@ -615,13 +621,16 @@ def build_option(
     scenario_multiplier = scenario_duration_multiplier(scenario_mode)
     duration_after_tod_s = base_duration_s * tod_multiplier
     duration_after_scenario_s = apply_scenario_duration(duration_after_tod_s, mode=scenario_mode)
+    duration_after_weather_s = duration_after_scenario_s * weather_speed
     gradient_duration_multiplier, gradient_emissions_multiplier = gradient_multipliers(terrain_profile)
-    duration_s = duration_after_scenario_s * gradient_duration_multiplier
+    duration_after_gradient_s = duration_after_weather_s * gradient_duration_multiplier
+    duration_s = duration_after_gradient_s
     total_duration_multiplier = duration_s / base_duration_s if base_duration_s > 0 else 1.0
 
     time_of_day_delta_s = max(duration_after_tod_s - base_duration_s, 0.0)
     scenario_delta_s = max(duration_after_scenario_s - duration_after_tod_s, 0.0)
-    gradient_delta_s = max(duration_s - duration_after_scenario_s, 0.0)
+    weather_delta_s = max(duration_after_weather_s - duration_after_scenario_s, 0.0)
+    gradient_delta_s = max(duration_after_gradient_s - duration_after_weather_s, 0.0)
     fuel_multiplier = max(cost_toggles.fuel_price_multiplier, 0.0)
     carbon_price = max(cost_toggles.carbon_price_per_kg, 0.0)
 
@@ -714,6 +723,16 @@ def build_option(
         )
     else:
         eta_explanations.append("Scenario mode added no material delay.")
+    if weather_cfg.enabled:
+        if weather_delta_s > 0.5:
+            eta_explanations.append(
+                f"Weather profile '{weather_cfg.profile}' added {weather_delta_s / 60.0:.1f} min "
+                f"(x{weather_speed:.2f})."
+            )
+        else:
+            eta_explanations.append(
+                f"Weather profile '{weather_cfg.profile}' added no material delay."
+            )
     if gradient_delta_s > 0.5:
         eta_explanations.append(
             f"Terrain profile '{terrain_profile}' added {gradient_delta_s / 60.0:.1f} min "
@@ -745,25 +764,40 @@ def build_option(
             "delta_s": round(scenario_delta_s, 2),
             "multiplier": round(scenario_multiplier, 3),
         },
+    ]
+    if weather_cfg.enabled:
+        eta_timeline.append(
+            {
+                "stage": "weather",
+                "duration_s": round(duration_after_weather_s, 2),
+                "delta_s": round(weather_delta_s, 2),
+                "multiplier": round(weather_speed, 3),
+                "profile": weather_cfg.profile,
+            }
+        )
+    eta_timeline.append(
         {
             "stage": "gradient",
             "duration_s": round(total_duration_s, 2),
             "delta_s": round(gradient_delta_s, 2),
             "multiplier": round(gradient_duration_multiplier, 3),
             "profile": terrain_profile,
-        },
-    ]
+        }
+    )
 
     shifted_departure_duration = total_duration_s
     if departure_time_utc is not None:
         shifted_tod_multiplier = time_of_day_multiplier(departure_time_utc + timedelta(hours=2))
         shifted_after_tod = base_duration_s * shifted_tod_multiplier
         shifted_after_scenario = apply_scenario_duration(shifted_after_tod, mode=scenario_mode)
-        shifted_departure_duration = shifted_after_scenario * gradient_duration_multiplier
+        shifted_after_weather = shifted_after_scenario * weather_speed
+        shifted_departure_duration = shifted_after_weather * gradient_duration_multiplier
 
     shifted_mode = _counterfactual_shift_scenario(scenario_mode)
     shifted_mode_duration = (
-        apply_scenario_duration(duration_after_tod_s, mode=shifted_mode) * gradient_duration_multiplier
+        apply_scenario_duration(duration_after_tod_s, mode=shifted_mode)
+        * weather_speed
+        * gradient_duration_multiplier
     )
     duration_ratio = shifted_mode_duration / total_duration_s if total_duration_s > 0 else 1.0
     shifted_mode_emissions = total_emissions * duration_ratio
@@ -813,6 +847,11 @@ def build_option(
         },
     ]
 
+    option_weather_summary = weather_summary(weather_cfg) if weather_cfg.enabled else None
+    if option_weather_summary is not None:
+        option_weather_summary["weather_delay_s"] = round(weather_delta_s, 6)
+        option_weather_summary["incident_rate_multiplier"] = round(weather_incident, 6)
+
     option = RouteOption(
         id=option_id,
         geometry=GeoJSONLineString(type="LineString", coordinates=coords),
@@ -823,11 +862,13 @@ def build_option(
             emissions_kg=round(total_emissions, 3),
             avg_speed_kmh=round(avg_speed_kmh, 2),
             energy_kwh=round(total_energy_kwh, 3) if is_ev_mode else None,
+            weather_delay_s=round(weather_delta_s, 2),
         ),
         eta_explanations=eta_explanations,
         eta_timeline=eta_timeline,
         segment_breakdown=segment_breakdown,
         counterfactuals=counterfactuals,
+        weather_summary=option_weather_summary,
     )
     option.uncertainty = _route_stochastic_uncertainty(
         option,
@@ -1024,6 +1065,7 @@ def _build_options(
     terrain_profile: TerrainProfile = "flat",
     stochastic: StochasticConfig | None = None,
     emissions_context: EmissionsContext | None = None,
+    weather: WeatherImpactConfig | None = None,
     departure_time_utc: datetime | None,
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str]]:
@@ -1043,6 +1085,7 @@ def _build_options(
                     terrain_profile=terrain_profile,
                     stochastic=stochastic,
                     emissions_context=emissions_context,
+                    weather=weather,
                     departure_time_utc=departure_time_utc,
                 )
             )
@@ -1298,6 +1341,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic,
             emissions_context=req.emissions_context,
+            weather=req.weather,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1429,6 +1473,7 @@ async def compute_pareto_stream(
                             terrain_profile=req.terrain_profile,
                             stochastic=req.stochastic,
                             emissions_context=req.emissions_context,
+                            weather=req.weather,
                             departure_time_utc=req.departure_time_utc,
                         )
                     except (OSRMError, ValueError) as e:
@@ -1456,6 +1501,7 @@ async def compute_pareto_stream(
                 terrain_profile=req.terrain_profile,
                 stochastic=req.stochastic,
                 emissions_context=req.emissions_context,
+                weather=req.weather,
                 departure_time_utc=req.departure_time_utc,
                 option_prefix="route",
             )
@@ -1563,6 +1609,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic,
             emissions_context=req.emissions_context,
+            weather=req.weather,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1716,6 +1763,7 @@ async def optimize_departure_time(
                 terrain_profile=req.terrain_profile,
                 stochastic=req.stochastic,
                 emissions_context=req.emissions_context,
+                weather=req.weather,
                 departure_time_utc=departure_time,
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
             )
@@ -1969,6 +2017,7 @@ async def run_duty_chain(
                 terrain_profile=req.terrain_profile,
                 stochastic=req.stochastic,
                 emissions_context=req.emissions_context,
+                weather=req.weather,
                 departure_time_utc=departure_cursor,
                 option_prefix=f"duty_leg_{idx}",
             )
@@ -2122,6 +2171,7 @@ async def _run_scenario_compare(
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic,
             emissions_context=req.emissions_context,
+            weather=req.weather,
             departure_time_utc=req.departure_time_utc,
             option_prefix=f"scenario_{scenario_mode.value}",
         )
@@ -2605,6 +2655,7 @@ async def batch_import_csv(
         optimization_mode=req.optimization_mode,
         risk_aversion=req.risk_aversion,
         emissions_context=req.emissions_context,
+        weather=req.weather,
         departure_time_utc=req.departure_time_utc,
         pareto_method=req.pareto_method,
         epsilon=req.epsilon,
@@ -2666,6 +2717,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                             terrain_profile=req.terrain_profile,
                             stochastic=req.stochastic,
                             emissions_context=req.emissions_context,
+                            weather=req.weather,
                             departure_time_utc=req.departure_time_utc,
                         )
                         for i, r in enumerate(routes)
@@ -2708,6 +2760,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                                     terrain_profile=req.terrain_profile,
                                     stochastic=req.stochastic,
                                     emissions_context=req.emissions_context,
+                                    weather=req.weather,
                                     departure_time_utc=req.departure_time_utc,
                                 )
                                 for i, r in enumerate(routes)

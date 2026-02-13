@@ -43,6 +43,7 @@ TerrainProfile = Literal["flat", "rolling", "hilly"]
 OptimizationMode = Literal["expected_value", "robust"]
 FuelType = Literal["diesel", "petrol", "lng", "ev"]
 EuroClass = Literal["euro4", "euro5", "euro6"]
+WeatherProfile = Literal["clear", "rain", "storm", "snow", "fog"]
 
 
 class EpsilonConstraints(BaseModel):
@@ -55,6 +56,13 @@ class EmissionsContext(BaseModel):
     fuel_type: FuelType = "diesel"
     euro_class: EuroClass = "euro6"
     ambient_temp_c: float = 15.0
+
+
+class WeatherImpactConfig(BaseModel):
+    enabled: bool = False
+    profile: WeatherProfile = "clear"
+    intensity: float = Field(default=1.0, ge=0.0, le=2.0)
+    apply_incident_uplift: bool = True
 
 
 class TimeWindowConstraints(BaseModel):
@@ -86,6 +94,7 @@ class RouteRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -105,6 +114,7 @@ class ParetoRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -126,6 +136,7 @@ class BatchParetoRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -145,6 +156,7 @@ class BatchCSVImportRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -160,6 +172,7 @@ class RouteMetrics(BaseModel):
     emissions_kg: float
     avg_speed_kmh: float
     energy_kwh: float | None = None
+    weather_delay_s: float = 0.0
 
 
 class RouteOption(BaseModel):
@@ -173,6 +186,7 @@ class RouteOption(BaseModel):
     segment_breakdown: list[dict[str, float | int]] = Field(default_factory=list)
     counterfactuals: list[dict[str, str | float | bool]] = Field(default_factory=list)
     uncertainty: dict[str, float] | None = None
+    weather_summary: dict[str, float | str | bool] | None = None
 
 
 class RouteResponse(BaseModel):
@@ -240,6 +254,7 @@ class ScenarioCompareRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -275,6 +290,7 @@ class DepartureOptimizeRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
     time_window: TimeWindowConstraints | None = None
@@ -326,6 +342,7 @@ class DutyChainRequest(BaseModel):
     optimization_mode: OptimizationMode = "expected_value"
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
