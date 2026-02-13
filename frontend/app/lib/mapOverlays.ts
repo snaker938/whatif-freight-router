@@ -40,6 +40,30 @@ export type SegmentBucket = {
   avg_speed_kmh: number;
 };
 
+export type PreviewRouteNode = {
+  id: string;
+  role: 'start' | 'stop' | 'end';
+  lat: number;
+  lon: number;
+};
+
+export type PreviewDotSegment = {
+  id: string;
+  legIndex: number;
+  segmentIndex: number;
+  fromNodeId: string;
+  toNodeId: string;
+  from: [number, number];
+  to: [number, number];
+  color: string;
+};
+
+const PREVIEW_NODE_COLORS: Record<PreviewRouteNode['role'], string> = {
+  start: '#7C3AED',
+  stop: '#0EA5E9',
+  end: '#06B6D4',
+};
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -56,6 +80,13 @@ function clamp01(value: number): number {
   return value;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
 function sameCoord(aLat: number, aLon: number, bLat: number, bLon: number): boolean {
   return Math.abs(aLat - bLat) <= 1e-6 && Math.abs(aLon - bLon) <= 1e-6;
 }
@@ -67,6 +98,177 @@ function hasPoint(points: StopOverlayPoint[], lat: number, lon: number): boolean
 function normaliseIncidentType(value: unknown): IncidentEventType | null {
   if (value === 'dwell' || value === 'accident' || value === 'closure') return value;
   return null;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const raw = hex.trim().replace('#', '');
+  if (raw.length !== 6) return [255, 255, 255];
+
+  const r = Number.parseInt(raw.slice(0, 2), 16);
+  const g = Number.parseInt(raw.slice(2, 4), 16);
+  const b = Number.parseInt(raw.slice(4, 6), 16);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+    return [255, 255, 255];
+  }
+  return [r, g, b];
+}
+
+function interpolateHexColor(startHex: string, endHex: string, t: number): string {
+  const [sr, sg, sb] = hexToRgb(startHex);
+  const [er, eg, eb] = hexToRgb(endHex);
+  const clamped = clamp01(t);
+  const r = Math.round(sr + (er - sr) * clamped);
+  const g = Math.round(sg + (eg - sg) * clamped);
+  const b = Math.round(sb + (eb - sb) * clamped);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function hasPreviewNode(nodes: PreviewRouteNode[], lat: number, lon: number): boolean {
+  return nodes.some((node) => sameCoord(node.lat, node.lon, lat, lon));
+}
+
+function buildPreviewNodes(
+  origin: LatLng | null,
+  destination: LatLng | null,
+  dutyStops: DutyChainStop[],
+): PreviewRouteNode[] {
+  const nodes: PreviewRouteNode[] = [];
+
+  if (origin) {
+    nodes.push({
+      id: 'origin',
+      role: 'start',
+      lat: origin.lat,
+      lon: origin.lon,
+    });
+  }
+
+  for (let idx = 0; idx < dutyStops.length; idx += 1) {
+    const stop = dutyStops[idx];
+    if (!isFiniteNumber(stop.lat) || !isFiniteNumber(stop.lon)) continue;
+    if (stop.lat < -90 || stop.lat > 90 || stop.lon < -180 || stop.lon > 180) continue;
+    if (hasPreviewNode(nodes, stop.lat, stop.lon)) continue;
+
+    nodes.push({
+      id: `stop-${idx + 1}`,
+      role: 'stop',
+      lat: stop.lat,
+      lon: stop.lon,
+    });
+  }
+
+  if (destination && !hasPreviewNode(nodes, destination.lat, destination.lon)) {
+    nodes.push({
+      id: 'destination',
+      role: 'end',
+      lat: destination.lat,
+      lon: destination.lon,
+    });
+  }
+
+  return nodes;
+}
+
+function buildCurvedLegPoints(
+  start: [number, number],
+  end: [number, number],
+  legIndex: number,
+): [number, number][] {
+  const [startLon, startLat] = start;
+  const [endLon, endLat] = end;
+  const dx = endLon - startLon;
+  const dy = endLat - startLat;
+  const length = Math.hypot(dx, dy);
+
+  if (length <= 1e-9) {
+    return [start, end];
+  }
+
+  const normalX = dx / length;
+  const normalY = dy / length;
+  const perpX = -normalY;
+  const perpY = normalX;
+  const sign = legIndex % 2 === 0 ? 1 : -1;
+  const amp = clamp(length * 0.18, 0.004, 0.022) * sign;
+
+  const c1: [number, number] = [
+    startLon + dx * 0.28 + perpX * amp * 0.75,
+    startLat + dy * 0.28 + perpY * amp * 0.75,
+  ];
+  const c2: [number, number] = [
+    endLon - dx * 0.28 + perpX * amp * 0.75,
+    endLat - dy * 0.28 + perpY * amp * 0.75,
+  ];
+
+  const samples = Math.round(clamp(length * 260, 24, 48));
+  const points: [number, number][] = [];
+  for (let idx = 0; idx <= samples; idx += 1) {
+    const t = idx / samples;
+    const inv = 1 - t;
+    const lon =
+      inv * inv * inv * startLon +
+      3 * inv * inv * t * c1[0] +
+      3 * inv * t * t * c2[0] +
+      t * t * t * endLon;
+    const lat =
+      inv * inv * inv * startLat +
+      3 * inv * inv * t * c1[1] +
+      3 * inv * t * t * c2[1] +
+      t * t * t * endLat;
+
+    const prev = points[points.length - 1];
+    if (!prev || Math.hypot(lon - prev[0], lat - prev[1]) > 1e-9) {
+      points.push([lon, lat]);
+    }
+  }
+
+  return points.length >= 2 ? points : [start, end];
+}
+
+export function buildPreviewRouteSegments(
+  origin: LatLng | null,
+  destination: LatLng | null,
+  dutyStops: DutyChainStop[],
+): PreviewDotSegment[] {
+  const nodes = buildPreviewNodes(origin, destination, dutyStops);
+  if (nodes.length < 2) return [];
+
+  const segments: PreviewDotSegment[] = [];
+  for (let legIndex = 0; legIndex < nodes.length - 1; legIndex += 1) {
+    const fromNode = nodes[legIndex];
+    const toNode = nodes[legIndex + 1];
+    const legPoints = buildCurvedLegPoints(
+      [fromNode.lon, fromNode.lat],
+      [toNode.lon, toNode.lat],
+      legIndex,
+    );
+    if (legPoints.length < 2) continue;
+
+    const startColor = PREVIEW_NODE_COLORS[fromNode.role];
+    const endColor = PREVIEW_NODE_COLORS[toNode.role];
+    const denom = Math.max(1, legPoints.length - 1);
+
+    for (let segmentIndex = 0; segmentIndex < legPoints.length - 1; segmentIndex += 1) {
+      if (segmentIndex % 2 !== 0) continue;
+      const from = legPoints[segmentIndex];
+      const to = legPoints[segmentIndex + 1];
+      if (Math.hypot(to[0] - from[0], to[1] - from[1]) <= 1e-9) continue;
+
+      const t = (segmentIndex + 0.5) / denom;
+      segments.push({
+        id: `preview-${legIndex + 1}-${segmentIndex + 1}`,
+        legIndex,
+        segmentIndex,
+        fromNodeId: fromNode.id,
+        toNodeId: toNode.id,
+        from,
+        to,
+        color: interpolateHexColor(startColor, endColor, t),
+      });
+    }
+  }
+
+  return segments;
 }
 
 export function parseDutyStopsForOverlay(text: string): DutyChainStop[] {
