@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import FieldInfo from './FieldInfo';
+import {
+  SIDEBAR_DROPDOWN_OPTIONS_HELP,
+  SIDEBAR_FIELD_HELP,
+  SIDEBAR_SECTION_HINTS,
+} from '../lib/sidebarHelpText';
 import type { LatLng, RouteOption } from '../lib/types';
 
 type Props = {
@@ -123,6 +129,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
     return (
       <section className="card">
         <div className="sectionTitle">Scenario time-lapse</div>
+        <div className="sectionHint">{SIDEBAR_SECTION_HINTS.scenarioTimeLapse}</div>
         <div className="helper">Compute and select a route to play a route animation.</div>
       </section>
     );
@@ -136,6 +143,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         <div className="sectionTitle">Scenario time-lapse</div>
         <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>
       </div>
+      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.scenarioTimeLapse}</div>
 
       <div className="row">
         <button className="secondary" onClick={() => setIsPlaying((prev) => !prev)}>
@@ -152,9 +160,12 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         </button>
       </div>
 
-      <label className="fieldLabel" htmlFor="time-lapse-speed">
-        Playback speed
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="time-lapse-speed">
+          Playback speed
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.playbackSpeed} />
+      </div>
       <select
         id="time-lapse-speed"
         className="input"
@@ -167,6 +178,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
           </option>
         ))}
       </select>
+      <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.timeLapseSpeed}</div>
 
       <label className="fieldLabel" htmlFor="time-lapse-progress">
         Timeline scrubber

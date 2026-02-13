@@ -2,8 +2,14 @@
 
 import { useState } from 'react';
 
+import FieldInfo from './FieldInfo';
 import { formatDateTime } from '../lib/format';
 import type { Locale } from '../lib/i18n';
+import {
+  SIDEBAR_DROPDOWN_OPTIONS_HELP,
+  SIDEBAR_FIELD_HELP,
+  SIDEBAR_SECTION_HINTS,
+} from '../lib/sidebarHelpText';
 import type { ExperimentBundle, ExperimentCatalogSort, ScenarioMode } from '../lib/types';
 
 type Props = {
@@ -72,10 +78,14 @@ export default function ExperimentManager({
           Refresh
         </button>
       </div>
+      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.experiments}</div>
 
-      <label className="fieldLabel" htmlFor="experiment-search">
-        Catalog search
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="experiment-search">
+          Catalog search
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.catalogSearch} />
+      </div>
       <input
         id="experiment-search"
         className="input"
@@ -86,9 +96,12 @@ export default function ExperimentManager({
       />
 
       <div className="advancedGrid" style={{ marginTop: 8 }}>
-        <label className="fieldLabel" htmlFor="experiment-filter-vehicle">
-          Filter vehicle
-        </label>
+        <div className="fieldLabelRow">
+          <label className="fieldLabel" htmlFor="experiment-filter-vehicle">
+            Filter vehicle
+          </label>
+          <FieldInfo text={SIDEBAR_FIELD_HELP.filterVehicle} />
+        </div>
         <select
           id="experiment-filter-vehicle"
           className="input"
@@ -104,9 +117,12 @@ export default function ExperimentManager({
           ))}
         </select>
 
-        <label className="fieldLabel" htmlFor="experiment-filter-scenario">
-          Filter scenario
-        </label>
+        <div className="fieldLabelRow">
+          <label className="fieldLabel" htmlFor="experiment-filter-scenario">
+            Filter scenario
+          </label>
+          <FieldInfo text={SIDEBAR_FIELD_HELP.filterScenario} />
+        </div>
         <select
           id="experiment-filter-scenario"
           className="input"
@@ -119,10 +135,14 @@ export default function ExperimentManager({
           <option value="partial_sharing">Partial sharing</option>
           <option value="full_sharing">Full sharing</option>
         </select>
+        <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentFilterScenario}</div>
 
-        <label className="fieldLabel" htmlFor="experiment-sort">
-          Sort
-        </label>
+        <div className="fieldLabelRow">
+          <label className="fieldLabel" htmlFor="experiment-sort">
+            Sort
+          </label>
+          <FieldInfo text={SIDEBAR_FIELD_HELP.sort} />
+        </div>
         <select
           id="experiment-sort"
           className="input"
@@ -135,6 +155,7 @@ export default function ExperimentManager({
           <option value="name_asc">Name (A-Z)</option>
           <option value="name_desc">Name (Z-A)</option>
         </select>
+        <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.experimentSort}</div>
       </div>
 
       <div className="row row--actions" style={{ marginTop: 10 }}>
@@ -143,9 +164,12 @@ export default function ExperimentManager({
         </button>
       </div>
 
-      <label className="fieldLabel" htmlFor="experiment-name">
-        Name
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="experiment-name">
+          Name
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.experimentName} />
+      </div>
       <input
         id="experiment-name"
         className="input"
@@ -155,9 +179,12 @@ export default function ExperimentManager({
         onChange={(event) => setName(event.target.value)}
       />
 
-      <label className="fieldLabel" htmlFor="experiment-description">
-        Description (optional)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="experiment-description">
+          Description (optional)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.experimentDescription} />
+      </div>
       <input
         id="experiment-description"
         className="input"

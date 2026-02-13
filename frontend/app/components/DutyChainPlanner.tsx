@@ -1,7 +1,9 @@
 'use client';
 
+import FieldInfo from './FieldInfo';
 import { formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
+import { SIDEBAR_FIELD_HELP, SIDEBAR_SECTION_HINTS } from '../lib/sidebarHelpText';
 import type { DutyChainResponse } from '../lib/types';
 
 type Props = {
@@ -33,11 +35,19 @@ export default function DutyChainPlanner({
           {loading ? 'Running...' : 'Run duty chain'}
         </button>
       </div>
+      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.dutyChainPlanner}</div>
 
       <div className="helper">
         Ordered stops, one per line: <code>lat,lon,label(optional)</code>.
       </div>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="duty-stops-textarea">
+          Stops input
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.dutyStopsTextarea} />
+      </div>
       <textarea
+        id="duty-stops-textarea"
         aria-label="Duty chain stops"
         className="input"
         style={{ minHeight: 110, marginTop: 8, resize: 'vertical' }}

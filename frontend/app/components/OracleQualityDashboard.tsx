@@ -2,8 +2,14 @@
 
 import { useMemo, useState } from 'react';
 
+import FieldInfo from './FieldInfo';
 import { formatDateTime, formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
+import {
+  SIDEBAR_DROPDOWN_OPTIONS_HELP,
+  SIDEBAR_FIELD_HELP,
+  SIDEBAR_SECTION_HINTS,
+} from '../lib/sidebarHelpText';
 import type {
   OracleFeedCheckInput,
   OracleFeedCheckRecord,
@@ -93,14 +99,18 @@ export default function OracleQualityDashboard({
           </a>
         </div>
       </div>
+      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.oracleQualityDashboard}</div>
 
       <div className="helper">
         Record feed checks and inspect source-level pass rates, freshness, and signature health.
       </div>
 
-      <label className="fieldLabel" htmlFor="oracle-source">
-        Source
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="oracle-source">
+          Source
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.oracleSource} />
+      </div>
       <input
         id="oracle-source"
         className="input"
@@ -118,11 +128,15 @@ export default function OracleQualityDashboard({
           onChange={(event) => setSchemaValid(event.target.checked)}
         />
         <label htmlFor="oracle-schema-valid">Schema valid</label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.schemaValid} />
       </div>
 
-      <label className="fieldLabel" htmlFor="oracle-signature-state">
-        Signature state
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="oracle-signature-state">
+          Signature state
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.signatureState} />
+      </div>
       <select
         id="oracle-signature-state"
         className="input"
@@ -134,11 +148,15 @@ export default function OracleQualityDashboard({
         <option value="valid">Valid</option>
         <option value="invalid">Invalid</option>
       </select>
+      <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.signatureState}</div>
 
       <div className="advancedGrid">
-        <label className="fieldLabel" htmlFor="oracle-freshness">
-          Freshness seconds (optional)
-        </label>
+        <div className="fieldLabelRow">
+          <label className="fieldLabel" htmlFor="oracle-freshness">
+            Freshness seconds (optional)
+          </label>
+          <FieldInfo text={SIDEBAR_FIELD_HELP.freshnessSeconds} />
+        </div>
         <input
           id="oracle-freshness"
           className="input"
@@ -149,10 +167,14 @@ export default function OracleQualityDashboard({
           disabled={disabled || ingesting}
           onChange={(event) => setFreshnessS(event.target.value)}
         />
+        <div className="dropdownOptionsHint">Freshness shows how old source data is at check time.</div>
 
-        <label className="fieldLabel" htmlFor="oracle-latency">
-          Latency ms (optional)
-        </label>
+        <div className="fieldLabelRow">
+          <label className="fieldLabel" htmlFor="oracle-latency">
+            Latency ms (optional)
+          </label>
+          <FieldInfo text={SIDEBAR_FIELD_HELP.latencyMs} />
+        </div>
         <input
           id="oracle-latency"
           className="input"
@@ -164,9 +186,12 @@ export default function OracleQualityDashboard({
           onChange={(event) => setLatencyMs(event.target.value)}
         />
 
-        <label className="fieldLabel" htmlFor="oracle-record-count">
-          Record count (optional)
-        </label>
+        <div className="fieldLabelRow">
+          <label className="fieldLabel" htmlFor="oracle-record-count">
+            Record count (optional)
+          </label>
+          <FieldInfo text={SIDEBAR_FIELD_HELP.recordCount} />
+        </div>
         <input
           id="oracle-record-count"
           className="input"
@@ -179,9 +204,12 @@ export default function OracleQualityDashboard({
         />
       </div>
 
-      <label className="fieldLabel" htmlFor="oracle-error-note">
-        Error note (optional)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="oracle-error-note">
+          Error note (optional)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.errorNote} />
+      </div>
       <input
         id="oracle-error-note"
         className="input"
