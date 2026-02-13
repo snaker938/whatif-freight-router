@@ -32,6 +32,15 @@ const DICTIONARY = {
     live_departure_failed: 'Departure optimization failed',
     live_duty_complete: 'Duty chain complete',
     live_duty_failed: 'Duty chain failed',
+    map_overlays: 'Map overlays',
+    overlay_stops: 'Stops',
+    overlay_incidents: 'Incidents',
+    overlay_segments: 'Segments',
+    incident_dwell: 'Dwell',
+    incident_accident: 'Accident',
+    incident_closure: 'Closure',
+    segment_label: 'Segment',
+    stop_label: 'Stop',
   },
   es: {
     skip_to_controls: 'Saltar al panel de controles',
@@ -59,6 +68,15 @@ const DICTIONARY = {
     live_departure_failed: 'La optimización de salida falló',
     live_duty_complete: 'Cadena de servicio completada',
     live_duty_failed: 'La cadena de servicio falló',
+    map_overlays: 'Capas del mapa',
+    overlay_stops: 'Paradas',
+    overlay_incidents: 'Incidentes',
+    overlay_segments: 'Segmentos',
+    incident_dwell: 'Espera',
+    incident_accident: 'Accidente',
+    incident_closure: 'Cierre',
+    segment_label: 'Segmento',
+    stop_label: 'Parada',
   },
 } as const;
 
@@ -79,4 +97,3 @@ export function createTranslator(locale: Locale) {
     return replaceTokens(template, params);
   };
 }
-

@@ -18,7 +18,8 @@ import {
   useMapEvents,
 } from 'react-leaflet';
 
-import type { LatLng, RouteOption } from '../lib/types';
+import { buildIncidentOverlayPoints, buildStopOverlayPoints } from '../lib/mapOverlays';
+import type { DutyChainStop, IncidentEventType, LatLng, RouteOption } from '../lib/types';
 
 export type MarkerKind = 'origin' | 'destination';
 const MAX_POLYLINE_POINTS = 1000;
@@ -31,6 +32,15 @@ type Props = {
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
+  dutyStops?: DutyChainStop[];
+  showStopOverlay?: boolean;
+  showIncidentOverlay?: boolean;
+  showSegmentTooltips?: boolean;
+  overlayLabels?: {
+    stopLabel: string;
+    segmentLabel: string;
+    incidentTypeLabels: Record<'dwell' | 'accident' | 'closure', string>;
+  };
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
@@ -236,12 +246,49 @@ function downsamplePolyline(
   return out;
 }
 
+function incidentPalette(eventType: IncidentEventType): {
+  stroke: string;
+  fill: string;
+} {
+  if (eventType === 'closure') {
+    return {
+      stroke: 'rgba(239, 68, 68, 0.95)',
+      fill: 'rgba(239, 68, 68, 0.84)',
+    };
+  }
+  if (eventType === 'accident') {
+    return {
+      stroke: 'rgba(249, 115, 22, 0.95)',
+      fill: 'rgba(249, 115, 22, 0.84)',
+    };
+  }
+  return {
+    stroke: 'rgba(245, 158, 11, 0.95)',
+    fill: 'rgba(245, 158, 11, 0.84)',
+  };
+}
+
+function makeDutyStopIcon(sequence: number) {
+  return L.divIcon({
+    className: 'dutyStopPin',
+    html: `<span class="dutyStopPin__label">${sequence}</span>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -12],
+  });
+}
+
 export default function MapView({
   origin,
   destination,
   selectedMarker,
   route,
   timeLapsePosition,
+  dutyStops = [],
+  showStopOverlay = true,
+  showIncidentOverlay = true,
+  showSegmentTooltips = true,
+  overlayLabels,
   onMapClick,
   onSelectMarker,
   onMoveMarker,
@@ -289,6 +336,20 @@ export default function MapView({
     return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
   }, [route]);
 
+  const stopOverlayPoints = useMemo(() => {
+    if (!showStopOverlay) return [];
+    return buildStopOverlayPoints(origin, destination, dutyStops);
+  }, [showStopOverlay, origin, destination, dutyStops]);
+  const stopOverlayPolyline = useMemo(() => {
+    if (stopOverlayPoints.length < 2) return [];
+    return stopOverlayPoints.map((point) => [point.lat, point.lon] as [number, number]);
+  }, [stopOverlayPoints]);
+
+  const incidentOverlayPoints = useMemo(() => {
+    if (!showIncidentOverlay || !route) return [];
+    return buildIncidentOverlayPoints(route);
+  }, [showIncidentOverlay, route]);
+
   // Default center: Birmingham-ish (West Midlands)
   const center: LatLngExpression = useMemo(() => {
     return origin
@@ -303,7 +364,7 @@ export default function MapView({
   }, []);
 
   return (
-    <div className="mapPane">
+    <div className="mapPane" data-segment-tooltips={showSegmentTooltips ? 'on' : 'off'}>
       <MapContainer
         key={MAP_HOT_RELOAD_KEY}
         center={center}
@@ -550,6 +611,89 @@ export default function MapView({
             />
           </>
         )}
+
+        {stopOverlayPolyline.length > 0 && (
+          <Polyline
+            positions={stopOverlayPolyline}
+            pathOptions={{
+              className: 'stopOverlayLine',
+              color: 'rgba(34, 211, 238, 0.82)',
+              weight: 2,
+              opacity: 0.85,
+              dashArray: '7 8',
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+          />
+        )}
+        {stopOverlayPoints.map((point) => {
+          const isDuty = point.kind === 'duty';
+          if (!isDuty) {
+            return (
+              <CircleMarker
+                key={point.id}
+                center={[point.lat, point.lon]}
+                radius={7}
+                interactive={false}
+                pathOptions={{
+                  className: point.kind === 'origin' ? 'stopOverlayOrigin' : 'stopOverlayDestination',
+                  color: point.kind === 'origin' ? 'rgba(124, 58, 237, 0.95)' : 'rgba(6, 182, 212, 0.95)',
+                  weight: 2,
+                  fillColor: 'rgba(15, 23, 42, 0.72)',
+                  fillOpacity: 0.85,
+                }}
+              />
+            );
+          }
+
+          return (
+            <Marker key={point.id} position={[point.lat, point.lon]} icon={makeDutyStopIcon(point.sequence)}>
+              <Popup className="stopOverlayPopup" autoPan={true} autoPanPadding={[22, 22]}>
+                <div className="overlayPopup__card">
+                  <div className="overlayPopup__title">
+                    {overlayLabels?.stopLabel ?? 'Stop'} #{point.sequence}
+                  </div>
+                  {point.label ? <div className="overlayPopup__row">{point.label}</div> : null}
+                  <div className="overlayPopup__row">
+                    {fmtCoord(point.lat)}, {fmtCoord(point.lon)}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+
+        {incidentOverlayPoints.map((point) => {
+          const palette = incidentPalette(point.event.event_type);
+          const incidentLabel =
+            overlayLabels?.incidentTypeLabels[point.event.event_type] ?? point.event.event_type;
+          return (
+            <CircleMarker
+              key={point.id}
+              center={[point.lat, point.lon]}
+              radius={6}
+              pathOptions={{
+                className: `incidentDot incidentDot--${point.event.event_type}`,
+                color: palette.stroke,
+                weight: 2,
+                fillColor: palette.fill,
+                fillOpacity: 0.95,
+              }}
+            >
+              <Popup className="incidentPopup" autoPan={true} autoPanPadding={[22, 22]}>
+                <div className="overlayPopup__card">
+                  <div className="overlayPopup__title">{incidentLabel}</div>
+                  <div className="overlayPopup__row">Delay: {point.event.delay_s.toFixed(1)} s</div>
+                  <div className="overlayPopup__row">
+                    Start offset: {point.event.start_offset_s.toFixed(1)} s
+                  </div>
+                  <div className="overlayPopup__row">Segment: {point.event.segment_index + 1}</div>
+                  <div className="overlayPopup__row">Source: {point.event.source}</div>
+                </div>
+              </Popup>
+            </CircleMarker>
+          );
+        })}
 
         {timeLapsePosition && (
           <CircleMarker

@@ -8,6 +8,7 @@ import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
+import { buildStopOverlayPoints, parseDutyStopsForOverlay } from './lib/mapOverlays';
 import type {
   CostToggles,
   DutyChainRequest,
@@ -49,6 +50,15 @@ type MapViewProps = {
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
+  dutyStops?: DutyChainRequest['stops'];
+  showStopOverlay?: boolean;
+  showIncidentOverlay?: boolean;
+  showSegmentTooltips?: boolean;
+  overlayLabels?: {
+    stopLabel: string;
+    segmentLabel: string;
+    incidentTypeLabels: Record<'dwell' | 'accident' | 'closure', string>;
+  };
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectMarker: (kind: MarkerKind | null) => void;
@@ -354,6 +364,9 @@ export default function Page() {
   const [oracleError, setOracleError] = useState<string | null>(null);
   const [oracleLatestCheck, setOracleLatestCheck] = useState<OracleFeedCheckRecord | null>(null);
   const [timeLapsePosition, setTimeLapsePosition] = useState<LatLng | null>(null);
+  const [showStopOverlay, setShowStopOverlay] = useState(true);
+  const [showIncidentOverlay, setShowIncidentOverlay] = useState(true);
+  const [showSegmentTooltips, setShowSegmentTooltips] = useState(true);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [liveMessage, setLiveMessage] = useState('');
 
@@ -593,6 +606,29 @@ export default function Page() {
     if (!selectedId) return null;
     return paretoRoutes.find((route) => route.id === selectedId) ?? null;
   }, [paretoRoutes, selectedId]);
+
+  const dutyStopsForOverlay = useMemo(
+    () => parseDutyStopsForOverlay(dutyStopsText),
+    [dutyStopsText],
+  );
+  const stopOverlayCount = useMemo(
+    () => buildStopOverlayPoints(origin, destination, dutyStopsForOverlay).length,
+    [origin, destination, dutyStopsForOverlay],
+  );
+  const incidentOverlayCount = selectedRoute?.incident_events?.length ?? 0;
+  const segmentOverlayCount = Math.min(120, selectedRoute?.segment_breakdown?.length ?? 0);
+  const mapOverlayLabels = useMemo(
+    () => ({
+      stopLabel: t('stop_label'),
+      segmentLabel: t('segment_label'),
+      incidentTypeLabels: {
+        dwell: t('incident_dwell'),
+        accident: t('incident_accident'),
+        closure: t('incident_closure'),
+      },
+    }),
+    [t],
+  );
 
   useEffect(() => {
     if (!selectedRoute) {
@@ -1536,6 +1572,11 @@ export default function Page() {
           selectedMarker={selectedMarker}
           route={selectedRoute}
           timeLapsePosition={timeLapsePosition}
+          dutyStops={dutyStopsForOverlay}
+          showStopOverlay={showStopOverlay}
+          showIncidentOverlay={showIncidentOverlay}
+          showSegmentTooltips={showSegmentTooltips}
+          overlayLabels={mapOverlayLabels}
           onMapClick={handleMapClick}
           onSelectMarker={setSelectedMarker}
           onMoveMarker={handleMoveMarker}
@@ -1563,6 +1604,41 @@ export default function Page() {
           )}
 
           <div className="mapHUD__hint">{mapHint}</div>
+          <div className="mapHUD__overlayCard" role="group" aria-label={t('map_overlays')}>
+            <div className="mapHUD__overlayTitle">{t('map_overlays')}</div>
+            <div className="mapHUD__overlayControls">
+              <button
+                type="button"
+                className={`mapOverlayToggle ${showStopOverlay ? 'isOn' : ''}`}
+                onClick={() => setShowStopOverlay((prev) => !prev)}
+                aria-pressed={showStopOverlay}
+                aria-label={`${t('overlay_stops')} (${stopOverlayCount})`}
+              >
+                <span>{t('overlay_stops')}</span>
+                <span className="mapOverlayToggle__count">{stopOverlayCount}</span>
+              </button>
+              <button
+                type="button"
+                className={`mapOverlayToggle ${showIncidentOverlay ? 'isOn' : ''}`}
+                onClick={() => setShowIncidentOverlay((prev) => !prev)}
+                aria-pressed={showIncidentOverlay}
+                aria-label={`${t('overlay_incidents')} (${incidentOverlayCount})`}
+              >
+                <span>{t('overlay_incidents')}</span>
+                <span className="mapOverlayToggle__count">{incidentOverlayCount}</span>
+              </button>
+              <button
+                type="button"
+                className={`mapOverlayToggle ${showSegmentTooltips ? 'isOn' : ''}`}
+                onClick={() => setShowSegmentTooltips((prev) => !prev)}
+                aria-pressed={showSegmentTooltips}
+                aria-label={`${t('overlay_segments')} (${segmentOverlayCount})`}
+              >
+                <span>{t('overlay_segments')}</span>
+                <span className="mapOverlayToggle__count">{segmentOverlayCount}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
