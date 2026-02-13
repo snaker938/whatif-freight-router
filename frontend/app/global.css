@@ -1377,12 +1377,15 @@ a {
   /* ---------- Map HUD ---------- */
 
   .mapHUD {
-    position: absolute;
+    position: fixed;
     left: 16px;
     top: 16px;
+    z-index: 1100;
     display: grid;
     gap: 10px;
     pointer-events: none;
+    opacity: 1;
+    visibility: visible;
   }
 
   .mapHUD__status {
@@ -2039,6 +2042,7 @@ a {
     position: relative;
     background: transparent !important;
     border: none !important;
+    cursor: grab;
   }
 
   .dutyStopPin.isSelected .dutyStopPin__label {
@@ -2065,6 +2069,12 @@ a {
     box-shadow:
       0 10px 20px rgba(3, 105, 161, 0.4),
       inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    cursor: grab;
+  }
+
+  .leaflet-marker-icon:active .dutyStopPin,
+  .leaflet-marker-icon:active .dutyStopPin__label {
+    cursor: grabbing;
   }
 
   .leaflet-tooltip.stopNameTooltip {
@@ -2076,6 +2086,7 @@ a {
     font-weight: 600;
     padding: 4px 10px !important;
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35) !important;
+    pointer-events: none !important;
   }
 
   .overlayPopup__card {

@@ -644,10 +644,11 @@ export default function MapView({
 
   const handleMapClickFromMap = useCallback(
     (lat: number, lon: number) => {
+      if (draggingPinId !== null) return;
       if (Date.now() < suppressMapClickUntilRef.current) return;
       onMapClick(lat, lon);
     },
-    [onMapClick],
+    [draggingPinId, onMapClick],
   );
 
   return (
@@ -965,6 +966,7 @@ export default function MapView({
             position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
             icon={stopIcon}
             draggable={true}
+            riseOnHover={true}
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();

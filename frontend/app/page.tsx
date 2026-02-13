@@ -1390,32 +1390,7 @@ export default function Page() {
       return;
     }
 
-    if (selectedPinId === 'origin') {
-      setOrigin({ lat, lon });
-      clearComputed();
-      markTutorialAction('map.set_origin');
-      return;
-    }
-
-    if (selectedPinId === 'stop-1') {
-      if (!managedStop) {
-        setSelectedPinId(null);
-        return;
-      }
-      setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
-      clearComputed();
-      markTutorialAction('map.move_stop_click');
-      return;
-    }
-
-    if (selectedPinId === 'destination') {
-      setDestination({ lat, lon });
-      clearComputed();
-      markTutorialAction('map.set_destination');
-      return;
-    }
-
-    setLiveMessage('Select a pin to move it, or drag directly on the map.');
+    setLiveMessage('Pins move by drag only. Drag Start, End, or Stop #1 to reposition.');
   }
 
   function handleMoveMarker(kind: MarkerKind, lat: number, lon: number) {
