@@ -171,6 +171,7 @@ const ExperimentManager = dynamic<
     locale: Locale;
     defaultName?: string;
     defaultDescription?: string;
+    tutorialResetNonce?: number;
   }
 >(() => import('./components/ExperimentManager'), {
   ssr: false,
@@ -287,6 +288,7 @@ const OracleQualityDashboard = dynamic<
     onRefresh: () => void;
     onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
     locale: Locale;
+    tutorialResetNonce?: number;
   }
 >(() => import('./components/OracleQualityDashboard'), {
   ssr: false,
@@ -454,6 +456,7 @@ export default function Page() {
     name: string;
     description: string;
   } | null>(null);
+  const [tutorialResetNonce, setTutorialResetNonce] = useState(0);
   const [liveMessage, setLiveMessage] = useState('');
 
   const [error, setError] = useState<string | null>(null);
@@ -879,6 +882,7 @@ export default function Page() {
 
     let raf = 0;
     let timeoutId = 0;
+    let intervalId = 0;
     const resolveTarget = (scrollIntoViewTarget: boolean) => {
       if (!tutorialStep.targetIds.length) {
         setTutorialTargetRect(null);
@@ -899,11 +903,18 @@ export default function Page() {
 
       if (isPanelCollapsed && element.closest('.panel')) {
         setIsPanelCollapsed(false);
+        raf = window.requestAnimationFrame(() => resolveTarget(scrollIntoViewTarget));
+        return;
       }
       if (scrollIntoViewTarget) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
       }
       const rect = element.getBoundingClientRect();
+      if (rect.width <= 1 || rect.height <= 1) {
+        setTutorialTargetRect(null);
+        setTutorialTargetMissing(true);
+        return;
+      }
       setTutorialTargetRect({
         top: rect.top,
         left: rect.left,
@@ -917,12 +928,14 @@ export default function Page() {
       resolveTarget(true);
       raf = window.requestAnimationFrame(() => resolveTarget(false));
     }, 120);
+    intervalId = window.setInterval(() => resolveTarget(false), 450);
     const onResize = () => resolveTarget(false);
     const onScroll = () => resolveTarget(false);
     window.addEventListener('resize', onResize);
     window.addEventListener('scroll', onScroll, true);
     return () => {
       window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
       window.cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll, true);
@@ -1158,10 +1171,39 @@ export default function Page() {
   }
 
   function closeTutorial() {
+    if (tutorialMode === 'running') {
+      const snapshot = {
+        stepIndex: tutorialStepIndex,
+        actions: tutorialActions,
+        optionalDecisions: tutorialOptionalDecisions,
+        updatedAt: new Date().toISOString(),
+      };
+      saveTutorialProgress(TUTORIAL_PROGRESS_KEY, snapshot);
+      setTutorialSavedProgress({
+        stepIndex: snapshot.stepIndex,
+        actions: snapshot.actions,
+        optionalDecisions: snapshot.optionalDecisions,
+      });
+    }
     setTutorialOpen(false);
   }
 
   function startTutorialFresh() {
+    clearComputed();
+    setOrigin(null);
+    setDestination(null);
+    setSelectedMarker(null);
+    setVehicleType('rigid_hgv');
+    setScenarioMode('no_sharing');
+    setWeights({ time: 60, money: 20, co2: 20 });
+    setApiToken('');
+    setAdvancedParams(DEFAULT_ADVANCED_PARAMS);
+    setDepEarliestArrivalLocal('');
+    setDepLatestArrivalLocal('');
+    setDutyStopsText('');
+    setShowStopOverlay(true);
+    setShowIncidentOverlay(true);
+    setShowSegmentTooltips(true);
     setTutorialMode(tutorialIsDesktop ? 'running' : 'blocked');
     setTutorialActions([]);
     setTutorialOptionalDecisions([]);
@@ -1170,6 +1212,8 @@ export default function Page() {
     setTutorialTargetMissing(false);
     setTutorialPrefilledSteps([]);
     setTutorialExperimentPrefill(null);
+    setTutorialSavedProgress(null);
+    setTutorialResetNonce((prev) => prev + 1);
     clearTutorialProgress(TUTORIAL_PROGRESS_KEY);
     saveTutorialCompleted(TUTORIAL_COMPLETED_KEY, false);
     setTutorialCompleted(false);
@@ -1192,7 +1236,6 @@ export default function Page() {
 
   function restartTutorialProgress() {
     startTutorialFresh();
-    setTutorialSavedProgress(null);
   }
 
   function tutorialBack() {
@@ -2247,11 +2290,6 @@ export default function Page() {
                         setTutorialOpen(true);
                         return;
                       }
-                      if (tutorialCompleted) {
-                        setTutorialMode('completed');
-                        setTutorialOpen(true);
-                        return;
-                      }
                       startTutorialFresh();
                     }}
                     disabled={busy}
@@ -2731,6 +2769,7 @@ export default function Page() {
             }}
             onIngest={ingestOracleCheck}
             locale={locale}
+            tutorialResetNonce={tutorialResetNonce}
           />
 
           <ExperimentManager
@@ -2770,6 +2809,7 @@ export default function Page() {
             locale={locale}
             defaultName={tutorialExperimentPrefill?.name}
             defaultDescription={tutorialExperimentPrefill?.description}
+            tutorialResetNonce={tutorialResetNonce}
           />
             </div>
       </aside>

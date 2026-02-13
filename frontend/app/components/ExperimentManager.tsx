@@ -36,6 +36,7 @@ type Props = {
   locale: Locale;
   defaultName?: string;
   defaultDescription?: string;
+  tutorialResetNonce?: number;
 };
 
 export default function ExperimentManager({
@@ -62,6 +63,7 @@ export default function ExperimentManager({
   locale,
   defaultName = '',
   defaultDescription = '',
+  tutorialResetNonce,
 }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -77,6 +79,12 @@ export default function ExperimentManager({
       setDescription(defaultDescription);
     }
   }, [defaultDescription]);
+
+  useEffect(() => {
+    if (typeof tutorialResetNonce !== 'number') return;
+    setName(defaultName ?? '');
+    setDescription(defaultDescription ?? '');
+  }, [defaultDescription, defaultName, tutorialResetNonce]);
 
   async function handleSave() {
     const trimmed = name.trim();

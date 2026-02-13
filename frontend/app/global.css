@@ -1386,6 +1386,7 @@ a {
   .tutorialOverlay__card {
     position: fixed;
     width: min(500px, calc(100vw - 28px));
+    z-index: 1204;
     border-radius: 18px;
     border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(12, 15, 28, 0.96);
@@ -1554,7 +1555,7 @@ a {
     background: rgba(12, 15, 28, 0.96);
     border-left: 1px solid rgba(255, 255, 255, 0.14);
     border-top: 1px solid rgba(255, 255, 255, 0.14);
-    z-index: 1202;
+    z-index: 1203;
     pointer-events: none;
   }
 

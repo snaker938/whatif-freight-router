@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 
 import type { TutorialTargetRect } from '../lib/tutorial/types';
 
@@ -88,6 +88,8 @@ export default function TutorialOverlay({
   onMarkManual,
   onUseOptionalDefault,
 }: Props) {
+  const suppressBackdropCloseRef = useRef(false);
+
   const layout = useMemo(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
@@ -100,6 +102,7 @@ export default function TutorialOverlay({
           top: clamp(vh * 0.15, 12, vh - 380),
           width: cardWidth,
         },
+        arrowStyle: null as { left: number; top: number } | null,
         arrowClass: 'isHidden',
       };
     }
@@ -115,15 +118,24 @@ export default function TutorialOverlay({
 
     return {
       cardStyle: { left, top, width: cardWidth },
+      arrowStyle: { left, top },
       arrowClass: preferRight ? 'isLeftAnchor' : 'isRightAnchor',
     };
   }, [mode, targetRect]);
 
   if (!open) return null;
 
+  function handleBackdropClick() {
+    if (suppressBackdropCloseRef.current) {
+      suppressBackdropCloseRef.current = false;
+      return;
+    }
+    onClose();
+  }
+
   return (
     <div className="tutorialOverlay" role="dialog" aria-modal="true" aria-label="Guided frontend tutorial">
-      <div className="tutorialOverlay__backdrop" onClick={onClose} />
+      <div className="tutorialOverlay__backdrop" onClick={handleBackdropClick} />
 
       {mode === 'running' && targetRect ? (
         <>
@@ -136,11 +148,25 @@ export default function TutorialOverlay({
               height: targetRect.height + 12,
             }}
           />
-          <div className={`tutorialOverlay__arrow ${layout.arrowClass}`} style={layout.cardStyle} />
+          <div className={`tutorialOverlay__arrow ${layout.arrowClass}`} style={layout.arrowStyle ?? undefined} />
         </>
       ) : null}
 
-      <div className="tutorialOverlay__card tutorialOverlay__card--guided" style={layout.cardStyle}>
+      <div
+        className="tutorialOverlay__card tutorialOverlay__card--guided"
+        style={layout.cardStyle}
+        onMouseDown={() => {
+          suppressBackdropCloseRef.current = true;
+        }}
+        onMouseUp={() => {
+          window.setTimeout(() => {
+            suppressBackdropCloseRef.current = false;
+          }, 0);
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+      >
         {mode === 'blocked' ? (
           <>
             <div className="tutorialOverlay__badge">Desktop only</div>
@@ -150,7 +176,7 @@ export default function TutorialOverlay({
               viewport to continue.
             </p>
             <div className="tutorialOverlay__actions">
-              <button className="primary" onClick={onClose}>
+              <button type="button" className="primary" onClick={onClose}>
                 Close
               </button>
             </div>
@@ -168,16 +194,20 @@ export default function TutorialOverlay({
             </p>
             <div className="tutorialOverlay__actions">
               {hasSavedProgress ? (
-                <button className="secondary" onClick={onResume}>
+                <button type="button" className="secondary" onClick={onResume}>
                   Resume
                 </button>
               ) : null}
-              <button className="primary" onClick={hasSavedProgress ? onRestart : onStartNew}>
+              <button
+                type="button"
+                className="primary"
+                onClick={hasSavedProgress ? onRestart : onStartNew}
+              >
                 {hasSavedProgress ? 'Restart' : 'Start tutorial'}
               </button>
             </div>
             <div className="tutorialOverlay__footer">
-              <button className="ghostButton" onClick={onClose}>
+              <button type="button" className="ghostButton" onClick={onClose}>
                 Close
               </button>
             </div>
@@ -192,10 +222,10 @@ export default function TutorialOverlay({
               You can restart the full walkthrough at any time from the Setup card.
             </p>
             <div className="tutorialOverlay__actions">
-              <button className="secondary" onClick={onRestart}>
+              <button type="button" className="secondary" onClick={onRestart}>
                 Restart tutorial
               </button>
-              <button className="primary" onClick={onClose}>
+              <button type="button" className="primary" onClick={onClose}>
                 Close
               </button>
             </div>
@@ -237,10 +267,10 @@ export default function TutorialOverlay({
                     </span>
                     <span className="tutorialChecklist__label">{item.label}</span>
                     {!item.done && item.kind === 'manual' ? (
-                      <button
-                        type="button"
-                        className="ghostButton tutorialChecklist__manualBtn"
-                        onClick={() => onMarkManual(item.actionId)}
+                  <button
+                    type="button"
+                    className="ghostButton tutorialChecklist__manualBtn"
+                    onClick={() => onMarkManual(item.actionId)}
                       >
                         Mark done
                       </button>
@@ -269,15 +299,15 @@ export default function TutorialOverlay({
             ) : null}
 
             <div className="tutorialOverlay__actions">
-              <button className="secondary" onClick={onBack} disabled={atStart}>
+              <button type="button" className="secondary" onClick={onBack} disabled={atStart}>
                 Back
               </button>
               {atEnd ? (
-                <button className="primary" onClick={onFinish} disabled={!canGoNext}>
+                <button type="button" className="primary" onClick={onFinish} disabled={!canGoNext}>
                   Finish tutorial
                 </button>
               ) : (
-                <button className="primary" onClick={onNext} disabled={!canGoNext}>
+                <button type="button" className="primary" onClick={onNext} disabled={!canGoNext}>
                   Next
                 </button>
               )}
@@ -285,7 +315,7 @@ export default function TutorialOverlay({
 
             <div className="tutorialOverlay__footer">
               {!isDesktop ? null : (
-                <button className="ghostButton" onClick={onClose}>
+                <button type="button" className="ghostButton" onClick={onClose}>
                   Close and keep progress
                 </button>
               )}

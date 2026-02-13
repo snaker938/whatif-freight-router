@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import FieldInfo from './FieldInfo';
 import { formatDateTime, formatNumber } from '../lib/format';
@@ -26,6 +26,7 @@ type Props = {
   onRefresh: () => void;
   onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
   locale: Locale;
+  tutorialResetNonce?: number;
 };
 
 export default function OracleQualityDashboard({
@@ -38,16 +39,28 @@ export default function OracleQualityDashboard({
   onRefresh,
   onIngest,
   locale,
+  tutorialResetNonce,
 }: Props) {
-  const [source, setSource] = useState('tutorial_oracle');
+  const [source, setSource] = useState('oracle_demo');
   const [schemaValid, setSchemaValid] = useState(true);
-  const [signatureState, setSignatureState] = useState<'unknown' | 'valid' | 'invalid'>('valid');
-  const [freshnessS, setFreshnessS] = useState('120');
-  const [latencyMs, setLatencyMs] = useState('85');
-  const [recordCount, setRecordCount] = useState('18');
+  const [signatureState, setSignatureState] = useState<'unknown' | 'valid' | 'invalid'>('unknown');
+  const [freshnessS, setFreshnessS] = useState('');
+  const [latencyMs, setLatencyMs] = useState('');
+  const [recordCount, setRecordCount] = useState('');
   const [errorText, setErrorText] = useState('');
 
   const csvHref = useMemo(() => '/api/oracle/quality/dashboard.csv', []);
+
+  useEffect(() => {
+    if (typeof tutorialResetNonce !== 'number' || tutorialResetNonce <= 0) return;
+    setSource('tutorial_oracle');
+    setSchemaValid(true);
+    setSignatureState('valid');
+    setFreshnessS('120');
+    setLatencyMs('85');
+    setRecordCount('18');
+    setErrorText('');
+  }, [tutorialResetNonce]);
 
   async function handleIngest() {
     const trimmedSource = source.trim();
