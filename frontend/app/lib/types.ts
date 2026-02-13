@@ -36,6 +36,7 @@ export type RouteMetrics = {
   monetary_cost: number;
   emissions_kg: number;
   avg_speed_kmh: number;
+  energy_kwh?: number | null;
 };
 
 export type GeoJSONLineString = {
@@ -106,6 +107,9 @@ export type VehicleProfile = {
   cost_per_km: number;
   cost_per_hour: number;
   idle_emissions_kg_per_hour: number;
+  powertrain?: 'ice' | 'ev';
+  ev_kwh_per_km?: number | null;
+  grid_co2_kg_per_kwh?: number | null;
 };
 
 export type VehicleListResponse = { vehicles: VehicleProfile[] };
@@ -131,6 +135,7 @@ export type ScenarioCompareRequest = {
   origin: LatLng;
   destination: LatLng;
   vehicle_type?: string;
+  scenario_mode?: ScenarioMode | null;
   weights?: { time: number; money: number; co2: number };
   max_alternatives?: number;
   cost_toggles?: CostToggles;
@@ -155,6 +160,8 @@ export type ExperimentBundle = {
 export type ExperimentListResponse = {
   experiments: ExperimentBundle[];
 };
+
+export type ExperimentCatalogSort = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc';
 
 export type DepartureOptimizeRequest = {
   origin: LatLng;

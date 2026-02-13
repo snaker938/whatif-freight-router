@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -2241,11 +2241,32 @@ async def compare_scenarios(
 
 
 @app.get("/experiments", response_model=ExperimentListResponse)
-async def get_experiments() -> ExperimentListResponse:
+async def get_experiments(
+    q: str | None = Query(default=None),
+    vehicle_type: str | None = Query(default=None),
+    scenario_mode: ScenarioMode | None = Query(default=None),
+    sort: str = Query(default="updated_desc"),
+) -> ExperimentListResponse:
     t0 = time.perf_counter()
     has_error = False
     try:
-        return ExperimentListResponse(experiments=list_experiments())
+        allowed_sorts = {"updated_desc", "updated_asc", "name_asc", "name_desc"}
+        if sort not in allowed_sorts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid sort value '{sort}', expected one of: {', '.join(sorted(allowed_sorts))}",
+            )
+        return ExperimentListResponse(
+            experiments=list_experiments(
+                q=q,
+                vehicle_type=vehicle_type,
+                scenario_mode=scenario_mode.value if scenario_mode is not None else None,
+                sort=sort,
+            )
+        )
+    except HTTPException:
+        has_error = True
+        raise
     except Exception:
         has_error = True
         raise

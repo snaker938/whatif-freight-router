@@ -106,3 +106,68 @@ def test_experiment_lifecycle_and_compare_replay(tmp_path: Path, monkeypatch) ->
             assert missing_resp.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_experiment_catalog_filters_and_sorting(tmp_path: Path, monkeypatch) -> None:
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "out_dir", str(out_dir))
+    app.dependency_overrides[osrm_client] = lambda: FakeOSRM()
+
+    try:
+        with TestClient(app) as client:
+            base_request = {
+                "origin": {"lat": 52.4862, "lon": -1.8904},
+                "destination": {"lat": 51.5072, "lon": -0.1276},
+                "weights": {"time": 1, "money": 1, "co2": 1},
+                "max_alternatives": 3,
+            }
+            experiments = [
+                ("Zulu run", "rigid_hgv", "no_sharing"),
+                ("Alpha run", "van", "partial_sharing"),
+                ("Echo run", "artic_hgv", "full_sharing"),
+            ]
+            for name, vehicle_type, scenario_mode in experiments:
+                payload = {
+                    "name": name,
+                    "description": f"{name} description",
+                    "request": {
+                        **base_request,
+                        "vehicle_type": vehicle_type,
+                        "scenario_mode": scenario_mode,
+                    },
+                }
+                create_resp = client.post("/experiments", json=payload)
+                assert create_resp.status_code == 200
+
+            all_resp = client.get("/experiments")
+            assert all_resp.status_code == 200
+            assert len(all_resp.json()["experiments"]) == 3
+
+            search_resp = client.get("/experiments?q=alpha")
+            assert search_resp.status_code == 200
+            search_items = search_resp.json()["experiments"]
+            assert len(search_items) == 1
+            assert search_items[0]["name"] == "Alpha run"
+
+            vehicle_resp = client.get("/experiments?vehicle_type=van")
+            assert vehicle_resp.status_code == 200
+            vehicle_items = vehicle_resp.json()["experiments"]
+            assert len(vehicle_items) == 1
+            assert vehicle_items[0]["request"]["vehicle_type"] == "van"
+
+            scenario_resp = client.get("/experiments?scenario_mode=full_sharing")
+            assert scenario_resp.status_code == 200
+            scenario_items = scenario_resp.json()["experiments"]
+            assert len(scenario_items) == 1
+            assert scenario_items[0]["request"]["scenario_mode"] == "full_sharing"
+
+            sort_resp = client.get("/experiments?sort=name_asc")
+            assert sort_resp.status_code == 200
+            sorted_names = [item["name"] for item in sort_resp.json()["experiments"]]
+            assert sorted_names == ["Alpha run", "Echo run", "Zulu run"]
+
+            bad_sort_resp = client.get("/experiments?sort=bad_sort")
+            assert bad_sort_resp.status_code == 400
+    finally:
+        app.dependency_overrides.clear()

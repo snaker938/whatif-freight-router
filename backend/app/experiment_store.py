@@ -85,14 +85,50 @@ def _load_bundle(experiment_id: str) -> ExperimentBundle:
     return ExperimentBundle.model_validate(raw)
 
 
-def list_experiments() -> list[ExperimentBundle]:
+def list_experiments(
+    *,
+    q: str | None = None,
+    vehicle_type: str | None = None,
+    scenario_mode: str | None = None,
+    sort: str = "updated_desc",
+) -> list[ExperimentBundle]:
     out: list[ExperimentBundle] = []
     for experiment_id in _load_index_ids():
         try:
             out.append(_load_bundle(experiment_id))
         except Exception:
             continue
-    out.sort(key=lambda item: item.updated_at, reverse=True)
+
+    query = q.strip().lower() if q else ""
+    if query:
+        out = [
+            item
+            for item in out
+            if query in item.id.lower()
+            or query in item.name.lower()
+            or query in (item.description or "").lower()
+        ]
+
+    if vehicle_type:
+        vt = vehicle_type.strip().lower()
+        out = [item for item in out if item.request.vehicle_type.lower() == vt]
+
+    if scenario_mode:
+        mode = scenario_mode.strip().lower()
+        out = [
+            item
+            for item in out
+            if item.request.scenario_mode is not None and item.request.scenario_mode.value == mode
+        ]
+
+    if sort == "updated_asc":
+        out.sort(key=lambda item: item.updated_at)
+    elif sort == "name_asc":
+        out.sort(key=lambda item: (item.name.lower(), item.updated_at))
+    elif sort == "name_desc":
+        out.sort(key=lambda item: (item.name.lower(), item.updated_at), reverse=True)
+    else:
+        out.sort(key=lambda item: item.updated_at, reverse=True)
     return out
 
 

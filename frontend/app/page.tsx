@@ -11,6 +11,7 @@ import type {
   DepartureOptimizeRequest,
   DepartureOptimizeResponse,
   EpsilonConstraints,
+  ExperimentCatalogSort,
   ExperimentBundle,
   ExperimentListResponse,
   LatLng,
@@ -108,6 +109,16 @@ const ExperimentManager = dynamic<
     onLoad: (bundle: ExperimentBundle) => void;
     onDelete: (experimentId: string) => Promise<void> | void;
     onReplay: (experimentId: string) => Promise<void> | void;
+    catalogQuery: string;
+    catalogVehicleType: string;
+    catalogScenarioMode: '' | ScenarioMode;
+    catalogSort: ExperimentCatalogSort;
+    vehicleOptions: Array<{ value: string; label: string }>;
+    onCatalogQueryChange: (value: string) => void;
+    onCatalogVehicleTypeChange: (value: string) => void;
+    onCatalogScenarioModeChange: (value: '' | ScenarioMode) => void;
+    onCatalogSortChange: (value: ExperimentCatalogSort) => void;
+    onApplyCatalogFilters: () => void;
   }
 >(() => import('./components/ExperimentManager'), {
   ssr: false,
@@ -272,6 +283,10 @@ export default function Page() {
   const [experiments, setExperiments] = useState<ExperimentBundle[]>([]);
   const [experimentsLoading, setExperimentsLoading] = useState(false);
   const [experimentsError, setExperimentsError] = useState<string | null>(null);
+  const [expCatalogQuery, setExpCatalogQuery] = useState('');
+  const [expCatalogVehicleType, setExpCatalogVehicleType] = useState('');
+  const [expCatalogScenarioMode, setExpCatalogScenarioMode] = useState<'' | ScenarioMode>('');
+  const [expCatalogSort, setExpCatalogSort] = useState<ExperimentCatalogSort>('updated_desc');
   const [depWindowStartLocal, setDepWindowStartLocal] = useState('');
   const [depWindowEndLocal, setDepWindowEndLocal] = useState('');
   const [depEarliestArrivalLocal, setDepEarliestArrivalLocal] = useState('');
@@ -790,6 +805,7 @@ export default function Page() {
       origin: originPoint,
       destination: destinationPoint,
       vehicle_type: vehicleType,
+      scenario_mode: scenarioMode,
       max_alternatives: 5,
       weights: {
         time: weights.time,
@@ -976,6 +992,9 @@ export default function Page() {
     if (req.vehicle_type) {
       setVehicleType(req.vehicle_type);
     }
+    if (req.scenario_mode) {
+      setScenarioMode(req.scenario_mode);
+    }
     if (req.weights) {
       setWeights({
         time: Number(req.weights.time ?? 60),
@@ -1008,11 +1027,29 @@ export default function Page() {
     });
   }
 
-  async function loadExperiments() {
+  async function loadExperiments(
+    params: {
+      q?: string;
+      vehicleType?: string;
+      scenarioMode?: '' | ScenarioMode;
+      sort?: ExperimentCatalogSort;
+    } = {},
+  ) {
     setExperimentsLoading(true);
     setExperimentsError(null);
     try {
-      const payload = await fetch('/api/experiments', {
+      const q = (params.q ?? expCatalogQuery).trim();
+      const vehicleType = (params.vehicleType ?? expCatalogVehicleType).trim();
+      const scenarioMode = (params.scenarioMode ?? expCatalogScenarioMode).trim();
+      const sort = params.sort ?? expCatalogSort;
+      const qs = new URLSearchParams();
+      if (q) qs.set('q', q);
+      if (vehicleType) qs.set('vehicle_type', vehicleType);
+      if (scenarioMode) qs.set('scenario_mode', scenarioMode);
+      if (sort) qs.set('sort', sort);
+      const path = qs.toString() ? `/api/experiments?${qs.toString()}` : '/api/experiments';
+
+      const payload = await fetch(path, {
         cache: 'no-store',
         headers: authHeaders,
       });
@@ -1762,6 +1799,23 @@ export default function Page() {
             }}
             onDelete={deleteExperimentById}
             onReplay={replayExperimentById}
+            catalogQuery={expCatalogQuery}
+            catalogVehicleType={expCatalogVehicleType}
+            catalogScenarioMode={expCatalogScenarioMode}
+            catalogSort={expCatalogSort}
+            vehicleOptions={vehicleOptions}
+            onCatalogQueryChange={setExpCatalogQuery}
+            onCatalogVehicleTypeChange={setExpCatalogVehicleType}
+            onCatalogScenarioModeChange={setExpCatalogScenarioMode}
+            onCatalogSortChange={setExpCatalogSort}
+            onApplyCatalogFilters={() => {
+              void loadExperiments({
+                q: expCatalogQuery,
+                vehicleType: expCatalogVehicleType,
+                scenarioMode: expCatalogScenarioMode,
+                sort: expCatalogSort,
+              });
+            }}
           />
             </div>
       </aside>

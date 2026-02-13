@@ -14,7 +14,10 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
 }
 
 export async function GET(req: Request) {
-  const resp = await fetch(`${backendBase()}/experiments`, {
+  const url = new URL(req.url);
+  const query = url.searchParams.toString();
+  const target = query ? `${backendBase()}/experiments?${query}` : `${backendBase()}/experiments`;
+  const resp = await fetch(target, {
     cache: 'no-store',
     headers: forwardedAuthHeaders(req),
   });
