@@ -18,8 +18,8 @@ const DICTIONARY = {
     compute_pareto: 'Compute Pareto',
     computing: 'Computing...',
     clear_results: 'Clear results',
-    compare_scenarios: 'Compare scenarios',
-    comparing_scenarios: 'Comparing...',
+    compare_scenarios: 'Compare Scenarios',
+    comparing_scenarios: 'Comparing Scenarios...',
     route_hint_start: 'Click the map to set Start.',
     route_hint_destination: 'Now click the map to set End.',
     route_hint_default:
@@ -54,8 +54,8 @@ const DICTIONARY = {
     compute_pareto: 'Calcular Pareto',
     computing: 'Calculando...',
     clear_results: 'Limpiar resultados',
-    compare_scenarios: 'Comparar escenarios',
-    comparing_scenarios: 'Comparando...',
+    compare_scenarios: 'Comparar Escenarios',
+    comparing_scenarios: 'Comparando Escenarios...',
     route_hint_start: 'Haz clic en el mapa para definir el inicio.',
     route_hint_destination: 'Ahora haz clic para definir el fin.',
     route_hint_default:
