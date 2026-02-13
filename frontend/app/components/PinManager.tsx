@@ -103,7 +103,6 @@ export default function PinManager({
   return (
     <section className="card pinManager" data-tutorial-id="pins.section">
       <div className="sectionTitle">Pins & stops</div>
-      <div className="sectionHint">Start/End are fixed labels. Stop #1 can be renamed and moved.</div>
 
       <div className="pinManager__rail" role="list" aria-label="Pin route order">
         {railNodes.length === 0 ? (
@@ -123,7 +122,6 @@ export default function PinManager({
                   aria-label={`${isSelected ? 'Deselect' : 'Select'} ${node.label}`}
                 >
                   <span className="pinManager__railNodeText">{node.label}</span>
-                  {isSelected ? <span className="pinManager__railSelected">Selected</span> : null}
                 </button>
                 {idx < railNodes.length - 1 ? (
                   <span className="pinManager__arrow" aria-hidden="true">→</span>

@@ -425,14 +425,6 @@ a {
     letter-spacing: -0.01em;
   }
 
-  .pinManager__railSelected {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: color-mix(in srgb, currentColor 88%, white);
-  }
-
   .pinManager__arrow {
     color: rgba(6, 182, 212, 0.88);
     font-size: 11px;
