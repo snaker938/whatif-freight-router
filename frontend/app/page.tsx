@@ -1005,7 +1005,6 @@ export default function Page() {
       return;
     }
     setDutySyncError(null);
-    dutySyncSourceRef.current = 'text';
     if (!sameLatLng(origin, parsed.origin)) {
       setOrigin(parsed.origin);
     }
