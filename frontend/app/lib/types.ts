@@ -46,6 +46,7 @@ export type PinDisplayNode = {
   lon: number;
   label: string;
   order: number;
+  color: string;
 };
 
 export type PinFocusRequest = {

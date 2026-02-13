@@ -43,6 +43,10 @@ export default function PinManager({
     () => nodes.find((node) => node.id === 'destination') ?? null,
     [nodes],
   );
+  const railNodes = useMemo(
+    () => [originNode, stopNode, destinationNode].filter((node): node is PinDisplayNode => Boolean(node)),
+    [originNode, stopNode, destinationNode],
+  );
 
   function renderNodeRow(
     node: PinDisplayNode,
@@ -65,7 +69,7 @@ export default function PinManager({
           aria-label={`${isSelected ? 'Deselect' : 'Select'} ${label} pin`}
           data-tutorial-action="pins.sidebar_select"
         >
-          <span className={`pinManager__dot pinManager__dot--${node.kind}`} />
+          <span className={`pinManager__dot pinManager__dot--${node.kind}`} style={{ background: node.color }} />
           <span className="pinManager__nodeText">
             <span className="pinManager__nodeTitle">{label}</span>
             <span className="pinManager__nodeCoords">
@@ -101,12 +105,33 @@ export default function PinManager({
       <div className="sectionTitle">Pins & stops</div>
       <div className="sectionHint">Start/End are fixed labels. Stop #1 can be renamed and moved.</div>
 
-      <div className="pinManager__rail" aria-hidden="true">
-        <span>Start</span>
-        <span className="pinManager__arrow">→</span>
-        <span>Stop #1</span>
-        <span className="pinManager__arrow">→</span>
-        <span>End</span>
+      <div className="pinManager__rail" role="list" aria-label="Pin route order">
+        {railNodes.length === 0 ? (
+          <span className="pinManager__railEmpty">Add Start and End pins to build a route.</span>
+        ) : (
+          railNodes.map((node, idx) => {
+            const isSelected = selectedPinId === node.id;
+            return (
+              <div key={node.id} className="pinManager__railItem" role="listitem">
+                <button
+                  type="button"
+                  className={`pinManager__railNode ${isSelected ? 'isSelected' : ''}`}
+                  style={{ color: node.color }}
+                  disabled={disabled}
+                  onClick={() => onSelectPin(node.id)}
+                  aria-pressed={isSelected}
+                  aria-label={`${isSelected ? 'Deselect' : 'Select'} ${node.label}`}
+                >
+                  <span className="pinManager__railNodeText">{node.label}</span>
+                  {isSelected ? <span className="pinManager__railSelected">Selected</span> : null}
+                </button>
+                {idx < railNodes.length - 1 ? (
+                  <span className="pinManager__arrow" aria-hidden="true">→</span>
+                ) : null}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <ul className="pinManager__list">

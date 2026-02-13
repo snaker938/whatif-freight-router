@@ -461,6 +461,13 @@ export function buildManagedPinNodes(
     destination?: string;
   } = {},
 ): PinDisplayNode[] {
+  const previewNodes = buildPreviewRouteNodes(
+    origin,
+    destination,
+    stop ? [{ lat: stop.lat, lon: stop.lon, label: stop.label }] : [],
+  );
+  const colorById = new Map(previewNodes.map((node) => [node.id, node.color]));
+
   const out: PinDisplayNode[] = [];
   if (origin) {
     out.push({
@@ -470,6 +477,7 @@ export function buildManagedPinNodes(
       lon: origin.lon,
       label: labels.origin?.trim() || 'Start',
       order: 1,
+      color: colorById.get('origin') ?? PREVIEW_START_COLOR,
     });
   }
   if (stop) {
@@ -480,6 +488,7 @@ export function buildManagedPinNodes(
       lon: stop.lon,
       label: stop.label?.trim() || 'Stop #1',
       order: 2,
+      color: colorById.get('stop-1') ?? interpolateHexColor(PREVIEW_START_COLOR, PREVIEW_END_COLOR, 0.5),
     });
   }
   if (destination) {
@@ -490,6 +499,7 @@ export function buildManagedPinNodes(
       lon: destination.lon,
       label: labels.destination?.trim() || 'End',
       order: stop ? 3 : 2,
+      color: colorById.get('destination') ?? PREVIEW_END_COLOR,
     });
   }
   return out;
