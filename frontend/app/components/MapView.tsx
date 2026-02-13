@@ -90,7 +90,7 @@ const MAP_HOT_RELOAD_KEY =
 
 function makePinIcon(kind: MarkerKind, selected: boolean) {
   const label = kind === 'origin' ? 'A' : 'B';
-  const assistive = kind === 'origin' ? 'Start marker' : 'Destination marker';
+  const assistive = kind === 'origin' ? 'Start marker' : 'End marker';
   const baseClass = kind === 'origin' ? 'pin-origin' : 'pin-destination';
   const selectedClass = selected ? 'pin--selected' : '';
 
@@ -367,13 +367,23 @@ function incidentPalette(eventType: IncidentEventType): {
   };
 }
 
-function makeDutyStopIcon(sequence: number, selected = false) {
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function makeDutyStopIcon(sequence: number, selected = false, name = 'Stop #1') {
+  const safeName = escapeHtml(name.trim() || 'Stop #1');
   return L.divIcon({
     className: `dutyStopPin ${selected ? 'isSelected' : ''}`.trim(),
-    html: `<span class="dutyStopPin__label">${sequence}</span>`,
-    iconSize: [30, 30],
+    html: `<span class="dutyStopPin__label">${sequence}</span><span class="dutyStopPin__name">${safeName}</span>`,
+    iconSize: [130, 34],
     iconAnchor: [15, 15],
-    popupAnchor: [0, -12],
+    popupAnchor: [0, -14],
   });
 }
 
@@ -443,7 +453,7 @@ export default function MapView({
   destination,
   managedStop = null,
   originLabel = 'Start',
-  destinationLabel = 'Destination',
+  destinationLabel = 'End',
   selectedPinId = null,
   focusPinRequest = null,
   fitAllRequestNonce = 0,
@@ -474,6 +484,8 @@ export default function MapView({
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [stopDraftLabel, setStopDraftLabel] = useState(managedStop?.label ?? 'Stop #1');
   const [draggingPinId, setDraggingPinId] = useState<PinSelectionId | null>(null);
+  const suppressMapClickUntilRef = useRef(0);
+  const suppressMarkerClickUntilRef = useRef(0);
   const [dragPreview, setDragPreview] = useState<{
     origin: LatLng | null;
     destination: LatLng | null;
@@ -535,11 +547,17 @@ export default function MapView({
   }, [managedStop, dragPreview.stop, draggingPinId]);
 
   useEffect(() => {
-    if (!selectedPinId) {
+    if (selectedPinId === null && draggingPinId === null) {
       setDraggingPinId(null);
       setDragPreview({ origin: null, destination: null, stop: null });
     }
-  }, [selectedPinId]);
+  }, [selectedPinId, draggingPinId]);
+
+  const suppressInteractionsBriefly = useCallback(() => {
+    const until = Date.now() + 820;
+    suppressMapClickUntilRef.current = until;
+    suppressMarkerClickUntilRef.current = until;
+  }, []);
 
   const originIcon = useMemo(
     () => makePinIcon('origin', selectedPinId === 'origin'),
@@ -628,6 +646,14 @@ export default function MapView({
     }
   }, [onTutorialAction]);
 
+  const handleMapClickFromMap = useCallback(
+    (lat: number, lon: number) => {
+      if (Date.now() < suppressMapClickUntilRef.current) return;
+      onMapClick(lat, lon);
+    },
+    [onMapClick],
+  );
+
   return (
     <div
       className="mapPane"
@@ -667,7 +693,7 @@ export default function MapView({
           subdomains={['a', 'b', 'c', 'd']}
         />
 
-        <ClickHandler onMapClick={onMapClick} />
+        <ClickHandler onMapClick={handleMapClickFromMap} />
 
         {origin && (
           <Marker
@@ -679,6 +705,7 @@ export default function MapView({
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
+                if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
                 onFocusPin?.('origin');
                 onTutorialAction?.('map.click_origin_marker');
@@ -687,10 +714,12 @@ export default function MapView({
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
+                suppressInteractionsBriefly();
                 onMoveMarker('origin', pos.lat, pos.lng);
                 onTutorialAction?.('map.drag_origin_marker');
               },
               dragstart() {
+                suppressInteractionsBriefly();
                 setDraggingPinId('origin');
               },
               drag(e) {
@@ -722,8 +751,8 @@ export default function MapView({
                           onSwapMarkers();
                           onTutorialAction?.('map.popup_swap');
                         }}
-                        aria-label="Swap start and destination"
-                        title="Swap start and destination"
+                        aria-label="Swap Start and End"
+                        title="Swap Start and End"
                         data-tutorial-action="map.popup_swap"
                       >
                         <SwapIcon />
@@ -777,7 +806,7 @@ export default function MapView({
                     data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
-                      {fmtCoord(origin.lat)}, {fmtCoord(origin.lon)}
+                      {fmtCoord(effectiveOrigin?.lat ?? origin.lat)}, {fmtCoord(effectiveOrigin?.lon ?? origin.lon)}
                     </span>
                     <span className="markerPopup__coordsIcon">
                       <CopyIcon />
@@ -805,6 +834,7 @@ export default function MapView({
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
+                if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
                 onFocusPin?.('destination');
                 onTutorialAction?.('map.click_destination_marker');
@@ -813,10 +843,12 @@ export default function MapView({
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
+                suppressInteractionsBriefly();
                 onMoveMarker('destination', pos.lat, pos.lng);
                 onTutorialAction?.('map.drag_destination_marker');
               },
               dragstart() {
+                suppressInteractionsBriefly();
                 setDraggingPinId('destination');
               },
               drag(e) {
@@ -835,7 +867,7 @@ export default function MapView({
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
                   <span className="markerPopup__pill markerPopup__pill--destination">
-                    {destinationLabel || 'Destination'}
+                    {destinationLabel || 'End'}
                   </span>
 
                   <div className="markerPopup__actions">
@@ -848,8 +880,8 @@ export default function MapView({
                           onSwapMarkers();
                           onTutorialAction?.('map.popup_swap');
                         }}
-                        aria-label="Swap start and destination"
-                        title="Swap start and destination"
+                        aria-label="Swap Start and End"
+                        title="Swap Start and End"
                         data-tutorial-action="map.popup_swap"
                       >
                         <SwapIcon />
@@ -903,7 +935,7 @@ export default function MapView({
                     data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
-                      {fmtCoord(destination.lat)}, {fmtCoord(destination.lon)}
+                      {fmtCoord(effectiveDestination?.lat ?? destination.lat)}, {fmtCoord(effectiveDestination?.lon ?? destination.lon)}
                     </span>
                     <span className="markerPopup__coordsIcon">
                       <CopyIcon />
@@ -914,7 +946,7 @@ export default function MapView({
                 </div>
 
                 <div className="markerPopup__tinyHint">
-                  Destination pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
+                  End pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
                 </div>
               </div>
             </Popup>
@@ -925,11 +957,12 @@ export default function MapView({
           <Marker
             ref={stopRef}
             position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
-            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1')}
+            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1', managedStop.label)}
             draggable={true}
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
+                if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
                 onFocusPin?.('stop-1');
                 onTutorialAction?.('map.click_stop_marker');
@@ -938,10 +971,12 @@ export default function MapView({
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));
+                suppressInteractionsBriefly();
                 onMoveStop?.(pos.lat, pos.lng);
                 onTutorialAction?.('map.drag_stop_marker');
               },
               dragstart() {
+                suppressInteractionsBriefly();
                 setDraggingPinId('stop-1');
               },
               drag(e) {
@@ -954,7 +989,7 @@ export default function MapView({
             <Popup className="stopOverlayPopup" autoPan={true} autoPanPadding={[22, 22]} closeButton={false}>
               <div className="overlayPopup__card stopPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
-                  <span className="markerPopup__pill markerPopup__pill--stop">Stop #1</span>
+                  <span className="markerPopup__pill markerPopup__pill--stop">{managedStop.label || 'Stop #1'}</span>
                   <div className="markerPopup__actions">
                     {onDeleteStop ? (
                       <button
@@ -1042,6 +1077,9 @@ export default function MapView({
                 </div>
               </div>
             </Popup>
+            <Tooltip permanent={true} direction="top" offset={[0, -16]} className="stopNameTooltip">
+              {managedStop.label || 'Stop #1'}
+            </Tooltip>
           </Marker>
         ) : null}
 

@@ -304,8 +304,6 @@ const PinManager = dynamic<
     canAddStop: boolean;
     oneStopHint?: string | null;
     onSelectPin: (id: 'origin' | 'destination' | 'stop-1') => void;
-    onRenameStart: (name: string) => void;
-    onRenameDestination: (name: string) => void;
     onRenameStop: (name: string) => void;
     onAddStop: () => void;
     onDeleteStop: () => void;
@@ -419,20 +417,16 @@ function serializePinsToDutyText(
   origin: LatLng | null,
   stop: ManagedStop | null,
   destination: LatLng | null,
-  labels: {
-    startLabel: string;
-    destinationLabel: string;
-  },
 ): string {
   const lines: string[] = [];
   if (origin) {
-    lines.push(toDutyLine(origin.lat, origin.lon, labels.startLabel || 'Start'));
+    lines.push(toDutyLine(origin.lat, origin.lon, 'Start'));
   }
   if (stop) {
     lines.push(toDutyLine(stop.lat, stop.lon, stop.label || 'Stop #1'));
   }
   if (destination) {
-    lines.push(toDutyLine(destination.lat, destination.lon, labels.destinationLabel || 'Destination'));
+    lines.push(toDutyLine(destination.lat, destination.lon, 'End'));
   }
   return lines.join('\n');
 }
@@ -443,8 +437,6 @@ type ParsedPinSync =
       origin: LatLng | null;
       destination: LatLng | null;
       stop: ManagedStop | null;
-      startLabel: string;
-      destinationLabel: string;
     }
   | {
       ok: false;
@@ -463,8 +455,6 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
       origin: null,
       destination: null,
       stop: null,
-      startLabel: 'Start',
-      destinationLabel: 'Destination',
     };
   }
 
@@ -499,8 +489,6 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
       origin: { lat: first.lat, lon: first.lon },
       destination: null,
       stop: null,
-      startLabel: first.label || 'Start',
-      destinationLabel: 'Destination',
     };
   }
 
@@ -519,8 +507,6 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
           label: mid.label || 'Stop #1',
         }
       : null,
-    startLabel: first.label || 'Start',
-    destinationLabel: last.label || 'Destination',
   };
 }
 
@@ -565,8 +551,6 @@ export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
   const [managedStop, setManagedStop] = useState<ManagedStop | null>(null);
-  const [startLabel, setStartLabel] = useState('Start');
-  const [destinationLabel, setDestinationLabel] = useState('Destination');
   const [selectedPinId, setSelectedPinId] = useState<'origin' | 'destination' | 'stop-1' | null>(null);
   const [focusPinRequest, setFocusPinRequest] = useState<PinFocusRequest | null>(null);
   const [fitAllRequestNonce, setFitAllRequestNonce] = useState(0);
@@ -759,8 +743,6 @@ export default function Page() {
         setOrigin(null);
         setDestination(null);
         setManagedStop(null);
-        setStartLabel('Start');
-        setDestinationLabel('Destination');
         setSelectedPinId(null);
       }
 
@@ -768,8 +750,6 @@ export default function Page() {
         setOrigin(TUTORIAL_CANONICAL_ORIGIN);
         setDestination(TUTORIAL_CANONICAL_DESTINATION);
         setManagedStop(null);
-        setStartLabel('Start');
-        setDestinationLabel('Destination');
       }
 
       if (prefillId === 'canonical_setup') {
@@ -1000,15 +980,12 @@ export default function Page() {
       return;
     }
 
-    const nextText = serializePinsToDutyText(origin, managedStop, destination, {
-      startLabel,
-      destinationLabel,
-    });
+    const nextText = serializePinsToDutyText(origin, managedStop, destination);
     if (nextText === dutyStopsText) return;
     dutySyncSourceRef.current = 'pins';
     setDutyStopsText(nextText);
     setDutySyncError(null);
-  }, [origin, destination, managedStop, startLabel, destinationLabel, dutyStopsText]);
+  }, [origin, destination, managedStop, dutyStopsText]);
 
   useEffect(() => {
     if (dutySyncSourceRef.current === 'pins') {
@@ -1037,13 +1014,12 @@ export default function Page() {
     if (!sameManagedStop(managedStop, parsed.stop)) {
       setManagedStop(parsed.stop);
     }
-    if (startLabel !== parsed.startLabel) {
-      setStartLabel(parsed.startLabel);
+    const canonicalText = serializePinsToDutyText(parsed.origin, parsed.stop, parsed.destination);
+    if (canonicalText !== dutyStopsText) {
+      dutySyncSourceRef.current = 'pins';
+      setDutyStopsText(canonicalText);
     }
-    if (destinationLabel !== parsed.destinationLabel) {
-      setDestinationLabel(parsed.destinationLabel);
-    }
-  }, [dutyStopsText, origin, destination, managedStop, startLabel, destinationLabel]);
+  }, [dutyStopsText, origin, destination, managedStop]);
 
   useEffect(() => {
     const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
@@ -1267,12 +1243,8 @@ export default function Page() {
     [managedStop],
   );
   const pinNodes = useMemo(
-    () =>
-      buildManagedPinNodes(origin, destination, managedStop, {
-        origin: startLabel,
-        destination: destinationLabel,
-      }),
-    [origin, destination, managedStop, startLabel, destinationLabel],
+    () => buildManagedPinNodes(origin, destination, managedStop, { origin: 'Start', destination: 'End' }),
+    [origin, destination, managedStop],
   );
   const canAddStop = Boolean(origin && destination);
   const stopOverlayCount = useMemo(
@@ -1435,10 +1407,14 @@ export default function Page() {
       return;
     }
 
-    setDestination({ lat, lon });
-    setSelectedPinId('destination');
-    clearComputed();
-    markTutorialAction('map.set_destination');
+    if (selectedPinId === 'destination') {
+      setDestination({ lat, lon });
+      clearComputed();
+      markTutorialAction('map.set_destination');
+      return;
+    }
+
+    setLiveMessage('Select a pin to move it, or drag directly on the map.');
   }
 
   function handleMoveMarker(kind: MarkerKind, lat: number, lon: number) {
@@ -1506,18 +1482,6 @@ export default function Page() {
     markTutorialAction('map.delete_stop');
   }
 
-  function renameStart(name: string) {
-    const next = name.trim() || 'Start';
-    setStartLabel(next);
-    markTutorialAction('pins.rename_start');
-  }
-
-  function renameDestination(name: string) {
-    const next = name.trim() || 'Destination';
-    setDestinationLabel(next);
-    markTutorialAction('pins.rename_destination');
-  }
-
   function selectPinFromSidebar(id: 'origin' | 'destination' | 'stop-1') {
     setSelectedPinId((prev) => {
       const next = prev === id ? null : id;
@@ -1553,8 +1517,6 @@ export default function Page() {
     setOrigin(null);
     setDestination(null);
     setManagedStop(null);
-    setStartLabel('Start');
-    setDestinationLabel('Destination');
     setSelectedPinId(null);
     setFocusPinRequest(null);
     setFitAllRequestNonce((n) => n + 1);
@@ -1584,8 +1546,6 @@ export default function Page() {
     setOrigin(null);
     setDestination(null);
     setManagedStop(null);
-    setStartLabel('Start');
-    setDestinationLabel('Destination');
     setSelectedPinId(null);
     setFocusPinRequest(null);
     setFitAllRequestNonce((n) => n + 1);
@@ -1824,7 +1784,7 @@ export default function Page() {
 
   async function computePareto() {
     if (!origin || !destination) {
-      setError('Click the map to set Start, then Destination.');
+      setError('Click the map to set Start, then End.');
       return;
     }
     markTutorialAction('pref.compute_pareto_click');
@@ -1955,7 +1915,7 @@ export default function Page() {
 
   async function compareScenarios() {
     if (!origin || !destination) {
-      setScenarioCompareError('Set origin and destination before comparing scenarios.');
+      setScenarioCompareError('Set Start and End before comparing scenarios.');
       return;
     }
     markTutorialAction('compare.run_click');
@@ -2079,7 +2039,7 @@ export default function Page() {
 
   async function saveCurrentExperiment(name: string, description: string) {
     if (!origin || !destination) {
-      setExperimentsError('Set origin and destination before saving an experiment.');
+      setExperimentsError('Set Start and End before saving an experiment.');
       return;
     }
     try {
@@ -2155,14 +2115,14 @@ export default function Page() {
       throw new Error(parsed.error);
     }
     if (!parsed.origin || !parsed.destination) {
-      throw new Error('Duty chain requires both start and destination rows.');
+      throw new Error('Duty chain requires both Start and End rows.');
     }
 
     const out: DutyChainRequest['stops'] = [
       {
         lat: parsed.origin.lat,
         lon: parsed.origin.lon,
-        label: parsed.startLabel || 'Start',
+        label: 'Start',
       },
     ];
     if (parsed.stop) {
@@ -2175,7 +2135,7 @@ export default function Page() {
     out.push({
       lat: parsed.destination.lat,
       lon: parsed.destination.lon,
-      label: parsed.destinationLabel || 'Destination',
+      label: 'End',
     });
     return out;
   }
@@ -2293,7 +2253,7 @@ export default function Page() {
 
   async function optimizeDepartures() {
     if (!origin || !destination) {
-      setDepOptimizeError('Set origin and destination before optimizing departures.');
+      setDepOptimizeError('Set Start and End before optimizing departures.');
       return;
     }
 
@@ -2465,8 +2425,8 @@ export default function Page() {
           origin={origin}
           destination={destination}
           managedStop={managedStop}
-          originLabel={startLabel}
-          destinationLabel={destinationLabel}
+          originLabel="Start"
+          destinationLabel="End"
           selectedPinId={selectedPinId}
           focusPinRequest={focusPinRequest}
           fitAllRequestNonce={fitAllRequestNonce}
@@ -2684,7 +2644,7 @@ export default function Page() {
                     className="secondary"
                     onClick={swapMarkers}
                     disabled={!origin || !destination || busy}
-                    title="Swap start and destination"
+                    title="Swap Start and End"
                     data-tutorial-action="setup.swap_pins_button"
                   >
                     Swap pins
@@ -2727,8 +2687,6 @@ export default function Page() {
                 canAddStop={canAddStop}
                 oneStopHint={dutySyncError}
                 onSelectPin={selectPinFromSidebar}
-                onRenameStart={renameStart}
-                onRenameDestination={renameDestination}
                 onRenameStop={renameStop}
                 onAddStop={addStopFromMidpoint}
                 onDeleteStop={deleteStop}
