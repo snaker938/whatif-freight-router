@@ -153,7 +153,7 @@ Use this for full containerized verification. Do not run this at the same time a
 - `docs/jupyter-cookbook.md`
   - notebook setup and guided API/artifact/drift workflows
 - `docs/tutorial-and-reporting.md`
-  - interactive tutorial behavior and PDF report artifact usage
+  - strict chaptered tutorial flow (resume/restart, spotlight guidance) and PDF report artifact usage
 - `docs/frontend-accessibility-i18n.md`
   - language selector behavior, locale formatting helpers, and keyboard/screen-reader support
 - `docs/map-overlays-tooltips.md`

@@ -1,23 +1,38 @@
 # Tutorial Mode and PDF Reporting
 
-## Interactive Tutorial Mode
+## Interactive Tutorial Mode (v2)
 
-The frontend includes a guided tutorial overlay to onboard first-time users.
+The frontend now uses a strict, chaptered guided tutorial that walks through all major frontend workflows.
 
-- First-run behavior:
-  - Automatically opens on first load if `localStorage["tutorial_v1_seen"]` is not `"1"`.
-- Dismissal behavior:
-  - Finishing or skipping sets `tutorial_v1_seen=1`.
-- Manual replay:
-  - Click `Start tutorial` in the `Setup` card.
+- Tutorial style:
+  - strict progression (required checklist actions must be completed)
+  - chaptered flow with detailed "what changed" and "how results changed" guidance
+  - spotlight + directional callout with auto-scroll to the active control
+- Scope:
+  - map pin lifecycle and popup actions
+  - setup, advanced parameters, preferences, routes, selected-route explainability
+  - scenario compare, departure optimization, timeline playback
+  - duty chain, oracle quality, and experiments lifecycle
+- Optional fields:
+  - each optional step requires either interaction or explicit "use default" confirmation
+- Desktop guard:
+  - full guided mode is desktop-only in this wave (`>=1100px` viewport)
 
-Tutorial steps cover:
+### Progress Persistence
 
-1. Setting start/destination pins
-2. Computing Pareto routes
-3. Comparing No/Partial/Full scenarios
-4. Running departure optimization
-5. Reviewing artifacts and reports
+Tutorial state is persisted in browser local storage:
+
+- `tutorial_v2_progress`
+  - stores `stepIndex`, completed actions, optional decisions, and update timestamp
+- `tutorial_v2_completed`
+  - `"1"` when the tutorial is completed
+
+Behavior:
+
+1. If unfinished progress exists, opening tutorial shows Resume/Restart.
+2. Close keeps progress.
+3. Finish marks completion and clears saved progress.
+4. Setup card still includes a manual restart entry point.
 
 ## PDF Run Report Artifact
 
@@ -51,3 +66,13 @@ Optional overrides:
 - `--results <path>`
 - `--metadata <path>`
 - `--output <path>`
+
+## QA Checklist (Tutorial)
+
+1. Start tutorial from Setup.
+2. Confirm chapter/step counters render.
+3. Verify Next is disabled until required actions are complete.
+4. Close tutorial, reopen, and verify Resume works.
+5. Restart and verify state resets to chapter 1.
+6. Verify spotlight + callout follows active control.
+7. Confirm desktop-only notice appears on narrow viewports.
