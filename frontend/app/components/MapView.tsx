@@ -4,6 +4,7 @@
 import L, {
   type LatLngBoundsExpression,
   type LatLngExpression,
+  latLng as leafletLatLng,
   type LeafletMouseEvent,
 } from 'leaflet';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
@@ -67,6 +68,7 @@ type Props = {
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
   tutorialViewportLocked?: boolean;
+  tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
 
@@ -264,6 +266,70 @@ function TutorialGuidePanHandler({
       duration: 0.55,
     });
   }, [guideTarget?.pan_nonce, guideTarget?.stage, visible, map, guideTarget]);
+
+  return null;
+}
+
+function MapInteractionLockHandler({
+  viewportLocked,
+  guideTarget,
+  guideVisible,
+}: {
+  viewportLocked: boolean;
+  guideTarget: TutorialGuideTarget | null | undefined;
+  guideVisible: boolean;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    const enableInteractions = () => {
+      map.dragging.enable();
+      map.scrollWheelZoom.enable();
+      map.doubleClickZoom.enable();
+      map.boxZoom.enable();
+      map.keyboard.enable();
+      map.touchZoom.enable();
+    };
+
+    const disableInteractions = () => {
+      map.dragging.disable();
+      map.scrollWheelZoom.disable();
+      map.doubleClickZoom.disable();
+      map.boxZoom.disable();
+      map.keyboard.disable();
+      map.touchZoom.disable();
+    };
+
+    if (!viewportLocked) {
+      enableInteractions();
+      return;
+    }
+
+    disableInteractions();
+
+    const recenterToGuide = () => {
+      if (!guideVisible || !guideTarget) return;
+      const center = map.getCenter();
+      const target = leafletLatLng(guideTarget.lat, guideTarget.lon);
+      const distance = center.distanceTo(target);
+      const zoomDelta = Math.abs(map.getZoom() - guideTarget.zoom);
+      if (distance > 12 || zoomDelta > 0.01) {
+        map.setView([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
+          animate: false,
+        });
+      }
+    };
+
+    recenterToGuide();
+    map.on('moveend', recenterToGuide);
+    map.on('zoomend', recenterToGuide);
+
+    return () => {
+      map.off('moveend', recenterToGuide);
+      map.off('zoomend', recenterToGuide);
+      enableInteractions();
+    };
+  }, [guideTarget, guideVisible, map, viewportLocked]);
 
   return null;
 }
@@ -517,6 +583,7 @@ export default function MapView({
   onTutorialTargetState,
   tutorialMapLocked = false,
   tutorialViewportLocked = false,
+  tutorialExpectedAction = null,
   tutorialGuideTarget = null,
   tutorialGuideVisible = false,
   onMapClick,
@@ -703,6 +770,13 @@ export default function MapView({
   }, [effectiveOrigin]);
 
   const suppressRoutePath = draggingPinId !== null;
+  const isActionExpected = useCallback(
+    (actionId: string) => {
+      if (!tutorialExpectedAction) return true;
+      return tutorialExpectedAction === actionId;
+    },
+    [tutorialExpectedAction],
+  );
 
   const handleCopyCoords = useCallback(async (kind: MarkerKind | 'stop', lat: number, lon: number) => {
     const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
@@ -735,12 +809,12 @@ export default function MapView({
         zoom={11}
         minZoom={5}
         maxZoom={18}
-        dragging={!tutorialMapLocked && !tutorialViewportLocked}
-        scrollWheelZoom={!tutorialMapLocked && !tutorialViewportLocked}
-        doubleClickZoom={!tutorialMapLocked && !tutorialViewportLocked}
-        boxZoom={!tutorialMapLocked && !tutorialViewportLocked}
-        keyboard={!tutorialMapLocked && !tutorialViewportLocked}
-        touchZoom={!tutorialMapLocked && !tutorialViewportLocked}
+        dragging={!tutorialMapLocked}
+        scrollWheelZoom={!tutorialMapLocked}
+        doubleClickZoom={!tutorialMapLocked}
+        boxZoom={!tutorialMapLocked}
+        keyboard={!tutorialMapLocked}
+        touchZoom={!tutorialMapLocked}
         maxBounds={UK_BOUNDS}
         maxBoundsViscosity={1.0}
         style={{ height: '100%', width: '100%' }}
@@ -762,6 +836,11 @@ export default function MapView({
           route={route}
         />
         <TutorialGuidePanHandler guideTarget={tutorialGuideTarget} visible={tutorialGuideVisible} />
+        <MapInteractionLockHandler
+          viewportLocked={tutorialViewportLocked}
+          guideTarget={tutorialGuideTarget}
+          guideVisible={tutorialGuideVisible}
+        />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -808,11 +887,12 @@ export default function MapView({
             ref={originRef}
             position={[effectiveOrigin?.lat ?? origin.lat, effectiveOrigin?.lon ?? origin.lon]}
             icon={originIcon}
-            draggable={true}
+            draggable={!tutorialMapLocked && isActionExpected('map.drag_origin_marker')}
             riseOnHover={true}
             eventHandlers={{
               click(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.click_origin_marker')) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
@@ -821,6 +901,7 @@ export default function MapView({
               },
               dragend(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_origin_marker')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
@@ -830,6 +911,7 @@ export default function MapView({
               },
               dragstart() {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_origin_marker')) return;
                 suppressInteractionsBriefly();
                 try {
                   originRef.current?.closePopup();
@@ -840,6 +922,7 @@ export default function MapView({
               },
               drag(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_origin_marker')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
@@ -946,11 +1029,12 @@ export default function MapView({
             ref={destRef}
             position={[effectiveDestination?.lat ?? destination.lat, effectiveDestination?.lon ?? destination.lon]}
             icon={destIcon}
-            draggable={true}
+            draggable={!tutorialMapLocked && isActionExpected('map.drag_destination_marker')}
             riseOnHover={true}
             eventHandlers={{
               click(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.click_destination_marker')) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
@@ -959,6 +1043,7 @@ export default function MapView({
               },
               dragend(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_destination_marker')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
@@ -968,6 +1053,7 @@ export default function MapView({
               },
               dragstart() {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_destination_marker')) return;
                 suppressInteractionsBriefly();
                 try {
                   destRef.current?.closePopup();
@@ -978,6 +1064,7 @@ export default function MapView({
               },
               drag(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_destination_marker')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
@@ -1084,11 +1171,12 @@ export default function MapView({
             ref={stopRef}
             position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
             icon={stopIcon}
-            draggable={true}
+            draggable={!tutorialMapLocked && isActionExpected('map.drag_stop_marker')}
             riseOnHover={true}
             eventHandlers={{
               click(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.click_stop_marker')) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
@@ -1097,6 +1185,7 @@ export default function MapView({
               },
               dragend(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_stop_marker')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));
@@ -1106,6 +1195,7 @@ export default function MapView({
               },
               dragstart() {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_stop_marker')) return;
                 suppressInteractionsBriefly();
                 try {
                   stopRef.current?.closePopup();
@@ -1116,6 +1206,7 @@ export default function MapView({
               },
               drag(e) {
                 if (tutorialMapLocked) return;
+                if (!isActionExpected('map.drag_stop_marker')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));

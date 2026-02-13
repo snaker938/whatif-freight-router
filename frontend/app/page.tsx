@@ -104,6 +104,7 @@ type MapViewProps = {
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
   tutorialViewportLocked?: boolean;
+  tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
 
@@ -830,6 +831,11 @@ export default function Page() {
       kind: item.kind,
     }));
   }, [tutorialActionSet, tutorialStep]);
+  const tutorialNextRequiredActionId = useMemo(() => {
+    if (!tutorialStep) return null;
+    const pending = tutorialStep.required.find((item) => !tutorialActionSet.has(item.actionId));
+    return pending?.actionId ?? null;
+  }, [tutorialActionSet, tutorialStep]);
   const tutorialOptionalState = useMemo(() => {
     if (!tutorialStep?.optional) return null;
     const resolved = tutorialOptionalSet.has(tutorialStep.optional.id);
@@ -846,11 +852,11 @@ export default function Page() {
   const tutorialActiveSectionId = useMemo(() => inferTutorialSectionId(tutorialStep), [tutorialStep]);
   const tutorialAllowedActionSet = useMemo(() => {
     if (!tutorialStep) return new Set<string>();
-    const fromRequired = tutorialStep.required.map((item) => item.actionId);
-    const fromOptional = tutorialStep.optional?.actionIds ?? [];
+    const fromRequired = tutorialNextRequiredActionId ? [tutorialNextRequiredActionId] : [];
+    const fromOptional = tutorialNextRequiredActionId ? [] : tutorialStep.optional?.actionIds ?? [];
     const fromCustom = tutorialStep.allowedActions ?? [];
     return new Set<string>([...fromRequired, ...fromOptional, ...fromCustom]);
-  }, [tutorialStep]);
+  }, [tutorialNextRequiredActionId, tutorialStep]);
   const tutorialAllowedActionPrefixes = useMemo(() => {
     return [...tutorialAllowedActionSet]
       .filter((actionId) => actionId.endsWith('*'))
@@ -942,13 +948,18 @@ export default function Page() {
   const markTutorialAction = useCallback(
     (actionId: string) => {
       if (!actionId || !tutorialRunning || !tutorialStepId) return;
+      const nextRequiredAction = tutorialNextRequiredActionId;
+      const actionAlreadyDone = tutorialActionSet.has(actionId);
+      if (!actionAlreadyDone && nextRequiredAction && actionId !== nextRequiredAction) {
+        return;
+      }
       setTutorialStepActionsById((prev) => {
         const existing = prev[tutorialStepId] ?? [];
         if (existing.includes(actionId)) return prev;
         return { ...prev, [tutorialStepId]: [...existing, actionId] };
       });
     },
-    [tutorialRunning, tutorialStepId],
+    [tutorialActionSet, tutorialNextRequiredActionId, tutorialRunning, tutorialStepId],
   );
 
   const markTutorialOptionalDefault = useCallback(
@@ -1756,6 +1767,13 @@ export default function Page() {
     setError(null);
 
     if (tutorialRunning && tutorialStep?.id === 'map_set_pins') {
+      if (
+        tutorialNextRequiredActionId !== 'map.set_origin_newcastle' &&
+        tutorialNextRequiredActionId !== 'map.set_destination_london'
+      ) {
+        setLiveMessage('Follow the checklist order. Complete the current marker action first.');
+        return;
+      }
       if (tutorialPlacementStage === 'done') {
         setLiveMessage('Use marker clicks and drags to complete this tutorial step.');
         return;
@@ -1784,7 +1802,6 @@ export default function Page() {
         setOrigin({ lat, lon });
         setSelectedPinId('origin');
         clearComputed();
-        markTutorialAction('map.set_origin');
         markTutorialAction('map.set_origin_newcastle');
         setTutorialPlacementStage('london_destination');
         setTutorialGuidePanNonce((prev) => prev + 1);
@@ -1795,7 +1812,6 @@ export default function Page() {
       setDestination({ lat, lon });
       setSelectedPinId('destination');
       clearComputed();
-      markTutorialAction('map.set_destination');
       markTutorialAction('map.set_destination_london');
       setTutorialPlacementStage('done');
       setLiveMessage('End set near London. Click and drag both markers to finish Step 1.');
@@ -2848,6 +2864,7 @@ export default function Page() {
           overlayLabels={mapOverlayLabels}
           tutorialMapLocked={tutorialMapLocked}
           tutorialViewportLocked={tutorialViewportLocked}
+          tutorialExpectedAction={tutorialRunning ? tutorialNextRequiredActionId : null}
           tutorialGuideTarget={tutorialGuideTarget}
           tutorialGuideVisible={tutorialGuideVisible}
           onMapClick={handleMapClick}
