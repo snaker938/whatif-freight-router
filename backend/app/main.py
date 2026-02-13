@@ -30,6 +30,7 @@ from .experiment_store import (
 )
 from .fallback_store import load_route_snapshot, save_route_snapshot
 from .gradient import gradient_multipliers
+from .incident_simulator import simulate_incident_events
 from .logging_utils import log_event
 from .metrics_store import metrics_snapshot, record_request
 from .models import (
@@ -53,6 +54,7 @@ from .models import (
     ExperimentCompareRequest,
     ExperimentListResponse,
     GeoJSONLineString,
+    IncidentSimulatorConfig,
     LatLng,
     OptimizationMode,
     OracleFeedCheckInput,
@@ -579,11 +581,13 @@ def build_option(
     stochastic: StochasticConfig | None = None,
     emissions_context: EmissionsContext | None = None,
     weather: WeatherImpactConfig | None = None,
+    incident_simulation: IncidentSimulatorConfig | None = None,
     departure_time_utc: datetime | None = None,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
     ctx = emissions_context or EmissionsContext()
     weather_cfg = weather or WeatherImpactConfig()
+    incident_cfg = incident_simulation or IncidentSimulatorConfig()
     weather_speed = weather_speed_multiplier(weather_cfg)
     weather_incident = weather_incident_multiplier(weather_cfg)
     is_ev_mode = ctx.fuel_type == "ev" or vehicle.powertrain == "ev"
@@ -626,6 +630,26 @@ def build_option(
     duration_after_gradient_s = duration_after_weather_s * gradient_duration_multiplier
     duration_s = duration_after_gradient_s
     total_duration_multiplier = duration_s / base_duration_s if base_duration_s > 0 else 1.0
+    pre_incident_segment_durations_s = [max(float(seg), 0.0) * total_duration_multiplier for seg in seg_t_s]
+    route_key = option_id
+    if incident_cfg.enabled:
+        try:
+            route_key = _route_signature(route)
+        except OSRMError:
+            route_key = option_id
+    incident_events = simulate_incident_events(
+        config=incident_cfg,
+        segment_distances_m=[float(seg) for seg in seg_d_m],
+        segment_durations_s=pre_incident_segment_durations_s,
+        weather_incident_multiplier=weather_incident,
+        route_key=route_key,
+    )
+    incident_delay_by_segment: dict[int, float] = {}
+    for event in incident_events:
+        incident_delay_by_segment[event.segment_index] = (
+            incident_delay_by_segment.get(event.segment_index, 0.0) + float(event.delay_s)
+        )
+    total_incident_delay_s = sum(incident_delay_by_segment.values())
 
     time_of_day_delta_s = max(duration_after_tod_s - base_duration_s, 0.0)
     scenario_delta_s = max(duration_after_scenario_s - duration_after_tod_s, 0.0)
@@ -662,6 +686,8 @@ def build_option(
         seg_fuel_cost = base_seg_fuel_cost * fuel_multiplier
 
         seg_duration_s = t_s * total_duration_multiplier
+        seg_incident_delay_s = incident_delay_by_segment.get(idx, 0.0)
+        seg_duration_s += seg_incident_delay_s
         seg_extra_delay_s = max(seg_duration_s - t_s, 0.0)
         seg_energy_kwh = 0.0
         if is_ev_mode:
@@ -691,6 +717,7 @@ def build_option(
                 "segment_index": idx,
                 "distance_km": round(seg_distance_km, 6),
                 "duration_s": round(seg_duration_s, 6),
+                "incident_delay_s": round(seg_incident_delay_s, 6),
                 "avg_speed_kmh": round(seg_speed_kmh, 6),
                 "emissions_kg": round(seg_emissions, 6),
                 "monetary_cost": round(seg_monetary, 6),
@@ -733,6 +760,14 @@ def build_option(
             eta_explanations.append(
                 f"Weather profile '{weather_cfg.profile}' added no material delay."
             )
+    if incident_cfg.enabled:
+        if total_incident_delay_s > 0.5:
+            eta_explanations.append(
+                f"Synthetic incidents added {total_incident_delay_s / 60.0:.1f} min "
+                f"across {len(incident_events)} events."
+            )
+        else:
+            eta_explanations.append("Synthetic incidents added no material delay.")
     if gradient_delta_s > 0.5:
         eta_explanations.append(
             f"Terrain profile '{terrain_profile}' added {gradient_delta_s / 60.0:.1f} min "
@@ -778,12 +813,21 @@ def build_option(
     eta_timeline.append(
         {
             "stage": "gradient",
-            "duration_s": round(total_duration_s, 2),
+            "duration_s": round(duration_after_gradient_s, 2),
             "delta_s": round(gradient_delta_s, 2),
             "multiplier": round(gradient_duration_multiplier, 3),
             "profile": terrain_profile,
         }
     )
+    if incident_cfg.enabled:
+        eta_timeline.append(
+            {
+                "stage": "incidents",
+                "duration_s": round(total_duration_s, 2),
+                "delta_s": round(total_incident_delay_s, 2),
+                "event_count": len(incident_events),
+            }
+        )
 
     shifted_departure_duration = total_duration_s
     if departure_time_utc is not None:
@@ -863,12 +907,14 @@ def build_option(
             avg_speed_kmh=round(avg_speed_kmh, 2),
             energy_kwh=round(total_energy_kwh, 3) if is_ev_mode else None,
             weather_delay_s=round(weather_delta_s, 2),
+            incident_delay_s=round(total_incident_delay_s, 2),
         ),
         eta_explanations=eta_explanations,
         eta_timeline=eta_timeline,
         segment_breakdown=segment_breakdown,
         counterfactuals=counterfactuals,
         weather_summary=option_weather_summary,
+        incident_events=incident_events,
     )
     option.uncertainty = _route_stochastic_uncertainty(
         option,
@@ -1066,6 +1112,7 @@ def _build_options(
     stochastic: StochasticConfig | None = None,
     emissions_context: EmissionsContext | None = None,
     weather: WeatherImpactConfig | None = None,
+    incident_simulation: IncidentSimulatorConfig | None = None,
     departure_time_utc: datetime | None,
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str]]:
@@ -1086,6 +1133,7 @@ def _build_options(
                     stochastic=stochastic,
                     emissions_context=emissions_context,
                     weather=weather,
+                    incident_simulation=incident_simulation,
                     departure_time_utc=departure_time_utc,
                 )
             )
@@ -1342,6 +1390,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             stochastic=req.stochastic,
             emissions_context=req.emissions_context,
             weather=req.weather,
+            incident_simulation=req.incident_simulation,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1474,6 +1523,7 @@ async def compute_pareto_stream(
                             stochastic=req.stochastic,
                             emissions_context=req.emissions_context,
                             weather=req.weather,
+                            incident_simulation=req.incident_simulation,
                             departure_time_utc=req.departure_time_utc,
                         )
                     except (OSRMError, ValueError) as e:
@@ -1502,6 +1552,7 @@ async def compute_pareto_stream(
                 stochastic=req.stochastic,
                 emissions_context=req.emissions_context,
                 weather=req.weather,
+                incident_simulation=req.incident_simulation,
                 departure_time_utc=req.departure_time_utc,
                 option_prefix="route",
             )
@@ -1610,6 +1661,7 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             stochastic=req.stochastic,
             emissions_context=req.emissions_context,
             weather=req.weather,
+            incident_simulation=req.incident_simulation,
             departure_time_utc=req.departure_time_utc,
             option_prefix="route",
         )
@@ -1764,6 +1816,7 @@ async def optimize_departure_time(
                 stochastic=req.stochastic,
                 emissions_context=req.emissions_context,
                 weather=req.weather,
+                incident_simulation=req.incident_simulation,
                 departure_time_utc=departure_time,
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
             )
@@ -1983,6 +2036,8 @@ async def run_duty_chain(
         total_monetary_cost = 0.0
         total_emissions_kg = 0.0
         total_energy_kwh = 0.0
+        total_weather_delay_s = 0.0
+        total_incident_delay_s = 0.0
         has_energy = False
 
         departure_cursor = req.departure_time_utc
@@ -2018,6 +2073,7 @@ async def run_duty_chain(
                 stochastic=req.stochastic,
                 emissions_context=req.emissions_context,
                 weather=req.weather,
+                incident_simulation=req.incident_simulation,
                 departure_time_utc=departure_cursor,
                 option_prefix=f"duty_leg_{idx}",
             )
@@ -2070,6 +2126,8 @@ async def run_duty_chain(
             total_duration_s += float(selected.metrics.duration_s)
             total_monetary_cost += float(selected.metrics.monetary_cost)
             total_emissions_kg += float(selected.metrics.emissions_kg)
+            total_weather_delay_s += float(selected.metrics.weather_delay_s)
+            total_incident_delay_s += float(selected.metrics.incident_delay_s)
             if selected.metrics.energy_kwh is not None:
                 total_energy_kwh += float(selected.metrics.energy_kwh)
                 has_energy = True
@@ -2085,6 +2143,8 @@ async def run_duty_chain(
             emissions_kg=round(total_emissions_kg, 3),
             avg_speed_kmh=round(avg_speed_kmh, 2),
             energy_kwh=round(total_energy_kwh, 3) if has_energy else None,
+            weather_delay_s=round(total_weather_delay_s, 2),
+            incident_delay_s=round(total_incident_delay_s, 2),
         )
 
         log_event(
@@ -2172,6 +2232,7 @@ async def _run_scenario_compare(
             stochastic=req.stochastic,
             emissions_context=req.emissions_context,
             weather=req.weather,
+            incident_simulation=req.incident_simulation,
             departure_time_utc=req.departure_time_utc,
             option_prefix=f"scenario_{scenario_mode.value}",
         )
@@ -2656,6 +2717,7 @@ async def batch_import_csv(
         risk_aversion=req.risk_aversion,
         emissions_context=req.emissions_context,
         weather=req.weather,
+        incident_simulation=req.incident_simulation,
         departure_time_utc=req.departure_time_utc,
         pareto_method=req.pareto_method,
         epsilon=req.epsilon,
@@ -2718,6 +2780,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                             stochastic=req.stochastic,
                             emissions_context=req.emissions_context,
                             weather=req.weather,
+                            incident_simulation=req.incident_simulation,
                             departure_time_utc=req.departure_time_utc,
                         )
                         for i, r in enumerate(routes)
@@ -2761,6 +2824,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                                     stochastic=req.stochastic,
                                     emissions_context=req.emissions_context,
                                     weather=req.weather,
+                                    incident_simulation=req.incident_simulation,
                                     departure_time_utc=req.departure_time_utc,
                                 )
                                 for i, r in enumerate(routes)

@@ -44,6 +44,7 @@ OptimizationMode = Literal["expected_value", "robust"]
 FuelType = Literal["diesel", "petrol", "lng", "ev"]
 EuroClass = Literal["euro4", "euro5", "euro6"]
 WeatherProfile = Literal["clear", "rain", "storm", "snow", "fog"]
+IncidentEventType = Literal["dwell", "accident", "closure"]
 
 
 class EpsilonConstraints(BaseModel):
@@ -63,6 +64,27 @@ class WeatherImpactConfig(BaseModel):
     profile: WeatherProfile = "clear"
     intensity: float = Field(default=1.0, ge=0.0, le=2.0)
     apply_incident_uplift: bool = True
+
+
+class IncidentSimulatorConfig(BaseModel):
+    enabled: bool = False
+    seed: int | None = None
+    dwell_rate_per_100km: float = Field(default=0.8, ge=0.0)
+    accident_rate_per_100km: float = Field(default=0.25, ge=0.0)
+    closure_rate_per_100km: float = Field(default=0.05, ge=0.0)
+    dwell_delay_s: float = Field(default=120.0, ge=0.0)
+    accident_delay_s: float = Field(default=480.0, ge=0.0)
+    closure_delay_s: float = Field(default=900.0, ge=0.0)
+    max_events_per_route: int = Field(default=12, ge=0, le=1000)
+
+
+class SimulatedIncidentEvent(BaseModel):
+    event_id: str
+    event_type: IncidentEventType
+    segment_index: int = Field(..., ge=0)
+    start_offset_s: float = Field(..., ge=0.0)
+    delay_s: float = Field(..., ge=0.0)
+    source: Literal["synthetic"] = "synthetic"
 
 
 class TimeWindowConstraints(BaseModel):
@@ -95,6 +117,7 @@ class RouteRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -115,6 +138,7 @@ class ParetoRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -137,6 +161,7 @@ class BatchParetoRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -157,6 +182,7 @@ class BatchCSVImportRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -173,6 +199,7 @@ class RouteMetrics(BaseModel):
     avg_speed_kmh: float
     energy_kwh: float | None = None
     weather_delay_s: float = 0.0
+    incident_delay_s: float = 0.0
 
 
 class RouteOption(BaseModel):
@@ -187,6 +214,7 @@ class RouteOption(BaseModel):
     counterfactuals: list[dict[str, str | float | bool]] = Field(default_factory=list)
     uncertainty: dict[str, float] | None = None
     weather_summary: dict[str, float | str | bool] | None = None
+    incident_events: list[SimulatedIncidentEvent] = Field(default_factory=list)
 
 
 class RouteResponse(BaseModel):
@@ -255,6 +283,7 @@ class ScenarioCompareRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
@@ -291,6 +320,7 @@ class DepartureOptimizeRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
     time_window: TimeWindowConstraints | None = None
@@ -343,6 +373,7 @@ class DutyChainRequest(BaseModel):
     risk_aversion: float = Field(default=1.0, ge=0.0)
     emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
     weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+    incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
