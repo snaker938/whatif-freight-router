@@ -61,7 +61,7 @@ type Props = {
   onSelectPinId?: (id: PinSelectionId | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
   onMoveStop?: (lat: number, lon: number) => void;
-  onAddStopFromPin?: (kind: MarkerKind) => void;
+  onAddStopFromPin?: () => void;
   onRenameStop?: (name: string) => void;
   onDeleteStop?: () => void;
   onFocusPin?: (id: PinSelectionId) => void;
@@ -615,7 +615,7 @@ export default function MapView({
                         className="markerPopup__iconBtn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAddStopFromPin('origin');
+                          onAddStopFromPin();
                           onTutorialAction?.('map.add_stop_midpoint');
                         }}
                         aria-label="Add stop at midpoint"
@@ -732,7 +732,7 @@ export default function MapView({
                         className="markerPopup__iconBtn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAddStopFromPin('destination');
+                          onAddStopFromPin();
                           onTutorialAction?.('map.add_stop_midpoint');
                         }}
                         aria-label="Add stop at midpoint"

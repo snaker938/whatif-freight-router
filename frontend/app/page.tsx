@@ -98,7 +98,7 @@ type MapViewProps = {
   onSelectPinId?: (id: 'origin' | 'destination' | 'stop-1' | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
   onMoveStop?: (lat: number, lon: number) => void;
-  onAddStopFromPin?: (kind: MarkerKind) => void;
+  onAddStopFromPin?: () => void;
   onRenameStop?: (name: string) => void;
   onDeleteStop?: () => void;
   onFocusPin?: (id: 'origin' | 'destination' | 'stop-1') => void;
@@ -1035,21 +1035,24 @@ export default function Page() {
     if (!sameManagedStop(managedStop, parsed.stop)) {
       setManagedStop(parsed.stop);
     }
-    const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
-      origin: parsed.origin,
-      destination: parsed.destination,
-      stop: parsed.stop,
-    });
-    if (normalizedSelection !== selectedPinId) {
-      setSelectedPinId(normalizedSelection);
-    }
     if (startLabel !== parsed.startLabel) {
       setStartLabel(parsed.startLabel);
     }
     if (destinationLabel !== parsed.destinationLabel) {
       setDestinationLabel(parsed.destinationLabel);
     }
-  }, [dutyStopsText, origin, destination, managedStop, startLabel, destinationLabel, selectedPinId]);
+  }, [dutyStopsText, origin, destination, managedStop, startLabel, destinationLabel]);
+
+  useEffect(() => {
+    const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
+      origin,
+      destination,
+      stop: managedStop,
+    });
+    if (normalizedSelection !== selectedPinId) {
+      setSelectedPinId(normalizedSelection);
+    }
+  }, [selectedPinId, origin, destination, managedStop]);
 
   useEffect(() => {
     try {
@@ -1419,7 +1422,11 @@ export default function Page() {
       return;
     }
 
-    if (selectedPinId === 'stop-1' && managedStop) {
+    if (selectedPinId === 'stop-1') {
+      if (!managedStop) {
+        setSelectedPinId(null);
+        return;
+      }
       setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
       clearComputed();
       markTutorialAction('map.move_stop_click');
@@ -1453,10 +1460,9 @@ export default function Page() {
     setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
     setSelectedPinId('stop-1');
     clearComputed();
-    markTutorialAction('map.drag_stop_marker');
   }
 
-  function addStopFromMidpoint(_kind: MarkerKind) {
+  function addStopFromMidpoint() {
     if (!origin || !destination) return;
     if (managedStop) {
       const shouldReplace = window.confirm(
@@ -1489,9 +1495,13 @@ export default function Page() {
   function deleteStop() {
     if (!managedStop) return;
     setManagedStop(null);
-    if (selectedPinId === 'stop-1') {
-      setSelectedPinId(null);
-    }
+    setSelectedPinId((prev) =>
+      normalizeSelectedPinId(prev, {
+        origin,
+        destination,
+        stop: null,
+      }),
+    );
     clearComputed();
     markTutorialAction('map.delete_stop');
   }
@@ -2714,7 +2724,7 @@ export default function Page() {
                 onRenameStart={renameStart}
                 onRenameDestination={renameDestination}
                 onRenameStop={renameStop}
-                onAddStop={() => addStopFromMidpoint('origin')}
+                onAddStop={addStopFromMidpoint}
                 onDeleteStop={deleteStop}
                 onSwapPins={swapMarkers}
                 onClearPins={reset}
