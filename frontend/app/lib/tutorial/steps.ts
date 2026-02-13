@@ -4,12 +4,12 @@ export const TUTORIAL_CHAPTERS: TutorialChapter[] = [
   {
     id: 'chapter_map',
     title: '1. Orientation and map basics',
-    description: 'Set and manage pins, then use map-level controls and marker actions.',
+    description: 'Set and manage pins, then use marker actions for map-side operations.',
   },
   {
     id: 'chapter_setup',
-    title: '2. Setup and overlays',
-    description: 'Configure vehicle/scenario context and verify map overlays.',
+    title: '2. Setup and core context',
+    description: 'Configure vehicle/scenario context and optional API behavior.',
   },
   {
     id: 'chapter_advanced',
@@ -175,21 +175,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       actionIds: ['setup.api_token_input'],
       defaultLabel: 'Keep API token empty (default).',
     },
-  },
-  {
-    id: 'map_overlay_toggles',
-    chapterId: 'chapter_setup',
-    title: 'Toggle map overlays',
-    what:
-      'Toggle Stops, Incidents, and Segments overlays once each and confirm the map responds immediately.',
-    impact:
-      'Overlay controls govern map signal density, which is critical for debugging incidents and segment-level behavior.',
-    targetIds: ['map.overlay_controls'],
-    required: [
-      { actionId: 'map.overlay_stops_toggle', label: 'Toggle Stops overlay.' },
-      { actionId: 'map.overlay_incidents_toggle', label: 'Toggle Incidents overlay.' },
-      { actionId: 'map.overlay_segments_toggle', label: 'Toggle Segments overlay.' },
-    ],
   },
   {
     id: 'advanced_optimization_and_risk',
