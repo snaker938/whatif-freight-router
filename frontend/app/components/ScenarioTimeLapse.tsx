@@ -164,7 +164,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>
       </div>
 
-      <div className="row row--actions">
+      <div className="row">
         <button
           className="secondary"
           onClick={() => {
@@ -257,7 +257,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         data-tutorial-action="timelapse.scrubber_input"
       />
 
-      <div className="row row--actions" style={{ marginTop: 8 }}>
+      <div className="row" style={{ marginTop: 8 }}>
         <button
           className="secondary"
           onClick={() => {
