@@ -9,7 +9,7 @@ import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
-import { buildStopOverlayPoints, parseDutyStopsForOverlay } from './lib/mapOverlays';
+import { buildStopOverlayPoints } from './lib/mapOverlays';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
   SIDEBAR_FIELD_HELP,
@@ -71,8 +71,11 @@ type ProgressState = { done: number; total: number };
 type MapViewProps = {
   origin: LatLng | null;
   destination: LatLng | null;
+  managedStop?: ManagedStop | null;
+  originLabel?: string;
+  destinationLabel?: string;
 
-  selectedMarker: MarkerKind | null;
+  selectedPinId?: 'origin' | 'destination' | 'stop-1' | null;
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
@@ -89,8 +92,12 @@ type MapViewProps = {
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
 
   onMapClick: (lat: number, lon: number) => void;
-  onSelectMarker: (kind: MarkerKind | null) => void;
+  onSelectPinId?: (id: 'origin' | 'destination' | 'stop-1' | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onAddStopFromPin?: (kind: MarkerKind) => void;
+  onRenameStop?: (name: string) => void;
+  onDeleteStop?: () => void;
+  onFocusPin?: (id: 'origin' | 'destination' | 'stop-1') => void;
   onSwapMarkers?: () => void;
 };
 
@@ -510,7 +517,7 @@ export default function Page() {
   const [managedStop, setManagedStop] = useState<ManagedStop | null>(null);
   const [startLabel, setStartLabel] = useState('Start');
   const [destinationLabel, setDestinationLabel] = useState('Destination');
-  const [selectedMarker, setSelectedMarker] = useState<MarkerKind | null>(null);
+  const [selectedPinId, setSelectedPinId] = useState<'origin' | 'destination' | 'stop-1' | null>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [locale, setLocale] = useState<Locale>('en');
 
@@ -701,7 +708,7 @@ export default function Page() {
         setManagedStop(null);
         setStartLabel('Start');
         setDestinationLabel('Destination');
-        setSelectedMarker(null);
+        setSelectedPinId(null);
       }
 
       if (prefillId === 'canonical_map') {
@@ -1183,8 +1190,17 @@ export default function Page() {
   }, [paretoRoutes, selectedId]);
 
   const dutyStopsForOverlay = useMemo(
-    () => parseDutyStopsForOverlay(dutyStopsText),
-    [dutyStopsText],
+    () =>
+      managedStop
+        ? [
+            {
+              lat: managedStop.lat,
+              lon: managedStop.lon,
+              label: managedStop.label,
+            },
+          ]
+        : [],
+    [managedStop],
   );
   const stopOverlayCount = useMemo(
     () => buildStopOverlayPoints(origin, destination, dutyStopsForOverlay).length,
@@ -1314,7 +1330,7 @@ export default function Page() {
 
     if (!origin) {
       setOrigin({ lat, lon });
-      setSelectedMarker('origin');
+      setSelectedPinId('origin');
       clearComputed();
       markTutorialAction('map.set_origin');
       return;
@@ -1322,13 +1338,13 @@ export default function Page() {
 
     if (!destination) {
       setDestination({ lat, lon });
-      setSelectedMarker('destination');
+      setSelectedPinId('destination');
       clearComputed();
       markTutorialAction('map.set_destination');
       return;
     }
 
-    if (selectedMarker === 'origin') {
+    if (selectedPinId === 'origin') {
       setOrigin({ lat, lon });
       clearComputed();
       markTutorialAction('map.set_origin');
@@ -1336,7 +1352,7 @@ export default function Page() {
     }
 
     setDestination({ lat, lon });
-    setSelectedMarker('destination');
+    setSelectedPinId('destination');
     clearComputed();
     markTutorialAction('map.set_destination');
   }
@@ -1347,7 +1363,7 @@ export default function Page() {
     if (kind === 'origin') setOrigin({ lat, lon });
     else setDestination({ lat, lon });
 
-    setSelectedMarker(kind);
+    setSelectedPinId(kind);
     clearComputed();
     markTutorialAction('map.drag_marker');
     if (kind === 'origin') {
@@ -1357,11 +1373,52 @@ export default function Page() {
     }
   }
 
+  function addStopFromMidpoint(_kind: MarkerKind) {
+    if (!origin || !destination) return;
+    if (managedStop) {
+      const shouldReplace = window.confirm(
+        'A stop already exists in one-stop mode. Replace it with a new midpoint stop?',
+      );
+      if (!shouldReplace) return;
+    }
+    const nextLabel = managedStop?.label?.trim() || 'Stop #1';
+    setManagedStop({
+      id: 'stop-1',
+      lat: (origin.lat + destination.lat) / 2,
+      lon: (origin.lon + destination.lon) / 2,
+      label: nextLabel,
+    });
+    setSelectedPinId('stop-1');
+    clearComputed();
+    markTutorialAction('map.add_stop_midpoint');
+  }
+
+  function renameStop(name: string) {
+    const nextLabel = name.trim() || 'Stop #1';
+    setManagedStop((prev) => {
+      if (!prev) return prev;
+      if (prev.label === nextLabel) return prev;
+      return { ...prev, label: nextLabel };
+    });
+    clearComputed();
+    markTutorialAction('map.rename_stop');
+  }
+
+  function deleteStop() {
+    if (!managedStop) return;
+    setManagedStop(null);
+    if (selectedPinId === 'stop-1') {
+      setSelectedPinId(null);
+    }
+    clearComputed();
+    markTutorialAction('map.delete_stop');
+  }
+
   function swapMarkers() {
     if (!origin || !destination) return;
     setOrigin(destination);
     setDestination(origin);
-    setSelectedMarker(null);
+    setSelectedPinId(null);
     clearComputed();
     markTutorialAction('setup.swap_pins_button');
     markTutorialAction('map.popup_swap');
@@ -1373,7 +1430,7 @@ export default function Page() {
     setManagedStop(null);
     setStartLabel('Start');
     setDestinationLabel('Destination');
-    setSelectedMarker(null);
+    setSelectedPinId(null);
     clearComputed();
     setError(null);
     setDutySyncError(null);
@@ -1402,7 +1459,7 @@ export default function Page() {
     setManagedStop(null);
     setStartLabel('Start');
     setDestinationLabel('Destination');
-    setSelectedMarker(null);
+    setSelectedPinId(null);
     setVehicleType('rigid_hgv');
     setScenarioMode('no_sharing');
     setWeights({ time: 60, money: 20, co2: 20 });
@@ -2267,7 +2324,10 @@ export default function Page() {
         <MapView
           origin={origin}
           destination={destination}
-          selectedMarker={selectedMarker}
+          managedStop={managedStop}
+          originLabel={startLabel}
+          destinationLabel={destinationLabel}
+          selectedPinId={selectedPinId}
           route={selectedRoute}
           timeLapsePosition={timeLapsePosition}
           dutyStops={dutyStopsForOverlay}
@@ -2276,8 +2336,12 @@ export default function Page() {
           showSegmentTooltips={showSegmentTooltips}
           overlayLabels={mapOverlayLabels}
           onMapClick={handleMapClick}
-          onSelectMarker={setSelectedMarker}
+          onSelectPinId={setSelectedPinId}
           onMoveMarker={handleMoveMarker}
+          onAddStopFromPin={addStopFromMidpoint}
+          onRenameStop={renameStop}
+          onDeleteStop={deleteStop}
+          onFocusPin={setSelectedPinId}
           onSwapMarkers={swapMarkers}
           onTutorialAction={markTutorialAction}
           onTutorialTargetState={(state) => {

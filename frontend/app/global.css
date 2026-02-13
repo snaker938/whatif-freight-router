@@ -1719,6 +1719,11 @@ a {
     background: rgba(6, 182, 212, 0.16);
   }
 
+  .markerPopup__pill--stop {
+    border-color: rgba(14, 165, 233, 0.45);
+    background: rgba(14, 165, 233, 0.18);
+  }
+
   .markerPopup__actions {
     display: flex;
     align-items: center;
@@ -1825,6 +1830,27 @@ a {
     color: rgba(255, 255, 255, 0.88);
 
     white-space: nowrap;
+  }
+
+  .markerPopup__tinyHint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.64);
+    line-height: 1.35;
+  }
+
+  .stopPopup__card {
+    min-width: 280px;
+    gap: 10px;
+  }
+
+  .stopPopup__renameRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stopPopup__nameInput {
+    margin: 0;
   }
 
   .stopOverlayLine {

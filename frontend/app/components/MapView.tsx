@@ -20,7 +20,14 @@ import {
 } from 'react-leaflet';
 
 import { buildIncidentOverlayPoints, buildSegmentBuckets, buildStopOverlayPoints } from '../lib/mapOverlays';
-import type { DutyChainStop, IncidentEventType, LatLng, RouteOption } from '../lib/types';
+import type {
+  DutyChainStop,
+  IncidentEventType,
+  LatLng,
+  ManagedStop,
+  PinSelectionId,
+  RouteOption,
+} from '../lib/types';
 
 export type MarkerKind = 'origin' | 'destination';
 const MAX_POLYLINE_POINTS = 1000;
@@ -28,8 +35,11 @@ const MAX_POLYLINE_POINTS = 1000;
 type Props = {
   origin: LatLng | null;
   destination: LatLng | null;
+  managedStop?: ManagedStop | null;
+  originLabel?: string;
+  destinationLabel?: string;
 
-  selectedMarker: MarkerKind | null;
+  selectedPinId?: PinSelectionId | null;
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
@@ -46,8 +56,12 @@ type Props = {
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
 
   onMapClick: (lat: number, lon: number) => void;
-  onSelectMarker: (kind: MarkerKind | null) => void;
+  onSelectPinId?: (id: PinSelectionId | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onAddStopFromPin?: (kind: MarkerKind) => void;
+  onRenameStop?: (name: string) => void;
+  onDeleteStop?: () => void;
+  onFocusPin?: (id: PinSelectionId) => void;
   onSwapMarkers?: () => void;
 };
 
@@ -258,10 +272,52 @@ function makeDutyStopIcon(sequence: number) {
   });
 }
 
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function SaveIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <path d="M17 21v-8H7v8" />
+      <path d="M7 3v5h8" />
+    </svg>
+  );
+}
+
 export default function MapView({
   origin,
   destination,
-  selectedMarker,
+  managedStop = null,
+  originLabel = 'Start',
+  destinationLabel = 'Destination',
+  selectedPinId = null,
   route,
   timeLapsePosition,
   dutyStops = [],
@@ -272,15 +328,21 @@ export default function MapView({
   onTutorialAction,
   onTutorialTargetState,
   onMapClick,
-  onSelectMarker,
+  onSelectPinId,
   onMoveMarker,
+  onAddStopFromPin,
+  onRenameStop,
+  onDeleteStop,
+  onFocusPin,
   onSwapMarkers,
 }: Props) {
   const originRef = useRef<L.Marker>(null);
   const destRef = useRef<L.Marker>(null);
+  const stopRef = useRef<L.Marker>(null);
 
-  const [copied, setCopied] = useState<MarkerKind | null>(null);
+  const [copied, setCopied] = useState<MarkerKind | 'stop' | null>(null);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
+  const [stopDraftLabel, setStopDraftLabel] = useState(managedStop?.label ?? 'Stop #1');
 
   useEffect(() => {
     if (!copied) return;
@@ -289,32 +351,40 @@ export default function MapView({
   }, [copied]);
 
   useEffect(() => {
+    setStopDraftLabel(managedStop?.label ?? 'Stop #1');
+  }, [managedStop?.id, managedStop?.label]);
+
+  useEffect(() => {
     setActiveSegmentId(null);
   }, [route?.id, showSegmentTooltips]);
 
   const originIcon = useMemo(
-    () => makePinIcon('origin', selectedMarker === 'origin'),
-    [selectedMarker],
+    () => makePinIcon('origin', selectedPinId === 'origin'),
+    [selectedPinId],
   );
   const destIcon = useMemo(
-    () => makePinIcon('destination', selectedMarker === 'destination'),
-    [selectedMarker],
+    () => makePinIcon('destination', selectedPinId === 'destination'),
+    [selectedPinId],
   );
 
   useEffect(() => {
     try {
       if (originRef.current) {
-        if (selectedMarker === 'origin') originRef.current.openPopup();
+        if (selectedPinId === 'origin') originRef.current.openPopup();
         else originRef.current.closePopup();
       }
       if (destRef.current) {
-        if (selectedMarker === 'destination') destRef.current.openPopup();
+        if (selectedPinId === 'destination') destRef.current.openPopup();
         else destRef.current.closePopup();
+      }
+      if (stopRef.current) {
+        if (selectedPinId === 'stop-1') stopRef.current.openPopup();
+        else stopRef.current.closePopup();
       }
     } catch {
       // no-op
     }
-  }, [selectedMarker]);
+  }, [selectedPinId]);
 
   const polylinePositions: LatLngExpression[] = useMemo(() => {
     const coords = route?.geometry?.coordinates ?? [];
@@ -354,7 +424,7 @@ export default function MapView({
       : ([52.4862, -1.8904] as [number, number]);
   }, [origin]);
 
-  const handleCopyCoords = useCallback(async (kind: MarkerKind, lat: number, lon: number) => {
+  const handleCopyCoords = useCallback(async (kind: MarkerKind | 'stop', lat: number, lon: number) => {
     const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
     const ok = await copyToClipboard(text);
     if (ok) {
@@ -399,7 +469,8 @@ export default function MapView({
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
-                onSelectMarker(selectedMarker === 'origin' ? null : 'origin');
+                onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
+                onFocusPin?.('origin');
                 onTutorialAction?.('map.click_origin_marker');
               },
               dragend(e) {
@@ -438,12 +509,29 @@ export default function MapView({
                       </button>
                     )}
 
+                    {onAddStopFromPin && origin && destination ? (
+                      <button
+                        type="button"
+                        className="markerPopup__iconBtn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddStopFromPin('origin');
+                          onTutorialAction?.('map.add_stop_midpoint');
+                        }}
+                        aria-label="Add stop at midpoint"
+                        title="Add stop at midpoint"
+                        data-tutorial-action="map.add_stop_midpoint"
+                      >
+                        <PlusIcon />
+                      </button>
+                    ) : null}
+
                     <button
                       type="button"
                       className="markerPopup__iconBtn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onSelectMarker(null);
+                        onSelectPinId?.(null);
                         onTutorialAction?.('map.popup_close');
                       }}
                       aria-label="Close"
@@ -477,6 +565,10 @@ export default function MapView({
 
                   {copied === 'origin' && <span className="markerPopup__toast">Copied</span>}
                 </div>
+
+                <div className="markerPopup__tinyHint">
+                  Start pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -492,7 +584,8 @@ export default function MapView({
             eventHandlers={{
               click(e) {
                 e.originalEvent?.stopPropagation();
-                onSelectMarker(selectedMarker === 'destination' ? null : 'destination');
+                onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
+                onFocusPin?.('destination');
                 onTutorialAction?.('map.click_destination_marker');
               },
               dragend(e) {
@@ -533,12 +626,29 @@ export default function MapView({
                       </button>
                     )}
 
+                    {onAddStopFromPin && origin && destination ? (
+                      <button
+                        type="button"
+                        className="markerPopup__iconBtn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddStopFromPin('destination');
+                          onTutorialAction?.('map.add_stop_midpoint');
+                        }}
+                        aria-label="Add stop at midpoint"
+                        title="Add stop at midpoint"
+                        data-tutorial-action="map.add_stop_midpoint"
+                      >
+                        <PlusIcon />
+                      </button>
+                    ) : null}
+
                     <button
                       type="button"
                       className="markerPopup__iconBtn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onSelectMarker(null);
+                        onSelectPinId?.(null);
                         onTutorialAction?.('map.popup_close');
                       }}
                       aria-label="Close"
@@ -572,10 +682,117 @@ export default function MapView({
 
                   {copied === 'destination' && <span className="markerPopup__toast">Copied</span>}
                 </div>
+
+                <div className="markerPopup__tinyHint">
+                  Destination pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
+                </div>
               </div>
             </Popup>
           </Marker>
         )}
+
+        {showStopOverlay && managedStop ? (
+          <Marker
+            ref={stopRef}
+            position={[managedStop.lat, managedStop.lon]}
+            icon={makeDutyStopIcon(1)}
+            eventHandlers={{
+              click(e) {
+                e.originalEvent?.stopPropagation();
+                onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
+                onFocusPin?.('stop-1');
+                onTutorialAction?.('map.click_stop_marker');
+              },
+            }}
+          >
+            <Popup className="stopOverlayPopup" autoPan={true} autoPanPadding={[22, 22]} closeButton={false}>
+              <div className="overlayPopup__card stopPopup__card" onClick={(e) => e.stopPropagation()}>
+                <div className="markerPopup__header">
+                  <span className="markerPopup__pill markerPopup__pill--stop">Stop #1</span>
+                  <div className="markerPopup__actions">
+                    {onDeleteStop ? (
+                      <button
+                        type="button"
+                        className="markerPopup__iconBtn markerPopup__iconBtn--danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteStop();
+                          onSelectPinId?.(null);
+                          onTutorialAction?.('map.delete_stop');
+                        }}
+                        aria-label="Delete stop"
+                        title="Delete stop"
+                        data-tutorial-action="map.delete_stop"
+                      >
+                        <CloseIcon />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="markerPopup__iconBtn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectPinId?.(null);
+                        onTutorialAction?.('map.popup_close');
+                      }}
+                      aria-label="Close"
+                      title="Close"
+                      data-tutorial-action="map.popup_close"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
+                </div>
+                <div className="fieldLabelRow" style={{ marginTop: 0 }}>
+                  <div className="fieldLabel">Stop name</div>
+                </div>
+                <div className="stopPopup__renameRow">
+                  <input
+                    className="input stopPopup__nameInput"
+                    value={stopDraftLabel}
+                    onChange={(e) => setStopDraftLabel(e.target.value)}
+                    placeholder="Stop #1"
+                  />
+                  <button
+                    type="button"
+                    className="markerPopup__iconBtn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRenameStop?.(stopDraftLabel);
+                      onTutorialAction?.('map.rename_stop');
+                    }}
+                    aria-label="Save stop name"
+                    title="Save stop name"
+                    data-tutorial-action="map.rename_stop"
+                  >
+                    <SaveIcon />
+                  </button>
+                </div>
+                <div className="markerPopup__coordsRow">
+                  <button
+                    type="button"
+                    className="markerPopup__coordsBtn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyCoords('stop', managedStop.lat, managedStop.lon);
+                    }}
+                    aria-label="Copy stop coordinates"
+                    title="Copy stop coordinates"
+                    data-tutorial-action="map.popup_copy"
+                  >
+                    <span className="markerPopup__coordsText">
+                      {fmtCoord(managedStop.lat)}, {fmtCoord(managedStop.lon)}
+                    </span>
+                    <span className="markerPopup__coordsIcon">
+                      <CopyIcon />
+                    </span>
+                  </button>
+                  {copied === 'stop' && <span className="markerPopup__toast">Copied</span>}
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        ) : null}
 
         {polylinePositions.length > 0 && (
           <>
@@ -688,21 +905,7 @@ export default function MapView({
             );
           }
 
-          return (
-            <Marker key={point.id} position={[point.lat, point.lon]} icon={makeDutyStopIcon(point.sequence)}>
-              <Popup className="stopOverlayPopup" autoPan={true} autoPanPadding={[22, 22]}>
-                <div className="overlayPopup__card">
-                  <div className="overlayPopup__title">
-                    {overlayLabels?.stopLabel ?? 'Stop'} #{point.sequence}
-                  </div>
-                  {point.label ? <div className="overlayPopup__row">{point.label}</div> : null}
-                  <div className="overlayPopup__row">
-                    {fmtCoord(point.lat)}, {fmtCoord(point.lon)}
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          );
+          return null;
         })}
 
         {incidentOverlayPoints.map((point) => {
