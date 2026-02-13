@@ -1081,7 +1081,8 @@ export default function Page() {
     setTutorialCompleted(isCompleted);
     if (!isCompleted) {
       setTutorialMode(savedProgress ? 'chooser' : tutorialIsDesktop ? 'running' : 'blocked');
-      setTutorialOpen(true);
+      // Keep tutorial closed by default so map HUD remains available on load.
+      setTutorialOpen(false);
       if (!savedProgress) {
         setTutorialStepActionsById({});
         setTutorialOptionalDecisionsByStep({});

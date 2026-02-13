@@ -557,6 +557,10 @@ export default function MapView({
     () => makePinIcon('destination', selectedPinId === 'destination'),
     [selectedPinId],
   );
+  const stopIcon = useMemo(
+    () => makeDutyStopIcon(1, selectedPinId === 'stop-1'),
+    [selectedPinId],
+  );
 
   useEffect(() => {
     if (draggingPinId !== null) return;
@@ -959,7 +963,7 @@ export default function MapView({
           <Marker
             ref={stopRef}
             position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
-            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1')}
+            icon={stopIcon}
             draggable={true}
             eventHandlers={{
               click(e) {
