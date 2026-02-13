@@ -52,6 +52,7 @@ import type {
   ParetoMethod,
   ParetoStreamEvent,
   ManagedStop,
+  PinSelectionId,
   RouteOption,
   ScenarioMode,
   ScenarioCompareResponse,
@@ -387,6 +388,20 @@ function sameManagedStop(a: ManagedStop | null, b: ManagedStop | null): boolean 
     Math.abs(a.lon - b.lon) <= 1e-9 &&
     (a.label ?? '') === (b.label ?? '')
   );
+}
+
+function normalizeSelectedPinId(
+  selectedPinId: PinSelectionId | null,
+  points: {
+    origin: LatLng | null;
+    destination: LatLng | null;
+    stop: ManagedStop | null;
+  },
+): PinSelectionId | null {
+  if (selectedPinId === 'origin' && !points.origin) return null;
+  if (selectedPinId === 'destination' && !points.destination) return null;
+  if (selectedPinId === 'stop-1' && !points.stop) return null;
+  return selectedPinId;
 }
 
 function toDutyLine(lat: number, lon: number, label?: string): string {
@@ -1014,12 +1029,13 @@ export default function Page() {
     if (!sameManagedStop(managedStop, parsed.stop)) {
       setManagedStop(parsed.stop);
     }
-    if (selectedPinId === 'origin' && !parsed.origin) {
-      setSelectedPinId(null);
-    } else if (selectedPinId === 'destination' && !parsed.destination) {
-      setSelectedPinId(null);
-    } else if (selectedPinId === 'stop-1' && !parsed.stop) {
-      setSelectedPinId(null);
+    const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
+      origin: parsed.origin,
+      destination: parsed.destination,
+      stop: parsed.stop,
+    });
+    if (normalizedSelection !== selectedPinId) {
+      setSelectedPinId(normalizedSelection);
     }
     if (startLabel !== parsed.startLabel) {
       setStartLabel(parsed.startLabel);
@@ -1472,7 +1488,7 @@ export default function Page() {
   }
 
   function selectPinFromSidebar(id: 'origin' | 'destination' | 'stop-1') {
-    setSelectedPinId(id);
+    setSelectedPinId((prev) => (prev === id ? null : id));
     markTutorialAction('pins.sidebar_select');
   }
 
@@ -1480,7 +1496,13 @@ export default function Page() {
     if (!origin || !destination) return;
     setOrigin(destination);
     setDestination(origin);
-    setSelectedPinId(null);
+    setSelectedPinId((prev) =>
+      normalizeSelectedPinId(prev, {
+        origin: destination,
+        destination: origin,
+        stop: managedStop,
+      }),
+    );
     clearComputed();
     markTutorialAction('setup.swap_pins_button');
     markTutorialAction('map.popup_swap');
