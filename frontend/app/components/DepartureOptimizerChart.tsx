@@ -1,6 +1,11 @@
 'use client';
 
+import FieldInfo from './FieldInfo';
 import { formatDateTime, formatNumber } from '../lib/format';
+import {
+  SIDEBAR_FIELD_HELP,
+  SIDEBAR_SECTION_HINTS,
+} from '../lib/sidebarHelpText';
 import type { Locale } from '../lib/i18n';
 import type { DepartureOptimizeResponse } from '../lib/types';
 
@@ -51,10 +56,14 @@ export default function DepartureOptimizerChart({
           {loading ? 'Optimizing...' : 'Optimize departures'}
         </button>
       </div>
+      <div className="sectionHint">{SIDEBAR_SECTION_HINTS.departureOptimization}</div>
 
-      <label className="fieldLabel" htmlFor="dep-window-start">
-        Window start (UTC)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="dep-window-start">
+          Window start (UTC)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.windowStartEnd} />
+      </div>
       <input
         id="dep-window-start"
         className="input"
@@ -64,9 +73,12 @@ export default function DepartureOptimizerChart({
         onChange={(event) => onWindowStartChange(event.target.value)}
       />
 
-      <label className="fieldLabel" htmlFor="dep-window-end">
-        Window end (UTC)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="dep-window-end">
+          Window end (UTC)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.windowStartEnd} />
+      </div>
       <input
         id="dep-window-end"
         className="input"
@@ -76,9 +88,12 @@ export default function DepartureOptimizerChart({
         onChange={(event) => onWindowEndChange(event.target.value)}
       />
 
-      <label className="fieldLabel" htmlFor="dep-step">
-        Step (minutes)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="dep-step">
+          Step (minutes)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.stepMinutes} />
+      </div>
       <input
         id="dep-step"
         className="input"
@@ -91,9 +106,12 @@ export default function DepartureOptimizerChart({
         onChange={(event) => onStepMinutesChange(Math.max(5, Number(event.target.value) || 5))}
       />
 
-      <label className="fieldLabel" htmlFor="dep-earliest-arrival">
-        Earliest arrival (UTC, optional)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="dep-earliest-arrival">
+          Earliest arrival (UTC, optional)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.earliestLatestArrival} />
+      </div>
       <input
         id="dep-earliest-arrival"
         className="input"
@@ -103,9 +121,12 @@ export default function DepartureOptimizerChart({
         onChange={(event) => onEarliestArrivalChange(event.target.value)}
       />
 
-      <label className="fieldLabel" htmlFor="dep-latest-arrival">
-        Latest arrival (UTC, optional)
-      </label>
+      <div className="fieldLabelRow">
+        <label className="fieldLabel" htmlFor="dep-latest-arrival">
+          Latest arrival (UTC, optional)
+        </label>
+        <FieldInfo text={SIDEBAR_FIELD_HELP.earliestLatestArrival} />
+      </div>
       <input
         id="dep-latest-arrival"
         className="input"
