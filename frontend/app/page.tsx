@@ -103,6 +103,7 @@ type MapViewProps = {
   onTutorialAction?: (actionId: string) => void;
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
+  tutorialViewportLocked?: boolean;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
 
@@ -287,6 +288,7 @@ const TutorialOverlay = dynamic<
     } | null;
     targetRect: TutorialTargetRect | null;
     targetMissing: boolean;
+    runningScope?: TutorialLockScope;
     onClose: () => void;
     onStartNew: () => void;
     onResume: () => void;
@@ -893,6 +895,7 @@ export default function Page() {
     [tutorialActiveSectionId, tutorialLockScope, tutorialRunning],
   );
   const tutorialMapLocked = tutorialRunning && tutorialLockScope === 'sidebar_section_only';
+  const tutorialViewportLocked = tutorialRunning && tutorialStep?.id === 'map_set_pins';
   const tutorialGuideTarget = useMemo<TutorialGuideTarget | null>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
     if (tutorialPlacementStage === 'done') return null;
@@ -2844,6 +2847,7 @@ export default function Page() {
           showSegmentTooltips={showSegmentTooltips}
           overlayLabels={mapOverlayLabels}
           tutorialMapLocked={tutorialMapLocked}
+          tutorialViewportLocked={tutorialViewportLocked}
           tutorialGuideTarget={tutorialGuideTarget}
           tutorialGuideVisible={tutorialGuideVisible}
           onMapClick={handleMapClick}
@@ -3690,6 +3694,7 @@ export default function Page() {
         optionalDecision={tutorialOptionalState}
         targetRect={tutorialTargetRect}
         targetMissing={tutorialTargetMissing && !(tutorialStep?.allowMissingTarget ?? false)}
+        runningScope={tutorialLockScope}
         onClose={closeTutorial}
         onStartNew={startTutorialFresh}
         onResume={resumeTutorialProgress}

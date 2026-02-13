@@ -1682,6 +1682,12 @@ a {
     pointer-events: none;
   }
 
+  .tutorialOverlay.isRunning.isMapFocused .tutorialOverlay__backdrop {
+    background: rgba(3, 6, 18, 0.06);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .tutorialOverlay__card {
     position: fixed;
     width: min(500px, calc(100vw - 28px));
@@ -1911,6 +1917,11 @@ a {
   }
 
   .tutorialOverlay__arrow.isHidden {
+    display: none;
+  }
+
+  .tutorialOverlay.isRunning.isMapFocused .tutorialOverlay__spotlight,
+  .tutorialOverlay.isRunning.isMapFocused .tutorialOverlay__arrow {
     display: none;
   }
 
@@ -2214,39 +2225,6 @@ a {
     padding: 5px 11px !important;
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38) !important;
     pointer-events: none !important;
-  }
-
-  .tutorialGuideArrowStem {
-    pointer-events: none !important;
-  }
-
-  .tutorialGuideArrowPin {
-    pointer-events: none !important;
-    background: transparent !important;
-    border: 0 !important;
-  }
-
-  .tutorialGuideArrowPin__inner {
-    width: 24px;
-    height: 24px;
-    display: block;
-    border-radius: 999px;
-    border: 1px solid rgba(34, 211, 238, 0.72);
-    background: radial-gradient(circle at 35% 35%, rgba(125, 250, 255, 0.95), rgba(6, 182, 212, 0.9));
-    box-shadow: 0 0 0 6px rgba(34, 211, 238, 0.16), 0 12px 22px rgba(4, 12, 30, 0.45);
-    position: relative;
-  }
-
-  .tutorialGuideArrowPin__inner::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 100%;
-    transform: translateX(-50%);
-    border-left: 7px solid transparent;
-    border-right: 7px solid transparent;
-    border-top: 10px solid rgba(34, 211, 238, 0.94);
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.28));
   }
 
   .overlayPopup__card {

@@ -2,7 +2,7 @@
 
 import { useMemo, useRef } from 'react';
 
-import type { TutorialTargetRect } from '../lib/tutorial/types';
+import type { TutorialLockScope, TutorialTargetRect } from '../lib/tutorial/types';
 
 type TutorialMode = 'blocked' | 'chooser' | 'running' | 'completed';
 
@@ -43,6 +43,7 @@ type Props = {
   optionalDecision: OptionalDecisionState | null;
   targetRect: TutorialTargetRect | null;
   targetMissing: boolean;
+  runningScope?: TutorialLockScope;
   onClose: () => void;
   onStartNew: () => void;
   onResume: () => void;
@@ -79,6 +80,7 @@ export default function TutorialOverlay({
   optionalDecision,
   targetRect,
   targetMissing,
+  runningScope = 'free',
   onClose,
   onStartNew,
   onResume,
@@ -125,6 +127,7 @@ export default function TutorialOverlay({
   }, [mode, targetRect]);
 
   if (!open) return null;
+  const mapFocusedRunning = mode === 'running' && runningScope === 'map_only';
 
   function handleBackdropClick() {
     if (mode === 'running') {
@@ -139,14 +142,14 @@ export default function TutorialOverlay({
 
   return (
     <div
-      className={`tutorialOverlay ${mode === 'running' ? 'isRunning' : ''}`}
+      className={`tutorialOverlay ${mode === 'running' ? 'isRunning' : ''} ${mapFocusedRunning ? 'isMapFocused' : ''}`.trim()}
       role="dialog"
       aria-modal="true"
       aria-label="Guided frontend tutorial"
     >
       <div className="tutorialOverlay__backdrop" onClick={handleBackdropClick} />
 
-      {mode === 'running' && targetRect ? (
+      {mode === 'running' && targetRect && !mapFocusedRunning ? (
         <>
           <div
             className="tutorialOverlay__spotlight"
