@@ -10,6 +10,7 @@ type Props = {
   disabled: boolean;
   hasStop: boolean;
   canAddStop: boolean;
+  oneStopHint?: string | null;
   onSelectPin: (id: PinSelectionId) => void;
   onRenameStart: (name: string) => void;
   onRenameDestination: (name: string) => void;
@@ -53,6 +54,7 @@ export default function PinManager({
   disabled,
   hasStop,
   canAddStop,
+  oneStopHint = null,
   onSelectPin,
   onRenameStart,
   onRenameDestination,
@@ -80,6 +82,8 @@ export default function PinManager({
           className="pinManager__nodeBtn"
           onClick={() => onSelectPin(node.id)}
           disabled={disabled}
+          aria-pressed={isSelected}
+          aria-label={`${isSelected ? 'Deselect' : 'Select'} ${label} pin`}
           data-tutorial-action="pins.sidebar_select"
         >
           <span className={`pinManager__dot pinManager__dot--${node.kind}`} />
@@ -145,6 +149,7 @@ export default function PinManager({
           className="secondary"
           disabled={disabled || !canAddStop}
           onClick={onAddStop}
+          title={!canAddStop ? 'Set both Start and Destination to add a stop.' : 'Add midpoint stop'}
           data-tutorial-action="pins.add_stop"
         >
           {hasStop ? 'Replace stop' : 'Add stop'}
@@ -154,6 +159,7 @@ export default function PinManager({
           className="secondary"
           disabled={disabled || !hasStop}
           onClick={onDeleteStop}
+          title={!hasStop ? 'No stop exists to delete.' : 'Delete stop'}
           data-tutorial-action="pins.delete_stop"
         >
           Delete stop
@@ -167,14 +173,27 @@ export default function PinManager({
       </div>
 
       <div className="pinManager__reorder">
-        <button type="button" className="secondary" disabled={true}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={true}
+          title="Unavailable in one-stop mode"
+          aria-disabled="true"
+        >
           Move stop up
         </button>
-        <button type="button" className="secondary" disabled={true}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={true}
+          title="Unavailable in one-stop mode"
+          aria-disabled="true"
+        >
           Move stop down
         </button>
       </div>
       <div className="tiny">Reorder is disabled in one-stop mode. Enable when multi-stop support is added.</div>
+      {oneStopHint ? <div className="pinManager__hintError">{oneStopHint}</div> : null}
     </section>
   );
 }

@@ -301,6 +301,7 @@ const PinManager = dynamic<
     disabled: boolean;
     hasStop: boolean;
     canAddStop: boolean;
+    oneStopHint?: string | null;
     onSelectPin: (id: 'origin' | 'destination' | 'stop-1') => void;
     onRenameStart: (name: string) => void;
     onRenameDestination: (name: string) => void;
@@ -2708,6 +2709,7 @@ export default function Page() {
                 disabled={busy}
                 hasStop={Boolean(managedStop)}
                 canAddStop={canAddStop}
+                oneStopHint={dutySyncError}
                 onSelectPin={selectPinFromSidebar}
                 onRenameStart={renameStart}
                 onRenameDestination={renameDestination}
