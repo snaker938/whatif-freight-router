@@ -126,6 +126,9 @@ export default function TutorialOverlay({
   if (!open) return null;
 
   function handleBackdropClick() {
+    if (mode === 'running') {
+      return;
+    }
     if (suppressBackdropCloseRef.current) {
       suppressBackdropCloseRef.current = false;
       return;
@@ -134,7 +137,12 @@ export default function TutorialOverlay({
   }
 
   return (
-    <div className="tutorialOverlay" role="dialog" aria-modal="true" aria-label="Guided frontend tutorial">
+    <div
+      className={`tutorialOverlay ${mode === 'running' ? 'isRunning' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Guided frontend tutorial"
+    >
       <div className="tutorialOverlay__backdrop" onClick={handleBackdropClick} />
 
       {mode === 'running' && targetRect ? (

@@ -1375,12 +1375,20 @@ a {
     pointer-events: auto;
   }
 
+  .tutorialOverlay.isRunning {
+    pointer-events: none;
+  }
+
   .tutorialOverlay__backdrop {
     position: absolute;
     inset: 0;
     background: rgba(3, 6, 18, 0.62);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
+  }
+
+  .tutorialOverlay.isRunning .tutorialOverlay__backdrop {
+    pointer-events: none;
   }
 
   .tutorialOverlay__card {
@@ -1399,6 +1407,10 @@ a {
   }
 
   .tutorialOverlay__card--guided {
+    pointer-events: auto;
+  }
+
+  .tutorialOverlay.isRunning .tutorialOverlay__card {
     pointer-events: auto;
   }
 
