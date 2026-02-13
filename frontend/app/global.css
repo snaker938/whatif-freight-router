@@ -233,6 +233,13 @@ a {
     background: rgba(255, 255, 255, 0.045);
   }
 
+  .collapsibleCard__header:disabled {
+    cursor: not-allowed;
+    opacity: 0.92;
+    transform: none;
+    box-shadow: none;
+  }
+
   .collapsibleCard__header:focus-visible {
     outline: 2px solid rgba(6, 182, 212, 0.78);
     outline-offset: -2px;
@@ -285,6 +292,16 @@ a {
   .collapsibleCard__contentInner * {
     min-width: 0;
     max-width: 100%;
+  }
+
+  .collapsibleCard[data-tutorial-locked="true"] .collapsibleCard__header {
+    opacity: 0.68;
+    background: rgba(255, 255, 255, 0.01);
+    border-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .collapsibleCard[data-tutorial-locked="true"] .collapsibleCard__content {
+    pointer-events: none !important;
   }
 
   .sectionTitle {

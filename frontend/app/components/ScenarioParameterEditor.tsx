@@ -34,6 +34,11 @@ type Props = {
   onChange: (next: ScenarioAdvancedParams) => void;
   disabled: boolean;
   validationError: string | null;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 const OPTIMIZATION_MODE_OPTIONS: SelectOption<OptimizationMode>[] = [
@@ -61,6 +66,7 @@ export default function ScenarioParameterEditor({
   onChange,
   disabled,
   validationError,
+  sectionControl,
 }: Props) {
   function patch<K extends keyof ScenarioAdvancedParams>(key: K, nextValue: ScenarioAdvancedParams[K]) {
     onChange({ ...value, [key]: nextValue });
@@ -71,6 +77,9 @@ export default function ScenarioParameterEditor({
       title="Advanced Parameters"
       hint={SIDEBAR_SECTION_HINTS.advancedParameters}
       dataTutorialId="advanced.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
     >
 
       <div className="fieldLabelRow">

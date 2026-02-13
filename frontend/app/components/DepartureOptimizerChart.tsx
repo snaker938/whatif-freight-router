@@ -28,6 +28,11 @@ type Props = {
   onRun: () => void;
   onApplyDepartureTime: (isoUtc: string) => void;
   locale: Locale;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 export default function DepartureOptimizerChart({
@@ -48,12 +53,16 @@ export default function DepartureOptimizerChart({
   onRun,
   onApplyDepartureTime,
   locale,
+  sectionControl,
 }: Props) {
   return (
     <CollapsibleCard
       title="Departure Optimization"
       hint={SIDEBAR_SECTION_HINTS.departureOptimization}
       dataTutorialId="departure.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
     >
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-window-start">

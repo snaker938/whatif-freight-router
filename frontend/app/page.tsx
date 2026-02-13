@@ -157,7 +157,13 @@ const SegmentBreakdown = dynamic<{ route: RouteOption | null; onTutorialAction?:
 );
 
 const ScenarioParameterEditor = dynamic<
-  { value: ScenarioAdvancedParams; onChange: (next: ScenarioAdvancedParams) => void; disabled: boolean; validationError: string | null }
+  {
+    value: ScenarioAdvancedParams;
+    onChange: (next: ScenarioAdvancedParams) => void;
+    disabled: boolean;
+    validationError: string | null;
+    sectionControl?: TutorialSectionControl;
+  }
 >(() => import('./components/ScenarioParameterEditor'), {
   ssr: false,
   loading: () => null,
@@ -189,6 +195,7 @@ const ExperimentManager = dynamic<
     defaultName?: string;
     defaultDescription?: string;
     tutorialResetNonce?: number;
+    sectionControl?: TutorialSectionControl;
   }
 >(() => import('./components/ExperimentManager'), {
   ssr: false,
@@ -214,6 +221,7 @@ const DepartureOptimizerChart = dynamic<
     onRun: () => void;
     onApplyDepartureTime: (isoUtc: string) => void;
     locale: Locale;
+    sectionControl?: TutorialSectionControl;
   }
 >(() => import('./components/DepartureOptimizerChart'), {
   ssr: false,
@@ -229,7 +237,11 @@ const CounterfactualPanel = dynamic<{ route: RouteOption | null }>(
 );
 
 const ScenarioTimeLapse = dynamic<
-  { route: RouteOption | null; onPositionChange: (position: LatLng | null) => void }
+  {
+    route: RouteOption | null;
+    onPositionChange: (position: LatLng | null) => void;
+    sectionControl?: TutorialSectionControl;
+  }
 >(() => import('./components/ScenarioTimeLapse'), {
   ssr: false,
   loading: () => null,
@@ -294,6 +306,7 @@ const DutyChainPlanner = dynamic<
     data: DutyChainResponse | null;
     disabled: boolean;
     locale: Locale;
+    sectionControl?: TutorialSectionControl;
   }
 >(() => import('./components/DutyChainPlanner'), {
   ssr: false,
@@ -314,6 +327,7 @@ const PinManager = dynamic<
     onDeleteStop: () => void;
     onSwapPins: () => void;
     onClearPins: () => void;
+    sectionControl?: TutorialSectionControl;
   }
 >(() => import('./components/PinManager'), {
   ssr: false,
@@ -332,6 +346,7 @@ const OracleQualityDashboard = dynamic<
     onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
     locale: Locale;
     tutorialResetNonce?: number;
+    sectionControl?: TutorialSectionControl;
   }
 >(() => import('./components/OracleQualityDashboard'), {
   ssr: false,
@@ -595,6 +610,11 @@ const TUTORIAL_SECTION_IDS = [
 ] as const;
 
 type TutorialSectionId = (typeof TUTORIAL_SECTION_IDS)[number];
+type TutorialSectionControl = {
+  isOpen?: boolean;
+  lockToggle?: boolean;
+  tutorialLocked?: boolean;
+};
 
 function inferTutorialSectionId(step: TutorialStep | null): TutorialSectionId | null {
   if (!step) return null;
@@ -606,7 +626,28 @@ function inferTutorialSectionId(step: TutorialStep | null): TutorialSectionId | 
   const match = step.targetIds.find((targetId) =>
     TUTORIAL_SECTION_IDS.includes(targetId as TutorialSectionId),
   );
-  return match ? (match as TutorialSectionId) : null;
+  if (match) return match as TutorialSectionId;
+
+  const hintFromTarget = step.targetIds.find(Boolean) ?? '';
+  if (hintFromTarget.startsWith('setup.')) return 'setup.section';
+  if (hintFromTarget.startsWith('pins.')) return 'pins.section';
+  if (hintFromTarget.startsWith('advanced.')) return 'advanced.section';
+  if (hintFromTarget.startsWith('preferences.') || hintFromTarget.startsWith('pref.')) {
+    return 'preferences.section';
+  }
+  if (hintFromTarget.startsWith('selected.')) return 'selected.route_panel';
+  if (hintFromTarget.startsWith('routes.')) return 'routes.list';
+  if (hintFromTarget.startsWith('compare.')) return 'compare.section';
+  if (hintFromTarget.startsWith('departure.') || hintFromTarget.startsWith('dep.')) {
+    return 'departure.section';
+  }
+  if (hintFromTarget.startsWith('duty.')) return 'duty.section';
+  if (hintFromTarget.startsWith('oracle.')) return 'oracle.section';
+  if (hintFromTarget.startsWith('experiments.') || hintFromTarget.startsWith('exp.')) {
+    return 'experiments.section';
+  }
+  if (hintFromTarget.startsWith('timelapse.')) return 'timelapse.section';
+  return null;
 }
 
 function inferTutorialLockScope(step: TutorialStep | null): TutorialLockScope {
@@ -794,6 +835,29 @@ export default function Page() {
   const tutorialTargetIdSet = useMemo(() => {
     return new Set<string>(tutorialStep?.targetIds ?? []);
   }, [tutorialStep]);
+  const tutorialSidebarLocked = tutorialRunning && tutorialLockScope === 'map_only';
+  const tutorialSectionControlFor = useCallback(
+    (sectionId: TutorialSectionId): TutorialSectionControl | undefined => {
+      if (!tutorialRunning) return undefined;
+      if (tutorialLockScope === 'map_only') {
+        return {
+          isOpen: false,
+          lockToggle: true,
+          tutorialLocked: true,
+        };
+      }
+      if (tutorialLockScope === 'sidebar_section_only') {
+        const isActive = tutorialActiveSectionId === sectionId;
+        return {
+          isOpen: isActive,
+          lockToggle: true,
+          tutorialLocked: !isActive,
+        };
+      }
+      return undefined;
+    },
+    [tutorialActiveSectionId, tutorialLockScope, tutorialRunning],
+  );
   const tutorialCanAdvance = useMemo(() => {
     if (!tutorialStep) return false;
     const requiredDone = tutorialStep.required.every((item) => tutorialActionSet.has(item.actionId));
@@ -1173,6 +1237,13 @@ export default function Page() {
       setTutorialMode(tutorialSavedProgress ? 'chooser' : 'running');
     }
   }, [tutorialIsDesktop, tutorialMode, tutorialOpen, tutorialSavedProgress]);
+
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    if (tutorialLockScope === 'sidebar_section_only' && isPanelCollapsed) {
+      setIsPanelCollapsed(false);
+    }
+  }, [isPanelCollapsed, tutorialLockScope, tutorialRunning]);
 
   useEffect(() => {
     if (tutorialBootstrappedRef.current) return;
@@ -2660,6 +2731,9 @@ export default function Page() {
                 title={t('setup')}
                 hint={SIDEBAR_SECTION_HINTS.setup}
                 dataTutorialId="setup.section"
+                isOpen={tutorialSectionControlFor('setup.section')?.isOpen}
+                lockToggle={tutorialSectionControlFor('setup.section')?.lockToggle}
+                tutorialLocked={tutorialSectionControlFor('setup.section')?.tutorialLocked}
               >
 
                 <div className="fieldLabelRow">
@@ -2824,6 +2898,7 @@ export default function Page() {
                 onDeleteStop={deleteStop}
                 onSwapPins={swapMarkers}
                 onClearPins={reset}
+                sectionControl={tutorialSectionControlFor('pins.section')}
               />
 
               <ScenarioParameterEditor
@@ -2831,12 +2906,16 @@ export default function Page() {
                 onChange={setAdvancedParams}
                 disabled={busy}
                 validationError={advancedError}
+                sectionControl={tutorialSectionControlFor('advanced.section')}
               />
 
               <CollapsibleCard
                 title={t('preferences')}
                 hint={SIDEBAR_SECTION_HINTS.preferences}
                 dataTutorialId="preferences.section"
+                isOpen={tutorialSectionControlFor('preferences.section')?.isOpen}
+                lockToggle={tutorialSectionControlFor('preferences.section')?.lockToggle}
+                tutorialLocked={tutorialSectionControlFor('preferences.section')?.tutorialLocked}
               >
 
                 <div className="sliderField" data-tutorial-id="preferences.weights">
@@ -2976,6 +3055,9 @@ export default function Page() {
               hint={SIDEBAR_SECTION_HINTS.selectedRoute}
               dataTutorialId="selected.route_panel"
               className="selectedRouteCard"
+              isOpen={tutorialSectionControlFor('selected.route_panel')?.isOpen}
+              lockToggle={tutorialSectionControlFor('selected.route_panel')?.lockToggle}
+              tutorialLocked={tutorialSectionControlFor('selected.route_panel')?.tutorialLocked}
             >
               <div data-tutorial-action="selected.panel_click">
               <div className="metrics">
@@ -3078,7 +3160,11 @@ export default function Page() {
             </CollapsibleCard>
           )}
 
-          <ScenarioTimeLapse route={selectedRoute} onPositionChange={setTimeLapsePosition} />
+          <ScenarioTimeLapse
+            route={selectedRoute}
+            onPositionChange={setTimeLapsePosition}
+            sectionControl={tutorialSectionControlFor('timelapse.section')}
+          />
 
           {showRoutesSection && (
             <CollapsibleCard
@@ -3086,6 +3172,9 @@ export default function Page() {
               title="Routes"
               hint={SIDEBAR_SECTION_HINTS.routes}
               dataTutorialId="routes.list"
+              isOpen={tutorialSectionControlFor('routes.list')?.isOpen}
+              lockToggle={tutorialSectionControlFor('routes.list')?.lockToggle}
+              tutorialLocked={tutorialSectionControlFor('routes.list')?.tutorialLocked}
             >
               <div className="sectionTitleRow">
                 <div className="sectionTitleMeta">
@@ -3303,6 +3392,9 @@ export default function Page() {
             title={t('compare_scenarios')}
             hint={SIDEBAR_SECTION_HINTS.compareScenarios}
             dataTutorialId="compare.section"
+            isOpen={tutorialSectionControlFor('compare.section')?.isOpen}
+            lockToggle={tutorialSectionControlFor('compare.section')?.lockToggle}
+            tutorialLocked={tutorialSectionControlFor('compare.section')?.tutorialLocked}
           >
             <div className="sectionTitleRow">
               <button
@@ -3340,6 +3432,7 @@ export default function Page() {
             onRun={optimizeDepartures}
             onApplyDepartureTime={applyOptimizedDeparture}
             locale={locale}
+            sectionControl={tutorialSectionControlFor('departure.section')}
           />
 
           <DutyChainPlanner
@@ -3351,6 +3444,7 @@ export default function Page() {
             data={dutyChainData}
             disabled={busy}
             locale={locale}
+            sectionControl={tutorialSectionControlFor('duty.section')}
           />
 
           <OracleQualityDashboard
@@ -3366,6 +3460,7 @@ export default function Page() {
             onIngest={ingestOracleCheck}
             locale={locale}
             tutorialResetNonce={tutorialResetNonce}
+            sectionControl={tutorialSectionControlFor('oracle.section')}
           />
 
           <ExperimentManager
@@ -3406,6 +3501,7 @@ export default function Page() {
             defaultName={tutorialExperimentPrefill?.name}
             defaultDescription={tutorialExperimentPrefill?.description}
             tutorialResetNonce={tutorialResetNonce}
+            sectionControl={tutorialSectionControlFor('experiments.section')}
           />
             </div>
       </aside>

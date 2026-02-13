@@ -39,6 +39,11 @@ type Props = {
   defaultName?: string;
   defaultDescription?: string;
   tutorialResetNonce?: number;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 const SCENARIO_FILTER_OPTIONS: SelectOption<'' | ScenarioMode>[] = [
@@ -80,6 +85,7 @@ export default function ExperimentManager({
   defaultName = '',
   defaultDescription = '',
   tutorialResetNonce,
+  sectionControl,
 }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -122,6 +128,9 @@ export default function ExperimentManager({
       title="Experiments"
       hint={SIDEBAR_SECTION_HINTS.experiments}
       dataTutorialId="experiments.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
     >
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="experiment-search">

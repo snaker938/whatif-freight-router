@@ -16,6 +16,11 @@ type Props = {
   data: DutyChainResponse | null;
   disabled: boolean;
   locale: Locale;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 export default function DutyChainPlanner({
@@ -27,6 +32,7 @@ export default function DutyChainPlanner({
   data,
   disabled,
   locale,
+  sectionControl,
 }: Props) {
   const nonEmptyLines = stopsText
     .split(/\r?\n/)
@@ -38,6 +44,9 @@ export default function DutyChainPlanner({
       title="Duty Chain Planner"
       hint={SIDEBAR_SECTION_HINTS.dutyChainPlanner}
       dataTutorialId="duty.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
     >
       <div className="helper">
         Ordered Stops, One Per Line: <code>lat,lon,label(optional)</code>.

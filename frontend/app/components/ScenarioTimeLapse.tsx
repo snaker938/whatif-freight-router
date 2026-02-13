@@ -15,6 +15,11 @@ import type { LatLng, RouteOption } from '../lib/types';
 type Props = {
   route: RouteOption | null;
   onPositionChange: (position: LatLng | null) => void;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
@@ -77,7 +82,7 @@ function pointAlongRoute(coords: [number, number][], progress: number): LatLng |
   return { lat, lon };
 }
 
-export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
+export default function ScenarioTimeLapse({ route, onPositionChange, sectionControl }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -154,6 +159,9 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         title="Scenario Time-Lapse"
         hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
         dataTutorialId="timelapse.section"
+        isOpen={sectionControl?.isOpen}
+        lockToggle={sectionControl?.lockToggle}
+        tutorialLocked={sectionControl?.tutorialLocked}
       >
         <div className="helper">Compute And Select A Route To Play A Route Animation.</div>
       </CollapsibleCard>
@@ -167,6 +175,9 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
       title="Scenario Time-Lapse"
       hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
       dataTutorialId="timelapse.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
     >
       <div className="sectionTitleRow">
         <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>

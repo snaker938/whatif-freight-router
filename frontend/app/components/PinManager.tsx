@@ -18,6 +18,11 @@ type Props = {
   onDeleteStop: () => void;
   onSwapPins: () => void;
   onClearPins: () => void;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 function fmtCoord(value: number): string {
@@ -37,6 +42,7 @@ export default function PinManager({
   onDeleteStop,
   onSwapPins,
   onClearPins,
+  sectionControl,
 }: Props) {
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const originNode = useMemo(() => nodes.find((node) => node.id === 'origin') ?? null, [nodes]);
@@ -121,7 +127,13 @@ export default function PinManager({
   }
 
   return (
-    <CollapsibleCard title="Pins & Stops" dataTutorialId="pins.section">
+    <CollapsibleCard
+      title="Pins & Stops"
+      dataTutorialId="pins.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
+    >
       <div className="pinManager__rail" role="list" aria-label="Pin Route Order">
         {railNodes.length === 0 ? (
           <span className="pinManager__railEmpty">Add Start And End Pins To Build A Route.</span>

@@ -29,6 +29,11 @@ type Props = {
   onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
   locale: Locale;
   tutorialResetNonce?: number;
+  sectionControl?: {
+    isOpen?: boolean;
+    lockToggle?: boolean;
+    tutorialLocked?: boolean;
+  };
 };
 
 type SignatureState = 'unknown' | 'valid' | 'invalid';
@@ -50,6 +55,7 @@ export default function OracleQualityDashboard({
   onIngest,
   locale,
   tutorialResetNonce,
+  sectionControl,
 }: Props) {
   const [source, setSource] = useState('oracle_demo');
   const [schemaValid, setSchemaValid] = useState(true);
@@ -137,6 +143,9 @@ export default function OracleQualityDashboard({
       title="Oracle Quality Dashboard"
       hint={SIDEBAR_SECTION_HINTS.oracleQualityDashboard}
       dataTutorialId="oracle.section"
+      isOpen={sectionControl?.isOpen}
+      lockToggle={sectionControl?.lockToggle}
+      tutorialLocked={sectionControl?.tutorialLocked}
     >
       <div className="helper">
         Record feed checks and inspect source-level pass rates, freshness, and signature health.

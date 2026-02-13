@@ -18,6 +18,10 @@ type Props = {
   bodyClassName?: string;
   dataTutorialId?: string;
   defaultCollapsed?: boolean;
+  isOpen?: boolean;
+  onToggle?: () => void;
+  lockToggle?: boolean;
+  tutorialLocked?: boolean;
 };
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -47,8 +51,14 @@ export default function CollapsibleCard({
   bodyClassName = '',
   dataTutorialId,
   defaultCollapsed = true,
+  isOpen,
+  onToggle,
+  lockToggle = false,
+  tutorialLocked = false,
 }: Props) {
-  const [open, setOpen] = useState(!defaultCollapsed);
+  const [internalOpen, setInternalOpen] = useState(!defaultCollapsed);
+  const controlled = typeof isOpen === 'boolean';
+  const open = controlled ? Boolean(isOpen) : internalOpen;
   const contentInnerRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const contentId = useId();
@@ -65,8 +75,10 @@ export default function CollapsibleCard({
   }, [measureHeight]);
 
   useEffect(() => {
-    setOpen(!defaultCollapsed);
-  }, [defaultCollapsed]);
+    if (!controlled) {
+      setInternalOpen(!defaultCollapsed);
+    }
+  }, [controlled, defaultCollapsed]);
 
   useEffect(() => {
     if (open) measureHeight();
@@ -107,15 +119,25 @@ export default function CollapsibleCard({
   return (
     <section
       className={`card collapsibleCard ${open ? 'isOpen' : ''} ${className}`.trim()}
+      data-tutorial-locked={tutorialLocked ? 'true' : 'false'}
       {...(dataTutorialId ? { 'data-tutorial-id': dataTutorialId } : {})}
     >
       <button
         type="button"
         id={headerId}
         className="collapsibleCard__header"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (lockToggle) return;
+          if (onToggle) {
+            onToggle();
+            return;
+          }
+          setInternalOpen((prev) => !prev);
+        }}
         aria-expanded={open}
         aria-controls={contentId}
+        disabled={lockToggle}
+        aria-disabled={lockToggle}
       >
         <span className="sectionTitle">{title}</span>
         <ChevronIcon open={open} />
