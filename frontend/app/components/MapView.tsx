@@ -19,7 +19,12 @@ import {
   useMapEvents,
 } from 'react-leaflet';
 
-import { buildIncidentOverlayPoints, buildSegmentBuckets, buildStopOverlayPoints } from '../lib/mapOverlays';
+import {
+  buildIncidentOverlayPoints,
+  buildPreviewRouteSegments,
+  buildSegmentBuckets,
+  buildStopOverlayPoints,
+} from '../lib/mapOverlays';
 import type {
   DutyChainStop,
   IncidentEventType,
@@ -603,10 +608,10 @@ export default function MapView({
     if (!showStopOverlay) return [];
     return buildStopOverlayPoints(effectiveOrigin, effectiveDestination, effectiveDutyStops);
   }, [showStopOverlay, effectiveOrigin, effectiveDestination, effectiveDutyStops]);
-  const stopOverlayPolyline = useMemo(() => {
-    if (stopOverlayPoints.length < 2) return [];
-    return stopOverlayPoints.map((point) => [point.lat, point.lon] as [number, number]);
-  }, [stopOverlayPoints]);
+  const previewDotSegments = useMemo(
+    () => buildPreviewRouteSegments(effectiveOrigin, effectiveDestination, effectiveDutyStops),
+    [effectiveOrigin, effectiveDestination, effectiveDutyStops],
+  );
 
   const incidentOverlayPoints = useMemo(() => {
     if (!showIncidentOverlay || !route) return [];
@@ -1173,20 +1178,24 @@ export default function MapView({
           );
         })}
 
-        {stopOverlayPolyline.length > 0 && (
+        {previewDotSegments.map((segment) => (
           <Polyline
-            positions={stopOverlayPolyline}
+            key={segment.id}
+            positions={[
+              [segment.from[1], segment.from[0]],
+              [segment.to[1], segment.to[0]],
+            ]}
+            interactive={false}
             pathOptions={{
-              className: 'stopOverlayLine',
-              color: 'rgba(34, 211, 238, 0.82)',
-              weight: 2,
-              opacity: 0.85,
-              dashArray: '7 8',
+              className: 'stopPreviewDot',
+              color: segment.color,
+              weight: 3,
+              opacity: 0.9,
               lineCap: 'round',
               lineJoin: 'round',
             }}
           />
-        )}
+        ))}
         {stopOverlayPoints.map((point) => {
           const isDuty = point.kind === 'duty';
           if (!isDuty) {
