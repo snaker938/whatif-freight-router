@@ -9,7 +9,7 @@ import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
-import { buildManagedPinNodes, buildStopOverlayPoints } from './lib/mapOverlays';
+import { buildManagedPinNodes } from './lib/mapOverlays';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
   SIDEBAR_FIELD_HELP,
@@ -1248,12 +1248,6 @@ export default function Page() {
     [origin, destination, managedStop],
   );
   const canAddStop = Boolean(origin && destination);
-  const stopOverlayCount = useMemo(
-    () => buildStopOverlayPoints(origin, destination, dutyStopsForOverlay).length,
-    [origin, destination, dutyStopsForOverlay],
-  );
-  const incidentOverlayCount = selectedRoute?.incident_events?.length ?? 0;
-  const segmentOverlayCount = Math.min(120, selectedRoute?.segment_breakdown?.length ?? 0);
   const mapOverlayLabels = useMemo(
     () => ({
       stopLabel: t('stop_label'),
@@ -2372,17 +2366,6 @@ export default function Page() {
     },
   ];
 
-  const mapHint = (() => {
-    if (!origin) return t('route_hint_start');
-    if (origin && !destination) return t('route_hint_destination');
-    if (loading) {
-      return progressText
-        ? `${t('live_computing')} (${progressText})`
-        : t('live_computing');
-    }
-    return t('route_hint_default');
-  })();
-
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
   const canCompareScenarios = Boolean(origin && destination) && !busy && !scenarioCompareLoading;
   const canSaveExperiment = Boolean(origin && destination) && !busy;
@@ -2432,82 +2415,6 @@ export default function Page() {
             }
           }}
         />
-
-        {/* Map HUD: map-side hint/progress and quick overlay toggles.
-            This is intentionally separate from the sidebar for map-focused workflows. */}
-        <div className="mapHUD">
-          {busy && (
-            <div className="mapHUD__status" role="status" aria-live="polite">
-              <div className="mapHUD__statusLine">
-                <span className="spinner" />
-                <span>
-                  {t('live_computing')}
-                  {progressText ? ` (${progressText})` : '...'}
-                </span>
-              </div>
-
-              {progress?.total ? (
-                <div className="hudProgress" aria-hidden="true">
-                  <div className="hudProgress__fill" style={{ width: `${progressPct}%` }} />
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          <div className="mapHUD__hint">{mapHint}</div>
-          <div
-            className="mapHUD__overlayCard"
-            role="group"
-            aria-label={t('map_overlays')}
-            data-tutorial-id="map.overlay_controls"
-          >
-            <div className="mapHUD__overlayTitle">{t('map_overlays')}</div>
-            <div className="mapHUD__overlayControls">
-              <button
-                type="button"
-                className={`mapOverlayToggle ${showStopOverlay ? 'isOn' : ''}`}
-                onClick={() => {
-                  setShowStopOverlay((prev) => !prev);
-                  markTutorialAction('map.overlay_stops_toggle');
-                }}
-                aria-pressed={showStopOverlay}
-                aria-label={`${t('overlay_stops')} (${stopOverlayCount})`}
-                data-tutorial-action="map.overlay_stops_toggle"
-              >
-                <span>{t('overlay_stops')}</span>
-                <span className="mapOverlayToggle__count">{stopOverlayCount}</span>
-              </button>
-              <button
-                type="button"
-                className={`mapOverlayToggle ${showIncidentOverlay ? 'isOn' : ''}`}
-                onClick={() => {
-                  setShowIncidentOverlay((prev) => !prev);
-                  markTutorialAction('map.overlay_incidents_toggle');
-                }}
-                aria-pressed={showIncidentOverlay}
-                aria-label={`${t('overlay_incidents')} (${incidentOverlayCount})`}
-                data-tutorial-action="map.overlay_incidents_toggle"
-              >
-                <span>{t('overlay_incidents')}</span>
-                <span className="mapOverlayToggle__count">{incidentOverlayCount}</span>
-              </button>
-              <button
-                type="button"
-                className={`mapOverlayToggle ${showSegmentTooltips ? 'isOn' : ''}`}
-                onClick={() => {
-                  setShowSegmentTooltips((prev) => !prev);
-                  markTutorialAction('map.overlay_segments_toggle');
-                }}
-                aria-pressed={showSegmentTooltips}
-                aria-label={`${t('overlay_segments')} (${segmentOverlayCount})`}
-                data-tutorial-action="map.overlay_segments_toggle"
-              >
-                <span>{t('overlay_segments')}</span>
-                <span className="mapOverlayToggle__count">{segmentOverlayCount}</span>
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <button
