@@ -337,6 +337,50 @@ class DutyChainResponse(BaseModel):
     successful_leg_count: int
 
 
+class OracleFeedCheckInput(BaseModel):
+    source: str = Field(..., min_length=1, max_length=120)
+    schema_valid: bool
+    signature_valid: bool | None = None
+    freshness_s: float | None = Field(default=None, ge=0.0)
+    latency_ms: float | None = Field(default=None, ge=0.0)
+    record_count: int | None = Field(default=None, ge=0)
+    observed_at_utc: datetime | None = None
+    error: str | None = Field(default=None, max_length=500)
+
+
+class OracleFeedCheckRecord(BaseModel):
+    check_id: str
+    source: str
+    schema_valid: bool
+    signature_valid: bool | None = None
+    freshness_s: float | None = None
+    latency_ms: float | None = None
+    record_count: int | None = None
+    observed_at_utc: str | None = None
+    error: str | None = None
+    passed: bool
+    ingested_at_utc: str
+
+
+class OracleQualitySourceSummary(BaseModel):
+    source: str
+    check_count: int
+    pass_rate: float
+    schema_failures: int
+    signature_failures: int
+    stale_count: int
+    avg_latency_ms: float | None = None
+    last_observed_at_utc: str | None = None
+
+
+class OracleQualityDashboardResponse(BaseModel):
+    total_checks: int
+    source_count: int
+    stale_threshold_s: float
+    sources: list[OracleQualitySourceSummary]
+    updated_at_utc: str
+
+
 class ExperimentBundleInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)

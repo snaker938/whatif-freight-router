@@ -55,6 +55,9 @@ from .models import (
     GeoJSONLineString,
     LatLng,
     OptimizationMode,
+    OracleFeedCheckInput,
+    OracleFeedCheckRecord,
+    OracleQualityDashboardResponse,
     ParetoMethod,
     ParetoRequest,
     ParetoResponse,
@@ -75,6 +78,13 @@ from .models import (
 )
 from .objectives_emissions import route_emissions_kg, speed_factor
 from .objectives_selection import normalise_weights
+from .oracle_quality_store import (
+    append_check_record,
+    checks_path,
+    compute_dashboard_payload,
+    load_check_records,
+    write_summary_artifacts,
+)
 from .pareto_methods import select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .rbac import require_role
@@ -265,6 +275,112 @@ async def delete_cache(_: AdminAccessDep) -> dict[str, int]:
         raise
     finally:
         _record_endpoint_metric("cache_delete", t0, error=has_error)
+
+
+def _datetime_to_utc_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat()
+
+
+def _to_oracle_check_record(payload: OracleFeedCheckInput) -> OracleFeedCheckRecord:
+    has_signature_failure = payload.signature_valid is False
+    passed = bool(payload.schema_valid) and (not has_signature_failure) and not bool(payload.error)
+    return OracleFeedCheckRecord(
+        check_id=str(uuid.uuid4()),
+        source=payload.source.strip(),
+        schema_valid=payload.schema_valid,
+        signature_valid=payload.signature_valid,
+        freshness_s=payload.freshness_s,
+        latency_ms=payload.latency_ms,
+        record_count=payload.record_count,
+        observed_at_utc=_datetime_to_utc_iso(payload.observed_at_utc),
+        error=payload.error.strip() if payload.error else None,
+        passed=passed,
+        ingested_at_utc=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@app.post("/oracle/quality/check", response_model=OracleFeedCheckRecord)
+async def post_oracle_quality_check(
+    payload: OracleFeedCheckInput,
+    _: UserAccessDep,
+) -> OracleFeedCheckRecord:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        record = _to_oracle_check_record(payload)
+        append_check_record(record.model_dump(mode="json"))
+        records = load_check_records()
+        dashboard = compute_dashboard_payload(records)
+        summary, csv_path = write_summary_artifacts(dashboard)
+
+        log_event(
+            "oracle_quality_check_ingested",
+            check_id=record.check_id,
+            source=record.source,
+            passed=record.passed,
+            schema_valid=record.schema_valid,
+            signature_valid=record.signature_valid,
+            total_checks=dashboard["total_checks"],
+            summary_path=str(summary),
+            csv_path=str(csv_path),
+        )
+        return record
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("oracle_quality_check_post", t0, error=has_error)
+
+
+@app.get("/oracle/quality/dashboard", response_model=OracleQualityDashboardResponse)
+async def get_oracle_quality_dashboard(_: UserAccessDep) -> OracleQualityDashboardResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        records = load_check_records()
+        dashboard = compute_dashboard_payload(records)
+        summary, csv_path = write_summary_artifacts(dashboard)
+        log_event(
+            "oracle_quality_dashboard_get",
+            total_checks=dashboard["total_checks"],
+            source_count=dashboard["source_count"],
+            summary_path=str(summary),
+            csv_path=str(csv_path),
+            checks_path=str(checks_path()),
+        )
+        return OracleQualityDashboardResponse.model_validate(dashboard)
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("oracle_quality_dashboard_get", t0, error=has_error)
+
+
+@app.get("/oracle/quality/dashboard.csv")
+async def get_oracle_quality_dashboard_csv(_: UserAccessDep) -> FileResponse:
+    t0 = time.perf_counter()
+    has_error = False
+    try:
+        records = load_check_records()
+        dashboard = compute_dashboard_payload(records)
+        _, csv_path = write_summary_artifacts(dashboard)
+        if not csv_path.exists():
+            raise HTTPException(status_code=404, detail="oracle quality dashboard CSV not found")
+        return FileResponse(str(csv_path), media_type="text/csv", filename="oracle_quality_dashboard.csv")
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("oracle_quality_dashboard_csv_get", t0, error=has_error)
 
 
 def _record_endpoint_metric(endpoint: str, t0: float, *, error: bool = False) -> None:
