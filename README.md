@@ -156,6 +156,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - interactive tutorial behavior and PDF report artifact usage
 - `docs/frontend-accessibility-i18n.md`
   - language selector behavior, locale formatting helpers, and keyboard/screen-reader support
+- `docs/synthetic-incidents-weather.md`
+  - weather multiplier behavior, synthetic incident generation, determinism, and API usage
 
 ## API Quick Commands
 
@@ -190,6 +192,32 @@ $check = @{
 Invoke-RestMethod -Uri "http://localhost:8000/oracle/quality/check" -Method Post -ContentType "application/json" -Body $check
 Invoke-RestMethod -Uri "http://localhost:8000/oracle/quality/dashboard" -Method Get
 Invoke-WebRequest -Uri "http://localhost:8000/oracle/quality/dashboard.csv" -OutFile ".\oracle_quality_dashboard.csv"
+```
+
+Weather + synthetic incidents:
+
+```powershell
+$body = @{
+  origin = @{ lat = 52.4862; lon = -1.8904 }
+  destination = @{ lat = 51.5072; lon = -0.1276 }
+  vehicle_type = "rigid_hgv"
+  scenario_mode = "no_sharing"
+  weather = @{
+    enabled = $true
+    profile = "rain"
+    intensity = 1.2
+    apply_incident_uplift = $true
+  }
+  incident_simulation = @{
+    enabled = $true
+    seed = 123
+    dwell_rate_per_100km = 1.0
+    accident_rate_per_100km = 0.3
+    closure_rate_per_100km = 0.05
+  }
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod -Uri "http://localhost:8000/route" -Method Post -ContentType "application/json" -Body $body
 ```
 
 ## Accessibility and i18n Readiness
