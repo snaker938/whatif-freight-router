@@ -781,6 +781,7 @@ export default function Page() {
       }
 
       if (prefillId === 'canonical_duty') {
+        dutySyncSourceRef.current = 'text';
         setDutyStopsText(TUTORIAL_CANONICAL_DUTY_STOPS);
       }
 
@@ -1005,13 +1006,20 @@ export default function Page() {
     if (!sameManagedStop(managedStop, parsed.stop)) {
       setManagedStop(parsed.stop);
     }
+    if (selectedPinId === 'origin' && !parsed.origin) {
+      setSelectedPinId(null);
+    } else if (selectedPinId === 'destination' && !parsed.destination) {
+      setSelectedPinId(null);
+    } else if (selectedPinId === 'stop-1' && !parsed.stop) {
+      setSelectedPinId(null);
+    }
     if (startLabel !== parsed.startLabel) {
       setStartLabel(parsed.startLabel);
     }
     if (destinationLabel !== parsed.destinationLabel) {
       setDestinationLabel(parsed.destinationLabel);
     }
-  }, [dutyStopsText, origin, destination, managedStop, startLabel, destinationLabel]);
+  }, [dutyStopsText, origin, destination, managedStop, startLabel, destinationLabel, selectedPinId]);
 
   useEffect(() => {
     try {
@@ -2061,38 +2069,49 @@ export default function Page() {
   }
 
   function parseDutyStops(text: string): DutyChainRequest['stops'] {
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    if (lines.length < 2) {
-      throw new Error('Duty chain requires at least two stops (one per line).');
+    let parsed: ParsedPinSync;
+    try {
+      parsed = parseDutyTextToPins(text);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Invalid duty chain input.';
+      throw new Error(msg);
     }
-    if (lines.length > 3) {
-      throw new Error('One-stop mode allows at most one intermediate stop (three lines total).');
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    if (!parsed.origin || !parsed.destination) {
+      throw new Error('Duty chain requires both start and destination rows.');
     }
 
-    return lines.map((line, idx) => {
-      const parts = line.split(',');
-      if (parts.length < 2) {
-        throw new Error(`Stop line ${idx + 1} must be "lat,lon,label(optional)".`);
-      }
-      const lat = Number(parts[0]);
-      const lon = Number(parts[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        throw new Error(`Stop line ${idx + 1} has invalid latitude/longitude.`);
-      }
-      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-        throw new Error(`Stop line ${idx + 1} is out of bounds.`);
-      }
-      const label = parts.slice(2).join(',').trim();
-      return {
-        lat,
-        lon,
-        ...(label ? { label } : {}),
-      };
+    const out: DutyChainRequest['stops'] = [
+      {
+        lat: parsed.origin.lat,
+        lon: parsed.origin.lon,
+        label: parsed.startLabel || 'Start',
+      },
+    ];
+    if (parsed.stop) {
+      out.push({
+        lat: parsed.stop.lat,
+        lon: parsed.stop.lon,
+        label: parsed.stop.label || 'Stop #1',
+      });
+    }
+    out.push({
+      lat: parsed.destination.lat,
+      lon: parsed.destination.lon,
+      label: parsed.destinationLabel || 'Destination',
     });
+    return out;
+  }
+
+  function handleDutyStopsTextChange(nextValue: string) {
+    dutySyncSourceRef.current = 'text';
+    setDutyStopsText(nextValue);
+    if (dutySyncError) {
+      setDutySyncError(null);
+    }
+    markTutorialAction('duty.stops_input');
   }
 
   async function runDutyChain() {
@@ -3091,7 +3110,7 @@ export default function Page() {
 
           <DutyChainPlanner
             stopsText={dutyStopsText}
-            onStopsTextChange={setDutyStopsText}
+            onStopsTextChange={handleDutyStopsTextChange}
             onRun={runDutyChain}
             loading={dutyChainLoading}
             error={dutyChainError ?? dutySyncError}
