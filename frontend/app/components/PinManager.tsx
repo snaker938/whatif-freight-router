@@ -11,15 +11,20 @@ type Props = {
   hasStop: boolean;
   canAddStop: boolean;
   oneStopHint?: string | null;
+  showStopIds: boolean;
+  onToggleShowStopIds: () => void;
   onSelectPin: (id: PinSelectionId) => void;
-  onRenameStart: (name: string) => void;
-  onRenameDestination: (name: string) => void;
   onRenameStop: (name: string) => void;
   onAddStop: () => void;
   onDeleteStop: () => void;
   onSwapPins: () => void;
   onClearPins: () => void;
 };
+
+function formatStopDisplayName(name: string, id: string, showIds: boolean): string {
+  const base = name.trim() || 'Stop #1';
+  return showIds ? `${base} (${id})` : base;
+}
 
 function fmtCoord(value: number): string {
   return Number.isFinite(value) ? value.toFixed(5) : String(value);
@@ -55,9 +60,9 @@ export default function PinManager({
   hasStop,
   canAddStop,
   oneStopHint = null,
+  showStopIds,
+  onToggleShowStopIds,
   onSelectPin,
-  onRenameStart,
-  onRenameDestination,
   onRenameStop,
   onAddStop,
   onDeleteStop,
@@ -73,7 +78,15 @@ export default function PinManager({
     [nodes],
   );
 
-  function renderNodeRow(node: PinDisplayNode, label: string, onRename: (name: string) => void) {
+  function renderNodeRow(
+    node: PinDisplayNode,
+    label: string,
+    options: {
+      editable: boolean;
+      onRename?: (name: string) => void;
+      description: string;
+    },
+  ) {
     const isSelected = selectedPinId === node.id;
     return (
       <li key={node.id} className={`pinManager__row ${isSelected ? 'isSelected' : ''}`}>
@@ -92,18 +105,25 @@ export default function PinManager({
             <span className="pinManager__nodeCoords">
               {fmtCoord(node.lat)}, {fmtCoord(node.lon)}
             </span>
+            <span className="pinManager__nodeHint">{options.description}</span>
           </span>
         </button>
 
         <div className="pinManager__inlineActions">
-          <input
-            className="input pinManager__nameInput"
-            value={node.label}
-            onChange={(event) => onRename(event.target.value)}
-            placeholder={label}
-            disabled={disabled}
-            aria-label={`${label} name`}
-          />
+          {options.editable ? (
+            <input
+              className="input pinManager__nameInput"
+              value={node.label}
+              onChange={(event) => options.onRename?.(event.target.value)}
+              placeholder={node.label || 'Stop #1'}
+              disabled={disabled}
+              aria-label={`${label} name`}
+            />
+          ) : (
+            <div className="pinManager__lockedTag" aria-label={`${label} name is fixed`}>
+              Fixed name
+            </div>
+          )}
           <button
             type="button"
             className="secondary pinManager__copyBtn"
@@ -127,20 +147,46 @@ export default function PinManager({
   return (
     <section className="card pinManager" data-tutorial-id="pins.section">
       <div className="sectionTitle">Pins & stops</div>
-      <div className="sectionHint">Manage start, destination, and one optional stop from one place.</div>
+      <div className="sectionHint">Start/End are fixed labels. Stop #1 can be renamed and moved.</div>
+      <label className="pinManager__toggle">
+        <input
+          type="checkbox"
+          checked={showStopIds}
+          onChange={onToggleShowStopIds}
+          disabled={disabled}
+          aria-label="Show stop IDs"
+        />
+        <span>Show stop IDs</span>
+      </label>
 
       <div className="pinManager__rail" aria-hidden="true">
         <span>Start</span>
         <span className="pinManager__arrow">→</span>
         <span>Stop #1</span>
         <span className="pinManager__arrow">→</span>
-        <span>Destination</span>
+        <span>End</span>
       </div>
 
       <ul className="pinManager__list">
-        {originNode ? renderNodeRow(originNode, 'Start', onRenameStart) : null}
-        {stopNode ? renderNodeRow(stopNode, 'Stop #1', onRenameStop) : null}
-        {destinationNode ? renderNodeRow(destinationNode, 'Destination', onRenameDestination) : null}
+        {originNode
+          ? renderNodeRow(originNode, 'Start', {
+              editable: false,
+              description: 'Route start point.',
+            })
+          : null}
+        {stopNode
+          ? renderNodeRow(stopNode, formatStopDisplayName(stopNode.label, stopNode.id, showStopIds), {
+              editable: true,
+              onRename: onRenameStop,
+              description: 'Optional intermediate stop. Name is editable.',
+            })
+          : null}
+        {destinationNode
+          ? renderNodeRow(destinationNode, 'End', {
+              editable: false,
+              description: 'Route end point.',
+            })
+          : null}
       </ul>
 
       <div className="pinManager__actions">
@@ -149,7 +195,7 @@ export default function PinManager({
           className="secondary"
           disabled={disabled || !canAddStop}
           onClick={onAddStop}
-          title={!canAddStop ? 'Set both Start and Destination to add a stop.' : 'Add midpoint stop'}
+          title={!canAddStop ? 'Set both Start and End to add a stop.' : 'Add midpoint stop'}
           data-tutorial-action="pins.add_stop"
         >
           {hasStop ? 'Replace stop' : 'Add stop'}
@@ -193,6 +239,7 @@ export default function PinManager({
         </button>
       </div>
       <div className="tiny">Reorder is disabled in one-stop mode. Enable when multi-stop support is added.</div>
+      <div className="tiny">Tip: click into Stop #1 name to rename, then drag the stop marker on the map.</div>
       {oneStopHint ? <div className="pinManager__hintError">{oneStopHint}</div> : null}
     </section>
   );

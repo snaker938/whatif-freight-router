@@ -50,6 +50,7 @@ type Props = {
   showStopOverlay?: boolean;
   showIncidentOverlay?: boolean;
   showSegmentTooltips?: boolean;
+  showStopIds?: boolean;
   overlayLabels?: {
     stopLabel: string;
     segmentLabel: string;
@@ -376,6 +377,11 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function formatStopDisplayName(name: string, id: string, showIds: boolean): string {
+  const base = name.trim() || 'Stop #1';
+  return showIds ? `${base} (${id})` : base;
+}
+
 function makeDutyStopIcon(sequence: number, selected = false, name = 'Stop #1') {
   const safeName = escapeHtml(name.trim() || 'Stop #1');
   return L.divIcon({
@@ -463,6 +469,7 @@ export default function MapView({
   showStopOverlay = true,
   showIncidentOverlay = true,
   showSegmentTooltips = true,
+  showStopIds = false,
   overlayLabels,
   onTutorialAction,
   onTutorialTargetState,
@@ -590,12 +597,13 @@ export default function MapView({
   const effectiveOrigin = dragPreview.origin ?? origin;
   const effectiveDestination = dragPreview.destination ?? destination;
   const effectiveStop = dragPreview.stop ?? (managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null);
+  const stopDisplayName = formatStopDisplayName(managedStop?.label ?? 'Stop #1', managedStop?.id ?? 'stop-1', showStopIds);
   const effectiveDutyStops = useMemo(() => {
     if (effectiveStop) {
-      return [{ lat: effectiveStop.lat, lon: effectiveStop.lon, label: managedStop?.label ?? 'Stop #1' }];
+      return [{ lat: effectiveStop.lat, lon: effectiveStop.lon, label: stopDisplayName }];
     }
     return dutyStops;
-  }, [effectiveStop, managedStop?.label, dutyStops]);
+  }, [effectiveStop, stopDisplayName, dutyStops]);
 
   const polylinePositions: LatLngExpression[] = useMemo(() => {
     const coords = route?.geometry?.coordinates ?? [];
@@ -957,7 +965,7 @@ export default function MapView({
           <Marker
             ref={stopRef}
             position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
-            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1', managedStop.label)}
+            icon={makeDutyStopIcon(1, selectedPinId === 'stop-1', stopDisplayName)}
             draggable={true}
             eventHandlers={{
               click(e) {
@@ -989,7 +997,7 @@ export default function MapView({
             <Popup className="stopOverlayPopup" autoPan={true} autoPanPadding={[22, 22]} closeButton={false}>
               <div className="overlayPopup__card stopPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
-                  <span className="markerPopup__pill markerPopup__pill--stop">{managedStop.label || 'Stop #1'}</span>
+                  <span className="markerPopup__pill markerPopup__pill--stop">{stopDisplayName}</span>
                   <div className="markerPopup__actions">
                     {onDeleteStop ? (
                       <button
@@ -1078,7 +1086,7 @@ export default function MapView({
               </div>
             </Popup>
             <Tooltip permanent={true} direction="top" offset={[0, -16]} className="stopNameTooltip">
-              {managedStop.label || 'Stop #1'}
+              {stopDisplayName}
             </Tooltip>
           </Marker>
         ) : null}
