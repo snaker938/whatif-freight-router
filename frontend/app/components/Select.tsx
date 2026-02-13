@@ -17,6 +17,7 @@ type Props<T extends string> = {
   disabled?: boolean;
   placeholder?: string;
   ariaLabel: string;
+  showSelectionHint?: boolean;
 };
 
 function ChevronDownIcon() {
@@ -62,6 +63,7 @@ export default function Select<T extends string>({
   disabled,
   placeholder,
   ariaLabel,
+  showSelectionHint = false,
 }: Props<T>) {
   const id = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -228,6 +230,9 @@ export default function Select<T extends string>({
           })}
         </div>
       )}
+      {showSelectionHint && selected?.description ? (
+        <div className="select__selectionHint">{selected.description}</div>
+      ) : null}
     </div>
   );
 }
