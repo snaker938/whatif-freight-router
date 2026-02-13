@@ -37,6 +37,15 @@ export default function ScenarioComparison({ data, loading, error, locale }: Pro
   if (!data.results?.length) {
     return <div className="helper">No Scenario Comparison Rows Were Returned For This Run.</div>;
   }
+  const bestEtaMode = data.results.reduce<{ mode: string | null; duration: number }>(
+    (acc, result) => {
+      const duration = result.selected?.metrics?.duration_s;
+      if (typeof duration !== 'number' || !Number.isFinite(duration)) return acc;
+      if (duration < acc.duration) return { mode: result.scenario_mode, duration };
+      return acc;
+    },
+    { mode: null, duration: Number.POSITIVE_INFINITY },
+  ).mode;
 
   return (
     <div>
@@ -57,8 +66,12 @@ export default function ScenarioComparison({ data, loading, error, locale }: Pro
           <tbody>
             {data.results.map((result) => {
               const delta = data.deltas[result.scenario_mode] ?? {};
+              const isBestEta = bestEtaMode === result.scenario_mode;
               return (
-                <tr key={result.scenario_mode}>
+                <tr
+                  key={result.scenario_mode}
+                  className={isBestEta ? 'compareTable__row compareTable__row--best' : 'compareTable__row'}
+                >
                   <td style={{ padding: '6px 4px' }}>{scenarioLabel(result.scenario_mode)}</td>
                   <td style={{ textAlign: 'right', padding: '6px 4px' }}>
                     {fmtDelta(delta.duration_s_delta, locale)}
@@ -75,6 +88,11 @@ export default function ScenarioComparison({ data, loading, error, locale }: Pro
           </tbody>
         </table>
       </div>
+      {bestEtaMode ? (
+        <div className="tiny" style={{ marginTop: 8 }}>
+          Fastest Scenario: {scenarioLabel(bestEtaMode)}
+        </div>
+      ) : null}
       <div className="tiny" style={{ marginTop: 8 }}>
         Manifest: {data.scenario_manifest_endpoint}
       </div>

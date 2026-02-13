@@ -55,6 +55,10 @@ export default function OracleQualityDashboard({
 
   useEffect(() => {
     if (typeof tutorialResetNonce !== 'number' || tutorialResetNonce <= 0) return;
+    applySampleValues();
+  }, [tutorialResetNonce]);
+
+  function applySampleValues() {
     setSource('tutorial_oracle');
     setSchemaValid(true);
     setSignatureState('valid');
@@ -62,7 +66,19 @@ export default function OracleQualityDashboard({
     setLatencyMs('85');
     setRecordCount('18');
     setErrorText('');
-  }, [tutorialResetNonce]);
+    setValidationError(null);
+  }
+
+  function clearFormValues() {
+    setSource('');
+    setSchemaValid(true);
+    setSignatureState('unknown');
+    setFreshnessS('');
+    setLatencyMs('');
+    setRecordCount('');
+    setErrorText('');
+    setValidationError(null);
+  }
 
   async function handleIngest() {
     const trimmedSource = source.trim();
@@ -141,7 +157,10 @@ export default function OracleQualityDashboard({
           type="checkbox"
           checked={schemaValid}
           disabled={disabled || ingesting}
-          onChange={(event) => setSchemaValid(event.target.checked)}
+          onChange={(event) => {
+            setSchemaValid(event.target.checked);
+            if (validationError) setValidationError(null);
+          }}
           data-tutorial-action="oracle.schema_toggle"
         />
         <label htmlFor="oracle-schema-valid">Schema Valid</label>
@@ -159,7 +178,10 @@ export default function OracleQualityDashboard({
         className="input"
         value={signatureState}
         disabled={disabled || ingesting}
-        onChange={(event) => setSignatureState(event.target.value as 'unknown' | 'valid' | 'invalid')}
+        onChange={(event) => {
+          setSignatureState(event.target.value as 'unknown' | 'valid' | 'invalid');
+          if (validationError) setValidationError(null);
+        }}
         data-tutorial-action="oracle.signature_select"
       >
         <option value="unknown">Unknown</option>
@@ -252,6 +274,14 @@ export default function OracleQualityDashboard({
       <div className="row row--actions" style={{ marginTop: 12 }}>
         <button
           className="secondary"
+          onClick={applySampleValues}
+          disabled={disabled || loading || ingesting}
+          data-tutorial-action="oracle.load_sample_click"
+        >
+          Load Sample
+        </button>
+        <button
+          className="secondary"
           onClick={onRefresh}
           disabled={disabled || loading || ingesting}
           aria-label="Refresh oracle quality dashboard"
@@ -269,6 +299,14 @@ export default function OracleQualityDashboard({
         >
           Download CSV
         </a>
+        <button
+          className="secondary"
+          onClick={clearFormValues}
+          disabled={disabled || loading || ingesting}
+          data-tutorial-action="oracle.clear_form_click"
+        >
+          Clear Form
+        </button>
         <button
           className="secondary"
           onClick={handleIngest}

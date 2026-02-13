@@ -17,6 +17,7 @@ type Props = {
 };
 
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
+const TIME_LAPSE_SPEED_KEY = 'timelapse_speed_v1';
 
 function pointAlongRoute(coords: [number, number][], progress: number): LatLng | null {
   if (coords.length < 2) {
@@ -82,6 +83,19 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
     setProgress(0);
     lastFrameRef.current = null;
   }, [route?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = Number(window.localStorage.getItem(TIME_LAPSE_SPEED_KEY));
+    if (Number.isFinite(saved) && PLAYBACK_SPEEDS.includes(saved)) {
+      setSpeed(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TIME_LAPSE_SPEED_KEY, String(speed));
+  }, [speed]);
 
   useEffect(() => {
     if (!route || coords.length < 2) {
@@ -153,7 +167,12 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
       <div className="row">
         <button
           className="secondary"
-          onClick={() => setIsPlaying((prev) => !prev)}
+          onClick={() => {
+            if (progress >= 1) {
+              setProgress(0);
+            }
+            setIsPlaying((prev) => !prev);
+          }}
           data-tutorial-action={isPlaying ? 'timelapse.pause' : 'timelapse.play'}
         >
           {isPlaying ? 'Pause' : 'Play'}
@@ -167,6 +186,26 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
           data-tutorial-action="timelapse.reset"
         >
           Reset
+        </button>
+        <button
+          className="secondary"
+          onClick={() => {
+            setIsPlaying(false);
+            setProgress((prev) => Math.max(0, prev - 0.1));
+          }}
+          data-tutorial-action="timelapse.back_10"
+        >
+          -10%
+        </button>
+        <button
+          className="secondary"
+          onClick={() => {
+            setIsPlaying(false);
+            setProgress((prev) => Math.min(1, prev + 0.1));
+          }}
+          data-tutorial-action="timelapse.forward_10"
+        >
+          +10%
         </button>
       </div>
 
@@ -210,12 +249,36 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         aria-valuenow={Math.round(progress * 1000)}
         aria-valuetext={`${(progress * 100).toFixed(0)} percent`}
         onChange={(event) => {
+          setIsPlaying(false);
           const raw = Number(event.target.value);
           const clamped = Math.max(0, Math.min(1000, Number.isFinite(raw) ? raw : 0));
           setProgress(clamped / 1000);
         }}
         data-tutorial-action="timelapse.scrubber_input"
       />
+
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          className="secondary"
+          onClick={() => {
+            setIsPlaying(false);
+            setProgress(0);
+          }}
+          data-tutorial-action="timelapse.jump_start"
+        >
+          Jump To Start
+        </button>
+        <button
+          className="secondary"
+          onClick={() => {
+            setIsPlaying(false);
+            setProgress(1);
+          }}
+          data-tutorial-action="timelapse.jump_end"
+        >
+          Jump To End
+        </button>
+      </div>
 
       <div className="tiny">
         Elapsed {(elapsedS / 60).toFixed(1)} min Of {(durationS / 60).toFixed(1)} min

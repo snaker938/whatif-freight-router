@@ -68,6 +68,9 @@ export default function ExperimentManager({
 }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const trimmedName = name.trim();
+  const nameError =
+    trimmedName.length > 80 ? 'Name Must Be 80 Characters Or Fewer.' : null;
 
   useEffect(() => {
     if (defaultName) {
@@ -88,9 +91,8 @@ export default function ExperimentManager({
   }, [defaultDescription, defaultName, tutorialResetNonce]);
 
   async function handleSave() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    await onSave(trimmed, description.trim());
+    if (!trimmedName || nameError) return;
+    await onSave(trimmedName, description.trim());
     setName('');
     setDescription('');
   }
@@ -114,6 +116,12 @@ export default function ExperimentManager({
         value={catalogQuery}
         disabled={disabled || loading}
         onChange={(event) => onCatalogQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            onApplyCatalogFilters();
+          }
+        }}
         data-tutorial-action="exp.search_input"
       />
 
@@ -190,7 +198,7 @@ export default function ExperimentManager({
           disabled={loading || disabled}
           data-tutorial-action="exp.refresh_click"
         >
-          Refresh
+          {loading ? 'Refreshing...' : 'Refresh'}
         </button>
         <button
           className="secondary"
@@ -200,6 +208,24 @@ export default function ExperimentManager({
         >
           Apply Filters
         </button>
+        <button
+          className="secondary"
+          onClick={() => {
+            onCatalogQueryChange('');
+            onCatalogVehicleTypeChange('');
+            onCatalogScenarioModeChange('');
+            onCatalogSortChange('updated_desc');
+            onApplyCatalogFilters();
+          }}
+          disabled={loading || disabled}
+          data-tutorial-action="exp.clear_filters_click"
+        >
+          Clear Filters
+        </button>
+      </div>
+
+      <div className="tiny">
+        Showing {experiments.length} Experiment{experiments.length === 1 ? '' : 's'}
       </div>
 
       <div className="fieldLabelRow">
@@ -217,6 +243,7 @@ export default function ExperimentManager({
         onChange={(event) => setName(event.target.value)}
         data-tutorial-action="exp.name_input"
       />
+      {nameError ? <div className="error">{nameError}</div> : null}
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="experiment-description">
@@ -238,7 +265,7 @@ export default function ExperimentManager({
         <button
           className="primary"
           onClick={handleSave}
-          disabled={!canSave || !name.trim() || disabled}
+          disabled={!canSave || !trimmedName || disabled || Boolean(nameError)}
           data-tutorial-action="exp.save_click"
         >
           Save Current Bundle

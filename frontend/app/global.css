@@ -349,6 +349,8 @@ a {
   }
 
   .fieldInfo {
+    all: unset;
+    appearance: none;
     width: 16px;
     height: 16px;
     padding: 0;
@@ -364,6 +366,11 @@ a {
     cursor: help;
     user-select: none;
     line-height: 1;
+  }
+
+  .fieldInfo:hover {
+    transform: none;
+    box-shadow: none;
   }
 
   .fieldInfo:focus-visible {
@@ -622,6 +629,10 @@ a {
     grid-template-columns: 1fr;
     gap: 6px;
     align-items: center;
+  }
+
+  .pinManager__copyBtn {
+    justify-self: start;
   }
 
   .pinManager__nameInput {
@@ -2344,6 +2355,17 @@ a {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .compareTable__row--best {
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  .segmentBreakdown__footerActions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     flex-wrap: wrap;
   }
 

@@ -548,6 +548,13 @@ function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+const WEIGHT_PRESETS: Array<{ id: string; label: string; value: WeightState }> = [
+  { id: 'balanced', label: 'Balanced', value: { time: 60, money: 20, co2: 20 } },
+  { id: 'fastest', label: 'Fastest', value: { time: 85, money: 10, co2: 5 } },
+  { id: 'cheapest', label: 'Cheapest', value: { time: 10, money: 85, co2: 5 } },
+  { id: 'cleanest', label: 'Cleanest', value: { time: 10, money: 10, co2: 80 } },
+];
+
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
@@ -566,6 +573,7 @@ export default function Page() {
   const [apiToken, setApiToken] = useState('');
   const [advancedParams, setAdvancedParams] = useState<ScenarioAdvancedParams>(DEFAULT_ADVANCED_PARAMS);
   const [advancedError, setAdvancedError] = useState<string | null>(null);
+  const [routeSort, setRouteSort] = useState<'duration' | 'cost' | 'co2'>('duration');
 
   const [paretoRoutes, setParetoRoutes] = useState<RouteOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -703,6 +711,7 @@ export default function Page() {
   }, [tutorialActionSet, tutorialOptionalState, tutorialStep]);
   const tutorialAtStart = tutorialStepIndex <= 0;
   const tutorialAtEnd = tutorialStepIndex >= TUTORIAL_STEPS.length - 1;
+  const weightSum = weights.time + weights.money + weights.co2;
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current !== null) {
@@ -1291,6 +1300,25 @@ export default function Page() {
     }
     return merged;
   }, [defaultLabelsById, routeNames]);
+  const sortedDisplayRoutes = useMemo(() => {
+    const sorted = [...paretoRoutes];
+    sorted.sort((a, b) => {
+      if (routeSort === 'duration') {
+        const byDuration = a.metrics.duration_s - b.metrics.duration_s;
+        if (byDuration !== 0) return byDuration;
+      }
+      if (routeSort === 'cost') {
+        const byCost = a.metrics.monetary_cost - b.metrics.monetary_cost;
+        if (byCost !== 0) return byCost;
+      }
+      if (routeSort === 'co2') {
+        const byCo2 = a.metrics.emissions_kg - b.metrics.emissions_kg;
+        if (byCo2 !== 0) return byCo2;
+      }
+      return a.id.localeCompare(b.id);
+    });
+    return sorted;
+  }, [paretoRoutes, routeSort]);
 
   const selectedLabel = selectedRoute ? labelsById[selectedRoute.id] ?? selectedRoute.id : null;
 
@@ -2526,6 +2554,29 @@ export default function Page() {
                 <div className="row" style={{ marginTop: 12 }}>
                   <button
                     className="secondary"
+                    onClick={() => {
+                      setOrigin(TUTORIAL_CANONICAL_ORIGIN);
+                      setDestination(TUTORIAL_CANONICAL_DESTINATION);
+                      setManagedStop(null);
+                      setSelectedPinId(null);
+                      clearComputed();
+                      setFitAllRequestNonce((prev) => prev + 1);
+                    }}
+                    disabled={busy}
+                    data-tutorial-action="setup.sample_pins_button"
+                  >
+                    Use Sample Pins
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
+                    disabled={busy || (!origin && !destination && !managedStop)}
+                    data-tutorial-action="setup.fit_map_button"
+                  >
+                    Fit Map To Pins
+                  </button>
+                  <button
+                    className="secondary"
                     onClick={swapMarkers}
                     disabled={!origin || !destination || busy}
                     title="Swap Start and End"
@@ -2652,6 +2703,20 @@ export default function Page() {
                 </div>
 
                 <div className="row row--actions" style={{ marginTop: 12 }}>
+                  {WEIGHT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      className="ghostButton"
+                      onClick={() => setWeights(preset.value)}
+                      disabled={busy}
+                      data-tutorial-action={`pref.preset_${preset.id}`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="row row--actions" style={{ marginTop: 10 }}>
                   <button
                     className="primary"
                     onClick={computePareto}
@@ -2689,6 +2754,7 @@ export default function Page() {
                 </div>
 
                 <div className="tiny">
+                  Weight sum: {formatNumber(weightSum, locale, { maximumFractionDigits: 0 })} |{' '}
                   Relative influence: Time{' '}
                   {formatNumber(normalisedWeights.time * 100, locale, {
                     maximumFractionDigits: 0,
@@ -2755,6 +2821,39 @@ export default function Page() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              <div className="row row--actions" style={{ marginTop: 10 }}>
+                <button
+                  className="secondary"
+                  onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
+                  disabled={!selectedRoute}
+                  data-tutorial-action="selected.fit_route"
+                >
+                  Fit Map To Route
+                </button>
+                <button
+                  className="secondary"
+                  onClick={async () => {
+                    if (!selectedRoute) return;
+                    const summary = [
+                      `Route: ${selectedLabel ?? selectedRoute.id}`,
+                      `Distance km: ${selectedRoute.metrics.distance_km.toFixed(2)}`,
+                      `Duration s: ${selectedRoute.metrics.duration_s.toFixed(1)}`,
+                      `Cost: ${selectedRoute.metrics.monetary_cost.toFixed(2)}`,
+                      `CO2 kg: ${selectedRoute.metrics.emissions_kg.toFixed(3)}`,
+                    ].join('\n');
+                    try {
+                      await navigator.clipboard.writeText(summary);
+                    } catch {
+                      // no-op
+                    }
+                  }}
+                  disabled={!selectedRoute}
+                  data-tutorial-action="selected.copy_summary"
+                >
+                  Copy Summary
+                </button>
               </div>
 
               {selectedRoute?.eta_explanations?.length ? (
@@ -2849,6 +2948,19 @@ export default function Page() {
                 <>
                   {paretoRoutes.length > 0 && (
                     <>
+                      <div className="row row--actions" style={{ marginBottom: 10 }}>
+                        <select
+                          className="input"
+                          value={routeSort}
+                          onChange={(event) => setRouteSort(event.target.value as 'duration' | 'cost' | 'co2')}
+                          aria-label="Sort Routes"
+                        >
+                          <option value="duration">Sort By ETA</option>
+                          <option value="cost">Sort By Cost</option>
+                          <option value="co2">Sort By CO2</option>
+                        </select>
+                      </div>
+
                       <div className="chartWrap" data-tutorial-id="routes.chart">
                         <ParetoChart
                           routes={paretoRoutes}
@@ -2871,7 +2983,7 @@ export default function Page() {
                       </div>
 
                       <ul className="routeList">
-                        {paretoRoutes.map((route, idx) => {
+                        {sortedDisplayRoutes.map((route, idx) => {
                           const label = labelsById[route.id] ?? `Route ${idx + 1}`;
                           const isEditing = editingRouteId === route.id;
                           const isSelected = route.id === selectedId;

@@ -82,17 +82,22 @@ export default function Select<T extends string>({
     ),
   );
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const isDisabled = Boolean(disabled) || options.length === 0;
 
   const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
 
   useEffect(() => {
-    setActiveIndex(
-      Math.max(
-        0,
-        options.findIndex((o) => o.value === value),
-      ),
-    );
+    const selectedIndex = options.findIndex((o) => o.value === value);
+    if (selectedIndex >= 0) {
+      setActiveIndex(selectedIndex);
+      return;
+    }
+    setActiveIndex((prev) => Math.max(0, Math.min(prev, Math.max(options.length - 1, 0))));
   }, [options, value]);
+
+  useEffect(() => {
+    optionRefs.current = optionRefs.current.slice(0, options.length);
+  }, [options.length]);
 
   useEffect(() => {
     function onDocDown(e: MouseEvent | PointerEvent | TouchEvent) {
@@ -136,18 +141,21 @@ export default function Select<T extends string>({
   }
 
   function onButtonKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
-    if (disabled) return;
+    if (isDisabled) return;
+    const selectedIndex = options.findIndex((opt) => opt.value === value);
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setOpen(true);
-      step(1);
+      if (open) step(1);
+      else setActiveIndex(Math.max(selectedIndex, 0));
       return;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       setOpen(true);
-      step(-1);
+      if (open) step(-1);
+      else setActiveIndex(Math.max(selectedIndex, 0));
       return;
     }
     if (e.key === 'Enter' || e.key === ' ') {
@@ -195,6 +203,10 @@ export default function Select<T extends string>({
       setOpen(false);
       return;
     }
+    if (e.key === 'Tab') {
+      setOpen(false);
+      return;
+    }
     if (e.key === 'Home') {
       e.preventDefault();
       setActiveIndex(0);
@@ -210,7 +222,7 @@ export default function Select<T extends string>({
   return (
     <div
       ref={rootRef}
-      className={`select ${disabled ? 'isDisabled' : ''}`}
+      className={`select ${isDisabled ? 'isDisabled' : ''}`}
       {...(tutorialId ? { 'data-tutorial-id': tutorialId } : {})}
     >
       <button
@@ -222,12 +234,14 @@ export default function Select<T extends string>({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={`${id}-menu`}
-        disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
+        disabled={isDisabled}
+        onClick={() => !isDisabled && setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
         {...(tutorialActionPrefix ? { 'data-tutorial-action': `${tutorialActionPrefix}:open` } : {})}
       >
-        <span className="select__value">{selected?.label ?? placeholder ?? 'Select…'}</span>
+        <span className="select__value">
+          {selected?.label ?? placeholder ?? (options.length ? 'Select…' : 'No Options')}
+        </span>
         <span className={`select__chev ${open ? 'isOpen' : ''}`}>
           <ChevronDownIcon />
         </span>

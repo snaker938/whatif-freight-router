@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 type Props = {
   text: string;
@@ -11,9 +11,22 @@ export default function FieldInfo({ text, id }: Props) {
   const autoId = useId();
   const tooltipId = id ?? `field-info-${autoId.replace(/[:]/g, '-')}`;
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (event.target instanceof Node && el.contains(event.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
 
   return (
-    <span className="fieldInfoWrap" data-open={open ? 'true' : 'false'}>
+    <span ref={rootRef} className="fieldInfoWrap" data-open={open ? 'true' : 'false'}>
       <button
         type="button"
         className="fieldInfo"
@@ -24,9 +37,14 @@ export default function FieldInfo({ text, id }: Props) {
         onBlur={() => setOpen(false)}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
+        onClick={() => setOpen((prev) => !prev)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             setOpen(false);
+          }
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setOpen((prev) => !prev);
           }
         }}
       >

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import type { PinDisplayNode, PinSelectionId } from '../lib/types';
@@ -38,6 +38,7 @@ export default function PinManager({
   onSwapPins,
   onClearPins,
 }: Props) {
+  const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const originNode = useMemo(() => nodes.find((node) => node.id === 'origin') ?? null, [nodes]);
   const stopNode = useMemo(() => nodes.find((node) => node.id === 'stop-1') ?? null, [nodes]);
   const destinationNode = useMemo(
@@ -81,6 +82,24 @@ export default function PinManager({
         </button>
 
         <div className="pinManager__inlineActions">
+          <button
+            type="button"
+            className="ghostButton pinManager__copyBtn"
+            disabled={disabled}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`${fmtCoord(node.lat)},${fmtCoord(node.lon)}`);
+                setCopiedNodeId(node.id);
+                window.setTimeout(() => {
+                  setCopiedNodeId((prev) => (prev === node.id ? null : prev));
+                }, 1200);
+              } catch {
+                setCopiedNodeId(null);
+              }
+            }}
+          >
+            {copiedNodeId === node.id ? 'Copied' : 'Copy Coords'}
+          </button>
           {options.editable ? (
             <input
               className="input pinManager__nameInput"

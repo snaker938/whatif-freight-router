@@ -15,16 +15,37 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
   const segments = Array.isArray(route?.segment_breakdown) ? route?.segment_breakdown : [];
   const [expanded, setExpanded] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
+  const [copied, setCopied] = useState(false);
   const scrollRegionId = useId();
 
   useEffect(() => {
     setExpanded(false);
     setShowAllRows(false);
+    setCopied(false);
   }, [route?.id]);
 
   if (!segments?.length) return null;
   const visibleSegments = showAllRows ? segments : segments.slice(0, PREVIEW_ROW_COUNT);
   const hiddenRowCount = Math.max(0, segments.length - visibleSegments.length);
+
+  async function copyVisibleRowsCsv() {
+    const header = ['segment_index', 'distance_km', 'duration_s', 'monetary_cost', 'emissions_kg'];
+    const rows = visibleSegments.map((segment, idx) => [
+      String(Number(segment.segment_index ?? idx) + 1),
+      String(Number(segment.distance_km ?? 0)),
+      String(Number(segment.duration_s ?? 0)),
+      String(Number(segment.monetary_cost ?? 0)),
+      String(Number(segment.emissions_kg ?? 0)),
+    ]);
+    const csv = [header, ...rows].map((line) => line.join(',')).join('\n');
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className="segmentBreakdown" data-tutorial-id="selected.segment_breakdown">
@@ -41,6 +62,9 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
           onClick={() => {
             setExpanded((prev) => {
               const next = !prev;
+              if (!next) {
+                setShowAllRows(false);
+              }
               onTutorialAction?.(next ? 'selected.segment_expand' : 'selected.segment_collapse');
               return next;
             });
@@ -96,31 +120,49 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
           <span className="segmentBreakdown__footerText">
             Showing First {visibleSegments.length} Of {segments.length} Segments.
           </span>
-          <button
-            type="button"
-            className="ghostButton segmentBreakdown__footerBtn"
-            onClick={() => {
-              setShowAllRows(true);
-              onTutorialAction?.('selected.segment_show_all');
-            }}
-          >
-            Show All Rows
-          </button>
+          <div className="segmentBreakdown__footerActions">
+            <button
+              type="button"
+              className="ghostButton segmentBreakdown__footerBtn"
+              onClick={copyVisibleRowsCsv}
+            >
+              {copied ? 'Copied' : 'Copy CSV'}
+            </button>
+            <button
+              type="button"
+              className="ghostButton segmentBreakdown__footerBtn"
+              onClick={() => {
+                setShowAllRows(true);
+                onTutorialAction?.('selected.segment_show_all');
+              }}
+            >
+              Show All Rows
+            </button>
+          </div>
         </div>
       ) : null}
       {expanded && showAllRows && segments.length > PREVIEW_ROW_COUNT ? (
         <div className="segmentBreakdown__footer">
           <span className="segmentBreakdown__footerText">All Segment Rows Are Currently Visible.</span>
-          <button
-            type="button"
-            className="ghostButton segmentBreakdown__footerBtn"
-            onClick={() => {
-              setShowAllRows(false);
-              onTutorialAction?.('selected.segment_show_fewer');
-            }}
-          >
-            Show Fewer Rows
-          </button>
+          <div className="segmentBreakdown__footerActions">
+            <button
+              type="button"
+              className="ghostButton segmentBreakdown__footerBtn"
+              onClick={copyVisibleRowsCsv}
+            >
+              {copied ? 'Copied' : 'Copy CSV'}
+            </button>
+            <button
+              type="button"
+              className="ghostButton segmentBreakdown__footerBtn"
+              onClick={() => {
+                setShowAllRows(false);
+                onTutorialAction?.('selected.segment_show_fewer');
+              }}
+            >
+              Show Fewer Rows
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

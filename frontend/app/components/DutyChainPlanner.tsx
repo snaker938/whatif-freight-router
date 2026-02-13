@@ -28,6 +28,11 @@ export default function DutyChainPlanner({
   disabled,
   locale,
 }: Props) {
+  const nonEmptyLines = stopsText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
   return (
     <CollapsibleCard
       title="Duty Chain Planner"
@@ -54,11 +59,18 @@ export default function DutyChainPlanner({
         data-tutorial-action="duty.stops_input"
       />
 
+      <div className="tiny">
+        Lines: {nonEmptyLines.length} (One-Stop Mode Supports Up To 3 Lines: Start, Stop, End)
+      </div>
+      {nonEmptyLines.length > 3 ? (
+        <div className="error">Too Many Stops For One-Stop Mode. Remove Extra Lines Before Running.</div>
+      ) : null}
+
       <div className="row row--actions" style={{ marginTop: 12 }}>
         <button
           className="secondary"
           onClick={onRun}
-          disabled={disabled || loading}
+          disabled={disabled || loading || nonEmptyLines.length > 3}
           data-tutorial-action="duty.run_click"
         >
           {loading ? 'Running...' : 'Run Duty Chain'}
