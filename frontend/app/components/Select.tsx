@@ -81,6 +81,7 @@ export default function Select<T extends string>({
       options.findIndex((o) => o.value === value),
     ),
   );
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
 
@@ -94,15 +95,15 @@ export default function Select<T extends string>({
   }, [options, value]);
 
   useEffect(() => {
-    function onDocDown(e: MouseEvent) {
+    function onDocDown(e: MouseEvent | PointerEvent | TouchEvent) {
       const el = rootRef.current;
       if (!el) return;
       if (e.target instanceof Node && el.contains(e.target)) return;
       setOpen(false);
     }
 
-    document.addEventListener('mousedown', onDocDown);
-    return () => document.removeEventListener('mousedown', onDocDown);
+    document.addEventListener('pointerdown', onDocDown);
+    return () => document.removeEventListener('pointerdown', onDocDown);
   }, []);
 
   useEffect(() => {
@@ -113,6 +114,12 @@ export default function Select<T extends string>({
     const t = window.setTimeout(() => menuRef.current?.focus?.(), 0);
     return () => window.clearTimeout(t);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const node = optionRefs.current[activeIndex];
+    node?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, open]);
 
   function commit(idx: number) {
     const opt = options[idx];
@@ -149,6 +156,18 @@ export default function Select<T extends string>({
       else setOpen(true);
       return;
     }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      setOpen(true);
+      setActiveIndex(0);
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      setOpen(true);
+      setActiveIndex(Math.max(options.length - 1, 0));
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
@@ -174,6 +193,16 @@ export default function Select<T extends string>({
     if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      setActiveIndex(0);
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      setActiveIndex(Math.max(options.length - 1, 0));
       return;
     }
   }
@@ -211,6 +240,7 @@ export default function Select<T extends string>({
           className="select__menu"
           role="listbox"
           aria-labelledby={id}
+          aria-activedescendant={`${id}-option-${activeIndex}`}
           tabIndex={-1}
           onKeyDown={onMenuKeyDown}
         >
@@ -220,6 +250,10 @@ export default function Select<T extends string>({
             return (
               <button
                 key={opt.value}
+                id={`${id}-option-${idx}`}
+                ref={(node) => {
+                  optionRefs.current[idx] = node;
+                }}
                 type="button"
                 role="option"
                 aria-selected={isSelected}

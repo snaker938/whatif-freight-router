@@ -17,24 +17,35 @@ function fmtDelta(value: number | undefined, locale: Locale): string {
   return `${prefix}${formatNumber(value, locale, { maximumFractionDigits: 2 })}`;
 }
 
+function scenarioLabel(mode: string): string {
+  if (mode === 'no_sharing') return 'No Sharing';
+  if (mode === 'partial_sharing') return 'Partial Sharing';
+  if (mode === 'full_sharing') return 'Full Sharing';
+  return mode;
+}
+
 export default function ScenarioComparison({ data, loading, error, locale }: Props) {
   if (loading) {
-    return <div className="helper">Comparing scenarios...</div>;
+    return <div className="helper">Comparing Scenarios...</div>;
   }
   if (error) {
     return <div className="error">{error}</div>;
   }
   if (!data) {
-    return <div className="helper">Run comparison to view No/Partial/Full scenario deltas.</div>;
+    return <div className="helper">Run Comparison To View No/Partial/Full Scenario Deltas.</div>;
+  }
+  if (!data.results?.length) {
+    return <div className="helper">No Scenario Comparison Rows Were Returned For This Run.</div>;
   }
 
   return (
     <div>
       <div className="tiny" style={{ marginBottom: 8 }}>
-        Compare run: {data.run_id}
+        Compare Run: {data.run_id}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <caption className="srOnly">Scenario Comparison Results Table</caption>
           <thead>
             <tr>
               <th style={{ textAlign: 'left', padding: '6px 4px' }}>Scenario</th>
@@ -48,7 +59,7 @@ export default function ScenarioComparison({ data, loading, error, locale }: Pro
               const delta = data.deltas[result.scenario_mode] ?? {};
               return (
                 <tr key={result.scenario_mode}>
-                  <td style={{ padding: '6px 4px' }}>{result.scenario_mode}</td>
+                  <td style={{ padding: '6px 4px' }}>{scenarioLabel(result.scenario_mode)}</td>
                   <td style={{ textAlign: 'right', padding: '6px 4px' }}>
                     {fmtDelta(delta.duration_s_delta, locale)}
                   </td>

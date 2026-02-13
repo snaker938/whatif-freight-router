@@ -49,6 +49,7 @@ export default function OracleQualityDashboard({
   const [latencyMs, setLatencyMs] = useState('');
   const [recordCount, setRecordCount] = useState('');
   const [errorText, setErrorText] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const csvHref = useMemo(() => '/api/oracle/quality/dashboard.csv', []);
 
@@ -65,7 +66,10 @@ export default function OracleQualityDashboard({
 
   async function handleIngest() {
     const trimmedSource = source.trim();
-    if (!trimmedSource) return;
+    if (!trimmedSource) {
+      setValidationError('Source is required.');
+      return;
+    }
 
     const parsedFreshness =
       freshnessS.trim() === '' ? null : Number.isFinite(Number(freshnessS)) ? Number(freshnessS) : NaN;
@@ -74,15 +78,23 @@ export default function OracleQualityDashboard({
     const parsedCount =
       recordCount.trim() === '' ? null : Number.isFinite(Number(recordCount)) ? Number(recordCount) : NaN;
 
-    if (Number.isNaN(parsedFreshness) || (parsedFreshness !== null && parsedFreshness < 0)) return;
-    if (Number.isNaN(parsedLatency) || (parsedLatency !== null && parsedLatency < 0)) return;
+    if (Number.isNaN(parsedFreshness) || (parsedFreshness !== null && parsedFreshness < 0)) {
+      setValidationError('Freshness seconds must be a non-negative number.');
+      return;
+    }
+    if (Number.isNaN(parsedLatency) || (parsedLatency !== null && parsedLatency < 0)) {
+      setValidationError('Latency ms must be a non-negative number.');
+      return;
+    }
     if (
       Number.isNaN(parsedCount) ||
       (parsedCount !== null && (!Number.isInteger(parsedCount) || parsedCount < 0))
     ) {
+      setValidationError('Record count must be a non-negative integer.');
       return;
     }
 
+    setValidationError(null);
     await onIngest({
       source: trimmedSource,
       schema_valid: schemaValid,
@@ -116,7 +128,10 @@ export default function OracleQualityDashboard({
         className="input"
         value={source}
         disabled={disabled || ingesting}
-        onChange={(event) => setSource(event.target.value)}
+        onChange={(event) => {
+          setSource(event.target.value);
+          if (validationError) setValidationError(null);
+        }}
         data-tutorial-action="oracle.source_input"
       />
 
@@ -129,13 +144,13 @@ export default function OracleQualityDashboard({
           onChange={(event) => setSchemaValid(event.target.checked)}
           data-tutorial-action="oracle.schema_toggle"
         />
-        <label htmlFor="oracle-schema-valid">Schema valid</label>
+        <label htmlFor="oracle-schema-valid">Schema Valid</label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.schemaValid} />
       </div>
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="oracle-signature-state">
-          Signature state
+          Signature State
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.signatureState} />
       </div>
@@ -156,7 +171,7 @@ export default function OracleQualityDashboard({
       <div className="advancedGrid">
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="oracle-freshness">
-            Freshness seconds (optional)
+            Freshness Seconds (Optional)
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.freshnessSeconds} />
         </div>
@@ -168,14 +183,17 @@ export default function OracleQualityDashboard({
           step="any"
           value={freshnessS}
           disabled={disabled || ingesting}
-          onChange={(event) => setFreshnessS(event.target.value)}
+          onChange={(event) => {
+            setFreshnessS(event.target.value);
+            if (validationError) setValidationError(null);
+          }}
           data-tutorial-action="oracle.freshness_input"
         />
-        <div className="dropdownOptionsHint">Freshness shows how old source data is at check time.</div>
+        <div className="dropdownOptionsHint">Freshness Shows How Old Source Data Is At Check Time.</div>
 
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="oracle-latency">
-            Latency ms (optional)
+            Latency ms (Optional)
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.latencyMs} />
         </div>
@@ -187,13 +205,16 @@ export default function OracleQualityDashboard({
           step="any"
           value={latencyMs}
           disabled={disabled || ingesting}
-          onChange={(event) => setLatencyMs(event.target.value)}
+          onChange={(event) => {
+            setLatencyMs(event.target.value);
+            if (validationError) setValidationError(null);
+          }}
           data-tutorial-action="oracle.latency_input"
         />
 
         <div className="fieldLabelRow">
           <label className="fieldLabel" htmlFor="oracle-record-count">
-            Record count (optional)
+            Record Count (Optional)
           </label>
           <FieldInfo text={SIDEBAR_FIELD_HELP.recordCount} />
         </div>
@@ -205,14 +226,17 @@ export default function OracleQualityDashboard({
           step={1}
           value={recordCount}
           disabled={disabled || ingesting}
-          onChange={(event) => setRecordCount(event.target.value)}
+          onChange={(event) => {
+            setRecordCount(event.target.value);
+            if (validationError) setValidationError(null);
+          }}
           data-tutorial-action="oracle.record_count_input"
         />
       </div>
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="oracle-error-note">
-          Error note (optional)
+          Error Note (Optional)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.errorNote} />
       </div>
@@ -251,14 +275,15 @@ export default function OracleQualityDashboard({
           disabled={disabled || ingesting || loading}
           data-tutorial-action="oracle.record_check_click"
         >
-          {ingesting ? 'Recording...' : 'Record check'}
+          {ingesting ? 'Recording...' : 'Record Check'}
         </button>
       </div>
 
       {error ? <div className="error">{error}</div> : null}
+      {validationError ? <div className="error">{validationError}</div> : null}
       {latestCheck ? (
         <div className="tiny">
-          Last check: {latestCheck.source} ({latestCheck.passed ? 'passed' : 'failed'}) at{' '}
+          Last Check: {latestCheck.source} ({latestCheck.passed ? 'Passed' : 'Failed'}) At{' '}
           {formatDateTime(latestCheck.ingested_at_utc, locale)}
         </div>
       ) : null}
@@ -267,7 +292,7 @@ export default function OracleQualityDashboard({
         <div style={{ marginTop: 10 }}>
           <div className="metrics">
             <div className="metric">
-              <div className="metric__label">Total checks</div>
+              <div className="metric__label">Total Checks</div>
               <div className="metric__value">
                 {formatNumber(dashboard.total_checks, locale, { maximumFractionDigits: 0 })}
               </div>
@@ -279,7 +304,7 @@ export default function OracleQualityDashboard({
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Stale threshold</div>
+              <div className="metric__label">Stale Threshold</div>
               <div className="metric__value">
                 {formatNumber(dashboard.stale_threshold_s, locale, { maximumFractionDigits: 0 })} s
               </div>
@@ -292,35 +317,35 @@ export default function OracleQualityDashboard({
                 <div className="routeCard__top">
                   <div className="routeCard__id">{item.source}</div>
                   <div className="routeCard__pill">
-                    {formatNumber(item.pass_rate * 100, locale, { maximumFractionDigits: 1 })}% pass
+                    {formatNumber(item.pass_rate * 100, locale, { maximumFractionDigits: 1 })}% Pass
                   </div>
                 </div>
                 <div className="routeCard__meta">
                   <span>
-                    checks {formatNumber(item.check_count, locale, { maximumFractionDigits: 0 })}
+                    Checks {formatNumber(item.check_count, locale, { maximumFractionDigits: 0 })}
                   </span>
                   <span>
-                    schema fail {formatNumber(item.schema_failures, locale, { maximumFractionDigits: 0 })}
+                    Schema Fail {formatNumber(item.schema_failures, locale, { maximumFractionDigits: 0 })}
                   </span>
                   <span>
-                    signature fail{' '}
+                    Signature Fail{' '}
                     {formatNumber(item.signature_failures, locale, { maximumFractionDigits: 0 })}
                   </span>
-                  <span>stale {formatNumber(item.stale_count, locale, { maximumFractionDigits: 0 })}</span>
+                  <span>Stale {formatNumber(item.stale_count, locale, { maximumFractionDigits: 0 })}</span>
                 </div>
                 <div className="tiny">
-                  Avg latency:{' '}
+                  Avg Latency:{' '}
                   {item.avg_latency_ms !== null && item.avg_latency_ms !== undefined
                     ? `${formatNumber(item.avg_latency_ms, locale, { maximumFractionDigits: 1 })} ms`
                     : 'n/a'}{' '}
-                  | Last observed:{' '}
+                  | Last Observed:{' '}
                   {item.last_observed_at_utc
                     ? formatDateTime(item.last_observed_at_utc, locale)
                     : 'n/a'}
                 </div>
               </li>
             ))}
-            {dashboard.sources.length === 0 ? <li className="helper">No checks ingested yet.</li> : null}
+            {dashboard.sources.length === 0 ? <li className="helper">No Checks Ingested Yet.</li> : null}
           </ul>
         </div>
       ) : null}

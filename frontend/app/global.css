@@ -351,6 +351,7 @@ a {
   .fieldInfo {
     width: 16px;
     height: 16px;
+    padding: 0;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.28);
     background: rgba(255, 255, 255, 0.08);
@@ -392,6 +393,7 @@ a {
   }
 
   .fieldInfoWrap:hover .fieldInfo__tooltip,
+  .fieldInfoWrap[data-open="true"] .fieldInfo__tooltip,
   .fieldInfo:focus-visible + .fieldInfo__tooltip {
     opacity: 1;
     transform: translateY(-50%) translateX(0);

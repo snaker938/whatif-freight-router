@@ -57,7 +57,7 @@ export default function DepartureOptimizerChart({
     >
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-window-start">
-          Window start (UTC)
+          Window Start (UTC)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.windowStartEnd} />
       </div>
@@ -73,7 +73,7 @@ export default function DepartureOptimizerChart({
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-window-end">
-          Window end (UTC)
+          Window End (UTC)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.windowStartEnd} />
       </div>
@@ -89,7 +89,7 @@ export default function DepartureOptimizerChart({
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-step">
-          Step (minutes)
+          Step (Minutes)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.stepMinutes} />
       </div>
@@ -102,13 +102,18 @@ export default function DepartureOptimizerChart({
         step={5}
         value={stepMinutes}
         disabled={disabled || loading}
-        onChange={(event) => onStepMinutesChange(Math.max(5, Number(event.target.value) || 5))}
+        onChange={(event) => {
+          const parsed = Number(event.target.value);
+          const safe = Number.isFinite(parsed) ? parsed : 5;
+          const clamped = Math.min(720, Math.max(5, safe));
+          onStepMinutesChange(Math.round(clamped));
+        }}
         data-tutorial-action="dep.step_input"
       />
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-earliest-arrival">
-          Earliest arrival (UTC, optional)
+          Earliest Arrival (UTC, Optional)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.earliestLatestArrival} />
       </div>
@@ -124,7 +129,7 @@ export default function DepartureOptimizerChart({
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-latest-arrival">
-          Latest arrival (UTC, optional)
+          Latest Arrival (UTC, Optional)
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.earliestLatestArrival} />
       </div>
@@ -155,12 +160,12 @@ export default function DepartureOptimizerChart({
         <ul className="routeList" style={{ marginTop: 10 }}>
           {data.candidates.map((candidate) => (
             <li key={candidate.departure_time_utc} className="routeCard" style={{ cursor: 'default' }}>
-                <div className="routeCard__top">
-                  <div className="routeCard__id">
+              <div className="routeCard__top">
+                <div className="routeCard__id">
                   {formatDateTime(candidate.departure_time_utc, locale)} UTC
-                  </div>
+                </div>
                 <div className="routeCard__pill">
-                  score {formatNumber(candidate.score, locale, { maximumFractionDigits: 4 })}
+                  Score {formatNumber(candidate.score, locale, { maximumFractionDigits: 4 })}
                 </div>
               </div>
               <div className="routeCard__meta">
@@ -190,7 +195,7 @@ export default function DepartureOptimizerChart({
                   disabled={disabled}
                   data-tutorial-action="dep.apply_departure"
                 >
-                  Apply departure
+                  Apply Departure
                 </button>
               </div>
             </li>

@@ -133,7 +133,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
         dataTutorialId="timelapse.section"
       >
-        <div className="helper">Compute and select a route to play a route animation.</div>
+        <div className="helper">Compute And Select A Route To Play A Route Animation.</div>
       </CollapsibleCard>
     );
   }
@@ -172,7 +172,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
 
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="time-lapse-speed">
-          Playback speed
+          Playback Speed
         </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.playbackSpeed} />
       </div>
@@ -180,7 +180,11 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
         id="time-lapse-speed"
         className="input"
         value={String(speed)}
-        onChange={(event) => setSpeed(Number(event.target.value))}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (!Number.isFinite(next) || !PLAYBACK_SPEEDS.includes(next)) return;
+          setSpeed(next);
+        }}
         data-tutorial-action="timelapse.speed_select"
       >
         {PLAYBACK_SPEEDS.map((value) => (
@@ -192,20 +196,29 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
       <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.timeLapseSpeed}</div>
 
       <label className="fieldLabel" htmlFor="time-lapse-progress">
-        Timeline scrubber
+        Timeline Scrubber
       </label>
       <input
         id="time-lapse-progress"
         type="range"
         min={0}
         max={1000}
+        step={1}
         value={Math.round(progress * 1000)}
-        onChange={(event) => setProgress(Number(event.target.value) / 1000)}
+        aria-valuemin={0}
+        aria-valuemax={1000}
+        aria-valuenow={Math.round(progress * 1000)}
+        aria-valuetext={`${(progress * 100).toFixed(0)} percent`}
+        onChange={(event) => {
+          const raw = Number(event.target.value);
+          const clamped = Math.max(0, Math.min(1000, Number.isFinite(raw) ? raw : 0));
+          setProgress(clamped / 1000);
+        }}
         data-tutorial-action="timelapse.scrubber_input"
       />
 
       <div className="tiny">
-        Elapsed {(elapsedS / 60).toFixed(1)} min of {(durationS / 60).toFixed(1)} min
+        Elapsed {(elapsedS / 60).toFixed(1)} min Of {(durationS / 60).toFixed(1)} min
       </div>
     </CollapsibleCard>
   );

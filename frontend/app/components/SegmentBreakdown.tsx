@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 import type { RouteOption } from '../lib/types';
 
@@ -15,6 +15,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
   const segments = Array.isArray(route?.segment_breakdown) ? route?.segment_breakdown : [];
   const [expanded, setExpanded] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
+  const scrollRegionId = useId();
 
   useEffect(() => {
     setExpanded(false);
@@ -30,7 +31,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
       <div className="segmentBreakdown__header">
         <div className="segmentBreakdown__titleWrap">
           <div className="fieldLabel" style={{ margin: 0 }}>
-            Per-segment cost breakdown
+            Per-Segment Cost Breakdown
           </div>
           <span className="segmentBreakdown__count">{segments.length} segments</span>
         </div>
@@ -38,22 +39,25 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
           type="button"
           className="ghostButton segmentBreakdown__toggle"
           onClick={() => {
-            setExpanded((prev) => !prev);
-            onTutorialAction?.(expanded ? 'selected.segment_collapse' : 'selected.segment_expand');
+            setExpanded((prev) => {
+              const next = !prev;
+              onTutorialAction?.(next ? 'selected.segment_expand' : 'selected.segment_collapse');
+              return next;
+            });
           }}
           aria-expanded={expanded}
-          aria-controls="segment-breakdown-scroll-region"
+          aria-controls={scrollRegionId}
         >
           {expanded ? 'Collapse' : 'Expand'}
         </button>
       </div>
       {!expanded ? (
         <div className="segmentBreakdown__collapsedHint">
-          Expand to view a scrollable segment preview (not all rows by default).
+          Expand To View A Scrollable Segment Preview (Not All Rows By Default).
         </div>
       ) : null}
       <div
-        id="segment-breakdown-scroll-region"
+        id={scrollRegionId}
         className={`segmentBreakdown__scrollWrap ${expanded ? 'isOpen' : ''}`}
       >
         <table className="segmentBreakdown__table">
@@ -90,7 +94,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
       {expanded && hiddenRowCount > 0 ? (
         <div className="segmentBreakdown__footer">
           <span className="segmentBreakdown__footerText">
-            Showing first {visibleSegments.length} of {segments.length} segments.
+            Showing First {visibleSegments.length} Of {segments.length} Segments.
           </span>
           <button
             type="button"
@@ -100,13 +104,13 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
               onTutorialAction?.('selected.segment_show_all');
             }}
           >
-            Show all rows
+            Show All Rows
           </button>
         </div>
       ) : null}
       {expanded && showAllRows && segments.length > PREVIEW_ROW_COUNT ? (
         <div className="segmentBreakdown__footer">
-          <span className="segmentBreakdown__footerText">All segment rows are currently visible.</span>
+          <span className="segmentBreakdown__footerText">All Segment Rows Are Currently Visible.</span>
           <button
             type="button"
             className="ghostButton segmentBreakdown__footerBtn"
@@ -115,7 +119,7 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
               onTutorialAction?.('selected.segment_show_fewer');
             }}
           >
-            Show fewer rows
+            Show Fewer Rows
           </button>
         </div>
       ) : null}

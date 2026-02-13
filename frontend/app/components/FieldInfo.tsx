@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 
 type Props = {
   text: string;
@@ -10,19 +10,29 @@ type Props = {
 export default function FieldInfo({ text, id }: Props) {
   const autoId = useId();
   const tooltipId = id ?? `field-info-${autoId.replace(/[:]/g, '-')}`;
+  const [open, setOpen] = useState(false);
 
   return (
-    <span className="fieldInfoWrap">
-      <span
+    <span className="fieldInfoWrap" data-open={open ? 'true' : 'false'}>
+      <button
+        type="button"
         className="fieldInfo"
-        tabIndex={0}
-        aria-label={text}
+        aria-label={`Field Information: ${text}`}
         aria-describedby={tooltipId}
-        role="img"
+        aria-expanded={open}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
       >
-        i
-      </span>
-      <span id={tooltipId} className="fieldInfo__tooltip" role="note">
+        <span aria-hidden="true">i</span>
+      </button>
+      <span id={tooltipId} className="fieldInfo__tooltip" role="note" aria-hidden={!open}>
         {text}
       </span>
     </span>
