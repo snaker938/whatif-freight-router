@@ -52,6 +52,7 @@ import type {
   ParetoMethod,
   ParetoStreamEvent,
   ManagedStop,
+  PinFocusRequest,
   PinSelectionId,
   RouteOption,
   ScenarioMode,
@@ -77,6 +78,7 @@ type MapViewProps = {
   destinationLabel?: string;
 
   selectedPinId?: 'origin' | 'destination' | 'stop-1' | null;
+  focusPinRequest?: PinFocusRequest | null;
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
@@ -564,6 +566,7 @@ export default function Page() {
   const [startLabel, setStartLabel] = useState('Start');
   const [destinationLabel, setDestinationLabel] = useState('Destination');
   const [selectedPinId, setSelectedPinId] = useState<'origin' | 'destination' | 'stop-1' | null>(null);
+  const [focusPinRequest, setFocusPinRequest] = useState<PinFocusRequest | null>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [locale, setLocale] = useState<Locale>('en');
 
@@ -653,6 +656,7 @@ export default function Page() {
   const flushTimerRef = useRef<number | null>(null);
   const tutorialBootstrappedRef = useRef(false);
   const dutySyncSourceRef = useRef<'pins' | 'text' | null>(null);
+  const focusPinNonceRef = useRef(0);
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
@@ -1504,7 +1508,14 @@ export default function Page() {
   }
 
   function selectPinFromSidebar(id: 'origin' | 'destination' | 'stop-1') {
-    setSelectedPinId((prev) => (prev === id ? null : id));
+    setSelectedPinId((prev) => {
+      const next = prev === id ? null : id;
+      if (next) {
+        focusPinNonceRef.current += 1;
+        setFocusPinRequest({ id: next, nonce: focusPinNonceRef.current });
+      }
+      return next;
+    });
     markTutorialAction('pins.sidebar_select');
   }
 
@@ -1531,6 +1542,7 @@ export default function Page() {
     setStartLabel('Start');
     setDestinationLabel('Destination');
     setSelectedPinId(null);
+    setFocusPinRequest(null);
     clearComputed();
     setError(null);
     setDutySyncError(null);
@@ -1560,6 +1572,7 @@ export default function Page() {
     setStartLabel('Start');
     setDestinationLabel('Destination');
     setSelectedPinId(null);
+    setFocusPinRequest(null);
     setVehicleType('rigid_hgv');
     setScenarioMode('no_sharing');
     setWeights({ time: 60, money: 20, co2: 20 });
@@ -2439,6 +2452,7 @@ export default function Page() {
           originLabel={startLabel}
           destinationLabel={destinationLabel}
           selectedPinId={selectedPinId}
+          focusPinRequest={focusPinRequest}
           route={selectedRoute}
           timeLapsePosition={timeLapsePosition}
           dutyStops={dutyStopsForOverlay}

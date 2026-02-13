@@ -48,6 +48,11 @@ export type PinDisplayNode = {
   order: number;
 };
 
+export type PinFocusRequest = {
+  id: PinSelectionId;
+  nonce: number;
+};
+
 export type IncidentEventType = 'dwell' | 'accident' | 'closure';
 
 export type RouteMetrics = {

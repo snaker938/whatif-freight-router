@@ -6,7 +6,7 @@ import L, {
   type LatLngExpression,
   type LeafletMouseEvent,
 } from 'leaflet';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   CircleMarker,
   MapContainer,
@@ -25,6 +25,7 @@ import type {
   IncidentEventType,
   LatLng,
   ManagedStop,
+  PinFocusRequest,
   PinSelectionId,
   RouteOption,
 } from '../lib/types';
@@ -40,6 +41,7 @@ type Props = {
   destinationLabel?: string;
 
   selectedPinId?: PinSelectionId | null;
+  focusPinRequest?: PinFocusRequest | null;
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
@@ -128,6 +130,68 @@ function Recenter({ center }: { center: LatLngExpression }) {
   }, [map, center]);
 
   useEffect(doRecenter, [doRecenter]);
+
+  return null;
+}
+
+function FocusPinRequestHandler({
+  request,
+  origin,
+  destination,
+  managedStop,
+  originRef,
+  destRef,
+  stopRef,
+}: {
+  request: PinFocusRequest | null;
+  origin: LatLng | null;
+  destination: LatLng | null;
+  managedStop: ManagedStop | null;
+  originRef: RefObject<L.Marker | null>;
+  destRef: RefObject<L.Marker | null>;
+  stopRef: RefObject<L.Marker | null>;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!request) return;
+    let target: LatLng | null = null;
+    if (request.id === 'origin') target = origin;
+    else if (request.id === 'destination') target = destination;
+    else target = managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null;
+    if (!target) return;
+
+    map.flyTo([target.lat, target.lon], Math.max(map.getZoom(), 11), {
+      animate: true,
+      duration: 0.45,
+    });
+
+    const timer = window.setTimeout(() => {
+      try {
+        if (request.id === 'origin') {
+          originRef.current?.openPopup();
+        } else if (request.id === 'destination') {
+          destRef.current?.openPopup();
+        } else {
+          stopRef.current?.openPopup();
+        }
+      } catch {
+        // no-op
+      }
+    }, 140);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    request?.nonce,
+    request?.id,
+    map,
+    origin,
+    destination,
+    managedStop,
+    originRef,
+    destRef,
+    stopRef,
+  ]);
 
   return null;
 }
@@ -341,6 +405,7 @@ export default function MapView({
   originLabel = 'Start',
   destinationLabel = 'Destination',
   selectedPinId = null,
+  focusPinRequest = null,
   route,
   timeLapsePosition,
   dutyStops = [],
@@ -474,6 +539,15 @@ export default function MapView({
         style={{ height: '100%', width: '100%' }}
       >
         <Recenter center={center} />
+        <FocusPinRequestHandler
+          request={focusPinRequest}
+          origin={origin}
+          destination={destination}
+          managedStop={managedStop}
+          originRef={originRef}
+          destRef={destRef}
+          stopRef={stopRef}
+        />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -513,7 +587,9 @@ export default function MapView({
             >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
-                  <span className="markerPopup__pill markerPopup__pill--origin">Start</span>
+                  <span className="markerPopup__pill markerPopup__pill--origin">
+                    {originLabel || 'Start'}
+                  </span>
 
                   <div className="markerPopup__actions">
                     {onSwapMarkers && destination && (
@@ -629,7 +705,7 @@ export default function MapView({
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
                   <span className="markerPopup__pill markerPopup__pill--destination">
-                    Destination
+                    {destinationLabel || 'Destination'}
                   </span>
 
                   <div className="markerPopup__actions">
