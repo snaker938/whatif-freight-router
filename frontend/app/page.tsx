@@ -2468,6 +2468,8 @@ export default function Page() {
           }}
         />
 
+        {/* Map HUD: map-side hint/progress and quick overlay toggles.
+            This is intentionally separate from the sidebar for map-focused workflows. */}
         <div className="mapHUD">
           {busy && (
             <div className="mapHUD__status" role="status" aria-live="polite">
