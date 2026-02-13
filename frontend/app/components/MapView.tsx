@@ -42,6 +42,7 @@ type Props = {
 
   selectedPinId?: PinSelectionId | null;
   focusPinRequest?: PinFocusRequest | null;
+  fitAllRequestNonce?: number;
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
@@ -118,22 +119,6 @@ function ClickHandler({ onMapClick }: { onMapClick: (lat: number, lon: number) =
   return null;
 }
 
-function Recenter({ center }: { center: LatLngExpression }) {
-  const map = useMap();
-
-  // IMPORTANT:
-  // Using a stable callback avoids Prettier ever producing the invalid:
-  //   };, [map, center]);
-  // because we no longer write the effect callback inline.
-  const doRecenter = useCallback(() => {
-    map.flyTo(center, map.getZoom(), { animate: true, duration: 0.55 });
-  }, [map, center]);
-
-  useEffect(doRecenter, [doRecenter]);
-
-  return null;
-}
-
 function FocusPinRequestHandler({
   request,
   origin,
@@ -161,7 +146,8 @@ function FocusPinRequestHandler({
     else target = managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null;
     if (!target) return;
 
-    map.flyTo([target.lat, target.lon], Math.max(map.getZoom(), 11), {
+    const nextZoom = Math.min(14, Math.max(map.getZoom() + 1, 11));
+    map.flyTo([target.lat, target.lon], nextZoom, {
       animate: true,
       duration: 0.45,
     });
@@ -192,6 +178,60 @@ function FocusPinRequestHandler({
     destRef,
     stopRef,
   ]);
+
+  return null;
+}
+
+function FitAllRequestHandler({
+  nonce,
+  origin,
+  destination,
+  managedStop,
+  route,
+}: {
+  nonce: number;
+  origin: LatLng | null;
+  destination: LatLng | null;
+  managedStop: ManagedStop | null;
+  route: RouteOption | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (nonce <= 0) return;
+    const points: LatLngExpression[] = [];
+
+    if (origin) points.push([origin.lat, origin.lon]);
+    if (managedStop) points.push([managedStop.lat, managedStop.lon]);
+    if (destination) points.push([destination.lat, destination.lon]);
+
+    const coords = route?.geometry?.coordinates ?? [];
+    if (Array.isArray(coords) && coords.length > 1) {
+      const step = Math.max(1, Math.floor(coords.length / 50));
+      for (let idx = 0; idx < coords.length; idx += step) {
+        const [lon, lat] = coords[idx];
+        points.push([lat, lon]);
+      }
+      const [lastLon, lastLat] = coords[coords.length - 1];
+      points.push([lastLat, lastLon]);
+    }
+
+    if (points.length >= 2) {
+      map.fitBounds(points as LatLngBoundsExpression, {
+        animate: true,
+        duration: 0.45,
+        padding: [36, 36],
+      });
+      return;
+    }
+    if (points.length === 1) {
+      const [lat, lon] = points[0] as [number, number];
+      map.flyTo([lat, lon], Math.min(map.getZoom(), 11), {
+        animate: true,
+        duration: 0.35,
+      });
+    }
+  }, [nonce, origin, destination, managedStop, route?.id, map]);
 
   return null;
 }
@@ -406,6 +446,7 @@ export default function MapView({
   destinationLabel = 'Destination',
   selectedPinId = null,
   focusPinRequest = null,
+  fitAllRequestNonce = 0,
   route,
   timeLapsePosition,
   dutyStops = [],
@@ -432,6 +473,16 @@ export default function MapView({
   const [copied, setCopied] = useState<MarkerKind | 'stop' | null>(null);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [stopDraftLabel, setStopDraftLabel] = useState(managedStop?.label ?? 'Stop #1');
+  const [draggingPinId, setDraggingPinId] = useState<PinSelectionId | null>(null);
+  const [dragPreview, setDragPreview] = useState<{
+    origin: LatLng | null;
+    destination: LatLng | null;
+    stop: LatLng | null;
+  }>({
+    origin: null,
+    destination: null,
+    stop: null,
+  });
 
   useEffect(() => {
     if (!copied) return;
@@ -446,6 +497,49 @@ export default function MapView({
   useEffect(() => {
     setActiveSegmentId(null);
   }, [route?.id, showSegmentTooltips]);
+
+  useEffect(() => {
+    if (dragPreview.origin && origin) {
+      const same =
+        Math.abs(dragPreview.origin.lat - origin.lat) <= 1e-6 &&
+        Math.abs(dragPreview.origin.lon - origin.lon) <= 1e-6;
+      if (same) {
+        setDragPreview((prev) => ({ ...prev, origin: null }));
+        if (draggingPinId === 'origin') setDraggingPinId(null);
+      }
+    }
+  }, [origin, dragPreview.origin, draggingPinId]);
+
+  useEffect(() => {
+    if (dragPreview.destination && destination) {
+      const same =
+        Math.abs(dragPreview.destination.lat - destination.lat) <= 1e-6 &&
+        Math.abs(dragPreview.destination.lon - destination.lon) <= 1e-6;
+      if (same) {
+        setDragPreview((prev) => ({ ...prev, destination: null }));
+        if (draggingPinId === 'destination') setDraggingPinId(null);
+      }
+    }
+  }, [destination, dragPreview.destination, draggingPinId]);
+
+  useEffect(() => {
+    if (dragPreview.stop && managedStop) {
+      const same =
+        Math.abs(dragPreview.stop.lat - managedStop.lat) <= 1e-6 &&
+        Math.abs(dragPreview.stop.lon - managedStop.lon) <= 1e-6;
+      if (same) {
+        setDragPreview((prev) => ({ ...prev, stop: null }));
+        if (draggingPinId === 'stop-1') setDraggingPinId(null);
+      }
+    }
+  }, [managedStop, dragPreview.stop, draggingPinId]);
+
+  useEffect(() => {
+    if (!selectedPinId) {
+      setDraggingPinId(null);
+      setDragPreview({ origin: null, destination: null, stop: null });
+    }
+  }, [selectedPinId]);
 
   const originIcon = useMemo(
     () => makePinIcon('origin', selectedPinId === 'origin'),
@@ -475,6 +569,16 @@ export default function MapView({
     }
   }, [selectedPinId]);
 
+  const effectiveOrigin = dragPreview.origin ?? origin;
+  const effectiveDestination = dragPreview.destination ?? destination;
+  const effectiveStop = dragPreview.stop ?? (managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null);
+  const effectiveDutyStops = useMemo(() => {
+    if (effectiveStop) {
+      return [{ lat: effectiveStop.lat, lon: effectiveStop.lon, label: managedStop?.label ?? 'Stop #1' }];
+    }
+    return dutyStops;
+  }, [effectiveStop, managedStop?.label, dutyStops]);
+
   const polylinePositions: LatLngExpression[] = useMemo(() => {
     const coords = route?.geometry?.coordinates ?? [];
     const slim = downsamplePolyline(coords);
@@ -483,8 +587,8 @@ export default function MapView({
 
   const stopOverlayPoints = useMemo(() => {
     if (!showStopOverlay) return [];
-    return buildStopOverlayPoints(origin, destination, dutyStops);
-  }, [showStopOverlay, origin, destination, dutyStops]);
+    return buildStopOverlayPoints(effectiveOrigin, effectiveDestination, effectiveDutyStops);
+  }, [showStopOverlay, effectiveOrigin, effectiveDestination, effectiveDutyStops]);
   const stopOverlayPolyline = useMemo(() => {
     if (stopOverlayPoints.length < 2) return [];
     return stopOverlayPoints.map((point) => [point.lat, point.lon] as [number, number]);
@@ -508,10 +612,12 @@ export default function MapView({
 
   // Default center: Birmingham-ish (West Midlands)
   const center: LatLngExpression = useMemo(() => {
-    return origin
-      ? ([origin.lat, origin.lon] as [number, number])
+    return effectiveOrigin
+      ? ([effectiveOrigin.lat, effectiveOrigin.lon] as [number, number])
       : ([52.4862, -1.8904] as [number, number]);
-  }, [origin]);
+  }, [effectiveOrigin]);
+
+  const suppressRoutePath = draggingPinId !== null;
 
   const handleCopyCoords = useCallback(async (kind: MarkerKind | 'stop', lat: number, lon: number) => {
     const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
@@ -538,7 +644,6 @@ export default function MapView({
         maxBoundsViscosity={1.0}
         style={{ height: '100%', width: '100%' }}
       >
-        <Recenter center={center} />
         <FocusPinRequestHandler
           request={focusPinRequest}
           origin={origin}
@@ -547,6 +652,13 @@ export default function MapView({
           originRef={originRef}
           destRef={destRef}
           stopRef={stopRef}
+        />
+        <FitAllRequestHandler
+          nonce={fitAllRequestNonce}
+          origin={origin}
+          destination={destination}
+          managedStop={managedStop}
+          route={route}
         />
 
         <TileLayer
@@ -560,7 +672,7 @@ export default function MapView({
         {origin && (
           <Marker
             ref={originRef}
-            position={[origin.lat, origin.lon]}
+            position={[effectiveOrigin?.lat ?? origin.lat, effectiveOrigin?.lon ?? origin.lon]}
             icon={originIcon}
             draggable={true}
             riseOnHover={true}
@@ -574,8 +686,17 @@ export default function MapView({
               dragend(e) {
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
+                setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
                 onMoveMarker('origin', pos.lat, pos.lng);
                 onTutorialAction?.('map.drag_origin_marker');
+              },
+              dragstart() {
+                setDraggingPinId('origin');
+              },
+              drag(e) {
+                const marker = e.target as L.Marker;
+                const pos = marker.getLatLng();
+                setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
               },
             }}
           >
@@ -677,7 +798,7 @@ export default function MapView({
         {destination && (
           <Marker
             ref={destRef}
-            position={[destination.lat, destination.lon]}
+            position={[effectiveDestination?.lat ?? destination.lat, effectiveDestination?.lon ?? destination.lon]}
             icon={destIcon}
             draggable={true}
             riseOnHover={true}
@@ -691,8 +812,17 @@ export default function MapView({
               dragend(e) {
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
+                setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
                 onMoveMarker('destination', pos.lat, pos.lng);
                 onTutorialAction?.('map.drag_destination_marker');
+              },
+              dragstart() {
+                setDraggingPinId('destination');
+              },
+              drag(e) {
+                const marker = e.target as L.Marker;
+                const pos = marker.getLatLng();
+                setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
               },
             }}
           >
@@ -794,7 +924,7 @@ export default function MapView({
         {showStopOverlay && managedStop ? (
           <Marker
             ref={stopRef}
-            position={[managedStop.lat, managedStop.lon]}
+            position={[effectiveStop?.lat ?? managedStop.lat, effectiveStop?.lon ?? managedStop.lon]}
             icon={makeDutyStopIcon(1, selectedPinId === 'stop-1')}
             draggable={true}
             eventHandlers={{
@@ -807,8 +937,17 @@ export default function MapView({
               dragend(e) {
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
+                setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));
                 onMoveStop?.(pos.lat, pos.lng);
                 onTutorialAction?.('map.drag_stop_marker');
+              },
+              dragstart() {
+                setDraggingPinId('stop-1');
+              },
+              drag(e) {
+                const marker = e.target as L.Marker;
+                const pos = marker.getLatLng();
+                setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));
               },
             }}
           >
@@ -882,14 +1021,18 @@ export default function MapView({
                     className="markerPopup__coordsBtn"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleCopyCoords('stop', managedStop.lat, managedStop.lon);
+                      handleCopyCoords(
+                        'stop',
+                        effectiveStop?.lat ?? managedStop.lat,
+                        effectiveStop?.lon ?? managedStop.lon,
+                      );
                     }}
                     aria-label="Copy stop coordinates"
                     title="Copy stop coordinates"
                     data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
-                      {fmtCoord(managedStop.lat)}, {fmtCoord(managedStop.lon)}
+                      {fmtCoord(effectiveStop?.lat ?? managedStop.lat)}, {fmtCoord(effectiveStop?.lon ?? managedStop.lon)}
                     </span>
                     <span className="markerPopup__coordsIcon">
                       <CopyIcon />
@@ -902,7 +1045,7 @@ export default function MapView({
           </Marker>
         ) : null}
 
-        {polylinePositions.length > 0 && (
+        {!suppressRoutePath && polylinePositions.length > 0 && (
           <>
             <Polyline
               positions={polylinePositions}

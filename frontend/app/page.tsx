@@ -79,6 +79,7 @@ type MapViewProps = {
 
   selectedPinId?: 'origin' | 'destination' | 'stop-1' | null;
   focusPinRequest?: PinFocusRequest | null;
+  fitAllRequestNonce?: number;
 
   route: RouteOption | null;
   timeLapsePosition?: LatLng | null;
@@ -568,6 +569,7 @@ export default function Page() {
   const [destinationLabel, setDestinationLabel] = useState('Destination');
   const [selectedPinId, setSelectedPinId] = useState<'origin' | 'destination' | 'stop-1' | null>(null);
   const [focusPinRequest, setFocusPinRequest] = useState<PinFocusRequest | null>(null);
+  const [fitAllRequestNonce, setFitAllRequestNonce] = useState(0);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [locale, setLocale] = useState<Locale>('en');
 
@@ -1445,7 +1447,6 @@ export default function Page() {
     if (kind === 'origin') setOrigin({ lat, lon });
     else setDestination({ lat, lon });
 
-    setSelectedPinId(kind);
     clearComputed();
     markTutorialAction('map.drag_marker');
     if (kind === 'origin') {
@@ -1458,7 +1459,6 @@ export default function Page() {
   function handleMoveStop(lat: number, lon: number) {
     setError(null);
     setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
-    setSelectedPinId('stop-1');
     clearComputed();
   }
 
@@ -1524,6 +1524,9 @@ export default function Page() {
       if (next) {
         focusPinNonceRef.current += 1;
         setFocusPinRequest({ id: next, nonce: focusPinNonceRef.current });
+      } else {
+        setFocusPinRequest(null);
+        setFitAllRequestNonce((n) => n + 1);
       }
       return next;
     });
@@ -1554,6 +1557,7 @@ export default function Page() {
     setDestinationLabel('Destination');
     setSelectedPinId(null);
     setFocusPinRequest(null);
+    setFitAllRequestNonce((n) => n + 1);
     clearComputed();
     setError(null);
     setDutySyncError(null);
@@ -1584,6 +1588,7 @@ export default function Page() {
     setDestinationLabel('Destination');
     setSelectedPinId(null);
     setFocusPinRequest(null);
+    setFitAllRequestNonce((n) => n + 1);
     setVehicleType('rigid_hgv');
     setScenarioMode('no_sharing');
     setWeights({ time: 60, money: 20, co2: 20 });
@@ -2464,6 +2469,7 @@ export default function Page() {
           destinationLabel={destinationLabel}
           selectedPinId={selectedPinId}
           focusPinRequest={focusPinRequest}
+          fitAllRequestNonce={fitAllRequestNonce}
           route={selectedRoute}
           timeLapsePosition={timeLapsePosition}
           dutyStops={dutyStopsForOverlay}
