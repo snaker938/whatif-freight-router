@@ -77,6 +77,19 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
                     "carbon_price_per_kg": 0.1,
                     "toll_cost_per_km": 0.4,
                 },
+                "weather": {
+                    "enabled": True,
+                    "profile": "rain",
+                    "intensity": 1.2,
+                    "apply_incident_uplift": True,
+                },
+                "incident_simulation": {
+                    "enabled": True,
+                    "seed": 123,
+                    "dwell_rate_per_100km": 10.0,
+                    "accident_rate_per_100km": 2.5,
+                    "closure_rate_per_100km": 1.0,
+                },
                 "seed": 42,
                 "toggles": {"weather_enabled": False, "incidents_enabled": False},
                 "model_version": "demo-model-v1",
@@ -98,6 +111,8 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert manifest["model_metadata"]["model_version"] == "demo-model-v1"
             assert manifest["execution"]["pair_count"] == 2
             assert manifest["execution"]["cost_toggles"]["carbon_price_per_kg"] == 0.1
+            assert manifest["execution"]["weather"]["profile"] == "rain"
+            assert manifest["execution"]["incident_simulation"]["seed"] == 123
 
             list_resp = client.get(f"/runs/{run_id}/artifacts")
             assert list_resp.status_code == 200
@@ -152,6 +167,8 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             ]
             timestamps = [item["timestamp"] for item in provenance["events"]]
             assert timestamps == sorted(timestamps)
+            assert provenance["events"][0]["weather"]["profile"] == "rain"
+            assert provenance["events"][0]["incident_simulation"]["seed"] == 123
 
             geojson_resp = client.get(f"/runs/{run_id}/artifacts/routes.geojson")
             assert geojson_resp.status_code == 200

@@ -64,20 +64,44 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
                 "scenario_mode": "no_sharing",
                 "max_alternatives": 5,
                 "pareto_method": "epsilon_constraint",
-                "epsilon": {"duration_s": 6000, "monetary_cost": 5000, "emissions_kg": 5000},
+                "epsilon": {"duration_s": 25000, "monetary_cost": 5000, "emissions_kg": 5000},
                 "departure_time_utc": "2026-02-12T08:45:00Z",
+                "weather": {
+                    "enabled": True,
+                    "profile": "storm",
+                    "intensity": 1.0,
+                    "apply_incident_uplift": True,
+                },
+                "incident_simulation": {
+                    "enabled": True,
+                    "seed": 99,
+                    "dwell_rate_per_100km": 120.0,
+                    "accident_rate_per_100km": 90.0,
+                    "closure_rate_per_100km": 60.0,
+                },
             }
             pareto_resp = client.post("/pareto", json=pareto_payload)
             assert pareto_resp.status_code == 200
             routes = pareto_resp.json()["routes"]
             assert routes
-            assert all(route["metrics"]["duration_s"] <= 6000 for route in routes)
+            assert all(route["metrics"]["duration_s"] <= 25000 for route in routes)
             assert sum(1 for route in routes if route["is_knee"]) == 1
             for route in routes:
                 assert route["knee_score"] is not None
-                assert len(route["eta_timeline"]) == 4
+                stages = [item["stage"] for item in route["eta_timeline"]]
+                assert stages == [
+                    "baseline",
+                    "time_of_day",
+                    "scenario",
+                    "weather",
+                    "gradient",
+                    "incidents",
+                ]
                 assert len(route["eta_explanations"]) >= 2
                 assert len(route["segment_breakdown"]) >= 1
+                assert route["metrics"]["weather_delay_s"] >= 0.0
+                assert route["metrics"]["incident_delay_s"] >= 0.0
+                assert isinstance(route["incident_events"], list)
 
             # Backward compatibility: old request shape without new additive fields still works.
             old_route_payload = {
