@@ -61,22 +61,22 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'map_drag_pin',
     chapterId: 'chapter_map',
-    title: 'Drag a pin to adjust coordinates',
+    title: 'Refine marker coordinates with drag-and-drop',
     what:
-      'Drag either marker once. This verifies precision editing after initial map placement.',
+      'Drag at least one marker to a nearby road and drop it. This demonstrates precision editing after initial placement when you want to test nearby alternatives.',
     impact:
-      'Small coordinate changes can alter road options, ETA, and Pareto trade-offs; drag is the fastest refinement workflow.',
+      'Small pin movements can change snapped roads, total distance, ETA, and candidate dominance. Drag is the fastest way to run local what-if checks.',
     targetIds: ['map.interactive'],
     required: [{ actionId: 'map.drag_marker', label: 'Drag any map marker once.' }],
   },
   {
     id: 'map_popup_actions',
     chapterId: 'chapter_map',
-    title: 'Use marker popup controls',
+    title: 'Use marker popups for fast pin operations',
     what:
-      'Open a marker popup and use copy/close controls. Popup controls expose pin management shortcuts without leaving the map.',
+      'Click a marker to open its popup, copy coordinates, then close the popup using the in-popup close action.',
     impact:
-      'Popup actions speed operator workflows and reduce sidebar context switching during iterative planning.',
+      'Popup actions let you inspect and manage markers without leaving map context, reducing context switching during route setup.',
     targetIds: ['map.interactive'],
     required: [
       { actionId: 'map.popup_copy', label: 'Copy coordinates from any marker popup.' },
@@ -88,9 +88,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_map',
     title: 'Run destructive pin actions and recover',
     what:
-      'Use remove and swap controls at least once, then re-establish both pins so compute remains available.',
+      'Use remove and swap once, then restore a valid destination pin so computation remains enabled.',
     impact:
-      'This demonstrates safe recovery from destructive actions and confirms pin lifecycle behavior end-to-end.',
+      'This proves the full pin lifecycle: destructive edits are reversible, and compute gating responds correctly to missing markers.',
     targetIds: ['map.interactive'],
     required: [
       { actionId: 'map.popup_remove', label: 'Remove one marker from popup controls.' },
@@ -102,11 +102,11 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'setup_vehicle',
     chapterId: 'chapter_setup',
-    title: 'Choose vehicle profile',
+    title: 'Choose a vehicle profile',
     what:
-      'Open Vehicle type and choose a profile. The tutorial highlights profile options so you can see their operational meaning.',
+      'Open Vehicle type and actively pick a profile. Review the option hint text before selecting.',
     impact:
-      'Vehicle profile changes cost coefficients and emissions factors, directly affecting ranking and selected-route metrics.',
+      'Vehicle profile changes cost/emissions coefficients and can reorder best-route selection under the same OD pair.',
     targetIds: ['setup.vehicle'],
     required: [{ actionId: 'setup.vehicle_select', label: 'Select a vehicle option.' }],
     prefillId: 'canonical_setup',
@@ -116,9 +116,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_setup',
     title: 'Choose scenario mode',
     what:
-      'Use Scenario mode to choose policy assumptions (no/partial/full sharing).',
+      'Switch Scenario mode between sharing policies to understand available assumptions.',
     impact:
-      'Scenario mode alters delay assumptions and can shift ETA, cost, and emissions deltas across candidate routes.',
+      'Scenario mode changes delay assumptions and can materially shift ETA, money, and CO2 values across candidates.',
     targetIds: ['setup.scenario'],
     required: [{ actionId: 'setup.scenario_select', label: 'Select a scenario option.' }],
   },
@@ -127,9 +127,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_setup',
     title: 'Confirm language/local formatting control',
     what:
-      'Interact with Language once. This control changes UI copy and number/date formatting behavior.',
+      'Change Language once to verify locale-aware labels and number/date presentation.',
     impact:
-      'Locale changes improve operator readability across regions and affect how metrics are presented.',
+      'Locale improves operator readability and changes how metrics are rendered during review and reporting.',
     targetIds: ['setup.language'],
     required: [{ actionId: 'setup.language_select', label: 'Change language selection once.' }],
   },
@@ -138,7 +138,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_setup',
     title: 'Optional API token behavior',
     what:
-      'API token is optional unless RBAC-protected APIs are enabled. Enter a token or explicitly keep default empty.',
+      'API token is optional in local mode. Enter one if needed for protected environments, or explicitly keep it blank.',
     impact:
       'When RBAC is enabled, token presence determines access. In default local mode, leaving it empty is valid.',
     targetIds: ['setup.api_token'],
@@ -155,9 +155,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_setup',
     title: 'Toggle map overlays',
     what:
-      'Use Stops, Incidents, and Segments map overlay toggles to verify map-level visibility controls.',
+      'Toggle Stops, Incidents, and Segments overlays once each and confirm the map responds immediately.',
     impact:
-      'Overlay visibility controls are critical for debugging route context and inspecting incidents/segment-level detail.',
+      'Overlay controls govern map signal density, which is critical for debugging incidents and segment-level behavior.',
     targetIds: ['map.overlay_controls'],
     required: [
       { actionId: 'map.overlay_stops_toggle', label: 'Toggle Stops overlay.' },
@@ -170,9 +170,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_advanced',
     title: 'Set optimization mode and risk aversion',
     what:
-      'Choose robust mode and adjust risk aversion. Robust mode penalizes uncertainty relative to expected-value scoring.',
+      'Set optimization mode and risk aversion explicitly. Compare expected-value versus robust behavior.',
     impact:
-      'Higher risk aversion steers selection toward less volatile options, even when mean ETA may be slightly higher.',
+      'Higher risk aversion penalizes volatile options and can prioritize stability over minimum mean ETA.',
     targetIds: ['advanced.optimization_mode', 'advanced.risk_aversion'],
     required: [
       { actionId: 'advanced.optimization_mode_select', label: 'Select optimization mode.' },
@@ -185,9 +185,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_advanced',
     title: 'Switch Pareto method and set epsilon bounds',
     what:
-      'Change Pareto method to epsilon-constraint and fill all three epsilon thresholds.',
+      'Switch to epsilon-constraint mode and fill duration, monetary, and emissions caps.',
     impact:
-      'Epsilon caps can filter out infeasible high-cost/high-emission/high-duration candidates before final nondominance ranking.',
+      'Epsilon caps pre-filter infeasible candidates before nondominance selection, changing the final candidate set.',
     targetIds: ['advanced.pareto_method', 'advanced.epsilon_grid'],
     required: [
       { actionId: 'advanced.pareto_method_select', label: 'Select pareto method.' },
@@ -201,7 +201,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_advanced',
     title: 'Optional departure time in route requests',
     what:
-      'Departure time can be set explicitly or left unset. Explicit time improves reproducibility and profile consistency.',
+      'Set a departure time or explicitly keep default behavior. This field is optional but important for reproducible runs.',
     impact:
       'Time-dependent effects (for example profile multipliers) are anchored to this timestamp when present.',
     targetIds: ['advanced.departure_time'],
@@ -218,9 +218,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_advanced',
     title: 'Configure stochastic sampling',
     what:
-      'Enable stochastic mode and set seed/sigma/samples.',
+      'Enable stochastic sampling and set seed, sigma, and sample count.',
     impact:
-      'These controls determine uncertainty spread and reproducibility; they influence robust scoring and route confidence summaries.',
+      'These values control uncertainty spread and reproducibility, which directly influences robust ranking outcomes.',
     targetIds: ['advanced.stochastic_toggle', 'advanced.stochastic_grid'],
     required: [
       { actionId: 'advanced.stochastic_toggle', label: 'Enable stochastic sampling.' },
@@ -234,9 +234,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_advanced',
     title: 'Set terrain and monetary cost toggles',
     what:
-      'Pick terrain profile, keep tolls enabled, and set fuel/carbon/toll pricing knobs.',
+      'Set terrain profile and cost toggles (tolls, fuel multiplier, carbon price, toll per km).',
     impact:
-      'Terrain and cost toggles alter duration/emissions/cost surfaces and can materially change selected-route ranking.',
+      'These knobs alter duration, emissions, and monetary surfaces, which can reorder selected-route outcomes.',
     targetIds: ['advanced.terrain', 'advanced.cost_toggles'],
     required: [
       { actionId: 'advanced.terrain_select', label: 'Select terrain profile.' },
@@ -251,7 +251,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_routes',
     title: 'Tune objective weights',
     what:
-      'Adjust time, money, and CO2 sliders before compute.',
+      'Adjust time, money, and CO2 sliders to set your optimization preference before computing routes.',
     impact:
       'Weights control weighted-selection preference over the Pareto set and determine which candidate auto-selects.',
     targetIds: ['preferences.weights'],
@@ -267,7 +267,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_routes',
     title: 'Compute Pareto candidates',
     what:
-      'Run Compute Pareto and wait for completion.',
+      'Run Compute Pareto and wait until candidate generation completes.',
     impact:
       'This produces the candidate route set that drives charting, selected-route metrics, segment breakdown, and downstream comparisons.',
     targetIds: ['preferences.compute_button'],
@@ -281,7 +281,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_routes',
     title: 'Select a route from the Pareto chart',
     what:
-      'Click a point in the Pareto chart.',
+      'Click any Pareto chart point to select a specific candidate.',
     impact:
       'Chart selection updates selected-route metrics and all dependent panels (timeline, segment table, counterfactuals).',
     targetIds: ['routes.chart'],
@@ -292,7 +292,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_routes',
     title: 'Select from card list and rename route',
     what:
-      'Select a route card, start rename, and save the new label.',
+      'Select a card, open rename, and save a custom route label.',
     impact:
       'Human-readable route labels improve comparison and reporting when many candidates are generated.',
     targetIds: ['routes.list'],
@@ -318,7 +318,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_routes',
     title: 'Use segment breakdown controls',
     what:
-      'Expand segment table, show more, show fewer, and collapse again.',
+      'Expand the segment table, inspect rows, then collapse again. Optionally use row expansion controls.',
     impact:
       'Segment-level controls support granular inspection without overwhelming the sidebar by default.',
     targetIds: ['selected.segment_breakdown'],
@@ -336,13 +336,18 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'selected_read_panels',
     chapterId: 'chapter_routes',
-    title: 'Review explainability panels',
+    title: 'Validate selected-route explainability panels',
     what:
-      'Review ETA explanation, ETA timeline chart, and counterfactual panel output for the selected route.',
+      'Click inside the Selected route panel and confirm the explainability subpanels render for the active route.',
     impact:
-      'These panels explain why ETA changed and what-if sensitivity around your current selected route.',
+      'These panels explain ETA deltas and sensitivity, which is essential for auditability and decision communication.',
     targetIds: ['selected.route_panel'],
-    required: [{ actionId: 'manual.selected_review', label: 'Mark selected-route explainability review complete.', kind: 'manual' }],
+    required: [
+      { actionId: 'selected.panel_click', label: 'Click inside the Selected route panel.' },
+      { actionId: 'selected.panel_data_ready', label: 'Confirm selected-route metrics are available.' },
+      { actionId: 'selected.timeline_panel_visible', label: 'Confirm ETA timeline panel is visible.' },
+      { actionId: 'selected.counterfactual_panel_visible', label: 'Confirm counterfactual panel is visible.' },
+    ],
   },
   {
     id: 'scenario_compare_run',
@@ -363,7 +368,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_compare',
     title: 'Set departure search window',
     what:
-      'Edit start/end/step controls and optionally arrival constraints.',
+      'Edit search window start/end and step size, then optionally set arrival constraints.',
     impact:
       'Window and step define explored departures; arrival constraints enforce feasibility bounds.',
     targetIds: ['departure.section'],
@@ -385,7 +390,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_compare',
     title: 'Run optimization and apply candidate',
     what:
-      'Run Optimize departures and apply one candidate back to advanced departure-time state.',
+      'Run departure optimization and apply a suggested candidate back into advanced parameters.',
     impact:
       'Applying optimized departure creates a reproducible handoff from search output to route request input.',
     targetIds: ['departure.section'],

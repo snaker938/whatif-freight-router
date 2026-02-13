@@ -1028,6 +1028,13 @@ export default function Page() {
     }
   }, [selectedRoute]);
 
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'selected_read_panels' || !selectedRoute) return;
+    markTutorialAction('selected.panel_data_ready');
+    markTutorialAction('selected.timeline_panel_visible');
+    markTutorialAction('selected.counterfactual_panel_visible');
+  }, [markTutorialAction, selectedRoute, tutorialRunning, tutorialStep?.id]);
+
   const defaultLabelsById = useMemo(() => {
     const labels: Record<string, string> = {};
     for (let idx = 0; idx < paretoRoutes.length; idx += 1) {
@@ -2451,7 +2458,11 @@ export default function Page() {
               </section>
 
           {m && (
-            <section className="card" data-tutorial-id="selected.route_panel">
+            <section
+              className="card"
+              data-tutorial-id="selected.route_panel"
+              data-tutorial-action="selected.panel_click"
+            >
               <div className="sectionTitle">Selected route</div>
               <div className="sectionHint">{SIDEBAR_SECTION_HINTS.selectedRoute}</div>
               <div className="metrics">
