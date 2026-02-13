@@ -54,6 +54,16 @@ export type PinFocusRequest = {
   nonce: number;
 };
 
+export type TutorialGuideTarget = {
+  lat: number;
+  lon: number;
+  radius_km: number;
+  label: string;
+  stage: number;
+  pan_nonce: number;
+  zoom: number;
+};
+
 export type IncidentEventType = 'dwell' | 'accident' | 'closure';
 
 export type RouteMetrics = {

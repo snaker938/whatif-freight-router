@@ -8,6 +8,7 @@ import L, {
 } from 'leaflet';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
+  Circle,
   CircleMarker,
   MapContainer,
   Marker,
@@ -34,6 +35,7 @@ import type {
   PinFocusRequest,
   PinSelectionId,
   RouteOption,
+  TutorialGuideTarget,
 } from '../lib/types';
 
 export type MarkerKind = 'origin' | 'destination';
@@ -63,6 +65,9 @@ type Props = {
   };
   onTutorialAction?: (actionId: string) => void;
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
+  tutorialMapLocked?: boolean;
+  tutorialGuideTarget?: TutorialGuideTarget | null;
+  tutorialGuideVisible?: boolean;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: PinSelectionId | null) => void;
@@ -238,6 +243,26 @@ function FitAllRequestHandler({
       });
     }
   }, [nonce, origin, destination, managedStop, route?.id, map]);
+
+  return null;
+}
+
+function TutorialGuidePanHandler({
+  guideTarget,
+  visible,
+}: {
+  guideTarget: TutorialGuideTarget | null | undefined;
+  visible: boolean;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!visible || !guideTarget) return;
+    map.flyTo([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
+      animate: true,
+      duration: 0.55,
+    });
+  }, [guideTarget?.pan_nonce, guideTarget?.stage, visible, map, guideTarget]);
 
   return null;
 }
@@ -489,6 +514,9 @@ export default function MapView({
   overlayLabels,
   onTutorialAction,
   onTutorialTargetState,
+  tutorialMapLocked = false,
+  tutorialGuideTarget = null,
+  tutorialGuideVisible = false,
   onMapClick,
   onSelectPinId,
   onMoveMarker,
@@ -685,16 +713,17 @@ export default function MapView({
 
   const handleMapClickFromMap = useCallback(
     (lat: number, lon: number) => {
+      if (tutorialMapLocked) return;
       if (draggingPinId !== null) return;
       if (Date.now() < suppressMapClickUntilRef.current) return;
       onMapClick(lat, lon);
     },
-    [draggingPinId, onMapClick],
+    [draggingPinId, onMapClick, tutorialMapLocked],
   );
 
   return (
     <div
-      className="mapPane"
+      className={`mapPane ${tutorialMapLocked ? 'mapPane--tutorialLocked' : ''} ${tutorialGuideVisible ? 'mapPane--guide' : ''}`.trim()}
       data-segment-tooltips={showSegmentTooltips ? 'on' : 'off'}
       data-tutorial-id="map.interactive"
     >
@@ -704,6 +733,12 @@ export default function MapView({
         zoom={11}
         minZoom={5}
         maxZoom={18}
+        dragging={!tutorialMapLocked}
+        scrollWheelZoom={!tutorialMapLocked}
+        doubleClickZoom={!tutorialMapLocked}
+        boxZoom={!tutorialMapLocked}
+        keyboard={!tutorialMapLocked}
+        touchZoom={!tutorialMapLocked}
         maxBounds={UK_BOUNDS}
         maxBoundsViscosity={1.0}
         style={{ height: '100%', width: '100%' }}
@@ -724,6 +759,7 @@ export default function MapView({
           managedStop={managedStop}
           route={route}
         />
+        <TutorialGuidePanHandler guideTarget={tutorialGuideTarget} visible={tutorialGuideVisible} />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -732,6 +768,38 @@ export default function MapView({
         />
 
         <ClickHandler onMapClick={handleMapClickFromMap} />
+
+        {tutorialGuideVisible && tutorialGuideTarget ? (
+          <>
+            <Circle
+              center={[tutorialGuideTarget.lat, tutorialGuideTarget.lon]}
+              radius={tutorialGuideTarget.radius_km * 1000}
+              pathOptions={{
+                color: 'rgba(6, 182, 212, 0.94)',
+                weight: 2,
+                fillColor: 'rgba(6, 182, 212, 0.14)',
+                fillOpacity: 0.2,
+                dashArray: '6 6',
+              }}
+              interactive={false}
+            />
+            <CircleMarker
+              center={[tutorialGuideTarget.lat, tutorialGuideTarget.lon]}
+              radius={8}
+              pathOptions={{
+                color: 'rgba(6, 182, 212, 0.95)',
+                weight: 2,
+                fillColor: 'rgba(6, 182, 212, 0.92)',
+                fillOpacity: 0.9,
+              }}
+              interactive={false}
+            >
+              <Tooltip permanent={true} direction="top" offset={[0, -10]} className="tutorialGuideTooltip">
+                {tutorialGuideTarget.label}
+              </Tooltip>
+            </CircleMarker>
+          </>
+        ) : null}
 
         {origin && (
           <Marker
@@ -742,6 +810,7 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                if (tutorialMapLocked) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
@@ -749,6 +818,7 @@ export default function MapView({
                 onTutorialAction?.('map.click_origin_marker');
               },
               dragend(e) {
+                if (tutorialMapLocked) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
@@ -757,6 +827,7 @@ export default function MapView({
                 onTutorialAction?.('map.drag_origin_marker');
               },
               dragstart() {
+                if (tutorialMapLocked) return;
                 suppressInteractionsBriefly();
                 try {
                   originRef.current?.closePopup();
@@ -766,6 +837,7 @@ export default function MapView({
                 setDraggingPinId('origin');
               },
               drag(e) {
+                if (tutorialMapLocked) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
@@ -876,6 +948,7 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                if (tutorialMapLocked) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
@@ -883,6 +956,7 @@ export default function MapView({
                 onTutorialAction?.('map.click_destination_marker');
               },
               dragend(e) {
+                if (tutorialMapLocked) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
@@ -891,6 +965,7 @@ export default function MapView({
                 onTutorialAction?.('map.drag_destination_marker');
               },
               dragstart() {
+                if (tutorialMapLocked) return;
                 suppressInteractionsBriefly();
                 try {
                   destRef.current?.closePopup();
@@ -900,6 +975,7 @@ export default function MapView({
                 setDraggingPinId('destination');
               },
               drag(e) {
+                if (tutorialMapLocked) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
@@ -1010,6 +1086,7 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                if (tutorialMapLocked) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
@@ -1017,6 +1094,7 @@ export default function MapView({
                 onTutorialAction?.('map.click_stop_marker');
               },
               dragend(e) {
+                if (tutorialMapLocked) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));
@@ -1025,6 +1103,7 @@ export default function MapView({
                 onTutorialAction?.('map.drag_stop_marker');
               },
               dragstart() {
+                if (tutorialMapLocked) return;
                 suppressInteractionsBriefly();
                 try {
                   stopRef.current?.closePopup();
@@ -1034,6 +1113,7 @@ export default function MapView({
                 setDraggingPinId('stop-1');
               },
               drag(e) {
+                if (tutorialMapLocked) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));

@@ -42,22 +42,22 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'map_set_pins',
     chapterId: 'chapter_map',
-    title: 'Place, click, and drag both map pins',
+    title: 'Place Start near Newcastle and End near London',
     what:
-      'Click the map to place Start and Destination, click each marker to open/focus it, then drag each marker once to confirm precise coordinate editing.',
+      'Follow the guided map targets: place Start within the Newcastle zone first, then place End within the London zone. After both are placed, click each marker and drag each marker once.',
     impact:
-      'Every downstream result is anchored to these coordinates. Placement defines the OD pair, marker selection exposes map controls, and drag refinement can alter route geometry, ETA, and Pareto trade-offs.',
+      'Every downstream result is anchored to these coordinates. This strict placement demonstrates reproducible origin/destination setup before route optimization.',
     targetIds: ['map.interactive'],
     required: [
       {
-        actionId: 'map.set_origin',
-        label: 'Place or update the Start pin.',
-        details: 'Click anywhere on the map for Start (A).',
+        actionId: 'map.set_origin_newcastle',
+        label: 'Place Start in the Newcastle guided zone.',
+        details: 'Clicks outside the highlighted zone are rejected.',
       },
       {
-        actionId: 'map.set_destination',
-        label: 'Place or update the Destination pin.',
-        details: 'Click again to place Destination (B).',
+        actionId: 'map.set_destination_london',
+        label: 'Place End in the London guided zone.',
+        details: 'After Start is valid, the map auto-centers London.',
       },
       {
         actionId: 'map.click_origin_marker',
@@ -76,11 +76,33 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       },
       {
         actionId: 'map.drag_destination_marker',
-        label: 'Drag the Destination marker once.',
-        details: 'Drag B to a nearby location and drop.',
+        label: 'Drag the End marker once.',
+        details: 'Drag End to a nearby location and drop.',
       },
     ],
     prefillId: 'clear_map',
+    lockScope: 'map_only',
+    mapGuide: {
+      mode: 'pin_sequence',
+      sequence: [
+        {
+          pin: 'origin',
+          city: 'newcastle',
+          lat: 54.9783,
+          lon: -1.6178,
+          radiusKm: 20,
+          zoom: 11,
+        },
+        {
+          pin: 'destination',
+          city: 'london',
+          lat: 51.5072,
+          lon: -0.1276,
+          radiusKm: 20,
+          zoom: 10.5,
+        },
+      ],
+    },
   },
   {
     id: 'map_drag_pin',
