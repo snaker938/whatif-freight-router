@@ -13,6 +13,7 @@ export type TutorialRequirement = {
   actionId: TutorialActionId;
   label: string;
   kind?: 'ui' | 'manual';
+  details?: string;
 };
 
 export type TutorialOptionalDecision = {
@@ -42,9 +43,10 @@ export type TutorialChapter = {
 };
 
 export type TutorialProgress = {
+  version: 3;
   stepIndex: number;
-  actions: TutorialActionId[];
-  optionalDecisions: string[];
+  stepActionsById: Record<string, TutorialActionId[]>;
+  optionalDecisionsByStep: Record<string, string[]>;
   updatedAt: string;
 };
 

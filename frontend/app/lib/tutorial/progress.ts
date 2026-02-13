@@ -5,18 +5,44 @@ export function loadTutorialProgress(progressKey: string): TutorialProgress | nu
     const raw = window.localStorage.getItem(progressKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<TutorialProgress>;
-    if (!parsed || typeof parsed.stepIndex !== 'number' || !Array.isArray(parsed.actions)) {
+    if (!parsed || parsed.version !== 3 || typeof parsed.stepIndex !== 'number') {
+      window.localStorage.removeItem(progressKey);
       return null;
     }
+    const stepActionsById =
+      parsed.stepActionsById && typeof parsed.stepActionsById === 'object'
+        ? Object.entries(parsed.stepActionsById).reduce<Record<string, string[]>>((acc, [stepId, actions]) => {
+            if (!Array.isArray(actions)) return acc;
+            const filtered = actions.filter((item): item is string => typeof item === 'string');
+            acc[stepId] = filtered;
+            return acc;
+          }, {})
+        : {};
+    const optionalDecisionsByStep =
+      parsed.optionalDecisionsByStep && typeof parsed.optionalDecisionsByStep === 'object'
+        ? Object.entries(parsed.optionalDecisionsByStep).reduce<Record<string, string[]>>(
+            (acc, [stepId, decisions]) => {
+              if (!Array.isArray(decisions)) return acc;
+              const filtered = decisions.filter((item): item is string => typeof item === 'string');
+              acc[stepId] = filtered;
+              return acc;
+            },
+            {},
+          )
+        : {};
     return {
+      version: 3,
       stepIndex: parsed.stepIndex,
-      actions: parsed.actions.filter((item): item is string => typeof item === 'string'),
-      optionalDecisions: Array.isArray(parsed.optionalDecisions)
-        ? parsed.optionalDecisions.filter((item): item is string => typeof item === 'string')
-        : [],
+      stepActionsById,
+      optionalDecisionsByStep,
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
     };
   } catch {
+    try {
+      window.localStorage.removeItem(progressKey);
+    } catch {
+      // Ignore write errors.
+    }
     return null;
   }
 }

@@ -33,7 +33,7 @@ import {
   saveTutorialProgress,
 } from './lib/tutorial/progress';
 import { TUTORIAL_CHAPTERS, TUTORIAL_STEPS } from './lib/tutorial/steps';
-import type { TutorialStep, TutorialTargetRect } from './lib/tutorial/types';
+import type { TutorialProgress, TutorialStep, TutorialTargetRect } from './lib/tutorial/types';
 import type {
   CostToggles,
   DutyChainRequest,
@@ -438,15 +438,13 @@ export default function Page() {
     'chooser',
   );
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
-  const [tutorialActions, setTutorialActions] = useState<string[]>([]);
-  const [tutorialOptionalDecisions, setTutorialOptionalDecisions] = useState<string[]>([]);
+  const [tutorialStepActionsById, setTutorialStepActionsById] = useState<Record<string, string[]>>({});
+  const [tutorialOptionalDecisionsByStep, setTutorialOptionalDecisionsByStep] = useState<Record<string, string[]>>(
+    {},
+  );
   const [tutorialTargetRect, setTutorialTargetRect] = useState<TutorialTargetRect | null>(null);
   const [tutorialTargetMissing, setTutorialTargetMissing] = useState(false);
-  const [tutorialSavedProgress, setTutorialSavedProgress] = useState<{
-    stepIndex: number;
-    actions: string[];
-    optionalDecisions: string[];
-  } | null>(null);
+  const [tutorialSavedProgress, setTutorialSavedProgress] = useState<TutorialProgress | null>(null);
   const [tutorialCompleted, setTutorialCompleted] = useState(false);
   const [tutorialPrefilledSteps, setTutorialPrefilledSteps] = useState<string[]>([]);
   const [tutorialIsDesktop, setTutorialIsDesktop] = useState(() =>
@@ -473,12 +471,20 @@ export default function Page() {
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
   }, [apiToken]);
   const t = useMemo(() => createTranslator(locale), [locale]);
-  const tutorialActionSet = useMemo(() => new Set(tutorialActions), [tutorialActions]);
-  const tutorialOptionalSet = useMemo(() => new Set(tutorialOptionalDecisions), [tutorialOptionalDecisions]);
   const tutorialStep = useMemo<TutorialStep | null>(() => {
     if (tutorialStepIndex < 0 || tutorialStepIndex >= TUTORIAL_STEPS.length) return null;
     return TUTORIAL_STEPS[tutorialStepIndex] ?? null;
   }, [tutorialStepIndex]);
+  const tutorialRunning = tutorialOpen && tutorialMode === 'running';
+  const tutorialStepId = tutorialStep?.id ?? '';
+  const tutorialActionSet = useMemo(
+    () => new Set(tutorialStepId ? tutorialStepActionsById[tutorialStepId] ?? [] : []),
+    [tutorialStepActionsById, tutorialStepId],
+  );
+  const tutorialOptionalSet = useMemo(
+    () => new Set(tutorialStepId ? tutorialOptionalDecisionsByStep[tutorialStepId] ?? [] : []),
+    [tutorialOptionalDecisionsByStep, tutorialStepId],
+  );
   const tutorialChapter = useMemo(() => {
     if (!tutorialStep) return null;
     return TUTORIAL_CHAPTERS.find((chapter) => chapter.id === tutorialStep.chapterId) ?? null;
@@ -517,7 +523,6 @@ export default function Page() {
   }, [tutorialActionSet, tutorialOptionalState, tutorialStep]);
   const tutorialAtStart = tutorialStepIndex <= 0;
   const tutorialAtEnd = tutorialStepIndex >= TUTORIAL_STEPS.length - 1;
-  const tutorialRunning = tutorialOpen && tutorialMode === 'running';
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current !== null) {
@@ -526,15 +531,29 @@ export default function Page() {
     }
   }, []);
 
-  const markTutorialAction = useCallback((actionId: string) => {
-    if (!actionId) return;
-    setTutorialActions((prev) => (prev.includes(actionId) ? prev : [...prev, actionId]));
-  }, []);
+  const markTutorialAction = useCallback(
+    (actionId: string) => {
+      if (!actionId || !tutorialRunning || !tutorialStepId) return;
+      setTutorialStepActionsById((prev) => {
+        const existing = prev[tutorialStepId] ?? [];
+        if (existing.includes(actionId)) return prev;
+        return { ...prev, [tutorialStepId]: [...existing, actionId] };
+      });
+    },
+    [tutorialRunning, tutorialStepId],
+  );
 
-  const markTutorialOptionalDefault = useCallback((decisionId: string) => {
-    if (!decisionId) return;
-    setTutorialOptionalDecisions((prev) => (prev.includes(decisionId) ? prev : [...prev, decisionId]));
-  }, []);
+  const markTutorialOptionalDefault = useCallback(
+    (decisionId: string) => {
+      if (!decisionId || !tutorialRunning || !tutorialStepId) return;
+      setTutorialOptionalDecisionsByStep((prev) => {
+        const existing = prev[tutorialStepId] ?? [];
+        if (existing.includes(decisionId)) return prev;
+        return { ...prev, [tutorialStepId]: [...existing, decisionId] };
+      });
+    },
+    [tutorialRunning, tutorialStepId],
+  );
 
   const applyTutorialPrefill = useCallback(
     (prefillId: TutorialStep['prefillId']) => {
@@ -828,8 +847,8 @@ export default function Page() {
       setTutorialMode(savedProgress ? 'chooser' : tutorialIsDesktop ? 'running' : 'blocked');
       setTutorialOpen(true);
       if (!savedProgress) {
-        setTutorialActions([]);
-        setTutorialOptionalDecisions([]);
+        setTutorialStepActionsById({});
+        setTutorialOptionalDecisionsByStep({});
         setTutorialStepIndex(0);
       }
     }
@@ -863,19 +882,16 @@ export default function Page() {
 
   useEffect(() => {
     if (!tutorialRunning) return;
-    const payload = {
+    const payload: TutorialProgress = {
+      version: 3,
       stepIndex: tutorialStepIndex,
-      actions: tutorialActions,
-      optionalDecisions: tutorialOptionalDecisions,
+      stepActionsById: tutorialStepActionsById,
+      optionalDecisionsByStep: tutorialOptionalDecisionsByStep,
       updatedAt: new Date().toISOString(),
     };
     saveTutorialProgress(TUTORIAL_PROGRESS_KEY, payload);
-    setTutorialSavedProgress({
-      stepIndex: payload.stepIndex,
-      actions: payload.actions,
-      optionalDecisions: payload.optionalDecisions,
-    });
-  }, [tutorialActions, tutorialOptionalDecisions, tutorialRunning, tutorialStepIndex]);
+    setTutorialSavedProgress(payload);
+  }, [tutorialOptionalDecisionsByStep, tutorialRunning, tutorialStepActionsById, tutorialStepIndex]);
 
   useEffect(() => {
     if (!tutorialRunning || !tutorialStep) return;
@@ -1172,18 +1188,15 @@ export default function Page() {
 
   function closeTutorial() {
     if (tutorialMode === 'running') {
-      const snapshot = {
+      const snapshot: TutorialProgress = {
+        version: 3,
         stepIndex: tutorialStepIndex,
-        actions: tutorialActions,
-        optionalDecisions: tutorialOptionalDecisions,
+        stepActionsById: tutorialStepActionsById,
+        optionalDecisionsByStep: tutorialOptionalDecisionsByStep,
         updatedAt: new Date().toISOString(),
       };
       saveTutorialProgress(TUTORIAL_PROGRESS_KEY, snapshot);
-      setTutorialSavedProgress({
-        stepIndex: snapshot.stepIndex,
-        actions: snapshot.actions,
-        optionalDecisions: snapshot.optionalDecisions,
-      });
+      setTutorialSavedProgress(snapshot);
     }
     setTutorialOpen(false);
   }
@@ -1205,8 +1218,8 @@ export default function Page() {
     setShowIncidentOverlay(true);
     setShowSegmentTooltips(true);
     setTutorialMode(tutorialIsDesktop ? 'running' : 'blocked');
-    setTutorialActions([]);
-    setTutorialOptionalDecisions([]);
+    setTutorialStepActionsById({});
+    setTutorialOptionalDecisionsByStep({});
     setTutorialStepIndex(0);
     setTutorialTargetRect(null);
     setTutorialTargetMissing(false);
@@ -1225,8 +1238,8 @@ export default function Page() {
       startTutorialFresh();
       return;
     }
-    setTutorialActions(tutorialSavedProgress.actions);
-    setTutorialOptionalDecisions(tutorialSavedProgress.optionalDecisions);
+    setTutorialStepActionsById(tutorialSavedProgress.stepActionsById ?? {});
+    setTutorialOptionalDecisionsByStep(tutorialSavedProgress.optionalDecisionsByStep ?? {});
     setTutorialStepIndex(
       Math.max(0, Math.min(tutorialSavedProgress.stepIndex, Math.max(0, TUTORIAL_STEPS.length - 1))),
     );
