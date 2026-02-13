@@ -1,5 +1,6 @@
 export type TutorialActionId = string;
 export type TutorialPrefillId =
+  | 'clear_map'
   | 'canonical_map'
   | 'canonical_setup'
   | 'canonical_advanced'

@@ -560,6 +560,12 @@ export default function Page() {
       if (!prefillId) return;
       if (tutorialPrefilledSteps.includes(prefillId)) return;
 
+      if (prefillId === 'clear_map') {
+        setOrigin(null);
+        setDestination(null);
+        setSelectedMarker(null);
+      }
+
       if (prefillId === 'canonical_map') {
         setOrigin(TUTORIAL_CANONICAL_ORIGIN);
         setDestination(TUTORIAL_CANONICAL_DESTINATION);
@@ -1154,6 +1160,11 @@ export default function Page() {
     setSelectedMarker(kind);
     clearComputed();
     markTutorialAction('map.drag_marker');
+    if (kind === 'origin') {
+      markTutorialAction('map.drag_origin_marker');
+    } else {
+      markTutorialAction('map.drag_destination_marker');
+    }
   }
 
   function handleRemoveMarker(kind: MarkerKind) {

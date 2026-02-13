@@ -41,6 +41,7 @@ export function defaultDepartureWindow(now = new Date()): {
 
 export function isTutorialPrefillId(value: string): value is TutorialPrefillId {
   return (
+    value === 'clear_map' ||
     value === 'canonical_map' ||
     value === 'canonical_setup' ||
     value === 'canonical_advanced' ||

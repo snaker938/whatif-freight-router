@@ -42,17 +42,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'map_set_pins',
     chapterId: 'chapter_map',
-    title: 'Set both route pins on the map',
+    title: 'Place, click, and drag both map pins',
     what:
-      'Click the map to place Start and Destination pins. The tutorial pre-fills canonical coordinates, but you still need to actively place both pins to confirm map interaction.',
+      'Click the map to place Start and Destination, click each marker to open/focus it, then drag each marker once to confirm precise coordinate editing.',
     impact:
-      'All downstream computations use these coordinates. Every route metric, scenario delta, and artifact depends on this origin/destination pair.',
+      'Every downstream result is anchored to these coordinates. Placement defines the OD pair, marker selection exposes map controls, and drag refinement can alter route geometry, ETA, and Pareto trade-offs.',
     targetIds: ['map.interactive'],
     required: [
       { actionId: 'map.set_origin', label: 'Place or update the Start pin.' },
       { actionId: 'map.set_destination', label: 'Place or update the Destination pin.' },
+      { actionId: 'map.click_origin_marker', label: 'Click the Start marker once.' },
+      { actionId: 'map.click_destination_marker', label: 'Click the Destination marker once.' },
+      { actionId: 'map.drag_origin_marker', label: 'Drag the Start marker once.' },
+      { actionId: 'map.drag_destination_marker', label: 'Drag the Destination marker once.' },
     ],
-    prefillId: 'canonical_map',
+    prefillId: 'clear_map',
   },
   {
     id: 'map_drag_pin',

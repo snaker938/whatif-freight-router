@@ -424,11 +424,13 @@ export default function MapView({
               click(e) {
                 e.originalEvent?.stopPropagation();
                 onSelectMarker(selectedMarker === 'origin' ? null : 'origin');
+                onTutorialAction?.('map.click_origin_marker');
               },
               dragend(e) {
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 onMoveMarker('origin', pos.lat, pos.lng);
+                onTutorialAction?.('map.drag_origin_marker');
               },
             }}
           >
@@ -531,11 +533,13 @@ export default function MapView({
               click(e) {
                 e.originalEvent?.stopPropagation();
                 onSelectMarker(selectedMarker === 'destination' ? null : 'destination');
+                onTutorialAction?.('map.click_destination_marker');
               },
               dragend(e) {
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 onMoveMarker('destination', pos.lat, pos.lng);
+                onTutorialAction?.('map.drag_destination_marker');
               },
             }}
           >
