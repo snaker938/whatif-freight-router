@@ -41,6 +41,39 @@ a {
     overflow: hidden;
   }
 
+  .skipLink {
+    position: absolute;
+    left: 10px;
+    top: -48px;
+    z-index: 900;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(6, 182, 212, 0.6);
+    background: rgba(7, 8, 18, 0.95);
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 12px;
+    text-decoration: none;
+    transition: top 140ms ease;
+  }
+
+  .skipLink:focus-visible {
+    top: 10px;
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.24);
+  }
+
+  .srOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .mapStage {
     position: relative;
     min-width: 0;
@@ -265,6 +298,14 @@ a {
   .input:focus {
     border-color: rgba(6, 182, 212, 0.55);
     box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.14);
+  }
+
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.7);
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.2);
   }
 
   .advancedGrid {
@@ -621,6 +662,34 @@ a {
 
   button.secondary {
     background: rgba(0, 0, 0, 0.22);
+  }
+
+  .buttonLink {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(0, 0, 0, 0.22);
+    color: rgba(255, 255, 255, 0.92);
+    text-align: center;
+    text-decoration: none;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease,
+      background 150ms ease,
+      border-color 150ms ease;
+  }
+
+  .buttonLink:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+  }
+
+  .buttonLink:focus-visible {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.7);
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.2);
   }
 
   button.sidebarToggle {

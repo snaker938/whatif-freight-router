@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+import { formatDateTime } from '../lib/format';
+import type { Locale } from '../lib/i18n';
 import type { ExperimentBundle, ExperimentCatalogSort, ScenarioMode } from '../lib/types';
 
 type Props = {
@@ -25,6 +27,7 @@ type Props = {
   onCatalogScenarioModeChange: (value: '' | ScenarioMode) => void;
   onCatalogSortChange: (value: ExperimentCatalogSort) => void;
   onApplyCatalogFilters: () => void;
+  locale: Locale;
 };
 
 export default function ExperimentManager({
@@ -48,6 +51,7 @@ export default function ExperimentManager({
   onCatalogScenarioModeChange,
   onCatalogSortChange,
   onApplyCatalogFilters,
+  locale,
 }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -176,9 +180,9 @@ export default function ExperimentManager({
         {experiments.map((bundle) => (
           <li key={bundle.id} className="routeCard" style={{ cursor: 'default' }}>
             <div className="routeCard__top">
-              <div className="routeCard__id">{bundle.name}</div>
-              <div className="routeCard__pill">{new Date(bundle.updated_at).toLocaleString()}</div>
-            </div>
+                <div className="routeCard__id">{bundle.name}</div>
+                <div className="routeCard__pill">{formatDateTime(bundle.updated_at, locale)}</div>
+              </div>
             {bundle.description ? <div className="helper">{bundle.description}</div> : null}
             <div className="row" style={{ marginTop: 10 }}>
               <button className="secondary" onClick={() => onLoad(bundle)} disabled={disabled || loading}>

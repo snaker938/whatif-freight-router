@@ -1,20 +1,23 @@
 'use client';
 
+import { formatNumber } from '../lib/format';
+import type { Locale } from '../lib/i18n';
 import type { ScenarioCompareResponse } from '../lib/types';
 
 type Props = {
   data: ScenarioCompareResponse | null;
   loading: boolean;
   error: string | null;
+  locale: Locale;
 };
 
-function fmtDelta(value: number | undefined): string {
+function fmtDelta(value: number | undefined, locale: Locale): string {
   if (value === undefined) return '-';
   const prefix = value > 0 ? '+' : '';
-  return `${prefix}${value.toFixed(2)}`;
+  return `${prefix}${formatNumber(value, locale, { maximumFractionDigits: 2 })}`;
 }
 
-export default function ScenarioComparison({ data, loading, error }: Props) {
+export default function ScenarioComparison({ data, loading, error, locale }: Props) {
   if (loading) {
     return <div className="helper">Comparing scenarios...</div>;
   }
@@ -47,13 +50,13 @@ export default function ScenarioComparison({ data, loading, error }: Props) {
                 <tr key={result.scenario_mode}>
                   <td style={{ padding: '6px 4px' }}>{result.scenario_mode}</td>
                   <td style={{ textAlign: 'right', padding: '6px 4px' }}>
-                    {fmtDelta(delta.duration_s_delta)}
+                    {fmtDelta(delta.duration_s_delta, locale)}
                   </td>
                   <td style={{ textAlign: 'right', padding: '6px 4px' }}>
-                    {fmtDelta(delta.monetary_cost_delta)}
+                    {fmtDelta(delta.monetary_cost_delta, locale)}
                   </td>
                   <td style={{ textAlign: 'right', padding: '6px 4px' }}>
-                    {fmtDelta(delta.emissions_kg_delta)}
+                    {fmtDelta(delta.emissions_kg_delta, locale)}
                   </td>
                 </tr>
               );
@@ -67,4 +70,3 @@ export default function ScenarioComparison({ data, loading, error }: Props) {
     </div>
   );
 }
-

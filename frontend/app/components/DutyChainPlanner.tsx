@@ -1,5 +1,7 @@
 'use client';
 
+import { formatNumber } from '../lib/format';
+import type { Locale } from '../lib/i18n';
 import type { DutyChainResponse } from '../lib/types';
 
 type Props = {
@@ -10,6 +12,7 @@ type Props = {
   error: string | null;
   data: DutyChainResponse | null;
   disabled: boolean;
+  locale: Locale;
 };
 
 export default function DutyChainPlanner({
@@ -20,6 +23,7 @@ export default function DutyChainPlanner({
   error,
   data,
   disabled,
+  locale,
 }: Props) {
   return (
     <section className="card">
@@ -34,6 +38,7 @@ export default function DutyChainPlanner({
         Ordered stops, one per line: <code>lat,lon,label(optional)</code>.
       </div>
       <textarea
+        aria-label="Duty chain stops"
         className="input"
         style={{ minHeight: 110, marginTop: 8, resize: 'vertical' }}
         value={stopsText}
@@ -51,31 +56,49 @@ export default function DutyChainPlanner({
           <div className="metrics" style={{ marginTop: 10 }}>
             <div className="metric">
               <div className="metric__label">Total distance</div>
-              <div className="metric__value">{data.total_metrics.distance_km.toFixed(2)} km</div>
+              <div className="metric__value">
+                {formatNumber(data.total_metrics.distance_km, locale, { maximumFractionDigits: 2 })} km
+              </div>
             </div>
             <div className="metric">
               <div className="metric__label">Total duration</div>
-              <div className="metric__value">{(data.total_metrics.duration_s / 60).toFixed(1)} min</div>
+              <div className="metric__value">
+                {formatNumber(data.total_metrics.duration_s / 60, locale, { maximumFractionDigits: 1 })}{' '}
+                min
+              </div>
             </div>
             <div className="metric">
               <div className="metric__label">Total cost</div>
-              <div className="metric__value">£{data.total_metrics.monetary_cost.toFixed(2)}</div>
+              <div className="metric__value">
+                £
+                {formatNumber(data.total_metrics.monetary_cost, locale, {
+                  maximumFractionDigits: 2,
+                })}
+              </div>
             </div>
             <div className="metric">
               <div className="metric__label">Total CO2</div>
-              <div className="metric__value">{data.total_metrics.emissions_kg.toFixed(3)} kg</div>
+              <div className="metric__value">
+                {formatNumber(data.total_metrics.emissions_kg, locale, { maximumFractionDigits: 3 })} kg
+              </div>
             </div>
             {data.total_metrics.energy_kwh !== null && data.total_metrics.energy_kwh !== undefined ? (
               <div className="metric">
                 <div className="metric__label">Total energy</div>
-                <div className="metric__value">{data.total_metrics.energy_kwh.toFixed(2)} kWh</div>
+                <div className="metric__value">
+                  {formatNumber(data.total_metrics.energy_kwh, locale, { maximumFractionDigits: 2 })} kWh
+                </div>
               </div>
             ) : null}
           </div>
 
           <ul className="routeList" style={{ marginTop: 10 }}>
             {data.legs.map((leg) => (
-              <li key={`${leg.leg_index}-${leg.origin.lat}-${leg.destination.lat}`} className="routeCard" style={{ cursor: 'default' }}>
+              <li
+                key={`${leg.leg_index}-${leg.origin.lat}-${leg.origin.lon}-${leg.destination.lat}-${leg.destination.lon}`}
+                className="routeCard"
+                style={{ cursor: 'default' }}
+              >
                 <div className="routeCard__top">
                   <div className="routeCard__id">
                     Leg {leg.leg_index + 1}: {leg.origin.label ?? 'Origin'} {'->'}{' '}
@@ -86,9 +109,24 @@ export default function DutyChainPlanner({
                 {leg.error ? <div className="error">{leg.error}</div> : null}
                 {leg.selected ? (
                   <div className="routeCard__meta">
-                    <span>{(leg.selected.metrics.duration_s / 60).toFixed(1)} min</span>
-                    <span>£{leg.selected.metrics.monetary_cost.toFixed(2)}</span>
-                    <span>{leg.selected.metrics.emissions_kg.toFixed(3)} kg CO2</span>
+                    <span>
+                      {formatNumber(leg.selected.metrics.duration_s / 60, locale, {
+                        maximumFractionDigits: 1,
+                      })}{' '}
+                      min
+                    </span>
+                    <span>
+                      £
+                      {formatNumber(leg.selected.metrics.monetary_cost, locale, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    <span>
+                      {formatNumber(leg.selected.metrics.emissions_kg, locale, {
+                        maximumFractionDigits: 3,
+                      })}{' '}
+                      kg CO2
+                    </span>
                   </div>
                 ) : null}
               </li>

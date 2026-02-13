@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDateTime, formatNumber } from '../lib/format';
+import type { Locale } from '../lib/i18n';
 import type { DepartureOptimizeResponse } from '../lib/types';
 
 type Props = {
@@ -19,6 +21,7 @@ type Props = {
   onStepMinutesChange: (value: number) => void;
   onRun: () => void;
   onApplyDepartureTime: (isoUtc: string) => void;
+  locale: Locale;
 };
 
 export default function DepartureOptimizerChart({
@@ -38,6 +41,7 @@ export default function DepartureOptimizerChart({
   onStepMinutesChange,
   onRun,
   onApplyDepartureTime,
+  locale,
 }: Props) {
   return (
     <section className="card">
@@ -117,16 +121,33 @@ export default function DepartureOptimizerChart({
         <ul className="routeList" style={{ marginTop: 10 }}>
           {data.candidates.map((candidate) => (
             <li key={candidate.departure_time_utc} className="routeCard" style={{ cursor: 'default' }}>
-              <div className="routeCard__top">
-                <div className="routeCard__id">
-                  {new Date(candidate.departure_time_utc).toLocaleString()} UTC
+                <div className="routeCard__top">
+                  <div className="routeCard__id">
+                  {formatDateTime(candidate.departure_time_utc, locale)} UTC
+                  </div>
+                <div className="routeCard__pill">
+                  score {formatNumber(candidate.score, locale, { maximumFractionDigits: 4 })}
                 </div>
-                <div className="routeCard__pill">score {candidate.score.toFixed(4)}</div>
               </div>
               <div className="routeCard__meta">
-                <span>{(candidate.selected.metrics.duration_s / 60).toFixed(1)} min</span>
-                <span>£{candidate.selected.metrics.monetary_cost.toFixed(2)}</span>
-                <span>{candidate.selected.metrics.emissions_kg.toFixed(3)} kg CO2</span>
+                <span>
+                  {formatNumber(candidate.selected.metrics.duration_s / 60, locale, {
+                    maximumFractionDigits: 1,
+                  })}{' '}
+                  min
+                </span>
+                <span>
+                  £
+                  {formatNumber(candidate.selected.metrics.monetary_cost, locale, {
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+                <span>
+                  {formatNumber(candidate.selected.metrics.emissions_kg, locale, {
+                    maximumFractionDigits: 3,
+                  })}{' '}
+                  kg CO2
+                </span>
               </div>
               <div className="row" style={{ marginTop: 10 }}>
                 <button

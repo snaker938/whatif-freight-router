@@ -154,6 +154,49 @@ Use this for full containerized verification. Do not run this at the same time a
   - notebook setup and guided API/artifact/drift workflows
 - `docs/tutorial-and-reporting.md`
   - interactive tutorial behavior and PDF report artifact usage
+- `docs/frontend-accessibility-i18n.md`
+  - language selector behavior, locale formatting helpers, and keyboard/screen-reader support
+
+## API Quick Commands
+
+Duty chain (multi-leg):
+
+```powershell
+$body = @{
+  stops = @(
+    @{ lat = 52.4862; lon = -1.8904; label = "Birmingham" }
+    @{ lat = 52.2053; lon = 0.1218; label = "Cambridge" }
+    @{ lat = 51.5072; lon = -0.1276; label = "London" }
+  )
+  vehicle_type = "rigid_hgv"
+  scenario_mode = "no_sharing"
+} | ConvertTo-Json -Depth 8
+
+Invoke-RestMethod -Uri "http://localhost:8000/duty/chain" -Method Post -ContentType "application/json" -Body $body
+```
+
+Oracle quality ingest + dashboard:
+
+```powershell
+$check = @{
+  source = "oracle_demo"
+  schema_valid = $true
+  signature_valid = $true
+  freshness_s = 45
+  latency_ms = 120
+  record_count = 10
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8000/oracle/quality/check" -Method Post -ContentType "application/json" -Body $check
+Invoke-RestMethod -Uri "http://localhost:8000/oracle/quality/dashboard" -Method Get
+Invoke-WebRequest -Uri "http://localhost:8000/oracle/quality/dashboard.csv" -OutFile ".\oracle_quality_dashboard.csv"
+```
+
+## Accessibility and i18n Readiness
+
+- Frontend now includes a language selector (`English`/`Español`) with locale-aware date/number formatting in key panels.
+- Keyboard support includes a skip link (`Skip to controls panel`) and focus-visible states for primary controls.
+- Screen-reader updates are announced through a live region for compute/compare/optimization/duty-chain status changes.
 
 ## Troubleshooting
 

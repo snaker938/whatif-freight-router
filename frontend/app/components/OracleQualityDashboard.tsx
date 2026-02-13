@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 
+import { formatDateTime, formatNumber } from '../lib/format';
+import type { Locale } from '../lib/i18n';
 import type {
   OracleFeedCheckInput,
   OracleFeedCheckRecord,
@@ -17,6 +19,7 @@ type Props = {
   disabled: boolean;
   onRefresh: () => void;
   onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
+  locale: Locale;
 };
 
 export default function OracleQualityDashboard({
@@ -28,6 +31,7 @@ export default function OracleQualityDashboard({
   disabled,
   onRefresh,
   onIngest,
+  locale,
 }: Props) {
   const [source, setSource] = useState('oracle_demo');
   const [schemaValid, setSchemaValid] = useState(true);
@@ -76,10 +80,15 @@ export default function OracleQualityDashboard({
       <div className="sectionTitleRow">
         <div className="sectionTitle">Oracle quality dashboard</div>
         <div className="row" style={{ marginTop: 0 }}>
-          <button className="secondary" onClick={onRefresh} disabled={disabled || loading || ingesting}>
+          <button
+            className="secondary"
+            onClick={onRefresh}
+            disabled={disabled || loading || ingesting}
+            aria-label="Refresh oracle quality dashboard"
+          >
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
-          <a className="secondary" href={csvHref} style={{ textDecoration: 'none' }}>
+          <a className="buttonLink" href={csvHref} aria-label="Download oracle dashboard CSV">
             Download CSV
           </a>
         </div>
@@ -191,7 +200,7 @@ export default function OracleQualityDashboard({
       {latestCheck ? (
         <div className="tiny">
           Last check: {latestCheck.source} ({latestCheck.passed ? 'passed' : 'failed'}) at{' '}
-          {new Date(latestCheck.ingested_at_utc).toLocaleString()}
+          {formatDateTime(latestCheck.ingested_at_utc, locale)}
         </div>
       ) : null}
 
@@ -200,15 +209,21 @@ export default function OracleQualityDashboard({
           <div className="metrics">
             <div className="metric">
               <div className="metric__label">Total checks</div>
-              <div className="metric__value">{dashboard.total_checks}</div>
+              <div className="metric__value">
+                {formatNumber(dashboard.total_checks, locale, { maximumFractionDigits: 0 })}
+              </div>
             </div>
             <div className="metric">
               <div className="metric__label">Sources</div>
-              <div className="metric__value">{dashboard.source_count}</div>
+              <div className="metric__value">
+                {formatNumber(dashboard.source_count, locale, { maximumFractionDigits: 0 })}
+              </div>
             </div>
             <div className="metric">
               <div className="metric__label">Stale threshold</div>
-              <div className="metric__value">{dashboard.stale_threshold_s.toFixed(0)} s</div>
+              <div className="metric__value">
+                {formatNumber(dashboard.stale_threshold_s, locale, { maximumFractionDigits: 0 })} s
+              </div>
             </div>
           </div>
 
@@ -217,18 +232,31 @@ export default function OracleQualityDashboard({
               <li key={item.source} className="routeCard" style={{ cursor: 'default' }}>
                 <div className="routeCard__top">
                   <div className="routeCard__id">{item.source}</div>
-                  <div className="routeCard__pill">{(item.pass_rate * 100).toFixed(1)}% pass</div>
+                  <div className="routeCard__pill">
+                    {formatNumber(item.pass_rate * 100, locale, { maximumFractionDigits: 1 })}% pass
+                  </div>
                 </div>
                 <div className="routeCard__meta">
-                  <span>checks {item.check_count}</span>
-                  <span>schema fail {item.schema_failures}</span>
-                  <span>signature fail {item.signature_failures}</span>
-                  <span>stale {item.stale_count}</span>
+                  <span>
+                    checks {formatNumber(item.check_count, locale, { maximumFractionDigits: 0 })}
+                  </span>
+                  <span>
+                    schema fail {formatNumber(item.schema_failures, locale, { maximumFractionDigits: 0 })}
+                  </span>
+                  <span>
+                    signature fail{' '}
+                    {formatNumber(item.signature_failures, locale, { maximumFractionDigits: 0 })}
+                  </span>
+                  <span>stale {formatNumber(item.stale_count, locale, { maximumFractionDigits: 0 })}</span>
                 </div>
                 <div className="tiny">
-                  Avg latency: {item.avg_latency_ms !== null && item.avg_latency_ms !== undefined ? `${item.avg_latency_ms.toFixed(1)} ms` : 'n/a'} | Last observed:{' '}
+                  Avg latency:{' '}
+                  {item.avg_latency_ms !== null && item.avg_latency_ms !== undefined
+                    ? `${formatNumber(item.avg_latency_ms, locale, { maximumFractionDigits: 1 })} ms`
+                    : 'n/a'}{' '}
+                  | Last observed:{' '}
                   {item.last_observed_at_utc
-                    ? new Date(item.last_observed_at_utc).toLocaleString()
+                    ? formatDateTime(item.last_observed_at_utc, locale)
                     : 'n/a'}
                 </div>
               </li>

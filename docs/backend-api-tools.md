@@ -92,6 +92,45 @@ Run artifacts:
 - `GET /runs/{run_id}/artifacts/routes.geojson`
 - `GET /runs/{run_id}/artifacts/results_summary.csv`
 
+## Duty Chaining
+
+Endpoint:
+- `POST /duty/chain`
+
+Purpose:
+- evaluates an ordered list of stops as sequential legs for one vehicle
+- returns per-leg selected route and aggregate totals (`duration_s`, `monetary_cost`, `emissions_kg`, optional `energy_kwh`)
+
+Minimal payload:
+
+```json
+{
+  "stops": [
+    { "lat": 52.4862, "lon": -1.8904, "label": "Birmingham" },
+    { "lat": 52.2053, "lon": 0.1218, "label": "Cambridge" },
+    { "lat": 51.5072, "lon": -0.1276, "label": "London" }
+  ],
+  "vehicle_type": "rigid_hgv",
+  "scenario_mode": "no_sharing"
+}
+```
+
+## Oracle Quality Dashboard APIs
+
+Endpoints:
+- `POST /oracle/quality/check`
+- `GET /oracle/quality/dashboard`
+- `GET /oracle/quality/dashboard.csv`
+
+Storage artifacts:
+- `backend/out/oracle_quality/checks.ndjson`
+- `backend/out/oracle_quality/summary.json`
+- `backend/out/oracle_quality/dashboard.csv`
+
+Behavior:
+- each check record is appended to NDJSON history
+- dashboard aggregates pass-rate, schema/signature failures, freshness, and latency by source
+
 ## Offline Fallback Behavior
 
 When OSRM requests fail and fallback is enabled, the backend can reuse a last-known snapshot:

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 
 import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
+import { formatNumber } from './lib/format';
+import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
 import type {
   CostToggles,
   DutyChainRequest,
@@ -81,7 +83,12 @@ const EtaTimelineChart = dynamic<{ route: RouteOption | null }>(
 );
 
 const ScenarioComparison = dynamic<
-  { data: ScenarioCompareResponse | null; loading: boolean; error: string | null }
+  {
+    data: ScenarioCompareResponse | null;
+    loading: boolean;
+    error: string | null;
+    locale: Locale;
+  }
 >(() => import('./components/ScenarioComparison'), {
   ssr: false,
   loading: () => null,
@@ -124,6 +131,7 @@ const ExperimentManager = dynamic<
     onCatalogScenarioModeChange: (value: '' | ScenarioMode) => void;
     onCatalogSortChange: (value: ExperimentCatalogSort) => void;
     onApplyCatalogFilters: () => void;
+    locale: Locale;
   }
 >(() => import('./components/ExperimentManager'), {
   ssr: false,
@@ -148,6 +156,7 @@ const DepartureOptimizerChart = dynamic<
     onStepMinutesChange: (value: number) => void;
     onRun: () => void;
     onApplyDepartureTime: (isoUtc: string) => void;
+    locale: Locale;
   }
 >(() => import('./components/DepartureOptimizerChart'), {
   ssr: false,
@@ -185,6 +194,7 @@ const DutyChainPlanner = dynamic<
     error: string | null;
     data: DutyChainResponse | null;
     disabled: boolean;
+    locale: Locale;
   }
 >(() => import('./components/DutyChainPlanner'), {
   ssr: false,
@@ -201,6 +211,7 @@ const OracleQualityDashboard = dynamic<
     disabled: boolean;
     onRefresh: () => void;
     onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
+    locale: Locale;
   }
 >(() => import('./components/OracleQualityDashboard'), {
   ssr: false,
@@ -227,6 +238,7 @@ const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
 };
 
 const TUTORIAL_STORAGE_KEY = 'tutorial_v1_seen';
+const LOCALE_STORAGE_KEY = 'ui_locale_v1';
 
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
   return [...routes].sort((a, b) => {
@@ -292,6 +304,7 @@ export default function Page() {
   const [destination, setDestination] = useState<LatLng | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<MarkerKind | null>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  const [locale, setLocale] = useState<Locale>('en');
 
   const [vehicles, setVehicles] = useState<VehicleProfile[]>([]);
   const [vehicleType, setVehicleType] = useState<string>('rigid_hgv');
@@ -342,6 +355,7 @@ export default function Page() {
   const [oracleLatestCheck, setOracleLatestCheck] = useState<OracleFeedCheckRecord | null>(null);
   const [timeLapsePosition, setTimeLapsePosition] = useState<LatLng | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [liveMessage, setLiveMessage] = useState('');
 
   const [error, setError] = useState<string | null>(null);
 
@@ -355,6 +369,7 @@ export default function Page() {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
   }, [apiToken]);
+  const t = useMemo(() => createTranslator(locale), [locale]);
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current !== null) {
@@ -515,6 +530,26 @@ export default function Page() {
 
   useEffect(() => {
     try {
+      const saved = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+      if (saved === 'en' || saved === 'es') {
+        setLocale(saved);
+      }
+    } catch {
+      // Ignore localStorage access errors.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    } catch {
+      // Ignore localStorage access errors.
+    }
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  useEffect(() => {
+    try {
       const seen = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
       if (seen !== '1') {
         setTutorialOpen(true);
@@ -587,12 +622,32 @@ export default function Page() {
   const busy = loading || isPending;
   const canCompute = Boolean(origin && destination) && !busy;
 
-  const progressText = progress ? `${Math.min(progress.done, progress.total)}/${progress.total}` : null;
+  const progressText = progress
+    ? `${formatNumber(Math.min(progress.done, progress.total), locale, {
+        maximumFractionDigits: 0,
+      })}/${formatNumber(progress.total, locale, { maximumFractionDigits: 0 })}`
+    : null;
   const progressPct =
     progress && progress.total > 0
       ? Math.max(0, Math.min(100, (progress.done / progress.total) * 100))
       : 0;
   const normalisedWeights = useMemo(() => normaliseWeights(weights), [weights]);
+
+  useEffect(() => {
+    if (!loading) return;
+    if (progress && progress.total > 0) {
+      setLiveMessage(
+        t('live_computing_progress', {
+          done: formatNumber(Math.min(progress.done, progress.total), locale, {
+            maximumFractionDigits: 0,
+          }),
+          total: formatNumber(progress.total, locale, { maximumFractionDigits: 0 }),
+        }),
+      );
+      return;
+    }
+    setLiveMessage(t('live_computing'));
+  }, [loading, progress, t, locale]);
 
   const hasNameOverrides = Object.keys(routeNames).length > 0;
 
@@ -1033,8 +1088,10 @@ export default function Page() {
         authHeaders,
       );
       setScenarioCompare(payload);
+      setLiveMessage(t('live_compare_complete'));
     } catch (e: unknown) {
       setScenarioCompareError(e instanceof Error ? e.message : 'Failed to compare scenarios');
+      setLiveMessage(t('live_compare_failed'));
     } finally {
       setScenarioCompareLoading(false);
     }
@@ -1265,8 +1322,10 @@ export default function Page() {
         authHeaders,
       );
       setDutyChainData(payload);
+      setLiveMessage(t('live_duty_complete'));
     } catch (e: unknown) {
       setDutyChainError(e instanceof Error ? e.message : 'Failed to run duty chain.');
+      setLiveMessage(t('live_duty_failed'));
     } finally {
       setDutyChainLoading(false);
     }
@@ -1402,8 +1461,10 @@ export default function Page() {
         authHeaders,
       );
       setDepOptimizeData(payload);
+      setLiveMessage(t('live_departure_complete'));
     } catch (e: unknown) {
       setDepOptimizeError(e instanceof Error ? e.message : 'Failed to optimize departures');
+      setLiveMessage(t('live_departure_failed'));
     } finally {
       setDepOptimizeLoading(false);
     }
@@ -1445,14 +1506,14 @@ export default function Page() {
   ];
 
   const mapHint = (() => {
-    if (!origin) return 'Click the map to set Start.';
-    if (origin && !destination) return 'Now click the map to set Destination.';
+    if (!origin) return t('route_hint_start');
+    if (origin && !destination) return t('route_hint_destination');
     if (loading) {
       return progressText
-        ? `Computing routes... (${progressText})`
-        : 'Computing routes...';
+        ? `${t('live_computing')} (${progressText})`
+        : t('live_computing');
     }
-    return 'Compute Pareto to compare candidate routes. Use sliders to pick the best trade-off.';
+    return t('route_hint_default');
   })();
 
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
@@ -1462,6 +1523,12 @@ export default function Page() {
 
   return (
     <div className="app">
+      <a href="#app-sidebar-content" className="skipLink">
+        {t('skip_to_controls')}
+      </a>
+      <div className="srOnly" role="status" aria-live="polite" aria-atomic="true">
+        {liveMessage}
+      </div>
       <div className="mapStage">
         <MapView
           origin={origin}
@@ -1482,7 +1549,8 @@ export default function Page() {
               <div className="mapHUD__statusLine">
                 <span className="spinner" />
                 <span>
-                  Computing routes{progressText ? ` (${progressText})` : '...'}
+                  {t('live_computing')}
+                  {progressText ? ` (${progressText})` : '...'}
                 </span>
               </div>
 
@@ -1512,20 +1580,17 @@ export default function Page() {
       <aside className={`panel ${isPanelCollapsed ? 'isCollapsed' : ''}`} aria-hidden={isPanelCollapsed}>
             <header className="panelHeader">
               <div className="panelHeader__top">
-                <h1>Carbon‑Aware Freight Router</h1>
+                <h1>{t('panel_title')}</h1>
                 <div className="panelHeader__actions">
                   <span className="badge">v0</span>
                 </div>
               </div>
-              <p className="subtitle">
-                Click the map to set Start, then Destination. Compute Pareto to generate candidate
-                routes, then use the sliders to choose the best trade-off (time vs cost vs CO2).
-              </p>
+              <p className="subtitle">{t('panel_subtitle')}</p>
             </header>
 
             <div id="app-sidebar-content" className="panelBody">
               <section className="card">
-                <div className="sectionTitle">Setup</div>
+                <div className="sectionTitle">{t('setup')}</div>
 
                 <div className="fieldLabel">Vehicle type</div>
                 <Select
@@ -1554,6 +1619,23 @@ export default function Page() {
                   onChange={(event) => setApiToken(event.target.value)}
                 />
 
+                <label className="fieldLabel" htmlFor="ui-language">
+                  {t('language')}
+                </label>
+                <select
+                  id="ui-language"
+                  className="input"
+                  value={locale}
+                  disabled={busy}
+                  onChange={(event) => setLocale(event.target.value as Locale)}
+                >
+                  {LOCALE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
                 <div className="helper">
                   Scenario mode applies a policy-based delay multiplier and adds idle emissions (and
                   driver time cost) for the extra delay. This is a lightweight stub that can be
@@ -1579,7 +1661,7 @@ export default function Page() {
                     }}
                     disabled={busy}
                   >
-                    Start tutorial
+                    {t('start_tutorial')}
                   </button>
                 </div>
               </section>
@@ -1592,7 +1674,7 @@ export default function Page() {
               />
 
               <section className="card">
-                <div className="sectionTitle">Preferences</div>
+                <div className="sectionTitle">{t('preferences')}</div>
 
                 <div className="sliderField">
                   <div className="sliderField__head">
@@ -1657,11 +1739,12 @@ export default function Page() {
                       <span className="buttonLabel">
                         <span className="spinner spinner--inline" />
                         <span>
-                          Computing...{progressText ? ` ${progressText}` : ''}
+                          {t('computing')}
+                          {progressText ? ` ${progressText}` : ''}
                         </span>
                       </span>
                     ) : (
-                      'Compute Pareto'
+                      t('compute_pareto')
                     )}
                   </button>
 
@@ -1670,7 +1753,7 @@ export default function Page() {
                     onClick={clearComputed}
                     disabled={busy || paretoRoutes.length === 0}
                   >
-                    Clear results
+                    {t('clear_results')}
                   </button>
 
                   {loading && (
@@ -1681,9 +1764,19 @@ export default function Page() {
                 </div>
 
                 <div className="tiny">
-                  Relative influence: Time {(normalisedWeights.time * 100).toFixed(0)}% | Money{' '}
-                  {(normalisedWeights.money * 100).toFixed(0)}% | CO2{' '}
-                  {(normalisedWeights.co2 * 100).toFixed(0)}%
+                  Relative influence: Time{' '}
+                  {formatNumber(normalisedWeights.time * 100, locale, {
+                    maximumFractionDigits: 0,
+                  })}
+                  % | Money{' '}
+                  {formatNumber(normalisedWeights.money * 100, locale, {
+                    maximumFractionDigits: 0,
+                  })}
+                  % | CO2{' '}
+                  {formatNumber(normalisedWeights.co2 * 100, locale, {
+                    maximumFractionDigits: 0,
+                  })}
+                  %
                 </div>
 
                 {error && <div className="error">{error}</div>}
@@ -1695,23 +1788,33 @@ export default function Page() {
               <div className="metrics">
                 <div className="metric">
                   <div className="metric__label">Distance</div>
-                  <div className="metric__value">{m.distance_km.toFixed(2)} km</div>
+                  <div className="metric__value">
+                    {formatNumber(m.distance_km, locale, { maximumFractionDigits: 2 })} km
+                  </div>
                 </div>
                 <div className="metric">
                   <div className="metric__label">Duration</div>
-                  <div className="metric__value">{(m.duration_s / 60).toFixed(1)} min</div>
+                  <div className="metric__value">
+                    {formatNumber(m.duration_s / 60, locale, { maximumFractionDigits: 1 })} min
+                  </div>
                 </div>
                 <div className="metric">
                   <div className="metric__label">£ (proxy)</div>
-                  <div className="metric__value">{m.monetary_cost.toFixed(2)}</div>
+                  <div className="metric__value">
+                    {formatNumber(m.monetary_cost, locale, { maximumFractionDigits: 2 })}
+                  </div>
                 </div>
                 <div className="metric">
                   <div className="metric__label">CO2</div>
-                  <div className="metric__value">{m.emissions_kg.toFixed(3)} kg</div>
+                  <div className="metric__value">
+                    {formatNumber(m.emissions_kg, locale, { maximumFractionDigits: 3 })} kg
+                  </div>
                 </div>
                 <div className="metric">
                   <div className="metric__label">Avg speed</div>
-                  <div className="metric__value">{m.avg_speed_kmh.toFixed(1)} km/h</div>
+                  <div className="metric__value">
+                    {formatNumber(m.avg_speed_kmh, locale, { maximumFractionDigits: 1 })} km/h
+                  </div>
                 </div>
                 {selectedLabel && (
                   <div className="metric">
@@ -1918,14 +2021,27 @@ export default function Page() {
                                 )}
 
                                 <div className="routeCard__pill">
-                                  {(route.metrics.duration_s / 60).toFixed(1)} min
+                                  {formatNumber(route.metrics.duration_s / 60, locale, {
+                                    maximumFractionDigits: 1,
+                                  })}{' '}
+                                  min
                                   {route.is_knee ? ' • knee' : ''}
                                 </div>
                               </div>
 
                               <div className="routeCard__meta">
-                                <span>{route.metrics.emissions_kg.toFixed(3)} kg CO2</span>
-                                <span>£{route.metrics.monetary_cost.toFixed(2)}</span>
+                                <span>
+                                  {formatNumber(route.metrics.emissions_kg, locale, {
+                                    maximumFractionDigits: 3,
+                                  })}{' '}
+                                  kg CO2
+                                </span>
+                                <span>
+                                  £
+                                  {formatNumber(route.metrics.monetary_cost, locale, {
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </span>
                               </div>
                             </li>
                           );
@@ -1940,15 +2056,16 @@ export default function Page() {
 
           <section className="card">
             <div className="sectionTitleRow">
-              <div className="sectionTitle">Scenario comparison</div>
+              <div className="sectionTitle">{t('compare_scenarios')}</div>
               <button className="secondary" onClick={compareScenarios} disabled={!canCompareScenarios}>
-                {scenarioCompareLoading ? 'Comparing...' : 'Compare scenarios'}
+                {scenarioCompareLoading ? t('comparing_scenarios') : t('compare_scenarios')}
               </button>
             </div>
             <ScenarioComparison
               data={scenarioCompare}
               loading={scenarioCompareLoading}
               error={scenarioCompareError}
+              locale={locale}
             />
           </section>
 
@@ -1969,6 +2086,7 @@ export default function Page() {
             onStepMinutesChange={setDepStepMinutes}
             onRun={optimizeDepartures}
             onApplyDepartureTime={applyOptimizedDeparture}
+            locale={locale}
           />
 
           <DutyChainPlanner
@@ -1979,6 +2097,7 @@ export default function Page() {
             error={dutyChainError}
             data={dutyChainData}
             disabled={busy}
+            locale={locale}
           />
 
           <OracleQualityDashboard
@@ -1992,6 +2111,7 @@ export default function Page() {
               void refreshOracleDashboard();
             }}
             onIngest={ingestOracleCheck}
+            locale={locale}
           />
 
           <ExperimentManager
@@ -2027,6 +2147,7 @@ export default function Page() {
                 sort: expCatalogSort,
               });
             }}
+            locale={locale}
           />
             </div>
       </aside>
