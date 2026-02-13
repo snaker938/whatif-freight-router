@@ -10,7 +10,7 @@ const DICTIONARY = {
     skip_to_controls: 'Skip to controls panel',
     panel_title: 'Carbon-Aware Freight Router',
     panel_subtitle:
-      'Click the map to set Start, then Destination. Compute Pareto to generate candidate routes, then use the sliders to choose the best trade-off (time vs cost vs CO2).',
+      'Click the map to set Start, then End. Compute Pareto to generate candidate routes, then use the sliders to choose the best trade-off (time vs cost vs CO2).',
     setup: 'Setup',
     language: 'Language',
     start_tutorial: 'Start tutorial',
@@ -21,7 +21,7 @@ const DICTIONARY = {
     compare_scenarios: 'Compare scenarios',
     comparing_scenarios: 'Comparing...',
     route_hint_start: 'Click the map to set Start.',
-    route_hint_destination: 'Now click the map to set Destination.',
+    route_hint_destination: 'Now click the map to set End.',
     route_hint_default:
       'Compute Pareto to compare candidate routes. Use sliders to pick the best trade-off.',
     live_computing_progress: 'Computing routes {done} of {total}',
@@ -57,7 +57,7 @@ const DICTIONARY = {
     compare_scenarios: 'Comparar escenarios',
     comparing_scenarios: 'Comparando...',
     route_hint_start: 'Haz clic en el mapa para definir el inicio.',
-    route_hint_destination: 'Ahora haz clic para definir el destino.',
+    route_hint_destination: 'Ahora haz clic para definir el fin.',
     route_hint_default:
       'Calcula Pareto para comparar rutas candidatas. Ajusta los controles para el mejor equilibrio.',
     live_computing_progress: 'Calculando rutas {done} de {total}',

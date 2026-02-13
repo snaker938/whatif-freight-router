@@ -118,7 +118,7 @@ export default function DutyChainPlanner({
                 <div className="routeCard__top">
                   <div className="routeCard__id">
                     Leg {leg.leg_index + 1}: {leg.origin.label ?? 'Origin'} {'->'}{' '}
-                    {leg.destination.label ?? 'Destination'}
+                    {leg.destination.label ?? 'End'}
                   </div>
                   <div className="routeCard__pill">{leg.selected ? 'OK' : 'No route'}</div>
                 </div>

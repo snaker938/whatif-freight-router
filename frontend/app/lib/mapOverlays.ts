@@ -181,7 +181,7 @@ export function buildStopOverlayPoints(
       lat: destination.lat,
       lon: destination.lon,
       sequence: 0,
-      label: 'Destination',
+      label: 'End',
     });
   }
 
@@ -224,7 +224,7 @@ export function buildManagedPinNodes(
       kind: 'destination',
       lat: destination.lat,
       lon: destination.lon,
-      label: labels.destination?.trim() || 'Destination',
+      label: labels.destination?.trim() || 'End',
       order: stop ? 3 : 2,
     });
   }
