@@ -1950,6 +1950,28 @@ a {
     text-align: right !important;
   }
 
+  .segmentBreakdown__footer {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .segmentBreakdown__footerText {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.64);
+  }
+
+  button.segmentBreakdown__footerBtn {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+  }
+
   @keyframes routeDash {
     to {
       stroke-dashoffset: -30;

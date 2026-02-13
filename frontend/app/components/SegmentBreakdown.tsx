@@ -8,15 +8,21 @@ type Props = {
   route: RouteOption | null;
 };
 
+const PREVIEW_ROW_COUNT = 40;
+
 export default function SegmentBreakdown({ route }: Props) {
   const segments = Array.isArray(route?.segment_breakdown) ? route?.segment_breakdown : [];
   const [expanded, setExpanded] = useState(false);
+  const [showAllRows, setShowAllRows] = useState(false);
 
   useEffect(() => {
     setExpanded(false);
+    setShowAllRows(false);
   }, [route?.id]);
 
   if (!segments?.length) return null;
+  const visibleSegments = showAllRows ? segments : segments.slice(0, PREVIEW_ROW_COUNT);
+  const hiddenRowCount = Math.max(0, segments.length - visibleSegments.length);
 
   return (
     <div className="segmentBreakdown">
@@ -39,7 +45,7 @@ export default function SegmentBreakdown({ route }: Props) {
       </div>
       {!expanded ? (
         <div className="segmentBreakdown__collapsedHint">
-          Expand to view all segment rows with independent scrolling.
+          Expand to view a scrollable segment preview (not all rows by default).
         </div>
       ) : null}
       <div
@@ -57,7 +63,7 @@ export default function SegmentBreakdown({ route }: Props) {
             </tr>
           </thead>
           <tbody>
-            {segments.map((segment, idx) => (
+            {visibleSegments.map((segment, idx) => (
               <tr key={`${idx}-${segment.segment_index ?? idx}`}>
                 <td>{Number(segment.segment_index ?? idx) + 1}</td>
                 <td className="segmentBreakdown__right">
@@ -77,6 +83,32 @@ export default function SegmentBreakdown({ route }: Props) {
           </tbody>
         </table>
       </div>
+      {expanded && hiddenRowCount > 0 ? (
+        <div className="segmentBreakdown__footer">
+          <span className="segmentBreakdown__footerText">
+            Showing first {visibleSegments.length} of {segments.length} segments.
+          </span>
+          <button
+            type="button"
+            className="ghostButton segmentBreakdown__footerBtn"
+            onClick={() => setShowAllRows(true)}
+          >
+            Show all rows
+          </button>
+        </div>
+      ) : null}
+      {expanded && showAllRows && segments.length > PREVIEW_ROW_COUNT ? (
+        <div className="segmentBreakdown__footer">
+          <span className="segmentBreakdown__footerText">All segment rows are currently visible.</span>
+          <button
+            type="button"
+            className="ghostButton segmentBreakdown__footerBtn"
+            onClick={() => setShowAllRows(false)}
+          >
+            Show fewer rows
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
