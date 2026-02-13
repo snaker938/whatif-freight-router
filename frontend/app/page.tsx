@@ -4,11 +4,18 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
+import FieldInfo from './components/FieldInfo';
 import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
 import { buildStopOverlayPoints, parseDutyStopsForOverlay } from './lib/mapOverlays';
+import {
+  SIDEBAR_DROPDOWN_OPTIONS_HELP,
+  SIDEBAR_FIELD_HELP,
+  SIDEBAR_SECTION_HINTS,
+  vehicleDescriptionFromId,
+} from './lib/sidebarHelpText';
 import type {
   CostToggles,
   DutyChainRequest,
@@ -1516,28 +1523,40 @@ export default function Page() {
   const m = selectedRoute?.metrics ?? null;
 
   const vehicleOptions = vehicles.length
-    ? vehicles.map((v) => ({ value: v.id, label: v.label }))
+    ? vehicles.map((v) => ({
+        value: v.id,
+        label: v.label,
+        description: vehicleDescriptionFromId(v.id),
+      }))
     : [
-        { value: 'van', label: 'Van' },
-        { value: 'rigid_hgv', label: 'Rigid HGV' },
-        { value: 'artic_hgv', label: 'Articulated HGV' },
+        { value: 'van', label: 'Van', description: vehicleDescriptionFromId('van') },
+        {
+          value: 'rigid_hgv',
+          label: 'Rigid HGV',
+          description: vehicleDescriptionFromId('rigid_hgv'),
+        },
+        {
+          value: 'artic_hgv',
+          label: 'Articulated HGV',
+          description: vehicleDescriptionFromId('artic_hgv'),
+        },
       ];
 
   const scenarioOptions: { value: ScenarioMode; label: string; description: string }[] = [
     {
       value: 'no_sharing',
       label: 'No sharing',
-      description: 'Baseline: no expected delay uplift.',
+      description: 'Baseline assumptions with no sharing policy uplift.',
     },
     {
       value: 'partial_sharing',
       label: 'Partial sharing',
-      description: 'Small delay uplift, some coordination overhead.',
+      description: 'Moderate coordination with moderate delay effects.',
     },
     {
       value: 'full_sharing',
       label: 'Full sharing',
-      description: 'Best coordination: lowest expected delay uplift.',
+      description: 'Maximum coordination with strongest sharing assumptions.',
     },
   ];
 
@@ -1667,26 +1686,40 @@ export default function Page() {
             <div id="app-sidebar-content" className="panelBody">
               <section className="card">
                 <div className="sectionTitle">{t('setup')}</div>
+                <div className="sectionHint">{SIDEBAR_SECTION_HINTS.setup}</div>
 
-                <div className="fieldLabel">Vehicle type</div>
+                <div className="fieldLabelRow">
+                  <div className="fieldLabel">Vehicle type</div>
+                  <FieldInfo text={SIDEBAR_FIELD_HELP.vehicleType} />
+                </div>
                 <Select
                   ariaLabel="Vehicle type"
                   value={vehicleType}
                   options={vehicleOptions}
                   onChange={setVehicleType}
                   disabled={busy}
+                  showSelectionHint={true}
                 />
 
-                <div className="fieldLabel">Scenario mode</div>
+                <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.scenarioMode}</div>
+
+                <div className="fieldLabelRow">
+                  <div className="fieldLabel">Scenario mode</div>
+                  <FieldInfo text={SIDEBAR_FIELD_HELP.scenarioMode} />
+                </div>
                 <Select
                   ariaLabel="Scenario mode"
                   value={scenarioMode}
                   options={scenarioOptions}
                   onChange={setScenarioMode}
                   disabled={busy}
+                  showSelectionHint={true}
                 />
 
-                <div className="fieldLabel">API token (optional)</div>
+                <div className="fieldLabelRow">
+                  <div className="fieldLabel">API token (optional)</div>
+                  <FieldInfo text={SIDEBAR_FIELD_HELP.apiToken} />
+                </div>
                 <input
                   className="input"
                   type="password"
@@ -1695,9 +1728,12 @@ export default function Page() {
                   onChange={(event) => setApiToken(event.target.value)}
                 />
 
-                <label className="fieldLabel" htmlFor="ui-language">
-                  {t('language')}
-                </label>
+                <div className="fieldLabelRow">
+                  <label className="fieldLabel" htmlFor="ui-language">
+                    {t('language')}
+                  </label>
+                  <FieldInfo text={SIDEBAR_FIELD_HELP.language} />
+                </div>
                 <select
                   id="ui-language"
                   className="input"
@@ -1751,6 +1787,7 @@ export default function Page() {
 
               <section className="card">
                 <div className="sectionTitle">{t('preferences')}</div>
+                <div className="sectionHint">{SIDEBAR_SECTION_HINTS.preferences}</div>
 
                 <div className="sliderField">
                   <div className="sliderField__head">
@@ -1861,6 +1898,7 @@ export default function Page() {
           {m && (
             <section className="card">
               <div className="sectionTitle">Selected route</div>
+              <div className="sectionHint">{SIDEBAR_SECTION_HINTS.selectedRoute}</div>
               <div className="metrics">
                 <div className="metric">
                   <div className="metric__label">Distance</div>
@@ -1961,6 +1999,7 @@ export default function Page() {
                   )}
                 </div>
               </div>
+              <div className="sectionHint">{SIDEBAR_SECTION_HINTS.routes}</div>
 
               {warnings.length > 0 && showWarnings && (
                 <div
@@ -2137,6 +2176,7 @@ export default function Page() {
                 {scenarioCompareLoading ? t('comparing_scenarios') : t('compare_scenarios')}
               </button>
             </div>
+            <div className="sectionHint">{SIDEBAR_SECTION_HINTS.compareScenarios}</div>
             <ScenarioComparison
               data={scenarioCompare}
               loading={scenarioCompareLoading}
