@@ -33,7 +33,12 @@ import {
   saveTutorialProgress,
 } from './lib/tutorial/progress';
 import { TUTORIAL_CHAPTERS, TUTORIAL_STEPS } from './lib/tutorial/steps';
-import type { TutorialProgress, TutorialStep, TutorialTargetRect } from './lib/tutorial/types';
+import type {
+  TutorialLockScope,
+  TutorialProgress,
+  TutorialStep,
+  TutorialTargetRect,
+} from './lib/tutorial/types';
 import type {
   CostToggles,
   DutyChainRequest,
@@ -574,6 +579,51 @@ const WEIGHT_PRESETS: Array<{ id: string; label: string; value: WeightState }> =
   { id: 'cleanest', label: 'Cleanest', value: { time: 10, money: 10, co2: 80 } },
 ];
 
+const TUTORIAL_SECTION_IDS = [
+  'setup.section',
+  'pins.section',
+  'advanced.section',
+  'preferences.section',
+  'selected.route_panel',
+  'routes.list',
+  'compare.section',
+  'departure.section',
+  'duty.section',
+  'oracle.section',
+  'experiments.section',
+  'timelapse.section',
+] as const;
+
+type TutorialSectionId = (typeof TUTORIAL_SECTION_IDS)[number];
+
+function inferTutorialSectionId(step: TutorialStep | null): TutorialSectionId | null {
+  if (!step) return null;
+  if (step.activeSectionId) {
+    return TUTORIAL_SECTION_IDS.includes(step.activeSectionId as TutorialSectionId)
+      ? (step.activeSectionId as TutorialSectionId)
+      : null;
+  }
+  const match = step.targetIds.find((targetId) =>
+    TUTORIAL_SECTION_IDS.includes(targetId as TutorialSectionId),
+  );
+  return match ? (match as TutorialSectionId) : null;
+}
+
+function inferTutorialLockScope(step: TutorialStep | null): TutorialLockScope {
+  if (!step) return 'free';
+  if (step.lockScope) return step.lockScope;
+  const activeSection = inferTutorialSectionId(step);
+  if (activeSection) return 'sidebar_section_only';
+  if (step.targetIds.includes('map.interactive')) return 'map_only';
+  return 'free';
+}
+
+function isTutorialActionAllowed(actionId: string, allowSet: Set<string>, allowPrefixes: string[]): boolean {
+  if (!actionId) return false;
+  if (allowSet.has(actionId)) return true;
+  return allowPrefixes.some((prefix) => actionId.startsWith(prefix));
+}
+
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
@@ -672,6 +722,7 @@ export default function Page() {
   const tutorialBootstrappedRef = useRef(false);
   const dutySyncSourceRef = useRef<'pins' | 'text' | null>(null);
   const focusPinNonceRef = useRef(0);
+  const tutorialLockNoticeAtRef = useRef(0);
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
@@ -721,6 +772,28 @@ export default function Page() {
       actionTouched,
     };
   }, [tutorialOptionalSet, tutorialActionSet, tutorialStep]);
+  const tutorialLockScope = useMemo(() => inferTutorialLockScope(tutorialStep), [tutorialStep]);
+  const tutorialActiveSectionId = useMemo(() => inferTutorialSectionId(tutorialStep), [tutorialStep]);
+  const tutorialAllowedActionSet = useMemo(() => {
+    if (!tutorialStep) return new Set<string>();
+    const fromRequired = tutorialStep.required.map((item) => item.actionId);
+    const fromOptional = tutorialStep.optional?.actionIds ?? [];
+    const fromCustom = tutorialStep.allowedActions ?? [];
+    return new Set<string>([...fromRequired, ...fromOptional, ...fromCustom]);
+  }, [tutorialStep]);
+  const tutorialAllowedActionPrefixes = useMemo(() => {
+    return [...tutorialAllowedActionSet]
+      .filter((actionId) => actionId.endsWith('*'))
+      .map((actionId) => actionId.slice(0, -1));
+  }, [tutorialAllowedActionSet]);
+  const tutorialAllowedActionExact = useMemo(() => {
+    return new Set(
+      [...tutorialAllowedActionSet].filter((actionId) => !actionId.endsWith('*')),
+    );
+  }, [tutorialAllowedActionSet]);
+  const tutorialTargetIdSet = useMemo(() => {
+    return new Set<string>(tutorialStep?.targetIds ?? []);
+  }, [tutorialStep]);
   const tutorialCanAdvance = useMemo(() => {
     if (!tutorialStep) return false;
     const requiredDone = tutorialStep.required.every((item) => tutorialActionSet.has(item.actionId));
@@ -1145,6 +1218,93 @@ export default function Page() {
       document.removeEventListener('input', handleActionEvent, true);
     };
   }, [markTutorialAction, tutorialRunning]);
+
+  useEffect(() => {
+    if (!tutorialRunning) return;
+
+    const isTargetAllowedByStep = (target: HTMLElement): boolean => {
+      for (const targetId of tutorialTargetIdSet) {
+        const node = document.querySelector<HTMLElement>(`[data-tutorial-id="${targetId}"]`);
+        if (node?.contains(target)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const blockInteraction = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      (event as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+      const now = Date.now();
+      if (now - tutorialLockNoticeAtRef.current > 800) {
+        tutorialLockNoticeAtRef.current = now;
+        setLiveMessage('Complete the highlighted tutorial action first.');
+      }
+    };
+
+    const onGuardEvent = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('.tutorialOverlay__card')) return;
+
+      const inMap = Boolean(target.closest('[data-tutorial-id="map.interactive"]'));
+      const inPanel = Boolean(target.closest('.panel'));
+      const activeSectionNode = tutorialActiveSectionId
+        ? document.querySelector<HTMLElement>(`[data-tutorial-id="${tutorialActiveSectionId}"]`)
+        : null;
+
+      if (tutorialLockScope === 'map_only') {
+        if (!inMap) {
+          blockInteraction(event);
+        }
+        return;
+      }
+
+      if (tutorialLockScope === 'sidebar_section_only') {
+        if (!inPanel) {
+          blockInteraction(event);
+          return;
+        }
+        if (activeSectionNode && !activeSectionNode.contains(target)) {
+          blockInteraction(event);
+          return;
+        }
+
+        const actionId =
+          target.closest<HTMLElement>('[data-tutorial-action]')?.dataset.tutorialAction ?? '';
+        if (
+          actionId &&
+          isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)
+        ) {
+          return;
+        }
+
+        if (isTargetAllowedByStep(target)) {
+          return;
+        }
+
+        blockInteraction(event);
+      }
+    };
+
+    const guardEvents: Array<keyof DocumentEventMap> = ['pointerdown', 'click', 'change', 'input'];
+    for (const name of guardEvents) {
+      document.addEventListener(name, onGuardEvent, true);
+    }
+    return () => {
+      for (const name of guardEvents) {
+        document.removeEventListener(name, onGuardEvent, true);
+      }
+    };
+  }, [
+    tutorialActiveSectionId,
+    tutorialAllowedActionExact,
+    tutorialAllowedActionPrefixes,
+    tutorialLockScope,
+    tutorialRunning,
+    tutorialTargetIdSet,
+  ]);
 
   useEffect(() => {
     if (!tutorialRunning) return;

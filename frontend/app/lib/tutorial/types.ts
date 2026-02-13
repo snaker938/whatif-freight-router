@@ -1,4 +1,19 @@
 export type TutorialActionId = string;
+export type TutorialLockScope = 'map_only' | 'sidebar_section_only' | 'free';
+
+export type TutorialMapGuideSequencePoint = {
+  pin: 'origin' | 'destination';
+  city: 'newcastle' | 'london';
+  lat: number;
+  lon: number;
+  radiusKm: number;
+  zoom: number;
+};
+
+export type TutorialMapGuide = {
+  mode: 'pin_sequence';
+  sequence: TutorialMapGuideSequencePoint[];
+};
 export type TutorialPrefillId =
   | 'clear_map'
   | 'canonical_map'
@@ -35,6 +50,10 @@ export type TutorialStep = {
   optional?: TutorialOptionalDecision;
   prefillId?: TutorialPrefillId;
   allowMissingTarget?: boolean;
+  lockScope?: TutorialLockScope;
+  activeSectionId?: string;
+  allowedActions?: string[];
+  mapGuide?: TutorialMapGuide;
 };
 
 export type TutorialChapter = {
