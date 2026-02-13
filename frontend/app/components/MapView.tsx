@@ -89,7 +89,7 @@ const MAP_HOT_RELOAD_KEY =
       })();
 
 function makePinIcon(kind: MarkerKind, selected: boolean) {
-  const label = kind === 'origin' ? 'A' : 'B';
+  const label = kind === 'origin' ? 'Start' : 'End';
   const assistive = kind === 'origin' ? 'Start marker' : 'End marker';
   const baseClass = kind === 'origin' ? 'pin-origin' : 'pin-destination';
   const selectedClass = selected ? 'pin--selected' : '';
