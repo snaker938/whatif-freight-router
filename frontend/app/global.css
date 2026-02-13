@@ -267,20 +267,23 @@ a {
   .collapsibleCard__contentInner {
     overflow: hidden;
     min-height: 0;
-    padding: 0 14px 14px;
+    padding: 16px 14px 14px;
     min-width: 0;
   }
 
-  .collapsibleCard__contentInner > .sectionHint:first-child {
-    margin-top: 10px;
+  .collapsibleCard__contentInner > :first-child {
+    margin-top: 0 !important;
   }
 
   .sectionTitle {
     font-family: var(--font-space), var(--font-inter), system-ui;
-    font-size: 13px;
-    letter-spacing: -0.01em;
-    color: rgba(255, 255, 255, 0.88);
-    margin-bottom: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.012em;
+    text-transform: capitalize;
+    color: rgba(255, 255, 255, 0.92);
+    margin-bottom: 0;
   }
 
   label {
@@ -306,7 +309,7 @@ a {
   }
 
   .sectionHint {
-    margin-top: 6px;
+    margin-top: 0;
     font-size: 11.5px;
     color: rgba(255, 255, 255, 0.64);
     line-height: 1.35;
@@ -422,11 +425,6 @@ a {
   select:focus {
     border-color: rgba(6, 182, 212, 0.55);
     box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.14);
-  }
-
-  .pinManager {
-    border-color: rgba(6, 182, 212, 0.22);
-    background: linear-gradient(180deg, rgba(6, 182, 212, 0.08), rgba(0, 0, 0, 0.2));
   }
 
   .pinManager__rail {

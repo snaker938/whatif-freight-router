@@ -30,21 +30,10 @@ export default function DutyChainPlanner({
 }: Props) {
   return (
     <CollapsibleCard
-      title="Duty chain planner"
+      title="Duty Chain Planner"
       hint={SIDEBAR_SECTION_HINTS.dutyChainPlanner}
       dataTutorialId="duty.section"
     >
-      <div className="sectionTitleRow" style={{ marginTop: 8 }}>
-        <button
-          className="secondary"
-          onClick={onRun}
-          disabled={disabled || loading}
-          data-tutorial-action="duty.run_click"
-        >
-          {loading ? 'Running...' : 'Run duty chain'}
-        </button>
-      </div>
-
       <div className="helper">
         Ordered stops, one per line: <code>lat,lon,label(optional)</code>.
       </div>
@@ -64,6 +53,17 @@ export default function DutyChainPlanner({
         onChange={(event) => onStopsTextChange(event.target.value)}
         data-tutorial-action="duty.stops_input"
       />
+
+      <div className="row row--actions" style={{ marginTop: 12 }}>
+        <button
+          className="secondary"
+          onClick={onRun}
+          disabled={disabled || loading}
+          data-tutorial-action="duty.run_click"
+        >
+          {loading ? 'Running...' : 'Run Duty Chain'}
+        </button>
+      </div>
 
       {error ? <div className="error">{error}</div> : null}
 

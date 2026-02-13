@@ -97,32 +97,10 @@ export default function OracleQualityDashboard({
 
   return (
     <CollapsibleCard
-      title="Oracle quality dashboard"
+      title="Oracle Quality Dashboard"
       hint={SIDEBAR_SECTION_HINTS.oracleQualityDashboard}
       dataTutorialId="oracle.section"
     >
-      <div className="row" style={{ marginTop: 8 }}>
-        <button
-          className="secondary"
-          onClick={onRefresh}
-          disabled={disabled || loading || ingesting}
-          aria-label="Refresh oracle quality dashboard"
-          data-tutorial-action="oracle.refresh_click"
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </button>
-        <a
-          className="buttonLink"
-          href={csvHref}
-          aria-label="Download oracle dashboard CSV"
-          data-tutorial-action="oracle.download_csv_click"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Download CSV
-        </a>
-      </div>
-
       <div className="helper">
         Record feed checks and inspect source-level pass rates, freshness, and signature health.
       </div>
@@ -247,7 +225,26 @@ export default function OracleQualityDashboard({
         data-tutorial-action="oracle.error_note_input"
       />
 
-      <div className="row row--actions" style={{ marginTop: 10 }}>
+      <div className="row row--actions" style={{ marginTop: 12 }}>
+        <button
+          className="secondary"
+          onClick={onRefresh}
+          disabled={disabled || loading || ingesting}
+          aria-label="Refresh oracle quality dashboard"
+          data-tutorial-action="oracle.refresh_click"
+        >
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+        <a
+          className="buttonLink"
+          href={csvHref}
+          aria-label="Download oracle dashboard CSV"
+          data-tutorial-action="oracle.download_csv_click"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Download CSV
+        </a>
         <button
           className="secondary"
           onClick={handleIngest}

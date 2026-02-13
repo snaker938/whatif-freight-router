@@ -102,11 +102,7 @@ export default function PinManager({
   }
 
   return (
-    <CollapsibleCard
-      className="pinManager"
-      title="Pins & stops"
-      dataTutorialId="pins.section"
-    >
+    <CollapsibleCard title="Pins & Stops" dataTutorialId="pins.section">
       <div className="pinManager__rail" role="list" aria-label="Pin route order">
         {railNodes.length === 0 ? (
           <span className="pinManager__railEmpty">Add Start and End pins to build a route.</span>

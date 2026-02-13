@@ -51,21 +51,10 @@ export default function DepartureOptimizerChart({
 }: Props) {
   return (
     <CollapsibleCard
-      title="Departure optimization"
+      title="Departure Optimization"
       hint={SIDEBAR_SECTION_HINTS.departureOptimization}
       dataTutorialId="departure.section"
     >
-      <div className="sectionTitleRow" style={{ marginTop: 8 }}>
-        <button
-          className="secondary"
-          onClick={onRun}
-          disabled={disabled || loading}
-          data-tutorial-action="dep.optimize_click"
-        >
-          {loading ? 'Optimizing...' : 'Optimize departures'}
-        </button>
-      </div>
-
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="dep-window-start">
           Window start (UTC)
@@ -148,6 +137,17 @@ export default function DepartureOptimizerChart({
         onChange={(event) => onLatestArrivalChange(event.target.value)}
         data-tutorial-action="dep.latest_input"
       />
+
+      <div className="row row--actions" style={{ marginTop: 12 }}>
+        <button
+          className="secondary"
+          onClick={onRun}
+          disabled={disabled || loading}
+          data-tutorial-action="dep.optimize_click"
+        >
+          {loading ? 'Optimizing...' : 'Optimize Departures'}
+        </button>
+      </div>
 
       {error ? <div className="error">{error}</div> : null}
 

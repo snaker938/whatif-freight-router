@@ -101,17 +101,6 @@ export default function ExperimentManager({
       hint={SIDEBAR_SECTION_HINTS.experiments}
       dataTutorialId="experiments.section"
     >
-      <div className="row" style={{ marginTop: 8 }}>
-        <button
-          className="secondary"
-          onClick={onRefresh}
-          disabled={loading || disabled}
-          data-tutorial-action="exp.refresh_click"
-        >
-          Refresh
-        </button>
-      </div>
-
       <div className="fieldLabelRow">
         <label className="fieldLabel" htmlFor="experiment-search">
           Catalog search
@@ -195,6 +184,14 @@ export default function ExperimentManager({
       </div>
 
       <div className="row row--actions" style={{ marginTop: 10 }}>
+        <button
+          className="secondary"
+          onClick={onRefresh}
+          disabled={loading || disabled}
+          data-tutorial-action="exp.refresh_click"
+        >
+          Refresh
+        </button>
         <button
           className="secondary"
           onClick={onApplyCatalogFilters}

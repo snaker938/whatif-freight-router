@@ -2709,7 +2709,7 @@ export default function Page() {
 
           {m && (
             <CollapsibleCard
-              title="Selected route"
+              title="Selected Route"
               hint={SIDEBAR_SECTION_HINTS.selectedRoute}
               dataTutorialId="selected.route_panel"
               className="selectedRouteCard"

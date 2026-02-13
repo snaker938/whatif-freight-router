@@ -129,7 +129,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
   if (!route || coords.length < 2) {
     return (
       <CollapsibleCard
-        title="Scenario time-lapse"
+        title="Scenario Time-Lapse"
         hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
         dataTutorialId="timelapse.section"
       >
@@ -142,7 +142,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange }: Props) {
 
   return (
     <CollapsibleCard
-      title="Scenario time-lapse"
+      title="Scenario Time-Lapse"
       hint={SIDEBAR_SECTION_HINTS.scenarioTimeLapse}
       dataTutorialId="timelapse.section"
     >
