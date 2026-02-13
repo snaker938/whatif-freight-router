@@ -30,6 +30,8 @@ export type TimeWindowConstraints = {
 
 export type LatLng = { lat: number; lon: number };
 
+export type IncidentEventType = 'dwell' | 'accident' | 'closure';
+
 export type RouteMetrics = {
   distance_km: number;
   duration_s: number;
@@ -37,6 +39,38 @@ export type RouteMetrics = {
   emissions_kg: number;
   avg_speed_kmh: number;
   energy_kwh?: number | null;
+  weather_delay_s?: number;
+  incident_delay_s?: number;
+};
+
+export type SimulatedIncidentEvent = {
+  event_id: string;
+  event_type: IncidentEventType;
+  segment_index: number;
+  start_offset_s: number;
+  delay_s: number;
+  source: 'synthetic';
+};
+
+export type RouteSegmentBreakdownRow = {
+  segment_index: number;
+  distance_km: number;
+  duration_s: number;
+  incident_delay_s?: number;
+  avg_speed_kmh?: number;
+  emissions_kg: number;
+  monetary_cost: number;
+};
+
+export type WeatherSummary = {
+  enabled: boolean;
+  profile: string;
+  intensity: number;
+  apply_incident_uplift: boolean;
+  speed_multiplier: number;
+  incident_multiplier: number;
+  weather_delay_s?: number;
+  incident_rate_multiplier?: number;
 };
 
 export type GeoJSONLineString = {
@@ -52,9 +86,11 @@ export type RouteOption = {
   is_knee?: boolean;
   eta_explanations?: string[];
   eta_timeline?: Array<Record<string, string | number>>;
-  segment_breakdown?: Array<Record<string, string | number>>;
+  segment_breakdown?: RouteSegmentBreakdownRow[];
   counterfactuals?: Array<Record<string, string | number | boolean>>;
   uncertainty?: Record<string, number> | null;
+  incident_events?: SimulatedIncidentEvent[];
+  weather_summary?: WeatherSummary | null;
 };
 
 export type ParetoResponse = { routes: RouteOption[] };
