@@ -42,6 +42,10 @@ from .models import (
     DepartureOptimizeCandidate,
     DepartureOptimizeRequest,
     DepartureOptimizeResponse,
+    DutyChainLegResult,
+    DutyChainRequest,
+    DutyChainResponse,
+    DutyChainStop,
     EmissionsContext,
     EpsilonConstraints,
     ExperimentBundle,
@@ -1779,6 +1783,173 @@ async def optimize_departure_time(
         raise
     finally:
         _record_endpoint_metric("departure_optimize_post", t0, error=has_error)
+
+
+def _to_latlng(stop: DutyChainStop) -> LatLng:
+    return LatLng(lat=stop.lat, lon=stop.lon)
+
+
+def _next_departure(
+    departure_time_utc: datetime | None,
+    selected: RouteOption | None,
+) -> datetime | None:
+    if departure_time_utc is None or selected is None:
+        return departure_time_utc
+    cursor = departure_time_utc
+    if cursor.tzinfo is None:
+        cursor = cursor.replace(tzinfo=timezone.utc)
+    else:
+        cursor = cursor.astimezone(timezone.utc)
+    return cursor + timedelta(seconds=float(selected.metrics.duration_s))
+
+
+@app.post("/duty/chain", response_model=DutyChainResponse)
+async def run_duty_chain(
+    req: DutyChainRequest,
+    osrm: OSRMDep,
+    _: UserAccessDep,
+) -> DutyChainResponse:
+    t0 = time.perf_counter()
+    has_error = False
+
+    try:
+        legs: list[DutyChainLegResult] = []
+        total_distance_km = 0.0
+        total_duration_s = 0.0
+        total_monetary_cost = 0.0
+        total_emissions_kg = 0.0
+        total_energy_kwh = 0.0
+        has_energy = False
+
+        departure_cursor = req.departure_time_utc
+        for idx in range(len(req.stops) - 1):
+            origin_stop = req.stops[idx]
+            destination_stop = req.stops[idx + 1]
+            origin = _to_latlng(origin_stop)
+            destination = _to_latlng(destination_stop)
+
+            cache_key = _candidate_cache_key(
+                origin=origin,
+                destination=destination,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode,
+                max_routes=req.max_alternatives,
+                cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
+                departure_time_utc=departure_cursor,
+            )
+            routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+                osrm=osrm,
+                origin=origin,
+                destination=destination,
+                max_routes=req.max_alternatives,
+                cache_key=cache_key,
+            )
+            options, build_warnings = _build_options(
+                routes,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode,
+                cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
+                stochastic=req.stochastic,
+                emissions_context=req.emissions_context,
+                departure_time_utc=departure_cursor,
+                option_prefix=f"duty_leg_{idx}",
+            )
+            warnings.extend(build_warnings)
+
+            if not options:
+                legs.append(
+                    DutyChainLegResult(
+                        leg_index=idx,
+                        origin=origin_stop,
+                        destination=destination_stop,
+                        selected=None,
+                        candidates=[],
+                        warning_count=len(warnings),
+                        fallback_used=fallback_used,
+                        error="No route candidates could be computed.",
+                    )
+                )
+                continue
+
+            pareto = _finalize_pareto_options(
+                options,
+                max_alternatives=req.max_alternatives,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+            )
+            selected = _pick_best_option(
+                pareto,
+                w_time=req.weights.time,
+                w_money=req.weights.money,
+                w_co2=req.weights.co2,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+            )
+            legs.append(
+                DutyChainLegResult(
+                    leg_index=idx,
+                    origin=origin_stop,
+                    destination=destination_stop,
+                    selected=selected,
+                    candidates=pareto,
+                    warning_count=len(warnings),
+                    fallback_used=fallback_used,
+                )
+            )
+
+            total_distance_km += float(selected.metrics.distance_km)
+            total_duration_s += float(selected.metrics.duration_s)
+            total_monetary_cost += float(selected.metrics.monetary_cost)
+            total_emissions_kg += float(selected.metrics.emissions_kg)
+            if selected.metrics.energy_kwh is not None:
+                total_energy_kwh += float(selected.metrics.energy_kwh)
+                has_energy = True
+
+            departure_cursor = _next_departure(departure_cursor, selected)
+
+        successful_leg_count = sum(1 for leg in legs if leg.selected is not None)
+        avg_speed_kmh = total_distance_km / (total_duration_s / 3600.0) if total_duration_s > 0 else 0.0
+        total_metrics = RouteMetrics(
+            distance_km=round(total_distance_km, 3),
+            duration_s=round(total_duration_s, 2),
+            monetary_cost=round(total_monetary_cost, 2),
+            emissions_kg=round(total_emissions_kg, 3),
+            avg_speed_kmh=round(avg_speed_kmh, 2),
+            energy_kwh=round(total_energy_kwh, 3) if has_energy else None,
+        )
+
+        log_event(
+            "duty_chain_request",
+            stop_count=len(req.stops),
+            leg_count=len(legs),
+            successful_leg_count=successful_leg_count,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode.value,
+            emissions_context=req.emissions_context.model_dump(mode="json"),
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+            total_metrics=total_metrics.model_dump(mode="json"),
+            duration_ms=round((time.perf_counter() - t0) * 1000.0, 2),
+        )
+
+        return DutyChainResponse(
+            legs=legs,
+            total_metrics=total_metrics,
+            leg_count=len(legs),
+            successful_leg_count=successful_leg_count,
+        )
+    except HTTPException:
+        has_error = True
+        raise
+    except Exception:
+        has_error = True
+        raise
+    finally:
+        _record_endpoint_metric("duty_chain_post", t0, error=has_error)
 
 
 def _scenario_metric_deltas(

@@ -296,6 +296,47 @@ class DepartureOptimizeResponse(BaseModel):
     evaluated_count: int
 
 
+class DutyChainStop(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    label: str | None = None
+
+
+class DutyChainLegResult(BaseModel):
+    leg_index: int
+    origin: DutyChainStop
+    destination: DutyChainStop
+    selected: RouteOption | None = None
+    candidates: list[RouteOption] = Field(default_factory=list)
+    warning_count: int = 0
+    fallback_used: bool = False
+    error: str | None = None
+
+
+class DutyChainRequest(BaseModel):
+    stops: list[DutyChainStop] = Field(..., min_length=2, max_length=50)
+    vehicle_type: str = Field(default="rigid_hgv")
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
+    weights: Weights = Field(default_factory=lambda: Weights(time=1, money=1, co2=1))
+    max_alternatives: int = Field(default=5, ge=1, le=5)
+    cost_toggles: CostToggles = Field(default_factory=CostToggles)
+    terrain_profile: TerrainProfile = "flat"
+    stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+    optimization_mode: OptimizationMode = "expected_value"
+    risk_aversion: float = Field(default=1.0, ge=0.0)
+    emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+    departure_time_utc: datetime | None = None
+    pareto_method: ParetoMethod = "dominance"
+    epsilon: EpsilonConstraints | None = None
+
+
+class DutyChainResponse(BaseModel):
+    legs: list[DutyChainLegResult]
+    total_metrics: RouteMetrics
+    leg_count: int
+    successful_leg_count: int
+
+
 class ExperimentBundleInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
