@@ -236,7 +236,13 @@ const TutorialOverlay = dynamic<
     canGoNext: boolean;
     atStart: boolean;
     atEnd: boolean;
-    checklist: Array<{ actionId: string; label: string; done: boolean; kind?: 'ui' | 'manual' }>;
+    checklist: Array<{
+      actionId: string;
+      label: string;
+      details?: string;
+      done: boolean;
+      kind?: 'ui' | 'manual';
+    }>;
     optionalDecision: {
       id: string;
       label: string;
@@ -498,6 +504,7 @@ export default function Page() {
     return tutorialStep.required.map((item) => ({
       actionId: item.actionId,
       label: item.label,
+      details: item.details,
       done: tutorialActionSet.has(item.actionId),
       kind: item.kind,
     }));

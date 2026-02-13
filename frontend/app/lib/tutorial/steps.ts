@@ -49,12 +49,36 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       'Every downstream result is anchored to these coordinates. Placement defines the OD pair, marker selection exposes map controls, and drag refinement can alter route geometry, ETA, and Pareto trade-offs.',
     targetIds: ['map.interactive'],
     required: [
-      { actionId: 'map.set_origin', label: 'Place or update the Start pin.' },
-      { actionId: 'map.set_destination', label: 'Place or update the Destination pin.' },
-      { actionId: 'map.click_origin_marker', label: 'Click the Start marker once.' },
-      { actionId: 'map.click_destination_marker', label: 'Click the Destination marker once.' },
-      { actionId: 'map.drag_origin_marker', label: 'Drag the Start marker once.' },
-      { actionId: 'map.drag_destination_marker', label: 'Drag the Destination marker once.' },
+      {
+        actionId: 'map.set_origin',
+        label: 'Place or update the Start pin.',
+        details: 'Click anywhere on the map for Start (A).',
+      },
+      {
+        actionId: 'map.set_destination',
+        label: 'Place or update the Destination pin.',
+        details: 'Click again to place Destination (B).',
+      },
+      {
+        actionId: 'map.click_origin_marker',
+        label: 'Click the Start marker once.',
+        details: 'This verifies marker selection and popup focus.',
+      },
+      {
+        actionId: 'map.click_destination_marker',
+        label: 'Click the Destination marker once.',
+        details: 'Use marker click interaction on the B pin.',
+      },
+      {
+        actionId: 'map.drag_origin_marker',
+        label: 'Drag the Start marker once.',
+        details: 'Drag A to a nearby location and drop.',
+      },
+      {
+        actionId: 'map.drag_destination_marker',
+        label: 'Drag the Destination marker once.',
+        details: 'Drag B to a nearby location and drop.',
+      },
     ],
     prefillId: 'clear_map',
   },
@@ -343,10 +367,26 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       'These panels explain ETA deltas and sensitivity, which is essential for auditability and decision communication.',
     targetIds: ['selected.route_panel'],
     required: [
-      { actionId: 'selected.panel_click', label: 'Click inside the Selected route panel.' },
-      { actionId: 'selected.panel_data_ready', label: 'Confirm selected-route metrics are available.' },
-      { actionId: 'selected.timeline_panel_visible', label: 'Confirm ETA timeline panel is visible.' },
-      { actionId: 'selected.counterfactual_panel_visible', label: 'Confirm counterfactual panel is visible.' },
+      {
+        actionId: 'selected.panel_click',
+        label: 'Click inside the Selected route panel.',
+        details: 'Interact with the panel to confirm focus.',
+      },
+      {
+        actionId: 'selected.panel_data_ready',
+        label: 'Confirm selected-route metrics are available.',
+        details: 'Route metrics must be present for explainability review.',
+      },
+      {
+        actionId: 'selected.timeline_panel_visible',
+        label: 'Confirm ETA timeline panel is visible.',
+        details: 'Timeline chart section should render for the selected route.',
+      },
+      {
+        actionId: 'selected.counterfactual_panel_visible',
+        label: 'Confirm counterfactual panel is visible.',
+        details: 'Counterfactual section should be shown for selected route context.',
+      },
     ],
   },
   {

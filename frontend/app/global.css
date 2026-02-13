@@ -1472,7 +1472,7 @@ a {
 
   .tutorialChecklist__item {
     display: grid;
-    grid-template-columns: 14px minmax(0, 1fr) auto;
+    grid-template-columns: 14px minmax(0, 1fr) auto auto;
     align-items: start;
     gap: 8px;
     font-size: 12px;
@@ -1492,6 +1492,43 @@ a {
   .tutorialChecklist__icon {
     font-size: 12px;
     line-height: 1.2;
+  }
+
+  .tutorialChecklist__labelWrap {
+    display: grid;
+    gap: 3px;
+  }
+
+  .tutorialChecklist__details {
+    font-size: 11px;
+    line-height: 1.3;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .tutorialChecklist__state {
+    align-self: center;
+    justify-self: start;
+    font-size: 10px;
+    line-height: 1;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    padding: 4px 7px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.74);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .tutorialChecklist__state.isDone {
+    border-color: rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.14);
+    color: rgba(209, 250, 229, 0.95);
+  }
+
+  .tutorialChecklist__state.isPending {
+    border-color: rgba(245, 158, 11, 0.34);
+    background: rgba(245, 158, 11, 0.1);
+    color: rgba(254, 243, 199, 0.92);
   }
 
   .tutorialChecklist__manualBtn {

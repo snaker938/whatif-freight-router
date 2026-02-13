@@ -9,6 +9,7 @@ type TutorialMode = 'blocked' | 'chooser' | 'running' | 'completed';
 type ChecklistItem = {
   actionId: string;
   label: string;
+  details?: string;
   done: boolean;
   kind?: 'ui' | 'manual';
 };
@@ -273,7 +274,15 @@ export default function TutorialOverlay({
                     <span className="tutorialChecklist__icon" aria-hidden="true">
                       {item.done ? '✓' : '•'}
                     </span>
-                    <span className="tutorialChecklist__label">{item.label}</span>
+                    <span className="tutorialChecklist__labelWrap">
+                      <span className="tutorialChecklist__label">{item.label}</span>
+                      {item.details ? (
+                        <span className="tutorialChecklist__details">{item.details}</span>
+                      ) : null}
+                    </span>
+                    <span className={`tutorialChecklist__state ${item.done ? 'isDone' : 'isPending'}`}>
+                      {item.done ? 'Done' : 'Pending'}
+                    </span>
                     {!item.done && item.kind === 'manual' ? (
                   <button
                     type="button"
