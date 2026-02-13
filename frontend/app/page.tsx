@@ -2472,11 +2472,11 @@ export default function Page() {
               >
 
                 <div className="fieldLabelRow">
-                  <div className="fieldLabel">Vehicle type</div>
+                  <div className="fieldLabel">Vehicle Type</div>
                   <FieldInfo text={SIDEBAR_FIELD_HELP.vehicleType} />
                 </div>
                 <Select
-                  ariaLabel="Vehicle type"
+                  ariaLabel="Vehicle Type"
                   value={vehicleType}
                   options={vehicleOptions}
                   onChange={(next) => {
@@ -2492,11 +2492,11 @@ export default function Page() {
                 <div className="dropdownOptionsHint">{SIDEBAR_DROPDOWN_OPTIONS_HELP.scenarioMode}</div>
 
                 <div className="fieldLabelRow">
-                  <div className="fieldLabel">Scenario mode</div>
+                  <div className="fieldLabel">Scenario Mode</div>
                   <FieldInfo text={SIDEBAR_FIELD_HELP.scenarioMode} />
                 </div>
                 <Select
-                  ariaLabel="Scenario mode"
+                  ariaLabel="Scenario Mode"
                   value={scenarioMode}
                   options={scenarioOptions}
                   onChange={(next) => {
@@ -2510,18 +2510,29 @@ export default function Page() {
                 />
 
                 <div className="fieldLabelRow">
-                  <div className="fieldLabel">API token (optional)</div>
+                  <div className="fieldLabel">API Token (Optional)</div>
                   <FieldInfo text={SIDEBAR_FIELD_HELP.apiToken} />
                 </div>
                 <input
                   className="input"
                   type="password"
-                  placeholder="x-api-token for RBAC-enabled backends"
+                  placeholder="X-Api-Token For RBAC-Enabled Backends"
                   value={apiToken}
+                  autoComplete="off"
                   onChange={(event) => setApiToken(event.target.value)}
                   data-tutorial-id="setup.api_token"
                   data-tutorial-action="setup.api_token_input"
                 />
+                <div className="helper">
+                  API Token Usage: This Value Is Forwarded As The `x-api-token` Header On Frontend API
+                  Requests (`/api/route`, `/api/pareto`, `/api/scenario/compare`, `/api/experiments`, And
+                  Others). Only Enter It When Your Backend Has RBAC/Auth Enabled. Leave It Blank For Local
+                  Or Open Backends.
+                </div>
+                <div className="tiny">
+                  Auth Behavior: Missing/Invalid Token Usually Returns `401 Unauthorized` Or `403 Forbidden`.
+                  The Field Is Kept In Memory For The Current Session And Is Not Exported In Run Artifacts.
+                </div>
 
                 <div className="fieldLabelRow">
                   <label className="fieldLabel" htmlFor="ui-language">
@@ -2546,12 +2557,12 @@ export default function Page() {
                 </select>
 
                 <div className="helper">
-                  Scenario mode applies a policy-based delay multiplier and adds idle emissions (and
-                  driver time cost) for the extra delay. This is a lightweight stub that can be
-                  swapped for a detailed simulator later.
+                  Scenario Mode Applies A Policy-Based Delay Multiplier And Adds Idle Emissions (And
+                  Driver Time Cost) For Extra Delay. This Is A Lightweight Stub That Can Be Swapped
+                  For A Detailed Simulator Later.
                 </div>
 
-                <div className="row" style={{ marginTop: 12 }}>
+                <div className="row row--actions" style={{ marginTop: 12 }}>
                   <button
                     className="secondary"
                     onClick={() => {

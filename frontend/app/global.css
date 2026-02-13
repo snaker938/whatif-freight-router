@@ -1015,7 +1015,23 @@ a {
   }
 
   .row.row--actions {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+    gap: 10px;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .row.row--actions > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .row.row--actions button,
+  .row.row--actions .buttonLink {
+    min-height: 46px;
+    white-space: normal;
+    line-height: 1.25;
   }
 
   .buttonLabel {

@@ -283,7 +283,7 @@ export default function ExperimentManager({
                 <div className="routeCard__pill">{formatDateTime(bundle.updated_at, locale)}</div>
               </div>
             {bundle.description ? <div className="helper">{bundle.description}</div> : null}
-            <div className="row" style={{ marginTop: 10 }}>
+            <div className="row row--actions" style={{ marginTop: 10 }}>
               <button
                 className="secondary"
                 onClick={() => onLoad(bundle)}
