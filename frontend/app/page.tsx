@@ -8,6 +8,8 @@ import Select from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import type {
   CostToggles,
+  DutyChainRequest,
+  DutyChainResponse,
   DepartureOptimizeRequest,
   DepartureOptimizeResponse,
   EpsilonConstraints,
@@ -15,6 +17,9 @@ import type {
   ExperimentBundle,
   ExperimentListResponse,
   LatLng,
+  OracleFeedCheckInput,
+  OracleFeedCheckRecord,
+  OracleQualityDashboardResponse,
   OptimizationMode,
   ParetoMethod,
   ParetoStreamEvent,
@@ -171,6 +176,37 @@ const TutorialOverlay = dynamic<
   loading: () => null,
 });
 
+const DutyChainPlanner = dynamic<
+  {
+    stopsText: string;
+    onStopsTextChange: (value: string) => void;
+    onRun: () => void;
+    loading: boolean;
+    error: string | null;
+    data: DutyChainResponse | null;
+    disabled: boolean;
+  }
+>(() => import('./components/DutyChainPlanner'), {
+  ssr: false,
+  loading: () => null,
+});
+
+const OracleQualityDashboard = dynamic<
+  {
+    dashboard: OracleQualityDashboardResponse | null;
+    loading: boolean;
+    ingesting: boolean;
+    error: string | null;
+    latestCheck: OracleFeedCheckRecord | null;
+    disabled: boolean;
+    onRefresh: () => void;
+    onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
+  }
+>(() => import('./components/OracleQualityDashboard'), {
+  ssr: false,
+  loading: () => null,
+});
+
 const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   paretoMethod: 'dominance',
   epsilonDurationS: '',
@@ -295,6 +331,15 @@ export default function Page() {
   const [depOptimizeLoading, setDepOptimizeLoading] = useState(false);
   const [depOptimizeError, setDepOptimizeError] = useState<string | null>(null);
   const [depOptimizeData, setDepOptimizeData] = useState<DepartureOptimizeResponse | null>(null);
+  const [dutyStopsText, setDutyStopsText] = useState('');
+  const [dutyChainLoading, setDutyChainLoading] = useState(false);
+  const [dutyChainError, setDutyChainError] = useState<string | null>(null);
+  const [dutyChainData, setDutyChainData] = useState<DutyChainResponse | null>(null);
+  const [oracleDashboard, setOracleDashboard] = useState<OracleQualityDashboardResponse | null>(null);
+  const [oracleDashboardLoading, setOracleDashboardLoading] = useState(false);
+  const [oracleIngestLoading, setOracleIngestLoading] = useState(false);
+  const [oracleError, setOracleError] = useState<string | null>(null);
+  const [oracleLatestCheck, setOracleLatestCheck] = useState<OracleFeedCheckRecord | null>(null);
   const [timeLapsePosition, setTimeLapsePosition] = useState<LatLng | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
 
@@ -393,6 +438,8 @@ export default function Page() {
     setDepOptimizeData(null);
     setDepOptimizeError(null);
     setDepOptimizeLoading(false);
+    setDutyChainData(null);
+    setDutyChainError(null);
     setTimeLapsePosition(null);
     setAdvancedError(null);
   }, [abortActiveCompute]);
@@ -444,6 +491,10 @@ export default function Page() {
   }, [authHeaders]);
 
   useEffect(() => {
+    void refreshOracleDashboard();
+  }, [authHeaders]);
+
+  useEffect(() => {
     if (depWindowStartLocal || depWindowEndLocal) return;
     const now = new Date();
     const start = new Date(now.getTime() + 60 * 60 * 1000);
@@ -451,6 +502,16 @@ export default function Page() {
     setDepWindowStartLocal(start.toISOString().slice(0, 16));
     setDepWindowEndLocal(end.toISOString().slice(0, 16));
   }, [depWindowStartLocal, depWindowEndLocal]);
+
+  useEffect(() => {
+    if (dutyStopsText.trim()) return;
+    const lines: string[] = [];
+    if (origin) lines.push(`${origin.lat.toFixed(6)},${origin.lon.toFixed(6)},origin`);
+    if (destination) lines.push(`${destination.lat.toFixed(6)},${destination.lon.toFixed(6)},destination`);
+    if (lines.length > 0) {
+      setDutyStopsText(lines.join('\n'));
+    }
+  }, [origin, destination, dutyStopsText]);
 
   useEffect(() => {
     try {
@@ -1128,6 +1189,133 @@ export default function Page() {
     }
   }
 
+  function parseDutyStops(text: string): DutyChainRequest['stops'] {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      throw new Error('Duty chain requires at least two stops (one per line).');
+    }
+
+    return lines.map((line, idx) => {
+      const parts = line.split(',');
+      if (parts.length < 2) {
+        throw new Error(`Stop line ${idx + 1} must be "lat,lon,label(optional)".`);
+      }
+      const lat = Number(parts[0]);
+      const lon = Number(parts[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        throw new Error(`Stop line ${idx + 1} has invalid latitude/longitude.`);
+      }
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        throw new Error(`Stop line ${idx + 1} is out of bounds.`);
+      }
+      const label = parts.slice(2).join(',').trim();
+      return {
+        lat,
+        lon,
+        ...(label ? { label } : {}),
+      };
+    });
+  }
+
+  async function runDutyChain() {
+    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    let stops: DutyChainRequest['stops'];
+    try {
+      setAdvancedError(null);
+      setDutyChainError(null);
+      advancedPatch = buildAdvancedRequestPatch();
+      stops = parseDutyStops(dutyStopsText);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Invalid duty chain request.';
+      setAdvancedError(msg);
+      setDutyChainError(msg);
+      return;
+    }
+
+    const req: DutyChainRequest = {
+      stops,
+      vehicle_type: vehicleType,
+      scenario_mode: scenarioMode,
+      max_alternatives: 5,
+      weights: {
+        time: weights.time,
+        money: weights.money,
+        co2: weights.co2,
+      },
+      ...(advancedPatch.cost_toggles ? { cost_toggles: advancedPatch.cost_toggles } : {}),
+      ...(advancedPatch.terrain_profile ? { terrain_profile: advancedPatch.terrain_profile } : {}),
+      ...(advancedPatch.stochastic ? { stochastic: advancedPatch.stochastic } : {}),
+      ...(advancedPatch.optimization_mode ? { optimization_mode: advancedPatch.optimization_mode } : {}),
+      ...(advancedPatch.risk_aversion !== undefined ? { risk_aversion: advancedPatch.risk_aversion } : {}),
+      ...(advancedPatch.departure_time_utc ? { departure_time_utc: advancedPatch.departure_time_utc } : {}),
+      ...(advancedPatch.pareto_method ? { pareto_method: advancedPatch.pareto_method } : {}),
+      ...(advancedPatch.epsilon ? { epsilon: advancedPatch.epsilon } : {}),
+    };
+
+    setDutyChainLoading(true);
+    try {
+      const payload = await postJSON<DutyChainResponse>(
+        '/api/duty/chain',
+        req,
+        undefined,
+        authHeaders,
+      );
+      setDutyChainData(payload);
+    } catch (e: unknown) {
+      setDutyChainError(e instanceof Error ? e.message : 'Failed to run duty chain.');
+    } finally {
+      setDutyChainLoading(false);
+    }
+  }
+
+  async function refreshOracleDashboard(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) {
+      setOracleDashboardLoading(true);
+    }
+    setOracleError(null);
+    try {
+      const resp = await fetch('/api/oracle/quality/dashboard', {
+        cache: 'no-store',
+        headers: authHeaders,
+      });
+      const text = await resp.text();
+      if (!resp.ok) {
+        throw new Error(text.trim() || 'Failed to fetch oracle quality dashboard.');
+      }
+      const parsed = JSON.parse(text) as OracleQualityDashboardResponse;
+      setOracleDashboard(parsed);
+    } catch (e: unknown) {
+      setOracleError(e instanceof Error ? e.message : 'Failed to fetch oracle quality dashboard.');
+    } finally {
+      if (!opts.silent) {
+        setOracleDashboardLoading(false);
+      }
+    }
+  }
+
+  async function ingestOracleCheck(payload: OracleFeedCheckInput) {
+    setOracleIngestLoading(true);
+    setOracleError(null);
+    try {
+      const record = await postJSON<OracleFeedCheckRecord>(
+        '/api/oracle/quality/check',
+        payload,
+        undefined,
+        authHeaders,
+      );
+      setOracleLatestCheck(record);
+      await refreshOracleDashboard({ silent: true });
+    } catch (e: unknown) {
+      setOracleError(e instanceof Error ? e.message : 'Failed to record oracle quality check.');
+    } finally {
+      setOracleIngestLoading(false);
+    }
+  }
+
   async function optimizeDepartures() {
     if (!origin || !destination) {
       setDepOptimizeError('Set origin and destination before optimizing departures.');
@@ -1781,6 +1969,29 @@ export default function Page() {
             onStepMinutesChange={setDepStepMinutes}
             onRun={optimizeDepartures}
             onApplyDepartureTime={applyOptimizedDeparture}
+          />
+
+          <DutyChainPlanner
+            stopsText={dutyStopsText}
+            onStopsTextChange={setDutyStopsText}
+            onRun={runDutyChain}
+            loading={dutyChainLoading}
+            error={dutyChainError}
+            data={dutyChainData}
+            disabled={busy}
+          />
+
+          <OracleQualityDashboard
+            dashboard={oracleDashboard}
+            loading={oracleDashboardLoading}
+            ingesting={oracleIngestLoading}
+            error={oracleError}
+            latestCheck={oracleLatestCheck}
+            disabled={busy}
+            onRefresh={() => {
+              void refreshOracleDashboard();
+            }}
+            onIngest={ingestOracleCheck}
           />
 
           <ExperimentManager

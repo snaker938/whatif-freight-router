@@ -196,3 +196,87 @@ export type DepartureOptimizeResponse = {
   candidates: DepartureOptimizeCandidate[];
   evaluated_count: number;
 };
+
+export type DutyChainStop = {
+  lat: number;
+  lon: number;
+  label?: string | null;
+};
+
+export type DutyChainLegResult = {
+  leg_index: number;
+  origin: DutyChainStop;
+  destination: DutyChainStop;
+  selected: RouteOption | null;
+  candidates: RouteOption[];
+  warning_count: number;
+  fallback_used: boolean;
+  error?: string | null;
+};
+
+export type DutyChainRequest = {
+  stops: DutyChainStop[];
+  vehicle_type?: string;
+  scenario_mode?: ScenarioMode;
+  weights?: { time: number; money: number; co2: number };
+  max_alternatives?: number;
+  cost_toggles?: CostToggles;
+  terrain_profile?: TerrainProfile;
+  stochastic?: StochasticConfig;
+  optimization_mode?: OptimizationMode;
+  risk_aversion?: number;
+  departure_time_utc?: string;
+  pareto_method?: ParetoMethod;
+  epsilon?: EpsilonConstraints;
+};
+
+export type DutyChainResponse = {
+  legs: DutyChainLegResult[];
+  total_metrics: RouteMetrics;
+  leg_count: number;
+  successful_leg_count: number;
+};
+
+export type OracleFeedCheckInput = {
+  source: string;
+  schema_valid: boolean;
+  signature_valid?: boolean | null;
+  freshness_s?: number | null;
+  latency_ms?: number | null;
+  record_count?: number | null;
+  observed_at_utc?: string | null;
+  error?: string | null;
+};
+
+export type OracleFeedCheckRecord = {
+  check_id: string;
+  source: string;
+  schema_valid: boolean;
+  signature_valid?: boolean | null;
+  freshness_s?: number | null;
+  latency_ms?: number | null;
+  record_count?: number | null;
+  observed_at_utc?: string | null;
+  error?: string | null;
+  passed: boolean;
+  ingested_at_utc: string;
+};
+
+export type OracleQualitySourceSummary = {
+  source: string;
+  check_count: number;
+  pass_rate: number;
+  schema_failures: number;
+  signature_failures: number;
+  stale_count: number;
+  avg_latency_ms?: number | null;
+  last_observed_at_utc?: string | null;
+};
+
+export type OracleQualityDashboardResponse = {
+  total_checks: number;
+  source_count: number;
+  stale_threshold_s: number;
+  sources: OracleQualitySourceSummary[];
+  updated_at_utc: string;
+};
