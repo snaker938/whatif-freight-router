@@ -838,10 +838,11 @@ export default function Page() {
   const tutorialPlacementStage = useMemo<TutorialPlacementStage>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return 'done';
 
-    // Primary truth for guided placement stage is actual pin state:
-    // once Start exists and End does not, always drive the map to London.
+    // Primary truth for guided placement stage is actual pin state + ordered confirmation gates.
     if (!origin) return 'newcastle_origin';
+    if (tutorialNextRequiredActionId === 'map.confirm_origin_newcastle') return 'newcastle_origin';
     if (!destination) return 'london_destination';
+    if (tutorialNextRequiredActionId === 'map.confirm_destination_london') return 'london_destination';
 
     // After both are placed, fall back to checklist action order.
     if (tutorialNextRequiredActionId === 'map.set_origin_newcastle') return 'newcastle_origin';
@@ -1772,7 +1773,13 @@ export default function Page() {
         tutorialNextRequiredActionId !== 'map.set_origin_newcastle' &&
         tutorialNextRequiredActionId !== 'map.set_destination_london'
       ) {
-        setLiveMessage('Follow the checklist order. Complete the current marker action first.');
+        if (tutorialNextRequiredActionId === 'map.confirm_origin_newcastle') {
+          setLiveMessage('Confirm Start placement in the tutorial panel before moving to London.');
+        } else if (tutorialNextRequiredActionId === 'map.confirm_destination_london') {
+          setLiveMessage('Confirm End placement in the tutorial panel before continuing.');
+        } else {
+          setLiveMessage('Follow the checklist order. Complete the current marker action first.');
+        }
         return;
       }
       if (tutorialPlacementStage === 'done') {
@@ -1801,18 +1808,18 @@ export default function Page() {
 
       if (tutorialPlacementStage === 'newcastle_origin') {
         setOrigin({ lat, lon });
-        setSelectedPinId('origin');
+        setSelectedPinId(null);
         clearComputed();
         markTutorialAction('map.set_origin_newcastle', { force: true });
-        setLiveMessage('Start set near Newcastle. Now place End near London.');
+        setLiveMessage('Start set near Newcastle. Confirm it in the tutorial panel to continue.');
         return;
       }
 
       setDestination({ lat, lon });
-      setSelectedPinId('destination');
+      setSelectedPinId(null);
       clearComputed();
       markTutorialAction('map.set_destination_london', { force: true });
-      setLiveMessage('End set near London. Click and drag both markers to finish Step 1.');
+      setLiveMessage('End set near London. Confirm it in the tutorial panel to continue.');
       return;
     }
 

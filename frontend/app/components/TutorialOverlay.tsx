@@ -348,7 +348,7 @@ export default function TutorialOverlay({
                           className="ghostButton tutorialChecklist__manualBtn"
                           onClick={() => onMarkManual(item.actionId)}
                         >
-                          Mark done
+                          {item.actionId.startsWith('map.confirm_') ? 'Confirm' : 'Mark done'}
                         </button>
                       ) : null}
                     </li>
