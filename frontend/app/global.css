@@ -2328,6 +2328,102 @@ a {
     display: none !important;
   }
 
+  .leaflet-tooltip.tutorialConfirmPinTooltip {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    pointer-events: auto !important;
+  }
+
+  .leaflet-tooltip.tutorialConfirmPinTooltip::before {
+    display: none !important;
+  }
+
+  .tutorialConfirmPinTooltip__wrap {
+    --tutorialConfirmAccent: 124, 58, 237;
+    position: relative;
+    display: inline-flex;
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(var(--tutorialConfirmAccent), 0.42);
+    background:
+      linear-gradient(145deg, rgba(var(--tutorialConfirmAccent), 0.18), rgba(15, 23, 42, 0.85)),
+      rgba(6, 10, 20, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      0 10px 24px rgba(2, 6, 23, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .tutorialConfirmPinTooltip__wrap::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 10px;
+    height: 10px;
+    transform: translateX(-50%) rotate(45deg);
+    border-right: 1px solid rgba(var(--tutorialConfirmAccent), 0.42);
+    border-bottom: 1px solid rgba(var(--tutorialConfirmAccent), 0.42);
+    background: rgba(7, 12, 24, 0.96);
+  }
+
+  .tutorialConfirmPinTooltip--origin .tutorialConfirmPinTooltip__wrap {
+    --tutorialConfirmAccent: 124, 58, 237;
+  }
+
+  .tutorialConfirmPinTooltip--destination .tutorialConfirmPinTooltip__wrap {
+    --tutorialConfirmAccent: 6, 182, 212;
+  }
+
+  .tutorialConfirmPinTooltip__button {
+    width: auto;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-radius: 9px;
+    border: 1px solid rgba(var(--tutorialConfirmAccent), 0.56);
+    background:
+      linear-gradient(145deg, rgba(var(--tutorialConfirmAccent), 0.28), rgba(var(--tutorialConfirmAccent), 0.18)),
+      rgba(8, 14, 30, 0.92);
+    color: rgba(248, 250, 252, 0.98);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    box-shadow: 0 6px 14px rgba(2, 6, 23, 0.42);
+    text-transform: none;
+    transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease,
+      background 140ms ease;
+  }
+
+  .tutorialConfirmPinTooltip__button:hover {
+    border-color: rgba(var(--tutorialConfirmAccent), 0.78);
+    background:
+      linear-gradient(145deg, rgba(var(--tutorialConfirmAccent), 0.4), rgba(var(--tutorialConfirmAccent), 0.26)),
+      rgba(8, 14, 30, 0.92);
+    box-shadow: 0 8px 16px rgba(2, 6, 23, 0.46);
+    transform: translateY(-1px);
+  }
+
+  .tutorialConfirmPinTooltip__button:focus-visible {
+    outline: 2px solid rgba(125, 211, 252, 0.9);
+    outline-offset: 1px;
+  }
+
+  .tutorialConfirmPinTooltip__dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 999px;
+    background: rgba(var(--tutorialConfirmAccent), 1);
+    box-shadow: 0 0 0 2px rgba(var(--tutorialConfirmAccent), 0.28);
+  }
+
   .overlayPopup__card {
     min-width: 180px;
     display: grid;
@@ -2370,6 +2466,10 @@ a {
     transform: translateX(-50%);
     background: currentColor;
     opacity: 0.35;
+  }
+
+  .mapPane--guide .pin__halo {
+    display: none;
   }
 
   .pin__body {

@@ -44,6 +44,8 @@ const MAX_POLYLINE_POINTS = 1000;
 type Props = {
   origin: LatLng | null;
   destination: LatLng | null;
+  tutorialDraftOrigin?: LatLng | null;
+  tutorialDraftDestination?: LatLng | null;
   managedStop?: ManagedStop | null;
   originLabel?: string;
   destinationLabel?: string;
@@ -127,8 +129,10 @@ function makePinIcon(kind: MarkerKind, selected: boolean) {
 }
 
 function ClickHandler({ onMapClick }: { onMapClick: (lat: number, lon: number) => void }) {
+  const map = useMap();
   useMapEvents({
     click(e: LeafletMouseEvent) {
+      map.stop();
       onMapClick(e.latlng.lat, e.latlng.lng);
     },
   });
@@ -212,9 +216,12 @@ function FitAllRequestHandler({
   route: RouteOption | null;
 }) {
   const map = useMap();
+  const lastHandledNonceRef = useRef(nonce);
 
   useEffect(() => {
     if (nonce <= 0) return;
+    if (nonce === lastHandledNonceRef.current) return;
+    lastHandledNonceRef.current = nonce;
     const points: LatLngExpression[] = [];
 
     if (origin) points.push([origin.lat, origin.lon]);
@@ -610,6 +617,8 @@ function TrashIcon() {
 export default function MapView({
   origin,
   destination,
+  tutorialDraftOrigin = null,
+  tutorialDraftDestination = null,
   managedStop = null,
   originLabel = 'Start',
   destinationLabel = 'End',
@@ -643,6 +652,9 @@ export default function MapView({
   onSwapMarkers,
   onTutorialConfirmPin,
 }: Props) {
+  const initialCenterRef = useRef<LatLngExpression>(
+    origin ? ([origin.lat, origin.lon] as [number, number]) : ([52.4862, -1.8904] as [number, number]),
+  );
   const originRef = useRef<L.Marker>(null);
   const destRef = useRef<L.Marker>(null);
   const stopRef = useRef<L.Marker>(null);
@@ -746,8 +758,10 @@ export default function MapView({
     }
   }, [selectedPinId, draggingPinId]);
 
-  const effectiveOrigin = dragPreview.origin ?? origin;
-  const effectiveDestination = dragPreview.destination ?? destination;
+  const renderedOrigin = tutorialDraftOrigin ?? origin;
+  const renderedDestination = tutorialDraftDestination ?? destination;
+  const effectiveOrigin = dragPreview.origin ?? renderedOrigin;
+  const effectiveDestination = dragPreview.destination ?? renderedDestination;
   const effectiveStop = dragPreview.stop ?? (managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null);
   const stopDisplayName = managedStop?.label?.trim() || 'Stop #1';
   const effectiveDutyStops = useMemo(() => {
@@ -809,12 +823,8 @@ export default function MapView({
     });
   }, [incidentOverlayPoints.length, onTutorialTargetState, segmentBuckets.length]);
 
-  // Default center: Birmingham-ish (West Midlands)
-  const center: LatLngExpression = useMemo(() => {
-    return effectiveOrigin
-      ? ([effectiveOrigin.lat, effectiveOrigin.lon] as [number, number])
-      : ([52.4862, -1.8904] as [number, number]);
-  }, [effectiveOrigin]);
+  // Keep an immutable initial center so route/pin state updates never recenter the map unexpectedly.
+  const center = initialCenterRef.current;
 
   const suppressRoutePath = draggingPinId !== null;
   const isActionExpected = useCallback(
@@ -831,10 +841,10 @@ export default function MapView({
     ) => {
       if (isActionExpected(actionId)) return true;
       if (markerKind === 'origin' && tutorialConfirmPin === 'origin') {
-        return actionId === 'map.click_origin_marker' || actionId === 'map.drag_origin_marker';
+        return actionId === 'map.click_origin_marker';
       }
       if (markerKind === 'destination' && tutorialConfirmPin === 'destination') {
-        return actionId === 'map.click_destination_marker' || actionId === 'map.drag_destination_marker';
+        return actionId === 'map.click_destination_marker';
       }
       return false;
     },
@@ -858,7 +868,8 @@ export default function MapView({
     (lat: number, lon: number) => {
       if (tutorialMapLocked) return;
       if (draggingPinId !== null) return;
-      if (Date.now() < suppressMapClickUntilRef.current) return;
+      const now = Date.now();
+      if (now < suppressMapClickUntilRef.current) return;
       onMapClick(lat, lon);
     },
     [draggingPinId, onMapClick, tutorialMapLocked],
@@ -878,6 +889,9 @@ export default function MapView({
         minZoom={5}
         maxZoom={18}
         zoomControl={!tutorialHideZoomControls}
+        zoomAnimation={!tutorialGuideVisible}
+        fadeAnimation={!tutorialGuideVisible}
+        markerZoomAnimation={!tutorialGuideVisible}
         dragging={!mapInteractionLocked}
         scrollWheelZoom={!mapInteractionLocked}
         doubleClickZoom={!mapInteractionLocked}
@@ -890,8 +904,8 @@ export default function MapView({
       >
         <FocusPinRequestHandler
           request={focusPinRequest}
-          origin={origin}
-          destination={destination}
+          origin={renderedOrigin}
+          destination={renderedDestination}
           managedStop={managedStop}
           originRef={originRef}
           destRef={destRef}
@@ -899,8 +913,8 @@ export default function MapView({
         />
         <FitAllRequestHandler
           nonce={fitAllRequestNonce}
-          origin={origin}
-          destination={destination}
+          origin={renderedOrigin}
+          destination={renderedDestination}
           managedStop={managedStop}
           route={route}
         />
@@ -952,10 +966,10 @@ export default function MapView({
           </>
         ) : null}
 
-        {origin && (
+        {renderedOrigin && (
           <Marker
             ref={originRef}
-            position={[effectiveOrigin?.lat ?? origin.lat, effectiveOrigin?.lon ?? origin.lon]}
+            position={[effectiveOrigin?.lat ?? renderedOrigin.lat, effectiveOrigin?.lon ?? renderedOrigin.lon]}
             icon={originIcon}
             draggable={!tutorialMapLocked && isMarkerActionAllowed('map.drag_origin_marker', 'origin')}
             riseOnHover={true}
@@ -1068,15 +1082,19 @@ export default function MapView({
                     type="button"
                     className="markerPopup__coordsBtn"
                     onClick={(e) => {
-                      e.stopPropagation();
-                      handleCopyCoords('origin', origin.lat, origin.lon);
-                    }}
+                        e.stopPropagation();
+                        handleCopyCoords(
+                          'origin',
+                          effectiveOrigin?.lat ?? renderedOrigin.lat,
+                          effectiveOrigin?.lon ?? renderedOrigin.lon,
+                        );
+                      }}
                     aria-label="Copy coordinates"
                     title="Copy coordinates"
                     data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
-                      {fmtCoord(effectiveOrigin?.lat ?? origin.lat)}, {fmtCoord(effectiveOrigin?.lon ?? origin.lon)}
+                      {fmtCoord(effectiveOrigin?.lat ?? renderedOrigin.lat)}, {fmtCoord(effectiveOrigin?.lon ?? renderedOrigin.lon)}
                     </span>
                     <span className="markerPopup__coordsIcon">
                       <CopyIcon />
@@ -1090,28 +1108,47 @@ export default function MapView({
                   Start pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
                 </div>
 
-                {tutorialConfirmPin === 'origin' && onTutorialConfirmPin ? (
+              </div>
+            </Popup>
+            {tutorialConfirmPin === 'origin' && onTutorialConfirmPin ? (
+              <Tooltip
+                permanent={true}
+                interactive={true}
+                direction="top"
+                offset={[0, -62]}
+                className="tutorialConfirmPinTooltip tutorialConfirmPinTooltip--origin"
+              >
+                <div
+                  className="tutorialConfirmPinTooltip__wrap"
+                  role="group"
+                  aria-label="Confirm Start placement"
+                >
                   <button
                     type="button"
-                    className="primary markerPopup__confirmBtn"
+                    className="tutorialConfirmPinTooltip__button"
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       onTutorialConfirmPin('origin');
                     }}
                     data-tutorial-action="map.confirm_origin_newcastle"
                   >
+                    <span className="tutorialConfirmPinTooltip__dot" aria-hidden="true" />
                     Confirm Start
                   </button>
-                ) : null}
-              </div>
-            </Popup>
+                </div>
+              </Tooltip>
+            ) : null}
           </Marker>
         )}
 
-        {destination && (
+        {renderedDestination && (
           <Marker
             ref={destRef}
-            position={[effectiveDestination?.lat ?? destination.lat, effectiveDestination?.lon ?? destination.lon]}
+            position={[
+              effectiveDestination?.lat ?? renderedDestination.lat,
+              effectiveDestination?.lon ?? renderedDestination.lon,
+            ]}
             icon={destIcon}
             draggable={
               !tutorialMapLocked &&
@@ -1227,15 +1264,19 @@ export default function MapView({
                     type="button"
                     className="markerPopup__coordsBtn"
                     onClick={(e) => {
-                      e.stopPropagation();
-                      handleCopyCoords('destination', destination.lat, destination.lon);
-                    }}
+                        e.stopPropagation();
+                        handleCopyCoords(
+                          'destination',
+                          effectiveDestination?.lat ?? renderedDestination.lat,
+                          effectiveDestination?.lon ?? renderedDestination.lon,
+                        );
+                      }}
                     aria-label="Copy coordinates"
                     title="Copy coordinates"
                     data-tutorial-action="map.popup_copy"
                   >
                     <span className="markerPopup__coordsText">
-                      {fmtCoord(effectiveDestination?.lat ?? destination.lat)}, {fmtCoord(effectiveDestination?.lon ?? destination.lon)}
+                      {fmtCoord(effectiveDestination?.lat ?? renderedDestination.lat)}, {fmtCoord(effectiveDestination?.lon ?? renderedDestination.lon)}
                     </span>
                     <span className="markerPopup__coordsIcon">
                       <CopyIcon />
@@ -1249,21 +1290,37 @@ export default function MapView({
                   End pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
                 </div>
 
-                {tutorialConfirmPin === 'destination' && onTutorialConfirmPin ? (
+              </div>
+            </Popup>
+            {tutorialConfirmPin === 'destination' && onTutorialConfirmPin ? (
+              <Tooltip
+                permanent={true}
+                interactive={true}
+                direction="top"
+                offset={[0, -62]}
+                className="tutorialConfirmPinTooltip tutorialConfirmPinTooltip--destination"
+              >
+                <div
+                  className="tutorialConfirmPinTooltip__wrap"
+                  role="group"
+                  aria-label="Confirm End placement"
+                >
                   <button
                     type="button"
-                    className="primary markerPopup__confirmBtn"
+                    className="tutorialConfirmPinTooltip__button"
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       onTutorialConfirmPin('destination');
                     }}
                     data-tutorial-action="map.confirm_destination_london"
                   >
+                    <span className="tutorialConfirmPinTooltip__dot" aria-hidden="true" />
                     Confirm End
                   </button>
-                ) : null}
-              </div>
-            </Popup>
+                </div>
+              </Tooltip>
+            ) : null}
           </Marker>
         )}
 

@@ -81,6 +81,8 @@ type ProgressState = { done: number; total: number };
 type MapViewProps = {
   origin: LatLng | null;
   destination: LatLng | null;
+  tutorialDraftOrigin?: LatLng | null;
+  tutorialDraftDestination?: LatLng | null;
   managedStop?: ManagedStop | null;
   originLabel?: string;
   destinationLabel?: string;
@@ -412,7 +414,7 @@ function dedupeWarnings(items: string[]): string[] {
 function sameLatLng(a: LatLng | null, b: LatLng | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return Math.abs(a.lat - b.lat) <= 1e-9 && Math.abs(a.lon - b.lon) <= 1e-9;
+  return Math.abs(a.lat - b.lat) <= 1e-6 && Math.abs(a.lon - b.lon) <= 1e-6;
 }
 
 function sameManagedStop(a: ManagedStop | null, b: ManagedStop | null): boolean {
@@ -420,8 +422,8 @@ function sameManagedStop(a: ManagedStop | null, b: ManagedStop | null): boolean 
   if (!a || !b) return false;
   return (
     a.id === b.id &&
-    Math.abs(a.lat - b.lat) <= 1e-9 &&
-    Math.abs(a.lon - b.lon) <= 1e-9 &&
+    Math.abs(a.lat - b.lat) <= 1e-6 &&
+    Math.abs(a.lon - b.lon) <= 1e-6 &&
     (a.label ?? '') === (b.label ?? '')
   );
 }
@@ -700,6 +702,8 @@ function haversineDistanceKm(a: LatLng, b: LatLng): number {
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
+  const [tutorialDraftOrigin, setTutorialDraftOrigin] = useState<LatLng | null>(null);
+  const [tutorialDraftDestination, setTutorialDraftDestination] = useState<LatLng | null>(null);
   const [managedStop, setManagedStop] = useState<ManagedStop | null>(null);
   const [selectedPinId, setSelectedPinId] = useState<'origin' | 'destination' | 'stop-1' | null>(null);
   const [focusPinRequest, setFocusPinRequest] = useState<PinFocusRequest | null>(null);
@@ -846,35 +850,46 @@ export default function Page() {
     () => tutorialActionSet.has('map.confirm_destination_london'),
     [tutorialActionSet],
   );
+  const tutorialOriginPlaced = useMemo(
+    () => tutorialActionSet.has('map.set_origin_newcastle'),
+    [tutorialActionSet],
+  );
+  const tutorialDestinationPlaced = useMemo(
+    () => tutorialActionSet.has('map.set_destination_london'),
+    [tutorialActionSet],
+  );
   const tutorialPlacementStage = useMemo<TutorialPlacementStage>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return 'done';
-    if (!origin) return 'newcastle_origin';
     if (!tutorialOriginConfirmed) return 'newcastle_origin';
-    if (!destination) return 'london_destination';
     if (!tutorialDestinationConfirmed) return 'london_destination';
     return 'done';
   }, [
-    destination,
-    origin,
     tutorialDestinationConfirmed,
     tutorialOriginConfirmed,
     tutorialRunning,
     tutorialStep?.id,
   ]);
+  const isTutorialPinDraftMode = useMemo(
+    () => tutorialRunning && tutorialStep?.id === 'map_set_pins' && tutorialPlacementStage !== 'done',
+    [tutorialPlacementStage, tutorialRunning, tutorialStep?.id],
+  );
   const tutorialBlockingActionId = useMemo(() => {
     if (!tutorialRunning || !tutorialStep) return null;
     if (tutorialStep.id !== 'map_set_pins') return tutorialNextRequiredActionId;
-    if (!origin) return 'map.set_origin_newcastle';
-    if (!tutorialOriginConfirmed) return 'map.confirm_origin_newcastle';
-    if (!destination) return 'map.set_destination_london';
-    if (!tutorialDestinationConfirmed) return 'map.confirm_destination_london';
+    if (tutorialPlacementStage === 'newcastle_origin') {
+      if (!tutorialOriginPlaced) return 'map.set_origin_newcastle';
+      return 'map.confirm_origin_newcastle';
+    }
+    if (tutorialPlacementStage === 'london_destination') {
+      if (!tutorialDestinationPlaced) return 'map.set_destination_london';
+      return 'map.confirm_destination_london';
+    }
     return tutorialNextRequiredActionId;
   }, [
-    destination,
-    origin,
-    tutorialDestinationConfirmed,
+    tutorialDestinationPlaced,
     tutorialNextRequiredActionId,
-    tutorialOriginConfirmed,
+    tutorialOriginPlaced,
+    tutorialPlacementStage,
     tutorialRunning,
     tutorialStep,
   ]);
@@ -979,48 +994,69 @@ export default function Page() {
   const tutorialGuideVisible = Boolean(tutorialGuideTarget);
   const tutorialConfirmPin = useMemo<'origin' | 'destination' | null>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
-    if (tutorialPlacementStage === 'newcastle_origin' && origin) return 'origin';
-    if (tutorialPlacementStage === 'london_destination' && destination) return 'destination';
+    if (tutorialPlacementStage === 'newcastle_origin' && (tutorialDraftOrigin || origin)) return 'origin';
+    if (tutorialPlacementStage === 'london_destination' && (tutorialDraftDestination || destination))
+      return 'destination';
     return null;
-  }, [destination, origin, tutorialPlacementStage, tutorialRunning, tutorialStep?.id]);
+  }, [
+    destination,
+    origin,
+    tutorialDraftDestination,
+    tutorialDraftOrigin,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
   const tutorialCurrentTaskOverride = useMemo(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
     if (tutorialBlockingActionId === 'map.confirm_origin_newcastle') {
-      return 'Confirm Start from the Start marker popup.';
+      return 'Confirm Start using the marker-adjacent button on the map.';
     }
     if (tutorialBlockingActionId === 'map.confirm_destination_london') {
-      return 'Confirm End from the End marker popup.';
+      return 'Confirm End using the marker-adjacent button on the map.';
     }
     return null;
   }, [tutorialBlockingActionId, tutorialRunning, tutorialStep?.id]);
 
   useEffect(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return;
-    if (tutorialPlacementStage === 'newcastle_origin' && !origin) {
+    if (tutorialPlacementStage === 'newcastle_origin' && !tutorialDraftOrigin && !origin) {
       setLiveMessage('Place Start inside the Newcastle guided zone.');
       return;
     }
-    if (tutorialPlacementStage === 'newcastle_origin' && origin && !tutorialOriginConfirmed) {
-      setLiveMessage('Start placed. Open the Start marker popup and confirm to continue.');
+    if (tutorialPlacementStage === 'newcastle_origin' && (tutorialDraftOrigin || origin) && !tutorialOriginConfirmed) {
+      setLiveMessage('Start placed. Click the Confirm Start button near the marker to continue.');
       return;
     }
-    if (tutorialPlacementStage === 'london_destination' && !destination) {
+    if (tutorialPlacementStage === 'london_destination' && !tutorialDraftDestination && !destination) {
       setLiveMessage('Great. Now place End inside the London guided zone.');
       return;
     }
-    if (tutorialPlacementStage === 'london_destination' && destination && !tutorialDestinationConfirmed) {
-      setLiveMessage('End placed. Open the End marker popup and confirm to continue.');
+    if (
+      tutorialPlacementStage === 'london_destination' &&
+      (tutorialDraftDestination || destination) &&
+      !tutorialDestinationConfirmed
+    ) {
+      setLiveMessage('End placed. Click the Confirm End button near the marker to continue.');
       return;
     }
   }, [
     destination,
     origin,
+    tutorialDraftDestination,
+    tutorialDraftOrigin,
     tutorialDestinationConfirmed,
     tutorialOriginConfirmed,
     tutorialPlacementStage,
     tutorialRunning,
     tutorialStep?.id,
   ]);
+  useEffect(() => {
+    if (isTutorialPinDraftMode) return;
+    if (!tutorialDraftOrigin && !tutorialDraftDestination) return;
+    setTutorialDraftOrigin(null);
+    setTutorialDraftDestination(null);
+  }, [isTutorialPinDraftMode, tutorialDraftDestination, tutorialDraftOrigin]);
   const tutorialCanAdvance = useMemo(() => {
     if (!tutorialStep) return false;
     const requiredDone = tutorialStep.required.every((item) => tutorialActionSet.has(item.actionId));
@@ -1095,6 +1131,8 @@ export default function Page() {
         dutySyncSourceRef.current = 'text';
         setOrigin(null);
         setDestination(null);
+        setTutorialDraftOrigin(null);
+        setTutorialDraftDestination(null);
         setManagedStop(null);
         setSelectedPinId(null);
         setFocusPinRequest(null);
@@ -1105,6 +1143,8 @@ export default function Page() {
       if (prefillId === 'canonical_map') {
         setOrigin(TUTORIAL_CANONICAL_ORIGIN);
         setDestination(TUTORIAL_CANONICAL_DESTINATION);
+        setTutorialDraftOrigin(null);
+        setTutorialDraftDestination(null);
         setManagedStop(null);
       }
 
@@ -1331,6 +1371,12 @@ export default function Page() {
   }, [depWindowStartLocal, depWindowEndLocal]);
 
   useEffect(() => {
+    if (!isTutorialPinDraftMode) return;
+    dutySyncSourceRef.current = null;
+  }, [isTutorialPinDraftMode]);
+
+  useEffect(() => {
+    if (isTutorialPinDraftMode) return;
     if (dutySyncSourceRef.current === 'text') {
       dutySyncSourceRef.current = null;
       return;
@@ -1341,9 +1387,10 @@ export default function Page() {
     dutySyncSourceRef.current = 'pins';
     setDutyStopsText(nextText);
     setDutySyncError(null);
-  }, [origin, destination, managedStop, dutyStopsText]);
+  }, [origin, destination, managedStop, dutyStopsText, isTutorialPinDraftMode]);
 
   useEffect(() => {
+    if (isTutorialPinDraftMode) return;
     if (dutySyncSourceRef.current === 'pins') {
       dutySyncSourceRef.current = null;
       return;
@@ -1382,7 +1429,7 @@ export default function Page() {
     if (changed) {
       clearComputed();
     }
-  }, [clearComputed, dutyStopsText]);
+  }, [clearComputed, dutyStopsText, isTutorialPinDraftMode]);
 
   useEffect(() => {
     const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
@@ -1919,11 +1966,11 @@ export default function Page() {
         !canPlaceOrAdjustDestination
       ) {
         if (tutorialBlockingActionId === 'map.confirm_origin_newcastle') {
-          setLiveMessage('Confirm Start from the Start marker popup before moving to London.');
+          setLiveMessage('Confirm Start with the map button near the Start marker before moving to London.');
           return;
         }
         if (tutorialBlockingActionId === 'map.confirm_destination_london') {
-          setLiveMessage('Confirm End from the End marker popup before continuing this step.');
+          setLiveMessage('Confirm End with the map button near the End marker before continuing this step.');
           return;
         }
         setLiveMessage('Follow the checklist order. Complete the current marker action first.');
@@ -1948,27 +1995,17 @@ export default function Page() {
       }
 
       if (adjustingOrigin) {
-        setOrigin({ lat, lon });
-        setSelectedPinId('origin');
-        clearComputed();
-        if (tutorialNextRequiredActionId === 'map.set_origin_newcastle') {
-          markTutorialAction('map.set_origin_newcastle', { force: true });
-          setLiveMessage('Start set near Newcastle. Confirm it from the Start pin popup to continue.');
-        } else {
-          setLiveMessage('Start updated near Newcastle. Confirm it from the Start pin popup when ready.');
-        }
+        setTutorialDraftOrigin({ lat, lon });
+        setSelectedPinId(null);
+        markTutorialAction('map.set_origin_newcastle', { force: true });
+        setLiveMessage('Start draft set near Newcastle. Use Confirm Start when ready, or click again to reposition.');
         return;
       }
 
-      setDestination({ lat, lon });
-      setSelectedPinId('destination');
-      clearComputed();
-      if (tutorialNextRequiredActionId === 'map.set_destination_london') {
-        markTutorialAction('map.set_destination_london', { force: true });
-        setLiveMessage('End set near London. Confirm it from the End pin popup to continue.');
-      } else {
-        setLiveMessage('End updated near London. Confirm it from the End pin popup when ready.');
-      }
+      setTutorialDraftDestination({ lat, lon });
+      setSelectedPinId(null);
+      markTutorialAction('map.set_destination_london', { force: true });
+      setLiveMessage('End draft set near London. Use Confirm End when ready, or click again to reposition.');
       return;
     }
 
@@ -2060,14 +2097,32 @@ export default function Page() {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return;
 
     if (kind === 'origin') {
-      if (!origin || tutorialPlacementStage !== 'newcastle_origin') return;
-      markTutorialAction('map.confirm_origin_newcastle', { force: true });
+      if (tutorialPlacementStage !== 'newcastle_origin') return;
+      const nextOrigin = tutorialDraftOrigin ?? origin;
+      if (!nextOrigin) return;
+      if (!tutorialActionSet.has('map.set_origin_newcastle')) {
+        markTutorialAction('map.set_origin_newcastle', { force: true });
+      }
+      setOrigin(nextOrigin);
+      setTutorialDraftOrigin(null);
+      clearComputed();
       setSelectedPinId(null);
-      setLiveMessage('Start confirmed. Now place End near London.');
+      window.requestAnimationFrame(() => {
+        markTutorialAction('map.confirm_origin_newcastle', { force: true });
+        setLiveMessage('Start confirmed. Now place End near London.');
+      });
       return;
     }
 
-    if (!destination || tutorialPlacementStage !== 'london_destination') return;
+    if (tutorialPlacementStage !== 'london_destination') return;
+    const nextDestination = tutorialDraftDestination ?? destination;
+    if (!nextDestination) return;
+    if (!tutorialActionSet.has('map.set_destination_london')) {
+      markTutorialAction('map.set_destination_london', { force: true });
+    }
+    setDestination(nextDestination);
+    setTutorialDraftDestination(null);
+    clearComputed();
     markTutorialAction('map.confirm_destination_london', { force: true });
     setSelectedPinId(null);
     setLiveMessage('End confirmed. Continue with marker clicks and drags to finish Step 1.');
@@ -2107,6 +2162,8 @@ export default function Page() {
   function reset() {
     setOrigin(null);
     setDestination(null);
+    setTutorialDraftOrigin(null);
+    setTutorialDraftDestination(null);
     setManagedStop(null);
     setSelectedPinId(null);
     setFocusPinRequest(null);
@@ -2136,6 +2193,8 @@ export default function Page() {
     clearComputed();
     setOrigin(null);
     setDestination(null);
+    setTutorialDraftOrigin(null);
+    setTutorialDraftDestination(null);
     setManagedStop(null);
     setSelectedPinId(null);
     setFocusPinRequest(null);
@@ -3018,6 +3077,8 @@ export default function Page() {
         <MapView
           origin={origin}
           destination={destination}
+          tutorialDraftOrigin={tutorialDraftOrigin}
+          tutorialDraftDestination={tutorialDraftDestination}
           managedStop={managedStop}
           originLabel="Start"
           destinationLabel="End"

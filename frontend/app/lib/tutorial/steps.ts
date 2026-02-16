@@ -44,7 +44,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_map',
     title: 'Place Start near Newcastle and End near London',
     what:
-      'Follow the guided map targets in order: place Start within the Newcastle zone and confirm from the Start pin popup, then place End within the London zone and confirm from the End pin popup. After both confirmations, click each marker and drag each marker once.',
+      'Follow the guided map targets in order: place Start within the Newcastle zone and confirm using the nearby Start confirm button, then place End within the London zone and confirm using the nearby End confirm button. After both confirmations, click each marker and drag each marker once.',
     impact:
       'Every downstream result is anchored to these coordinates. This strict placement demonstrates reproducible origin/destination setup before route optimization.',
     targetIds: ['map.interactive'],
@@ -57,7 +57,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       {
         actionId: 'map.set_destination_london',
         label: 'Place End in the London guided zone.',
-        details: 'After Start is confirmed from the marker popup, the map auto-centers London.',
+        details: 'After Start is confirmed, the map auto-centers London.',
       },
       {
         actionId: 'map.click_origin_marker',
