@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import type { TutorialLockScope, TutorialTargetRect } from '../lib/tutorial/types';
 
@@ -40,6 +40,7 @@ type Props = {
   atStart: boolean;
   atEnd: boolean;
   checklist: ChecklistItem[];
+  currentTaskOverride?: string | null;
   optionalDecision: OptionalDecisionState | null;
   targetRect: TutorialTargetRect | null;
   targetMissing: boolean;
@@ -77,6 +78,7 @@ export default function TutorialOverlay({
   atStart,
   atEnd,
   checklist,
+  currentTaskOverride = null,
   optionalDecision,
   targetRect,
   targetMissing,
@@ -92,6 +94,10 @@ export default function TutorialOverlay({
   onUseOptionalDefault,
 }: Props) {
   const suppressBackdropCloseRef = useRef(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
+  const bodyId = useId();
+  const [cardContentHeight, setCardContentHeight] = useState(0);
   const [viewport, setViewport] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1440,
     height: typeof window !== 'undefined' ? window.innerHeight : 900,
@@ -112,27 +118,111 @@ export default function TutorialOverlay({
     };
 
     window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleResize);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', handleResize);
+    vv?.addEventListener('scroll', handleResize);
     return () => {
       if (raf) window.cancelAnimationFrame(raf);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+      vv?.removeEventListener('resize', handleResize);
+      vv?.removeEventListener('scroll', handleResize);
     };
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const card = cardRef.current;
+    if (!card) return;
+    card.scrollTop = 0;
+  }, [chapterIndex, mode, open, stepIndex]);
+
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node) return;
+
+    const updateHeight = () => {
+      setCardContentHeight(Math.ceil(node.scrollHeight));
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateHeight());
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, [chapterIndex, mode, open, stepIndex, checklist.length, optionalDecision?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (mode === 'running' && runningScope === 'map_only') return;
+    const card = cardRef.current;
+    if (!card) return;
+
+    const timer = window.setTimeout(() => {
+      const primary = card.querySelector<HTMLElement>('.primary:not([disabled])');
+      const fallback = card.querySelector<HTMLElement>('button:not([disabled])');
+      (primary ?? fallback)?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [atEnd, mode, open, runningScope, stepIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (mode !== 'running') return;
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        if (!canGoNext) return;
+        if (atEnd) onFinish();
+        else onNext();
+        return;
+      }
+
+      if (event.altKey && event.key === 'ArrowLeft') {
+        event.preventDefault();
+        if (!atStart) onBack();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [atEnd, atStart, canGoNext, mode, onBack, onClose, onFinish, onNext, open]);
 
   const layout = useMemo(() => {
     const vw = viewport.width;
     const vh = viewport.height;
-    const cardWidth = Math.min(500, vw - 28);
+    const availableWidth = Math.max(280, vw - 24);
+    const cardWidth = Math.min(520, availableWidth);
     const safeBottomGap = 16;
     const defaultTop = clamp(vh * 0.12, 12, Math.max(12, vh - 320));
     const guidedTop = clamp(vh * 0.1, 12, Math.max(12, vh - 360));
 
     if (!targetRect || mode !== 'running') {
+      const availableHeight = vh - defaultTop - safeBottomGap;
+      const needsScale = cardContentHeight > 0 && cardContentHeight > availableHeight;
+      const scale = needsScale
+        ? clamp(availableHeight / cardContentHeight, 0.84, 1)
+        : 1;
       return {
         cardStyle: {
           left: clamp((vw - cardWidth) / 2, 12, vw - cardWidth - 12),
           top: defaultTop,
           width: cardWidth,
-          maxHeight: Math.max(280, vh - 24),
+          transform: scale < 1 ? `scale(${scale})` : undefined,
+          transformOrigin: 'top center',
         },
         arrowStyle: null as { left: number; top: number } | null,
         arrowClass: 'isHidden',
@@ -146,23 +236,53 @@ export default function TutorialOverlay({
     const left = preferRight
       ? targetRight + 24
       : clamp(targetRect.left - cardWidth - 24, 12, vw - cardWidth - 12);
-    const top = clamp(targetMidY - 220, guidedTop, Math.max(guidedTop, vh - 360 - safeBottomGap));
+    let top = clamp(targetMidY - 220, guidedTop, Math.max(guidedTop, vh - 360 - safeBottomGap));
+    const naturalAvailableHeight = vh - top - safeBottomGap;
+    if (cardContentHeight > 0 && cardContentHeight > naturalAvailableHeight) {
+      const desiredTop = Math.max(8, vh - cardContentHeight - safeBottomGap);
+      top = clamp(desiredTop, 8, top);
+    }
+    const availableHeight = vh - top - safeBottomGap;
+    const needsScale = cardContentHeight > 0 && cardContentHeight > availableHeight;
+    const scale = needsScale
+      ? clamp(availableHeight / cardContentHeight, 0.84, 1)
+      : 1;
 
     return {
       cardStyle: {
         left,
         top,
         width: cardWidth,
-        maxHeight: Math.max(280, vh - top - safeBottomGap),
+        transform: scale < 1 ? `scale(${scale})` : undefined,
+        transformOrigin: 'top left',
       },
       arrowStyle: { left, top },
       arrowClass: preferRight ? 'isLeftAnchor' : 'isRightAnchor',
     };
-  }, [mode, targetRect, viewport.height, viewport.width]);
+  }, [cardContentHeight, mode, targetRect, viewport.height, viewport.width]);
   const firstPendingIndex = useMemo(
     () => checklist.findIndex((item) => !item.done),
     [checklist],
   );
+  const doneCount = useMemo(
+    () => checklist.filter((item) => item.done).length,
+    [checklist],
+  );
+  const progressPercent = useMemo(() => {
+    if (!checklist.length) return 100;
+    return Math.round((doneCount / checklist.length) * 100);
+  }, [checklist.length, doneCount]);
+  const currentTask = useMemo(() => {
+    if (currentTaskOverride) {
+      return {
+        actionId: 'override',
+        label: currentTaskOverride,
+        done: false,
+      } as ChecklistItem;
+    }
+    if (!checklist.length) return null;
+    return checklist.find((item) => !item.done) ?? null;
+  }, [checklist, currentTaskOverride]);
 
   if (!open) return null;
   const mapFocusedRunning = mode === 'running' && runningScope === 'map_only';
@@ -182,7 +302,9 @@ export default function TutorialOverlay({
     <div
       className={`tutorialOverlay ${mode === 'running' ? 'isRunning' : ''} ${mapFocusedRunning ? 'isMapFocused' : ''}`.trim()}
       role="dialog"
-      aria-modal="true"
+      aria-modal={mode === 'running' && runningScope === 'map_only' ? 'false' : 'true'}
+      aria-labelledby={titleId}
+      aria-describedby={bodyId}
       aria-label="Guided frontend tutorial"
     >
       <div className="tutorialOverlay__backdrop" onClick={handleBackdropClick} />
@@ -203,6 +325,7 @@ export default function TutorialOverlay({
       ) : null}
 
       <div
+        ref={cardRef}
         className="tutorialOverlay__card tutorialOverlay__card--guided"
         style={layout.cardStyle}
         onMouseDown={() => {
@@ -220,8 +343,8 @@ export default function TutorialOverlay({
         {mode === 'blocked' ? (
           <>
             <div className="tutorialOverlay__badge">Desktop only</div>
-            <h2 className="tutorialOverlay__title">Tutorial requires desktop width</h2>
-            <p className="tutorialOverlay__body">
+            <h2 id={titleId} className="tutorialOverlay__title">Tutorial requires desktop width</h2>
+            <p id={bodyId} className="tutorialOverlay__body">
               This full guided tutorial is currently designed for desktop-only interaction. Expand your
               viewport to continue.
             </p>
@@ -236,8 +359,8 @@ export default function TutorialOverlay({
         {mode === 'chooser' ? (
           <>
             <div className="tutorialOverlay__badge">Guided tutorial</div>
-            <h2 className="tutorialOverlay__title">Resume or restart tutorial</h2>
-            <p className="tutorialOverlay__body">
+            <h2 id={titleId} className="tutorialOverlay__title">Resume or restart tutorial</h2>
+            <p id={bodyId} className="tutorialOverlay__body">
               {hasSavedProgress
                 ? 'You have unfinished tutorial progress. Resume where you left off or restart from chapter one.'
                 : 'Start the full guided walkthrough from chapter one.'}
@@ -267,8 +390,8 @@ export default function TutorialOverlay({
         {mode === 'completed' ? (
           <>
             <div className="tutorialOverlay__badge">Completed</div>
-            <h2 className="tutorialOverlay__title">Tutorial completed</h2>
-            <p className="tutorialOverlay__body">
+            <h2 id={titleId} className="tutorialOverlay__title">Tutorial completed</h2>
+            <p id={bodyId} className="tutorialOverlay__body">
               You can restart the full walkthrough at any time from the Setup card.
             </p>
             <div className="tutorialOverlay__actions">
@@ -292,14 +415,28 @@ export default function TutorialOverlay({
             <div className="tutorialOverlay__stepCounter">
               Step {stepIndex} / {stepCount}
             </div>
+            <div className="tutorialOverlay__meterWrap" aria-hidden="true">
+              <div className="tutorialOverlay__meterTrack">
+                <div className="tutorialOverlay__meterFill" style={{ width: `${progressPercent}%` }} />
+              </div>
+              <div className="tutorialOverlay__meterMeta">
+                {doneCount}/{checklist.length || 0} tasks complete
+              </div>
+            </div>
 
-            <h2 className="tutorialOverlay__title">{stepTitle}</h2>
-            <p className="tutorialOverlay__body">
+            <h2 id={titleId} className="tutorialOverlay__title">{stepTitle}</h2>
+            <p id={bodyId} className="tutorialOverlay__body">
               <strong>What to do:</strong> {stepWhat}
             </p>
             <p className="tutorialOverlay__body">
               <strong>How results change:</strong> {stepImpact}
             </p>
+            {currentTask ? (
+              <div className="tutorialOverlay__currentTask" role="status" aria-live="polite">
+                <span className="tutorialOverlay__currentTaskLabel">Current task</span>
+                <span>{currentTask.label}</span>
+              </div>
+            ) : null}
 
             {targetMissing ? (
               <div className="warningPanel" role="status" aria-live="polite">
@@ -331,7 +468,12 @@ export default function TutorialOverlay({
                         : 'Pending';
 
                   return (
-                    <li key={item.actionId} className={`tutorialChecklist__item ${stateClass}`}>
+                    <li
+                      key={item.actionId}
+                      className={`tutorialChecklist__item ${stateClass}`}
+                      aria-current={isCurrent ? 'step' : undefined}
+                      data-state={stateClass}
+                    >
                       <span className="tutorialChecklist__number" aria-hidden="true">
                         {idx + 1}
                       </span>
@@ -346,7 +488,11 @@ export default function TutorialOverlay({
                         <button
                           type="button"
                           className="ghostButton tutorialChecklist__manualBtn"
-                          onClick={() => onMarkManual(item.actionId)}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onMarkManual(item.actionId);
+                          }}
                         >
                           {item.actionId.startsWith('map.confirm_') ? 'Confirm' : 'Mark done'}
                         </button>

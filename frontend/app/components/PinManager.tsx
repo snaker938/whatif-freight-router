@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import type { PinDisplayNode, PinSelectionId } from '../lib/types';
@@ -44,7 +44,6 @@ export default function PinManager({
   onClearPins,
   sectionControl,
 }: Props) {
-  const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const originNode = useMemo(() => nodes.find((node) => node.id === 'origin') ?? null, [nodes]);
   const stopNode = useMemo(() => nodes.find((node) => node.id === 'stop-1') ?? null, [nodes]);
   const destinationNode = useMemo(
@@ -88,24 +87,6 @@ export default function PinManager({
         </button>
 
         <div className="pinManager__inlineActions">
-          <button
-            type="button"
-            className="ghostButton pinManager__copyBtn"
-            disabled={disabled}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`${fmtCoord(node.lat)},${fmtCoord(node.lon)}`);
-                setCopiedNodeId(node.id);
-                window.setTimeout(() => {
-                  setCopiedNodeId((prev) => (prev === node.id ? null : prev));
-                }, 1200);
-              } catch {
-                setCopiedNodeId(null);
-              }
-            }}
-          >
-            {copiedNodeId === node.id ? 'Copied' : 'Copy Coords'}
-          </button>
           {options.editable ? (
             <input
               className="input pinManager__nameInput"
@@ -117,9 +98,9 @@ export default function PinManager({
               data-tutorial-action="pins.rename_stop"
             />
           ) : (
-            <div className="pinManager__lockedTag" aria-label={`${label} Name Is Fixed`}>
-              <span className="pinManager__lockedDot" aria-hidden="true">•</span>
-              <span>Locked</span>
+            <div className="pinManager__fixedName" aria-label={`${label} Name Is Fixed`}>
+              <span className="pinManager__fixedNameDot" aria-hidden="true">●</span>
+              <span>{label} Name Is Fixed</span>
             </div>
           )}
         </div>

@@ -71,6 +71,7 @@ type Props = {
   tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
+  tutorialConfirmPin?: 'origin' | 'destination' | null;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: PinSelectionId | null) => void;
@@ -81,6 +82,7 @@ type Props = {
   onDeleteStop?: () => void;
   onFocusPin?: (id: PinSelectionId) => void;
   onSwapMarkers?: () => void;
+  onTutorialConfirmPin?: (kind: 'origin' | 'destination') => void;
 };
 
 // Rough UK bounds (keeps the demo focused on UK routing).
@@ -263,6 +265,7 @@ function TutorialGuidePanHandler({
 
   useEffect(() => {
     if (!visible || !guideTarget) return;
+    map.stop();
     if (viewportLocked) {
       map.setView([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
         animate: false,
@@ -273,7 +276,15 @@ function TutorialGuidePanHandler({
       animate: true,
       duration: 0.55,
     });
-  }, [guideTarget?.pan_nonce, guideTarget?.stage, visible, map, guideTarget, viewportLocked]);
+  }, [
+    guideTarget?.lat,
+    guideTarget?.lon,
+    guideTarget?.pan_nonce,
+    guideTarget?.zoom,
+    visible,
+    map,
+    viewportLocked,
+  ]);
 
   return null;
 }
@@ -286,6 +297,13 @@ function MapInteractionLockHandler({
   const map = useMap();
 
   useEffect(() => {
+    const mapWithTap = map as L.Map & {
+      tap?: {
+        enable: () => void;
+        disable: () => void;
+      };
+    };
+
     const enableInteractions = () => {
       map.dragging.enable();
       map.scrollWheelZoom.enable();
@@ -293,6 +311,7 @@ function MapInteractionLockHandler({
       map.boxZoom.enable();
       map.keyboard.enable();
       map.touchZoom.enable();
+      mapWithTap.tap?.enable();
     };
 
     const disableInteractions = () => {
@@ -302,6 +321,7 @@ function MapInteractionLockHandler({
       map.boxZoom.disable();
       map.keyboard.disable();
       map.touchZoom.disable();
+      mapWithTap.tap?.disable();
     };
 
     if (!viewportLocked) {
@@ -328,19 +348,30 @@ function ZoomControlVisibilityHandler({
 
   useEffect(() => {
     const control = map.zoomControl as L.Control.Zoom | undefined;
-    if (!control) return;
-    const container = control.getContainer();
-    const isMounted = Boolean(container && container.parentElement);
+    const controlContainer = control?.getContainer() ?? null;
+    const fallbackContainer = map.getContainer().querySelector<HTMLElement>('.leaflet-control-zoom');
+    const container = controlContainer ?? fallbackContainer;
 
     if (hideZoomControls) {
-      if (isMounted) {
+      if (container) {
+        container.style.display = 'none';
+        container.style.pointerEvents = 'none';
+        container.setAttribute('aria-hidden', 'true');
+      }
+      if (controlContainer && control && controlContainer.parentElement) {
         map.removeControl(control);
       }
       return;
     }
 
-    if (!isMounted) {
+    if (controlContainer && control && !controlContainer.parentElement) {
       map.addControl(control);
+    }
+    const visibleContainer = control?.getContainer() ?? fallbackContainer;
+    if (visibleContainer) {
+      visibleContainer.style.display = '';
+      visibleContainer.style.pointerEvents = '';
+      visibleContainer.removeAttribute('aria-hidden');
     }
   }, [hideZoomControls, map]);
 
@@ -600,6 +631,7 @@ export default function MapView({
   tutorialExpectedAction = null,
   tutorialGuideTarget = null,
   tutorialGuideVisible = false,
+  tutorialConfirmPin = null,
   onMapClick,
   onSelectPinId,
   onMoveMarker,
@@ -609,6 +641,7 @@ export default function MapView({
   onDeleteStop,
   onFocusPin,
   onSwapMarkers,
+  onTutorialConfirmPin,
 }: Props) {
   const originRef = useRef<L.Marker>(null);
   const destRef = useRef<L.Marker>(null);
@@ -791,6 +824,26 @@ export default function MapView({
     },
     [tutorialExpectedAction],
   );
+  const isMarkerActionAllowed = useCallback(
+    (
+      actionId: string,
+      markerKind?: 'origin' | 'destination',
+    ) => {
+      if (isActionExpected(actionId)) return true;
+      if (markerKind === 'origin' && tutorialConfirmPin === 'origin') {
+        return actionId === 'map.click_origin_marker' || actionId === 'map.drag_origin_marker';
+      }
+      if (markerKind === 'destination' && tutorialConfirmPin === 'destination') {
+        return actionId === 'map.click_destination_marker' || actionId === 'map.drag_destination_marker';
+      }
+      return false;
+    },
+    [isActionExpected, tutorialConfirmPin],
+  );
+  const disableTutorialPopupAutoPan = Boolean(
+    tutorialViewportLocked || (tutorialGuideVisible && tutorialConfirmPin),
+  );
+  const mapInteractionLocked = tutorialMapLocked || tutorialViewportLocked;
 
   const handleCopyCoords = useCallback(async (kind: MarkerKind | 'stop', lat: number, lon: number) => {
     const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
@@ -824,13 +877,13 @@ export default function MapView({
         zoom={11}
         minZoom={5}
         maxZoom={18}
-        zoomControl={true}
-        dragging={!tutorialMapLocked}
-        scrollWheelZoom={!tutorialMapLocked}
-        doubleClickZoom={!tutorialMapLocked}
-        boxZoom={!tutorialMapLocked}
-        keyboard={!tutorialMapLocked}
-        touchZoom={!tutorialMapLocked}
+        zoomControl={!tutorialHideZoomControls}
+        dragging={!mapInteractionLocked}
+        scrollWheelZoom={!mapInteractionLocked}
+        doubleClickZoom={!mapInteractionLocked}
+        boxZoom={!mapInteractionLocked}
+        keyboard={!mapInteractionLocked}
+        touchZoom={!mapInteractionLocked}
         maxBounds={UK_BOUNDS}
         maxBoundsViscosity={1.0}
         style={{ height: '100%', width: '100%' }}
@@ -904,12 +957,12 @@ export default function MapView({
             ref={originRef}
             position={[effectiveOrigin?.lat ?? origin.lat, effectiveOrigin?.lon ?? origin.lon]}
             icon={originIcon}
-            draggable={!tutorialMapLocked && isActionExpected('map.drag_origin_marker')}
+            draggable={!tutorialMapLocked && isMarkerActionAllowed('map.drag_origin_marker', 'origin')}
             riseOnHover={true}
             eventHandlers={{
               click(e) {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.click_origin_marker')) return;
+                if (!isMarkerActionAllowed('map.click_origin_marker', 'origin')) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
@@ -918,7 +971,7 @@ export default function MapView({
               },
               dragend(e) {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.drag_origin_marker')) return;
+                if (!isMarkerActionAllowed('map.drag_origin_marker', 'origin')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
@@ -928,7 +981,7 @@ export default function MapView({
               },
               dragstart() {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.drag_origin_marker')) return;
+                if (!isMarkerActionAllowed('map.drag_origin_marker', 'origin')) return;
                 suppressInteractionsBriefly();
                 try {
                   originRef.current?.closePopup();
@@ -939,7 +992,7 @@ export default function MapView({
               },
               drag(e) {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.drag_origin_marker')) return;
+                if (!isMarkerActionAllowed('map.drag_origin_marker', 'origin')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
@@ -949,7 +1002,7 @@ export default function MapView({
             <Popup
               className="markerPopup"
               closeButton={false}
-              autoPan={true}
+              autoPan={!disableTutorialPopupAutoPan}
               autoPanPadding={[22, 22]}
             >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
@@ -1036,6 +1089,20 @@ export default function MapView({
                 <div className="markerPopup__tinyHint">
                   Start pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
                 </div>
+
+                {tutorialConfirmPin === 'origin' && onTutorialConfirmPin ? (
+                  <button
+                    type="button"
+                    className="primary markerPopup__confirmBtn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTutorialConfirmPin('origin');
+                    }}
+                    data-tutorial-action="map.confirm_origin_newcastle"
+                  >
+                    Confirm Start
+                  </button>
+                ) : null}
               </div>
             </Popup>
           </Marker>
@@ -1046,12 +1113,15 @@ export default function MapView({
             ref={destRef}
             position={[effectiveDestination?.lat ?? destination.lat, effectiveDestination?.lon ?? destination.lon]}
             icon={destIcon}
-            draggable={!tutorialMapLocked && isActionExpected('map.drag_destination_marker')}
+            draggable={
+              !tutorialMapLocked &&
+              isMarkerActionAllowed('map.drag_destination_marker', 'destination')
+            }
             riseOnHover={true}
             eventHandlers={{
               click(e) {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.click_destination_marker')) return;
+                if (!isMarkerActionAllowed('map.click_destination_marker', 'destination')) return;
                 e.originalEvent?.stopPropagation();
                 if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
@@ -1060,7 +1130,7 @@ export default function MapView({
               },
               dragend(e) {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.drag_destination_marker')) return;
+                if (!isMarkerActionAllowed('map.drag_destination_marker', 'destination')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
@@ -1070,7 +1140,7 @@ export default function MapView({
               },
               dragstart() {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.drag_destination_marker')) return;
+                if (!isMarkerActionAllowed('map.drag_destination_marker', 'destination')) return;
                 suppressInteractionsBriefly();
                 try {
                   destRef.current?.closePopup();
@@ -1081,7 +1151,7 @@ export default function MapView({
               },
               drag(e) {
                 if (tutorialMapLocked) return;
-                if (!isActionExpected('map.drag_destination_marker')) return;
+                if (!isMarkerActionAllowed('map.drag_destination_marker', 'destination')) return;
                 const marker = e.target as L.Marker;
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
@@ -1091,7 +1161,7 @@ export default function MapView({
             <Popup
               className="markerPopup"
               closeButton={false}
-              autoPan={true}
+              autoPan={!disableTutorialPopupAutoPan}
               autoPanPadding={[22, 22]}
             >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
@@ -1178,6 +1248,20 @@ export default function MapView({
                 <div className="markerPopup__tinyHint">
                   End pin cannot be removed individually. Use Clear pins in Setup to reset both pins.
                 </div>
+
+                {tutorialConfirmPin === 'destination' && onTutorialConfirmPin ? (
+                  <button
+                    type="button"
+                    className="primary markerPopup__confirmBtn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTutorialConfirmPin('destination');
+                    }}
+                    data-tutorial-action="map.confirm_destination_london"
+                  >
+                    Confirm End
+                  </button>
+                ) : null}
               </div>
             </Popup>
           </Marker>
@@ -1321,13 +1405,10 @@ export default function MapView({
                 </div>
               </div>
             </Popup>
-            <Tooltip permanent={true} direction="top" offset={[0, -16]} className="stopNameTooltip">
-              {stopDisplayName}
-            </Tooltip>
           </Marker>
         ) : null}
 
-        {!suppressRoutePath && polylinePositions.length > 0 && (
+        {!suppressRoutePath && !tutorialGuideVisible && polylinePositions.length > 0 && (
           <>
             <Polyline
               positions={polylinePositions}
@@ -1404,7 +1485,7 @@ export default function MapView({
           );
         })}
 
-        {previewDotSegments.map((segment) => (
+        {!tutorialGuideVisible && previewDotSegments.map((segment) => (
           <Polyline
             key={segment.id}
             positions={[

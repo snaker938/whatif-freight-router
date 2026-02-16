@@ -108,6 +108,7 @@ type MapViewProps = {
   tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
+  tutorialConfirmPin?: 'origin' | 'destination' | null;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: 'origin' | 'destination' | 'stop-1' | null) => void;
@@ -118,6 +119,7 @@ type MapViewProps = {
   onDeleteStop?: () => void;
   onFocusPin?: (id: 'origin' | 'destination' | 'stop-1') => void;
   onSwapMarkers?: () => void;
+  onTutorialConfirmPin?: (kind: 'origin' | 'destination') => void;
 };
 
 const MapView = dynamic<MapViewProps>(() => import('./components/MapView'), {
@@ -281,6 +283,7 @@ const TutorialOverlay = dynamic<
       done: boolean;
       kind?: 'ui' | 'manual';
     }>;
+    currentTaskOverride?: string | null;
     optionalDecision: {
       id: string;
       label: string;
@@ -835,20 +838,46 @@ export default function Page() {
     const pending = tutorialStep.required.find((item) => !tutorialActionSet.has(item.actionId));
     return pending?.actionId ?? null;
   }, [tutorialActionSet, tutorialStep]);
+  const tutorialOriginConfirmed = useMemo(
+    () => tutorialActionSet.has('map.confirm_origin_newcastle'),
+    [tutorialActionSet],
+  );
+  const tutorialDestinationConfirmed = useMemo(
+    () => tutorialActionSet.has('map.confirm_destination_london'),
+    [tutorialActionSet],
+  );
   const tutorialPlacementStage = useMemo<TutorialPlacementStage>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return 'done';
-
-    // Primary truth for guided placement stage is actual pin state + ordered confirmation gates.
     if (!origin) return 'newcastle_origin';
-    if (tutorialNextRequiredActionId === 'map.confirm_origin_newcastle') return 'newcastle_origin';
+    if (!tutorialOriginConfirmed) return 'newcastle_origin';
     if (!destination) return 'london_destination';
-    if (tutorialNextRequiredActionId === 'map.confirm_destination_london') return 'london_destination';
-
-    // After both are placed, fall back to checklist action order.
-    if (tutorialNextRequiredActionId === 'map.set_origin_newcastle') return 'newcastle_origin';
-    if (tutorialNextRequiredActionId === 'map.set_destination_london') return 'london_destination';
+    if (!tutorialDestinationConfirmed) return 'london_destination';
     return 'done';
-  }, [destination, origin, tutorialNextRequiredActionId, tutorialRunning, tutorialStep?.id]);
+  }, [
+    destination,
+    origin,
+    tutorialDestinationConfirmed,
+    tutorialOriginConfirmed,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
+  const tutorialBlockingActionId = useMemo(() => {
+    if (!tutorialRunning || !tutorialStep) return null;
+    if (tutorialStep.id !== 'map_set_pins') return tutorialNextRequiredActionId;
+    if (!origin) return 'map.set_origin_newcastle';
+    if (!tutorialOriginConfirmed) return 'map.confirm_origin_newcastle';
+    if (!destination) return 'map.set_destination_london';
+    if (!tutorialDestinationConfirmed) return 'map.confirm_destination_london';
+    return tutorialNextRequiredActionId;
+  }, [
+    destination,
+    origin,
+    tutorialDestinationConfirmed,
+    tutorialNextRequiredActionId,
+    tutorialOriginConfirmed,
+    tutorialRunning,
+    tutorialStep,
+  ]);
   const tutorialGuidePanNonce = useMemo(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return tutorialStepIndex;
     if (tutorialPlacementStage === 'newcastle_origin') return tutorialStepIndex * 1000 + 1;
@@ -871,11 +900,12 @@ export default function Page() {
   const tutorialActiveSectionId = useMemo(() => inferTutorialSectionId(tutorialStep), [tutorialStep]);
   const tutorialAllowedActionSet = useMemo(() => {
     if (!tutorialStep) return new Set<string>();
-    const fromRequired = tutorialNextRequiredActionId ? [tutorialNextRequiredActionId] : [];
-    const fromOptional = tutorialNextRequiredActionId ? [] : tutorialStep.optional?.actionIds ?? [];
+    const orderedAction = tutorialBlockingActionId;
+    const fromRequired = orderedAction ? [orderedAction] : [];
+    const fromOptional = orderedAction ? [] : tutorialStep.optional?.actionIds ?? [];
     const fromCustom = tutorialStep.allowedActions ?? [];
     return new Set<string>([...fromRequired, ...fromOptional, ...fromCustom]);
-  }, [tutorialNextRequiredActionId, tutorialStep]);
+  }, [tutorialBlockingActionId, tutorialStep]);
   const tutorialAllowedActionPrefixes = useMemo(() => {
     return [...tutorialAllowedActionSet]
       .filter((actionId) => actionId.endsWith('*'))
@@ -947,13 +977,69 @@ export default function Page() {
     };
   }, [tutorialGuidePanNonce, tutorialPlacementStage, tutorialRunning, tutorialStep?.id]);
   const tutorialGuideVisible = Boolean(tutorialGuideTarget);
+  const tutorialConfirmPin = useMemo<'origin' | 'destination' | null>(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
+    if (tutorialPlacementStage === 'newcastle_origin' && origin) return 'origin';
+    if (tutorialPlacementStage === 'london_destination' && destination) return 'destination';
+    return null;
+  }, [destination, origin, tutorialPlacementStage, tutorialRunning, tutorialStep?.id]);
+  const tutorialCurrentTaskOverride = useMemo(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
+    if (tutorialBlockingActionId === 'map.confirm_origin_newcastle') {
+      return 'Confirm Start from the Start marker popup.';
+    }
+    if (tutorialBlockingActionId === 'map.confirm_destination_london') {
+      return 'Confirm End from the End marker popup.';
+    }
+    return null;
+  }, [tutorialBlockingActionId, tutorialRunning, tutorialStep?.id]);
+
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return;
+    if (tutorialPlacementStage === 'newcastle_origin' && !origin) {
+      setLiveMessage('Place Start inside the Newcastle guided zone.');
+      return;
+    }
+    if (tutorialPlacementStage === 'newcastle_origin' && origin && !tutorialOriginConfirmed) {
+      setLiveMessage('Start placed. Open the Start marker popup and confirm to continue.');
+      return;
+    }
+    if (tutorialPlacementStage === 'london_destination' && !destination) {
+      setLiveMessage('Great. Now place End inside the London guided zone.');
+      return;
+    }
+    if (tutorialPlacementStage === 'london_destination' && destination && !tutorialDestinationConfirmed) {
+      setLiveMessage('End placed. Open the End marker popup and confirm to continue.');
+      return;
+    }
+  }, [
+    destination,
+    origin,
+    tutorialDestinationConfirmed,
+    tutorialOriginConfirmed,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
   const tutorialCanAdvance = useMemo(() => {
     if (!tutorialStep) return false;
     const requiredDone = tutorialStep.required.every((item) => tutorialActionSet.has(item.actionId));
     if (!requiredDone) return false;
+    if (
+      tutorialStep.id === 'map_set_pins' &&
+      (!tutorialOriginConfirmed || !tutorialDestinationConfirmed)
+    ) {
+      return false;
+    }
     if (!tutorialOptionalState) return true;
     return tutorialOptionalState.resolved || tutorialOptionalState.actionTouched;
-  }, [tutorialActionSet, tutorialOptionalState, tutorialStep]);
+  }, [
+    tutorialActionSet,
+    tutorialDestinationConfirmed,
+    tutorialOptionalState,
+    tutorialOriginConfirmed,
+    tutorialStep,
+  ]);
   const tutorialAtStart = tutorialStepIndex <= 0;
   const tutorialAtEnd = tutorialStepIndex >= TUTORIAL_STEPS.length - 1;
   const weightSum = weights.time + weights.money + weights.co2;
@@ -968,7 +1054,7 @@ export default function Page() {
   const markTutorialAction = useCallback(
     (actionId: string, options?: { force?: boolean }) => {
       if (!actionId || !tutorialRunning || !tutorialStepId) return;
-      const nextRequiredAction = tutorialNextRequiredActionId;
+      const nextRequiredAction = tutorialBlockingActionId ?? tutorialNextRequiredActionId;
       const actionAlreadyDone = tutorialActionSet.has(actionId);
       if (!options?.force && !actionAlreadyDone && nextRequiredAction && actionId !== nextRequiredAction) {
         return;
@@ -979,7 +1065,13 @@ export default function Page() {
         return { ...prev, [tutorialStepId]: [...existing, actionId] };
       });
     },
-    [tutorialActionSet, tutorialNextRequiredActionId, tutorialRunning, tutorialStepId],
+    [
+      tutorialActionSet,
+      tutorialBlockingActionId,
+      tutorialNextRequiredActionId,
+      tutorialRunning,
+      tutorialStepId,
+    ],
   );
 
   const markTutorialOptionalDefault = useCallback(
@@ -1000,10 +1092,14 @@ export default function Page() {
       if (tutorialPrefilledSteps.includes(prefillId)) return;
 
       if (prefillId === 'clear_map') {
+        dutySyncSourceRef.current = 'text';
         setOrigin(null);
         setDestination(null);
         setManagedStop(null);
         setSelectedPinId(null);
+        setFocusPinRequest(null);
+        setDutyStopsText('');
+        setDutySyncError(null);
       }
 
       if (prefillId === 'canonical_map') {
@@ -1265,21 +1361,28 @@ export default function Page() {
       return;
     }
     setDutySyncError(null);
+    let changed = false;
     if (!sameLatLng(origin, parsed.origin)) {
       setOrigin(parsed.origin);
+      changed = true;
     }
     if (!sameLatLng(destination, parsed.destination)) {
       setDestination(parsed.destination);
+      changed = true;
     }
     if (!sameManagedStop(managedStop, parsed.stop)) {
       setManagedStop(parsed.stop);
+      changed = true;
     }
     const canonicalText = serializePinsToDutyText(parsed.origin, parsed.stop, parsed.destination);
     if (canonicalText !== dutyStopsText) {
       dutySyncSourceRef.current = 'pins';
       setDutyStopsText(canonicalText);
     }
-  }, [dutyStopsText, origin, destination, managedStop]);
+    if (changed) {
+      clearComputed();
+    }
+  }, [clearComputed, dutyStopsText]);
 
   useEffect(() => {
     const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
@@ -1391,13 +1494,47 @@ export default function Page() {
 
   useEffect(() => {
     if (!tutorialRunning) return;
+
+    const isTargetAllowedByStep = (target: HTMLElement): boolean => {
+      for (const targetId of tutorialTargetIdSet) {
+        const node = document.querySelector<HTMLElement>(`[data-tutorial-id="${targetId}"]`);
+        if (node?.contains(target)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
     const handleActionEvent = (event: Event) => {
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('.tutorialOverlay__card')) return;
+
       const actionable = target?.closest<HTMLElement>('[data-tutorial-action]');
       const actionId = actionable?.dataset.tutorialAction;
-      if (actionId) {
-        markTutorialAction(actionId);
+      if (!actionId) return;
+      if (actionable?.matches(':disabled')) return;
+
+      const inMap = Boolean(target.closest('[data-tutorial-id="map.interactive"]'));
+      const inPanel = Boolean(target.closest('.panel'));
+      const activeSectionNode = tutorialActiveSectionId
+        ? document.querySelector<HTMLElement>(`[data-tutorial-id="${tutorialActiveSectionId}"]`)
+        : null;
+
+      if (tutorialLockScope === 'map_only' && !inMap) return;
+      if (tutorialLockScope === 'sidebar_section_only') {
+        if (!inPanel) return;
+        if (activeSectionNode && !activeSectionNode.contains(target)) return;
+        if (
+          !isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes) &&
+          !(isTargetAllowedByStep(target) && !tutorialUsesSectionTarget)
+        ) {
+          return;
+        }
       }
+
+      markTutorialAction(actionId);
     };
 
     document.addEventListener('click', handleActionEvent, true);
@@ -1408,7 +1545,16 @@ export default function Page() {
       document.removeEventListener('change', handleActionEvent, true);
       document.removeEventListener('input', handleActionEvent, true);
     };
-  }, [markTutorialAction, tutorialRunning]);
+  }, [
+    markTutorialAction,
+    tutorialActiveSectionId,
+    tutorialAllowedActionExact,
+    tutorialAllowedActionPrefixes,
+    tutorialLockScope,
+    tutorialRunning,
+    tutorialTargetIdSet,
+    tutorialUsesSectionTarget,
+  ]);
 
   useEffect(() => {
     if (!tutorialRunning) return;
@@ -1701,10 +1847,6 @@ export default function Page() {
         maximumFractionDigits: 0,
       })}/${formatNumber(progress.total, locale, { maximumFractionDigits: 0 })}`
     : null;
-  const progressPct =
-    progress && progress.total > 0
-      ? Math.max(0, Math.min(100, (progress.done / progress.total) * 100))
-      : 0;
   const normalisedWeights = useMemo(() => normaliseWeights(weights), [weights]);
 
   useEffect(() => {
@@ -1769,31 +1911,30 @@ export default function Page() {
     setError(null);
 
     if (tutorialRunning && tutorialStep?.id === 'map_set_pins') {
-      if (
-        tutorialNextRequiredActionId !== 'map.set_origin_newcastle' &&
-        tutorialNextRequiredActionId !== 'map.set_destination_london'
-      ) {
-        if (tutorialNextRequiredActionId === 'map.confirm_origin_newcastle') {
-          setLiveMessage('Confirm Start placement in the tutorial panel before moving to London.');
-        } else if (tutorialNextRequiredActionId === 'map.confirm_destination_london') {
-          setLiveMessage('Confirm End placement in the tutorial panel before continuing.');
-        } else {
-          setLiveMessage('Follow the checklist order. Complete the current marker action first.');
-        }
-        return;
-      }
-      if (tutorialPlacementStage === 'done') {
-        setLiveMessage('Use marker clicks and drags to complete this tutorial step.');
-        return;
-      }
+      const canPlaceOrAdjustOrigin = tutorialPlacementStage === 'newcastle_origin';
+      const canPlaceOrAdjustDestination = tutorialPlacementStage === 'london_destination';
 
-      const targetCity =
-        tutorialPlacementStage === 'newcastle_origin'
-          ? TUTORIAL_CITY_TARGETS.newcastle
-          : TUTORIAL_CITY_TARGETS.london;
-      const cityLabel =
-        tutorialPlacementStage === 'newcastle_origin' ? 'Newcastle' : 'London';
-      const pinLabel = tutorialPlacementStage === 'newcastle_origin' ? 'Start' : 'End';
+      if (
+        !canPlaceOrAdjustOrigin &&
+        !canPlaceOrAdjustDestination
+      ) {
+        if (tutorialBlockingActionId === 'map.confirm_origin_newcastle') {
+          setLiveMessage('Confirm Start from the Start marker popup before moving to London.');
+          return;
+        }
+        if (tutorialBlockingActionId === 'map.confirm_destination_london') {
+          setLiveMessage('Confirm End from the End marker popup before continuing this step.');
+          return;
+        }
+        setLiveMessage('Follow the checklist order. Complete the current marker action first.');
+        return;
+      }
+      const adjustingOrigin = canPlaceOrAdjustOrigin;
+      const targetCity = adjustingOrigin
+        ? TUTORIAL_CITY_TARGETS.newcastle
+        : TUTORIAL_CITY_TARGETS.london;
+      const cityLabel = adjustingOrigin ? 'Newcastle' : 'London';
+      const pinLabel = adjustingOrigin ? 'Start' : 'End';
       const distanceKm = haversineDistanceKm(
         { lat, lon },
         { lat: targetCity.lat, lon: targetCity.lon },
@@ -1806,20 +1947,28 @@ export default function Page() {
         return;
       }
 
-      if (tutorialPlacementStage === 'newcastle_origin') {
+      if (adjustingOrigin) {
         setOrigin({ lat, lon });
-        setSelectedPinId(null);
+        setSelectedPinId('origin');
         clearComputed();
-        markTutorialAction('map.set_origin_newcastle', { force: true });
-        setLiveMessage('Start set near Newcastle. Confirm it in the tutorial panel to continue.');
+        if (tutorialNextRequiredActionId === 'map.set_origin_newcastle') {
+          markTutorialAction('map.set_origin_newcastle', { force: true });
+          setLiveMessage('Start set near Newcastle. Confirm it from the Start pin popup to continue.');
+        } else {
+          setLiveMessage('Start updated near Newcastle. Confirm it from the Start pin popup when ready.');
+        }
         return;
       }
 
       setDestination({ lat, lon });
-      setSelectedPinId(null);
+      setSelectedPinId('destination');
       clearComputed();
-      markTutorialAction('map.set_destination_london', { force: true });
-      setLiveMessage('End set near London. Confirm it in the tutorial panel to continue.');
+      if (tutorialNextRequiredActionId === 'map.set_destination_london') {
+        markTutorialAction('map.set_destination_london', { force: true });
+        setLiveMessage('End set near London. Confirm it from the End pin popup to continue.');
+      } else {
+        setLiveMessage('End updated near London. Confirm it from the End pin popup when ready.');
+      }
       return;
     }
 
@@ -1905,6 +2054,23 @@ export default function Page() {
     );
     clearComputed();
     markTutorialAction('map.delete_stop');
+  }
+
+  function handleTutorialConfirmPin(kind: 'origin' | 'destination') {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return;
+
+    if (kind === 'origin') {
+      if (!origin || tutorialPlacementStage !== 'newcastle_origin') return;
+      markTutorialAction('map.confirm_origin_newcastle', { force: true });
+      setSelectedPinId(null);
+      setLiveMessage('Start confirmed. Now place End near London.');
+      return;
+    }
+
+    if (!destination || tutorialPlacementStage !== 'london_destination') return;
+    markTutorialAction('map.confirm_destination_london', { force: true });
+    setSelectedPinId(null);
+    setLiveMessage('End confirmed. Continue with marker clicks and drags to finish Step 1.');
   }
 
   function selectPinFromSidebar(id: 'origin' | 'destination' | 'stop-1') {
@@ -2868,9 +3034,10 @@ export default function Page() {
           tutorialMapLocked={tutorialMapLocked}
           tutorialViewportLocked={tutorialViewportLocked}
           tutorialHideZoomControls={tutorialHideZoomControls}
-          tutorialExpectedAction={tutorialRunning ? tutorialNextRequiredActionId : null}
+          tutorialExpectedAction={tutorialRunning ? tutorialBlockingActionId : null}
           tutorialGuideTarget={tutorialGuideTarget}
           tutorialGuideVisible={tutorialGuideVisible}
+          tutorialConfirmPin={tutorialConfirmPin}
           onMapClick={handleMapClick}
           onSelectPinId={setSelectedPinId}
           onMoveMarker={handleMoveMarker}
@@ -2880,6 +3047,7 @@ export default function Page() {
           onDeleteStop={deleteStop}
           onFocusPin={setSelectedPinId}
           onSwapMarkers={swapMarkers}
+          onTutorialConfirmPin={handleTutorialConfirmPin}
           onTutorialAction={markTutorialAction}
           onTutorialTargetState={(state) => {
             if (state.hasSegmentTooltipPath) {
@@ -3712,6 +3880,7 @@ export default function Page() {
         atStart={tutorialAtStart}
         atEnd={tutorialAtEnd}
         checklist={tutorialChecklist}
+        currentTaskOverride={tutorialCurrentTaskOverride}
         optionalDecision={tutorialOptionalState}
         targetRect={tutorialTargetRect}
         targetMissing={tutorialTargetMissing && !(tutorialStep?.allowMissingTarget ?? false)}

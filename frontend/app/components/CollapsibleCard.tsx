@@ -150,7 +150,7 @@ export default function CollapsibleCard({
         className="collapsibleCard__content"
         aria-hidden={!open}
         style={{
-          maxHeight: open ? `${Math.max(contentHeight + 32, 32)}px` : '0px',
+          maxHeight: open ? `${Math.max(contentHeight + 72, 72)}px` : '0px',
           opacity: open ? 1 : 0,
           pointerEvents: open ? 'auto' : 'none',
           visibility: open ? 'visible' : 'hidden',
