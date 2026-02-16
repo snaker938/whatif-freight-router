@@ -13,12 +13,99 @@ if (-not (Test-Path ".env")) {
   }
 }
 
+function Test-DockerEngineReady {
+  try {
+    docker info 1>$null 2>$null
+    return ($LASTEXITCODE -eq 0)
+  } catch {
+    return $false
+  }
+}
+
+function Start-DockerDesktopIfAvailable {
+  if (-not $IsWindows) {
+    return $false
+  }
+
+  $candidates = @(
+    (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
+    (Join-Path $env:LocalAppData "Docker\Docker Desktop.exe")
+  ) | Where-Object { $_ -and (Test-Path $_) }
+
+  $exe = $candidates | Select-Object -First 1
+  if (-not $exe) {
+    return $false
+  }
+
+  try {
+    Start-Process -FilePath $exe | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Ensure-DockerReady {
+  if (Test-DockerEngineReady) {
+    return
+  }
+
+  Write-Host "Docker engine not ready. Trying to start Docker Desktop..."
+  $attemptedStart = Start-DockerDesktopIfAvailable
+
+  $timeoutAt = (Get-Date).AddMinutes(2)
+  while ((Get-Date) -lt $timeoutAt) {
+    if (Test-DockerEngineReady) {
+      Write-Host "Docker engine is ready."
+      return
+    }
+    Start-Sleep -Seconds 3
+  }
+
+  if ($attemptedStart) {
+    throw @"
+Docker Desktop was started but the engine did not become ready in time.
+Open Docker Desktop and wait until it reports 'Engine running', then rerun:
+  pwsh ./scripts/dev.ps1
+"@
+  }
+
+  throw @"
+Docker engine is not available.
+Start Docker Desktop (or Docker Engine service), then rerun:
+  pwsh ./scripts/dev.ps1
+"@
+}
+
+Ensure-DockerReady
+
 Write-Host "Starting OSRM (Docker)..."
 docker compose up -d osrm | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "Failed to start OSRM with docker compose. Check Docker and run: docker compose logs --tail=200 osrm"
+}
 
-$osrmContainerId = (docker compose ps -q osrm).Trim()
-if (-not $osrmContainerId) {
-  throw "Could not resolve OSRM container ID. Check 'docker compose ps'."
+$osrmContainerId = $null
+$resolveContainerTimeout = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $resolveContainerTimeout) {
+  $rawContainerId = docker compose ps -q osrm 2>$null
+
+  if ($LASTEXITCODE -eq 0) {
+    $firstLine = $rawContainerId | Select-Object -First 1
+    if ($null -ne $firstLine) {
+      $candidate = "$firstLine"
+      if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+        $osrmContainerId = $candidate.Trim()
+        break
+      }
+    }
+  }
+
+  Start-Sleep -Seconds 1
+}
+
+if ([string]::IsNullOrWhiteSpace($osrmContainerId)) {
+  throw "Could not resolve OSRM container ID after startup. Check 'docker compose ps' and logs with: docker compose logs --tail=200 osrm"
 }
 
 $probeUrl = "http://localhost:5000/"
