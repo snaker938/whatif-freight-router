@@ -837,10 +837,17 @@ export default function Page() {
   }, [tutorialActionSet, tutorialStep]);
   const tutorialPlacementStage = useMemo<TutorialPlacementStage>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return 'done';
+
+    // Primary truth for guided placement stage is actual pin state:
+    // once Start exists and End does not, always drive the map to London.
+    if (!origin) return 'newcastle_origin';
+    if (!destination) return 'london_destination';
+
+    // After both are placed, fall back to checklist action order.
     if (tutorialNextRequiredActionId === 'map.set_origin_newcastle') return 'newcastle_origin';
     if (tutorialNextRequiredActionId === 'map.set_destination_london') return 'london_destination';
     return 'done';
-  }, [tutorialNextRequiredActionId, tutorialRunning, tutorialStep?.id]);
+  }, [destination, origin, tutorialNextRequiredActionId, tutorialRunning, tutorialStep?.id]);
   const tutorialGuidePanNonce = useMemo(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return tutorialStepIndex;
     if (tutorialPlacementStage === 'newcastle_origin') return tutorialStepIndex * 1000 + 1;

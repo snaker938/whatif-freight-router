@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { TutorialLockScope, TutorialTargetRect } from '../lib/tutorial/types';
 
@@ -92,18 +92,47 @@ export default function TutorialOverlay({
   onUseOptionalDefault,
 }: Props) {
   const suppressBackdropCloseRef = useRef(false);
+  const [viewport, setViewport] = useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1440,
+    height: typeof window !== 'undefined' ? window.innerHeight : 900,
+  }));
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let raf = 0;
+    const handleResize = () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() => {
+        setViewport({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+      });
+    };
+
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const layout = useMemo(() => {
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const vw = viewport.width;
+    const vh = viewport.height;
     const cardWidth = Math.min(500, vw - 28);
+    const safeBottomGap = 16;
+    const defaultTop = clamp(vh * 0.12, 12, Math.max(12, vh - 320));
+    const guidedTop = clamp(vh * 0.1, 12, Math.max(12, vh - 360));
 
     if (!targetRect || mode !== 'running') {
       return {
         cardStyle: {
           left: clamp((vw - cardWidth) / 2, 12, vw - cardWidth - 12),
-          top: clamp(vh * 0.15, 12, vh - 380),
+          top: defaultTop,
           width: cardWidth,
+          maxHeight: Math.max(280, vh - 24),
         },
         arrowStyle: null as { left: number; top: number } | null,
         arrowClass: 'isHidden',
@@ -117,14 +146,19 @@ export default function TutorialOverlay({
     const left = preferRight
       ? targetRight + 24
       : clamp(targetRect.left - cardWidth - 24, 12, vw - cardWidth - 12);
-    const top = clamp(targetMidY - 220, 12, vh - 420);
+    const top = clamp(targetMidY - 220, guidedTop, Math.max(guidedTop, vh - 360 - safeBottomGap));
 
     return {
-      cardStyle: { left, top, width: cardWidth },
+      cardStyle: {
+        left,
+        top,
+        width: cardWidth,
+        maxHeight: Math.max(280, vh - top - safeBottomGap),
+      },
       arrowStyle: { left, top },
       arrowClass: preferRight ? 'isLeftAnchor' : 'isRightAnchor',
     };
-  }, [mode, targetRect]);
+  }, [mode, targetRect, viewport.height, viewport.width]);
   const firstPendingIndex = useMemo(
     () => checklist.findIndex((item) => !item.done),
     [checklist],
