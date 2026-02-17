@@ -39,6 +39,7 @@ a {
     min-height: 100vh;
     position: relative;
     overflow: hidden;
+    contain: layout paint;
   }
 
   .skipLink {
@@ -79,6 +80,7 @@ a {
     min-width: 0;
     height: 100%;
     isolation: isolate;
+    contain: layout paint;
   }
 
   .mapStage.isTutorialLocked::after {
@@ -131,6 +133,8 @@ a {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    contain: layout paint style;
+    backface-visibility: hidden;
     opacity: 1;
     transform: translateX(0);
     visibility: visible;
@@ -186,6 +190,9 @@ a {
     flex: 1;
     min-height: 0;
     min-width: 0;
+    scrollbar-gutter: stable both-edges;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .panelBody * {
@@ -220,6 +227,7 @@ a {
     margin-bottom: 14px;
     min-width: 0;
     max-width: 100%;
+    contain: layout paint;
   }
 
   .collapsibleCard {
@@ -240,6 +248,7 @@ a {
     justify-content: space-between;
     gap: 10px;
     padding: 12px 14px;
+    min-height: 52px;
     box-shadow: none;
     transform: none;
   }
@@ -287,6 +296,7 @@ a {
       max-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 180ms ease;
     will-change: max-height;
+    contain: layout paint;
   }
 
   .collapsibleCard__contentInner {
@@ -305,6 +315,11 @@ a {
     visibility: hidden;
   }
 
+  .collapsibleCard:not(.isOpen) .collapsibleCard__contentInner {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
   .collapsibleCard__contentInner * {
     min-width: 0;
     max-width: 100%;
@@ -318,6 +333,68 @@ a {
 
   .collapsibleCard[data-tutorial-locked="true"] .collapsibleCard__content {
     pointer-events: none !important;
+  }
+
+  .cardSkeleton {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    display: grid;
+    gap: 8px;
+  }
+
+  .cardSkeleton--compact {
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .skeletonBar {
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.08)
+    );
+    background-size: 240px 100%;
+    animation: sidebarShimmer 1.4s linear infinite;
+  }
+
+  .skeletonBar--lg {
+    width: 92%;
+    height: 12px;
+  }
+
+  .skeletonBar--md {
+    width: 68%;
+  }
+
+  .skeletonBar--sm {
+    width: 48%;
+  }
+
+  .chartWrap--loading {
+    min-height: 92px;
+    display: grid;
+    align-content: center;
+    gap: 10px;
+  }
+
+  @keyframes sidebarShimmer {
+    from {
+      background-position-x: 0;
+    }
+    to {
+      background-position-x: 240px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeletonBar {
+      animation: none;
+    }
   }
 
   .sectionTitle {
@@ -2145,6 +2222,21 @@ a {
     border-color: rgba(255, 255, 255, 0.22);
     background: rgba(255, 255, 255, 0.06);
     box-shadow: none;
+  }
+
+  .markerPopup__iconBtn:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+    border-color: rgba(148, 163, 184, 0.26);
+    background: rgba(15, 23, 42, 0.32);
+    color: rgba(148, 163, 184, 0.72);
+  }
+
+  .markerPopup__iconBtn:disabled:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: rgba(148, 163, 184, 0.26);
+    background: rgba(15, 23, 42, 0.32);
   }
 
   .markerPopup__iconBtn--danger {

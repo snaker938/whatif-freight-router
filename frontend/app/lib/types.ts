@@ -52,6 +52,8 @@ export type PinDisplayNode = {
 export type PinFocusRequest = {
   id: PinSelectionId;
   nonce: number;
+  zoom?: number;
+  openPopup?: boolean;
 };
 
 export type TutorialGuideTarget = {

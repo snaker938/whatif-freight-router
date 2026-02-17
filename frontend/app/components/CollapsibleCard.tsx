@@ -22,6 +22,7 @@ type Props = {
   onToggle?: () => void;
   lockToggle?: boolean;
   tutorialLocked?: boolean;
+  deferMount?: boolean;
 };
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -55,14 +56,17 @@ export default function CollapsibleCard({
   onToggle,
   lockToggle = false,
   tutorialLocked = false,
+  deferMount = true,
 }: Props) {
   const [internalOpen, setInternalOpen] = useState(!defaultCollapsed);
   const controlled = typeof isOpen === 'boolean';
   const open = controlled ? Boolean(isOpen) : internalOpen;
+  const [hasOpened, setHasOpened] = useState(open || !defaultCollapsed || !deferMount);
   const contentInnerRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const contentId = useId();
   const headerId = useId();
+  const shouldRenderContent = !deferMount || open || hasOpened;
 
   const measureHeight = useCallback(() => {
     const node = contentInnerRef.current;
@@ -81,10 +85,17 @@ export default function CollapsibleCard({
   }, [controlled, defaultCollapsed]);
 
   useEffect(() => {
-    if (open) measureHeight();
-  }, [open, measureHeight]);
+    if (!hasOpened && open) {
+      setHasOpened(true);
+    }
+  }, [hasOpened, open]);
 
   useEffect(() => {
+    if (open && shouldRenderContent) measureHeight();
+  }, [open, shouldRenderContent, measureHeight]);
+
+  useEffect(() => {
+    if (!shouldRenderContent) return;
     const node = contentInnerRef.current;
     if (!node) return;
 
@@ -101,7 +112,7 @@ export default function CollapsibleCard({
     const onResize = () => measureHeight();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [measureHeight]);
+  }, [measureHeight, shouldRenderContent]);
 
   useEffect(() => {
     if (typeof document === 'undefined' || !('fonts' in document)) return;
@@ -157,8 +168,12 @@ export default function CollapsibleCard({
         }}
       >
         <div ref={contentInnerRef} className={`collapsibleCard__contentInner ${bodyClassName}`.trim()}>
-          {hint ? <div className="sectionHint">{hint}</div> : null}
-          {children}
+          {shouldRenderContent ? (
+            <>
+              {hint ? <div className="sectionHint">{hint}</div> : null}
+              {children}
+            </>
+          ) : null}
         </div>
       </div>
     </section>

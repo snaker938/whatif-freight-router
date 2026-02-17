@@ -44,7 +44,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_map',
     title: 'Place Start near Newcastle and End near London',
     what:
-      'Follow the guided map targets in order: place Start within the Newcastle zone and confirm using the nearby Start confirm button, then place End within the London zone and confirm using the nearby End confirm button. After both confirmations, click each marker and drag each marker once.',
+      'Follow the guided map targets in order: place Start within the Newcastle zone and confirm using the nearby Start confirm button, then place End within the London zone and confirm using the nearby End confirm button. After both confirmations, click End first, then Start, close each popup, then drag End and Start within their guided zones and confirm each drag.',
     impact:
       'Every downstream result is anchored to these coordinates. This strict placement demonstrates reproducible origin/destination setup before route optimization.',
     targetIds: ['map.interactive'],
@@ -60,24 +60,44 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
         details: 'After Start is confirmed, the map auto-centers London.',
       },
       {
-        actionId: 'map.click_origin_marker',
-        label: 'Click the Start marker once.',
-        details: 'This verifies marker selection and popup focus.',
-      },
-      {
         actionId: 'map.click_destination_marker',
         label: 'Click the End marker once.',
-        details: 'Use marker click interaction on the End pin.',
+        details: 'Do this first after End is confirmed.',
       },
       {
-        actionId: 'map.drag_origin_marker',
-        label: 'Drag the Start marker once.',
-        details: 'Drag Start to a nearby location and drop.',
+        actionId: 'map.popup_close_destination_marker',
+        label: 'Close the End marker popup.',
+        details: 'Close End popup before switching focus to Start.',
+      },
+      {
+        actionId: 'map.click_origin_marker',
+        label: 'Click the Start marker once.',
+        details: 'Then switch focus back to Start.',
+      },
+      {
+        actionId: 'map.popup_close_origin_marker',
+        label: 'Close the Start marker popup.',
+        details: 'Close Start popup before drag-confirm tasks begin.',
       },
       {
         actionId: 'map.drag_destination_marker',
         label: 'Drag the End marker once.',
-        details: 'Drag End to a nearby location and drop.',
+        details: 'Keep End inside the London guided zone.',
+      },
+      {
+        actionId: 'map.confirm_drag_destination_marker',
+        label: 'Confirm the End drag.',
+        details: 'Use the marker-adjacent confirm button for End drag.',
+      },
+      {
+        actionId: 'map.drag_origin_marker',
+        label: 'Drag the Start marker once.',
+        details: 'Keep Start inside the Newcastle guided zone.',
+      },
+      {
+        actionId: 'map.confirm_drag_origin_marker',
+        label: 'Confirm the Start drag.',
+        details: 'Use the marker-adjacent confirm button for Start drag.',
       },
     ],
     prefillId: 'clear_map',
@@ -103,25 +123,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
           lat: 51.5072,
           lon: -0.1276,
           radiusKm: 20,
-          zoom: 10,
+          zoom: 12,
         },
       ],
     },
-  },
-  {
-    id: 'map_popup_actions',
-    chapterId: 'chapter_map',
-    title: 'Use marker popups for fast pin operations',
-    what:
-      'Click a marker to open its popup, copy coordinates, then close the popup using the in-popup close action.',
-    impact:
-      'Popup actions let you inspect and manage markers without leaving map context, reducing context switching during route setup.',
-    targetIds: ['map.interactive'],
-    required: [
-      { actionId: 'map.popup_copy', label: 'Copy coordinates from any marker popup.' },
-      { actionId: 'map.popup_close', label: 'Close a marker popup using its close action.' },
-    ],
-    lockScope: 'map_only',
   },
   {
     id: 'map_stop_lifecycle',

@@ -5,7 +5,17 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import CollapsibleCard from './components/CollapsibleCard';
+import CounterfactualPanel from './components/CounterfactualPanel';
+import DepartureOptimizerChart from './components/DepartureOptimizerChart';
+import DutyChainPlanner from './components/DutyChainPlanner';
+import ExperimentManager from './components/ExperimentManager';
 import FieldInfo from './components/FieldInfo';
+import OracleQualityDashboard from './components/OracleQualityDashboard';
+import PinManager from './components/PinManager';
+import ScenarioParameterEditor, {
+  type ScenarioAdvancedParams,
+} from './components/ScenarioParameterEditor';
+import ScenarioTimeLapse from './components/ScenarioTimeLapse';
 import Select, { type SelectOption } from './components/Select';
 import { postJSON, postNDJSON } from './lib/api';
 import { formatNumber } from './lib/format';
@@ -73,7 +83,6 @@ import type {
   VehicleProfile,
 } from './lib/types';
 import { normaliseWeights, pickBestByWeightedSum, type WeightState } from './lib/weights';
-import type { ScenarioAdvancedParams } from './components/ScenarioParameterEditor';
 
 type MarkerKind = 'origin' | 'destination';
 type ProgressState = { done: number; total: number };
@@ -83,6 +92,8 @@ type MapViewProps = {
   destination: LatLng | null;
   tutorialDraftOrigin?: LatLng | null;
   tutorialDraftDestination?: LatLng | null;
+  tutorialDragDraftOrigin?: LatLng | null;
+  tutorialDragDraftDestination?: LatLng | null;
   managedStop?: ManagedStop | null;
   originLabel?: string;
   destinationLabel?: string;
@@ -111,10 +122,11 @@ type MapViewProps = {
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
   tutorialConfirmPin?: 'origin' | 'destination' | null;
+  tutorialDragConfirmPin?: 'origin' | 'destination' | null;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: 'origin' | 'destination' | 'stop-1' | null) => void;
-  onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => boolean;
   onMoveStop?: (lat: number, lon: number) => void;
   onAddStopFromPin?: () => void;
   onRenameStop?: (name: string) => void;
@@ -122,6 +134,7 @@ type MapViewProps = {
   onFocusPin?: (id: 'origin' | 'destination' | 'stop-1') => void;
   onSwapMarkers?: () => void;
   onTutorialConfirmPin?: (kind: 'origin' | 'destination') => void;
+  onTutorialConfirmDrag?: (kind: 'origin' | 'destination') => void;
 };
 
 const MapView = dynamic<MapViewProps>(() => import('./components/MapView'), {
@@ -138,14 +151,24 @@ type ParetoChartProps = {
 
 const ParetoChart = dynamic<ParetoChartProps>(() => import('./components/ParetoChart'), {
   ssr: false,
-  loading: () => null,
+  loading: () => (
+    <div className="chartWrap chartWrap--loading" aria-hidden="true">
+      <div className="skeletonBar skeletonBar--lg" />
+      <div className="skeletonBar skeletonBar--md" />
+    </div>
+  ),
 });
 
 const EtaTimelineChart = dynamic<{ route: RouteOption | null }>(
   () => import('./components/EtaTimelineChart'),
   {
     ssr: false,
-    loading: () => null,
+    loading: () => (
+      <div className="chartWrap chartWrap--loading" aria-hidden="true">
+        <div className="skeletonBar skeletonBar--md" />
+        <div className="skeletonBar skeletonBar--sm" />
+      </div>
+    ),
   },
 );
 
@@ -158,107 +181,26 @@ const ScenarioComparison = dynamic<
   }
 >(() => import('./components/ScenarioComparison'), {
   ssr: false,
-  loading: () => null,
+  loading: () => (
+    <div className="cardSkeleton" aria-hidden="true">
+      <div className="skeletonBar skeletonBar--md" />
+      <div className="skeletonBar skeletonBar--sm" />
+      <div className="skeletonBar skeletonBar--sm" />
+    </div>
+  ),
 });
 
 const SegmentBreakdown = dynamic<{ route: RouteOption | null; onTutorialAction?: (actionId: string) => void }>(
   () => import('./components/SegmentBreakdown'),
   {
     ssr: false,
-    loading: () => null,
+    loading: () => (
+      <div className="cardSkeleton cardSkeleton--compact" aria-hidden="true">
+        <div className="skeletonBar skeletonBar--md" />
+      </div>
+    ),
   },
 );
-
-const ScenarioParameterEditor = dynamic<
-  {
-    value: ScenarioAdvancedParams;
-    onChange: (next: ScenarioAdvancedParams) => void;
-    disabled: boolean;
-    validationError: string | null;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/ScenarioParameterEditor'), {
-  ssr: false,
-  loading: () => null,
-});
-
-const ExperimentManager = dynamic<
-  {
-    experiments: ExperimentBundle[];
-    loading: boolean;
-    error: string | null;
-    canSave: boolean;
-    disabled: boolean;
-    onRefresh: () => void;
-    onSave: (name: string, description: string) => Promise<void> | void;
-    onLoad: (bundle: ExperimentBundle) => void;
-    onDelete: (experimentId: string) => Promise<void> | void;
-    onReplay: (experimentId: string) => Promise<void> | void;
-    catalogQuery: string;
-    catalogVehicleType: string;
-    catalogScenarioMode: '' | ScenarioMode;
-    catalogSort: ExperimentCatalogSort;
-    vehicleOptions: Array<{ value: string; label: string }>;
-    onCatalogQueryChange: (value: string) => void;
-    onCatalogVehicleTypeChange: (value: string) => void;
-    onCatalogScenarioModeChange: (value: '' | ScenarioMode) => void;
-    onCatalogSortChange: (value: ExperimentCatalogSort) => void;
-    onApplyCatalogFilters: () => void;
-    locale: Locale;
-    defaultName?: string;
-    defaultDescription?: string;
-    tutorialResetNonce?: number;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/ExperimentManager'), {
-  ssr: false,
-  loading: () => null,
-});
-
-const DepartureOptimizerChart = dynamic<
-  {
-    windowStartLocal: string;
-    windowEndLocal: string;
-    earliestArrivalLocal: string;
-    latestArrivalLocal: string;
-    stepMinutes: number;
-    loading: boolean;
-    error: string | null;
-    data: DepartureOptimizeResponse | null;
-    disabled: boolean;
-    onWindowStartChange: (value: string) => void;
-    onWindowEndChange: (value: string) => void;
-    onEarliestArrivalChange: (value: string) => void;
-    onLatestArrivalChange: (value: string) => void;
-    onStepMinutesChange: (value: number) => void;
-    onRun: () => void;
-    onApplyDepartureTime: (isoUtc: string) => void;
-    locale: Locale;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/DepartureOptimizerChart'), {
-  ssr: false,
-  loading: () => null,
-});
-
-const CounterfactualPanel = dynamic<{ route: RouteOption | null }>(
-  () => import('./components/CounterfactualPanel'),
-  {
-    ssr: false,
-    loading: () => null,
-  },
-);
-
-const ScenarioTimeLapse = dynamic<
-  {
-    route: RouteOption | null;
-    onPositionChange: (position: LatLng | null) => void;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/ScenarioTimeLapse'), {
-  ssr: false,
-  loading: () => null,
-});
 
 const TutorialOverlay = dynamic<
   {
@@ -307,63 +249,6 @@ const TutorialOverlay = dynamic<
     onUseOptionalDefault: (optionalDecisionId: string) => void;
   }
 >(() => import('./components/TutorialOverlay'), {
-  ssr: false,
-  loading: () => null,
-});
-
-const DutyChainPlanner = dynamic<
-  {
-    stopsText: string;
-    onStopsTextChange: (value: string) => void;
-    onRun: () => void;
-    loading: boolean;
-    error: string | null;
-    data: DutyChainResponse | null;
-    disabled: boolean;
-    locale: Locale;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/DutyChainPlanner'), {
-  ssr: false,
-  loading: () => null,
-});
-
-const PinManager = dynamic<
-  {
-    nodes: import('./lib/types').PinDisplayNode[];
-    selectedPinId: 'origin' | 'destination' | 'stop-1' | null;
-    disabled: boolean;
-    hasStop: boolean;
-    canAddStop: boolean;
-    oneStopHint?: string | null;
-    onSelectPin: (id: 'origin' | 'destination' | 'stop-1') => void;
-    onRenameStop: (name: string) => void;
-    onAddStop: () => void;
-    onDeleteStop: () => void;
-    onSwapPins: () => void;
-    onClearPins: () => void;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/PinManager'), {
-  ssr: false,
-  loading: () => null,
-});
-
-const OracleQualityDashboard = dynamic<
-  {
-    dashboard: OracleQualityDashboardResponse | null;
-    loading: boolean;
-    ingesting: boolean;
-    error: string | null;
-    latestCheck: OracleFeedCheckRecord | null;
-    disabled: boolean;
-    onRefresh: () => void;
-    onIngest: (payload: OracleFeedCheckInput) => Promise<void> | void;
-    locale: Locale;
-    tutorialResetNonce?: number;
-    sectionControl?: TutorialSectionControl;
-  }
->(() => import('./components/OracleQualityDashboard'), {
   ssr: false,
   loading: () => null,
 });
@@ -680,12 +565,22 @@ function isTutorialActionAllowed(actionId: string, allowSet: Set<string>, allowP
   return allowPrefixes.some((prefix) => actionId.startsWith(prefix));
 }
 
-type TutorialPlacementStage = 'newcastle_origin' | 'london_destination' | 'done';
+type TutorialPlacementStage =
+  | 'newcastle_origin'
+  | 'london_destination'
+  | 'post_confirm_marker_actions'
+  | 'done';
 
 const TUTORIAL_CITY_TARGETS = {
   newcastle: { lat: 54.9783, lon: -1.6178, radiusKm: 20, zoom: 11 },
-  london: { lat: 51.5072, lon: -0.1276, radiusKm: 20, zoom: 10 },
+  london: { lat: 51.5072, lon: -0.1276, radiusKm: 20, zoom: 12 },
 } as const;
+const TUTORIAL_FORCE_ONLY_ACTIONS = new Set([
+  'map.confirm_origin_newcastle',
+  'map.confirm_destination_london',
+  'map.confirm_drag_destination_marker',
+  'map.confirm_drag_origin_marker',
+]);
 
 function haversineDistanceKm(a: LatLng, b: LatLng): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -704,6 +599,8 @@ export default function Page() {
   const [destination, setDestination] = useState<LatLng | null>(null);
   const [tutorialDraftOrigin, setTutorialDraftOrigin] = useState<LatLng | null>(null);
   const [tutorialDraftDestination, setTutorialDraftDestination] = useState<LatLng | null>(null);
+  const [tutorialDragDraftOrigin, setTutorialDragDraftOrigin] = useState<LatLng | null>(null);
+  const [tutorialDragDraftDestination, setTutorialDragDraftDestination] = useState<LatLng | null>(null);
   const [managedStop, setManagedStop] = useState<ManagedStop | null>(null);
   const [selectedPinId, setSelectedPinId] = useState<'origin' | 'destination' | 'stop-1' | null>(null);
   const [focusPinRequest, setFocusPinRequest] = useState<PinFocusRequest | null>(null);
@@ -736,7 +633,7 @@ export default function Page() {
   const [scenarioCompareLoading, setScenarioCompareLoading] = useState(false);
   const [scenarioCompareError, setScenarioCompareError] = useState<string | null>(null);
   const [experiments, setExperiments] = useState<ExperimentBundle[]>([]);
-  const [experimentsLoading, setExperimentsLoading] = useState(false);
+  const [experimentsLoading, setExperimentsLoading] = useState(true);
   const [experimentsError, setExperimentsError] = useState<string | null>(null);
   const [expCatalogQuery, setExpCatalogQuery] = useState('');
   const [expCatalogVehicleType, setExpCatalogVehicleType] = useState('');
@@ -756,7 +653,7 @@ export default function Page() {
   const [dutyChainError, setDutyChainError] = useState<string | null>(null);
   const [dutyChainData, setDutyChainData] = useState<DutyChainResponse | null>(null);
   const [oracleDashboard, setOracleDashboard] = useState<OracleQualityDashboardResponse | null>(null);
-  const [oracleDashboardLoading, setOracleDashboardLoading] = useState(false);
+  const [oracleDashboardLoading, setOracleDashboardLoading] = useState(true);
   const [oracleIngestLoading, setOracleIngestLoading] = useState(false);
   const [oracleError, setOracleError] = useState<string | null>(null);
   const [oracleLatestCheck, setOracleLatestCheck] = useState<OracleFeedCheckRecord | null>(null);
@@ -799,6 +696,8 @@ export default function Page() {
   const tutorialBootstrappedRef = useRef(false);
   const dutySyncSourceRef = useRef<'pins' | 'text' | null>(null);
   const focusPinNonceRef = useRef(0);
+  const tutorialPlacementStageRef = useRef<TutorialPlacementStage>('done');
+  const tutorialMapClickGuardUntilRef = useRef(0);
   const tutorialLockNoticeAtRef = useRef(0);
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
@@ -862,8 +761,10 @@ export default function Page() {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return 'done';
     if (!tutorialOriginConfirmed) return 'newcastle_origin';
     if (!tutorialDestinationConfirmed) return 'london_destination';
+    if (tutorialNextRequiredActionId) return 'post_confirm_marker_actions';
     return 'done';
   }, [
+    tutorialNextRequiredActionId,
     tutorialDestinationConfirmed,
     tutorialOriginConfirmed,
     tutorialRunning,
@@ -877,18 +778,20 @@ export default function Page() {
     if (!tutorialRunning || !tutorialStep) return null;
     if (tutorialStep.id !== 'map_set_pins') return tutorialNextRequiredActionId;
     if (tutorialPlacementStage === 'newcastle_origin') {
-      if (!tutorialOriginPlaced) return 'map.set_origin_newcastle';
+      if (!tutorialDraftOrigin && !origin) return 'map.set_origin_newcastle';
       return 'map.confirm_origin_newcastle';
     }
     if (tutorialPlacementStage === 'london_destination') {
-      if (!tutorialDestinationPlaced) return 'map.set_destination_london';
+      if (!tutorialDraftDestination && !destination) return 'map.set_destination_london';
       return 'map.confirm_destination_london';
     }
     return tutorialNextRequiredActionId;
   }, [
-    tutorialDestinationPlaced,
+    destination,
+    origin,
+    tutorialDraftDestination,
+    tutorialDraftOrigin,
     tutorialNextRequiredActionId,
-    tutorialOriginPlaced,
     tutorialPlacementStage,
     tutorialRunning,
     tutorialStep,
@@ -897,8 +800,21 @@ export default function Page() {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return tutorialStepIndex;
     if (tutorialPlacementStage === 'newcastle_origin') return tutorialStepIndex * 1000 + 1;
     if (tutorialPlacementStage === 'london_destination') return tutorialStepIndex * 1000 + 2;
-    return tutorialStepIndex * 1000 + 3;
-  }, [tutorialPlacementStage, tutorialRunning, tutorialStep?.id, tutorialStepIndex]);
+    if (tutorialPlacementStage === 'post_confirm_marker_actions') {
+      const actionToOffset: Record<string, number> = {
+        'map.click_destination_marker': 31,
+        'map.popup_close_destination_marker': 32,
+        'map.click_origin_marker': 33,
+        'map.popup_close_origin_marker': 34,
+        'map.drag_destination_marker': 35,
+        'map.confirm_drag_destination_marker': 36,
+        'map.drag_origin_marker': 37,
+        'map.confirm_drag_origin_marker': 38,
+      };
+      return tutorialStepIndex * 1000 + (actionToOffset[tutorialBlockingActionId ?? ''] ?? 39);
+    }
+    return tutorialStepIndex * 1000 + 4;
+  }, [tutorialBlockingActionId, tutorialPlacementStage, tutorialRunning, tutorialStep?.id, tutorialStepIndex]);
   const tutorialOptionalState = useMemo(() => {
     if (!tutorialStep?.optional) return null;
     const resolved = tutorialOptionalSet.has(tutorialStep.optional.id);
@@ -964,6 +880,23 @@ export default function Page() {
     },
     [tutorialActiveSectionId, tutorialLockScope, tutorialRunning],
   );
+  const tutorialSectionControl = useMemo(
+    () => ({
+      setup: tutorialSectionControlFor('setup.section'),
+      pins: tutorialSectionControlFor('pins.section'),
+      advanced: tutorialSectionControlFor('advanced.section'),
+      preferences: tutorialSectionControlFor('preferences.section'),
+      selectedRoute: tutorialSectionControlFor('selected.route_panel'),
+      routes: tutorialSectionControlFor('routes.list'),
+      compare: tutorialSectionControlFor('compare.section'),
+      departure: tutorialSectionControlFor('departure.section'),
+      duty: tutorialSectionControlFor('duty.section'),
+      oracle: tutorialSectionControlFor('oracle.section'),
+      experiments: tutorialSectionControlFor('experiments.section'),
+      timelapse: tutorialSectionControlFor('timelapse.section'),
+    }),
+    [tutorialSectionControlFor],
+  );
   const tutorialMapLocked = tutorialRunning && tutorialLockScope === 'sidebar_section_only';
   const tutorialViewportLocked = tutorialRunning && tutorialStep?.id === 'map_set_pins';
   const tutorialHideZoomControls = tutorialRunning && tutorialLockScope === 'map_only';
@@ -981,6 +914,32 @@ export default function Page() {
         zoom: TUTORIAL_CITY_TARGETS.newcastle.zoom,
       };
     }
+    if (tutorialPlacementStage === 'post_confirm_marker_actions') {
+      const action = tutorialBlockingActionId ?? '';
+      const isOriginTask =
+        action === 'map.click_origin_marker' ||
+        action === 'map.popup_close_origin_marker' ||
+        action === 'map.drag_origin_marker' ||
+        action === 'map.confirm_drag_origin_marker';
+      const city = isOriginTask ? TUTORIAL_CITY_TARGETS.newcastle : TUTORIAL_CITY_TARGETS.london;
+      let label = isOriginTask ? 'Click Start Marker' : 'Click End Marker';
+      if (action === 'map.popup_close_destination_marker') label = 'Close End Popup';
+      if (action === 'map.popup_close_origin_marker') label = 'Close Start Popup';
+      if (action === 'map.drag_destination_marker') label = 'Drag End In London Zone';
+      if (action === 'map.drag_origin_marker') label = 'Drag Start In Newcastle Zone';
+      if (action === 'map.confirm_drag_destination_marker') label = 'Confirm End Drag';
+      if (action === 'map.confirm_drag_origin_marker') label = 'Confirm Start Drag';
+      const stage = isOriginTask ? 1 : 2;
+      return {
+        lat: city.lat,
+        lon: city.lon,
+        radius_km: city.radiusKm,
+        label,
+        stage,
+        pan_nonce: tutorialGuidePanNonce,
+        zoom: city.zoom,
+      };
+    }
     return {
       lat: TUTORIAL_CITY_TARGETS.london.lat,
       lon: TUTORIAL_CITY_TARGETS.london.lon,
@@ -990,19 +949,82 @@ export default function Page() {
       pan_nonce: tutorialGuidePanNonce,
       zoom: TUTORIAL_CITY_TARGETS.london.zoom,
     };
-  }, [tutorialGuidePanNonce, tutorialPlacementStage, tutorialRunning, tutorialStep?.id]);
+  }, [tutorialBlockingActionId, tutorialGuidePanNonce, tutorialPlacementStage, tutorialRunning, tutorialStep?.id]);
   const tutorialGuideVisible = Boolean(tutorialGuideTarget);
+  const mapOriginForRender = useMemo(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return origin;
+    if (tutorialPlacementStage === 'post_confirm_marker_actions' && tutorialDragDraftOrigin) {
+      return tutorialDragDraftOrigin;
+    }
+    return tutorialOriginPlaced ? origin : null;
+  }, [
+    origin,
+    tutorialDragDraftOrigin,
+    tutorialOriginPlaced,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
+  const mapDestinationForRender = useMemo(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return destination;
+    if (tutorialPlacementStage === 'post_confirm_marker_actions' && tutorialDragDraftDestination) {
+      return tutorialDragDraftDestination;
+    }
+    return tutorialDestinationPlaced ? destination : null;
+  }, [
+    destination,
+    tutorialDestinationPlaced,
+    tutorialDragDraftDestination,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
   const tutorialConfirmPin = useMemo<'origin' | 'destination' | null>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
-    if (tutorialPlacementStage === 'newcastle_origin' && (tutorialDraftOrigin || origin)) return 'origin';
-    if (tutorialPlacementStage === 'london_destination' && (tutorialDraftDestination || destination))
+    if (
+      tutorialPlacementStage === 'newcastle_origin' &&
+      (tutorialDraftOrigin || (tutorialOriginPlaced && origin))
+    ) {
+      return 'origin';
+    }
+    if (
+      tutorialPlacementStage === 'london_destination' &&
+      (tutorialDraftDestination || (tutorialDestinationPlaced && destination))
+    ) {
       return 'destination';
+    }
     return null;
   }, [
     destination,
     origin,
     tutorialDraftDestination,
     tutorialDraftOrigin,
+    tutorialDestinationPlaced,
+    tutorialOriginPlaced,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
+  const tutorialDragConfirmPin = useMemo<'origin' | 'destination' | null>(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
+    if (tutorialPlacementStage !== 'post_confirm_marker_actions') return null;
+    if (
+      tutorialBlockingActionId === 'map.confirm_drag_destination_marker' &&
+      tutorialDragDraftDestination
+    ) {
+      return 'destination';
+    }
+    if (
+      tutorialBlockingActionId === 'map.confirm_drag_origin_marker' &&
+      tutorialDragDraftOrigin
+    ) {
+      return 'origin';
+    }
+    return null;
+  }, [
+    tutorialBlockingActionId,
+    tutorialDragDraftDestination,
+    tutorialDragDraftOrigin,
     tutorialPlacementStage,
     tutorialRunning,
     tutorialStep?.id,
@@ -1017,6 +1039,43 @@ export default function Page() {
     }
     return null;
   }, [tutorialBlockingActionId, tutorialRunning, tutorialStep?.id]);
+
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') {
+      tutorialPlacementStageRef.current = 'done';
+      return;
+    }
+
+    const previousStage = tutorialPlacementStageRef.current;
+    if (previousStage === tutorialPlacementStage) return;
+    tutorialPlacementStageRef.current = tutorialPlacementStage;
+
+    if (tutorialPlacementStage === 'london_destination' && !tutorialDestinationPlaced) {
+      tutorialMapClickGuardUntilRef.current = Date.now() + 700;
+      setDestination(null);
+      setTutorialDraftDestination(null);
+      setTutorialDragDraftDestination(null);
+      setTutorialDragDraftOrigin(null);
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      return;
+    }
+
+    if (tutorialPlacementStage === 'post_confirm_marker_actions') {
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      setTutorialDragDraftOrigin(null);
+      setTutorialDragDraftDestination(null);
+    }
+  }, [
+    destination,
+    tutorialDestinationPlaced,
+    tutorialDragDraftDestination,
+    tutorialDraftDestination,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
 
   useEffect(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return;
@@ -1040,9 +1099,50 @@ export default function Page() {
       setLiveMessage('End placed. Click the Confirm End button near the marker to continue.');
       return;
     }
+    if (tutorialPlacementStage === 'post_confirm_marker_actions') {
+      if (tutorialBlockingActionId === 'map.click_destination_marker') {
+        setLiveMessage('End confirmed. Click the End marker once.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.popup_close_destination_marker') {
+        setLiveMessage('Close the End marker popup to continue.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.click_origin_marker') {
+        setLiveMessage('Now click the Start marker once.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.popup_close_origin_marker') {
+        setLiveMessage('Close the Start marker popup to continue.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.popup_copy') {
+        setLiveMessage('Copy coordinates from the marker popup.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.drag_destination_marker') {
+        setLiveMessage('Drag End inside the London guided zone.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.confirm_drag_destination_marker') {
+        setLiveMessage('Use Confirm End Drag near the marker.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.drag_origin_marker') {
+        setLiveMessage('Drag Start inside the Newcastle guided zone.');
+        return;
+      }
+      if (tutorialBlockingActionId === 'map.confirm_drag_origin_marker') {
+        setLiveMessage('Use Confirm Start Drag near the marker.');
+        return;
+      }
+      setLiveMessage('Complete the remaining marker workflow in order.');
+      return;
+    }
   }, [
     destination,
     origin,
+    tutorialBlockingActionId,
     tutorialDraftDestination,
     tutorialDraftOrigin,
     tutorialDestinationConfirmed,
@@ -1057,6 +1157,22 @@ export default function Page() {
     setTutorialDraftOrigin(null);
     setTutorialDraftDestination(null);
   }, [isTutorialPinDraftMode, tutorialDraftDestination, tutorialDraftOrigin]);
+  useEffect(() => {
+    const dragDraftMode =
+      tutorialRunning &&
+      tutorialStep?.id === 'map_set_pins' &&
+      tutorialPlacementStage === 'post_confirm_marker_actions';
+    if (dragDraftMode) return;
+    if (!tutorialDragDraftOrigin && !tutorialDragDraftDestination) return;
+    setTutorialDragDraftOrigin(null);
+    setTutorialDragDraftDestination(null);
+  }, [
+    tutorialDragDraftDestination,
+    tutorialDragDraftOrigin,
+    tutorialPlacementStage,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
   const tutorialCanAdvance = useMemo(() => {
     if (!tutorialStep) return false;
     const requiredDone = tutorialStep.required.every((item) => tutorialActionSet.has(item.actionId));
@@ -1089,7 +1205,13 @@ export default function Page() {
 
   const markTutorialAction = useCallback(
     (actionId: string, options?: { force?: boolean }) => {
-      if (!actionId || !tutorialRunning || !tutorialStepId) return;
+      if (!actionId) return;
+      if (!tutorialRunning || !tutorialStepId) {
+        return;
+      }
+      if (TUTORIAL_FORCE_ONLY_ACTIONS.has(actionId) && !options?.force) {
+        return;
+      }
       const nextRequiredAction = tutorialBlockingActionId ?? tutorialNextRequiredActionId;
       const actionAlreadyDone = tutorialActionSet.has(actionId);
       if (!options?.force && !actionAlreadyDone && nextRequiredAction && actionId !== nextRequiredAction) {
@@ -1097,7 +1219,9 @@ export default function Page() {
       }
       setTutorialStepActionsById((prev) => {
         const existing = prev[tutorialStepId] ?? [];
-        if (existing.includes(actionId)) return prev;
+        if (existing.includes(actionId)) {
+          return prev;
+        }
         return { ...prev, [tutorialStepId]: [...existing, actionId] };
       });
     },
@@ -1133,6 +1257,8 @@ export default function Page() {
         setDestination(null);
         setTutorialDraftOrigin(null);
         setTutorialDraftDestination(null);
+        setTutorialDragDraftOrigin(null);
+        setTutorialDragDraftDestination(null);
         setManagedStop(null);
         setSelectedPinId(null);
         setFocusPinRequest(null);
@@ -1145,6 +1271,8 @@ export default function Page() {
         setDestination(TUTORIAL_CANONICAL_DESTINATION);
         setTutorialDraftOrigin(null);
         setTutorialDraftDestination(null);
+        setTutorialDragDraftOrigin(null);
+        setTutorialDragDraftDestination(null);
         setManagedStop(null);
       }
 
@@ -1354,11 +1482,7 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    void loadExperiments();
-  }, [authHeaders]);
-
-  useEffect(() => {
-    void refreshOracleDashboard();
+    void Promise.all([loadExperiments(), refreshOracleDashboard()]);
   }, [authHeaders]);
 
   useEffect(() => {
@@ -1376,6 +1500,26 @@ export default function Page() {
   }, [isTutorialPinDraftMode]);
 
   useEffect(() => {
+    const preload = () => {
+      void import('./components/ParetoChart');
+      void import('./components/EtaTimelineChart');
+      void import('./components/ScenarioComparison');
+      void import('./components/SegmentBreakdown');
+      void import('./components/TutorialOverlay');
+    };
+    const browserWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (browserWindow.requestIdleCallback) {
+      const idleId = browserWindow.requestIdleCallback(preload, { timeout: 1200 });
+      return () => browserWindow.cancelIdleCallback?.(idleId);
+    }
+    const timer = window.setTimeout(preload, 350);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     if (isTutorialPinDraftMode) return;
     if (dutySyncSourceRef.current === 'text') {
       dutySyncSourceRef.current = null;
@@ -1387,7 +1531,7 @@ export default function Page() {
     dutySyncSourceRef.current = 'pins';
     setDutyStopsText(nextText);
     setDutySyncError(null);
-  }, [origin, destination, managedStop, dutyStopsText, isTutorialPinDraftMode]);
+  }, [origin, destination, managedStop, dutyStopsText, isTutorialPinDraftMode, tutorialRunning, tutorialStep?.id]);
 
   useEffect(() => {
     if (isTutorialPinDraftMode) return;
@@ -1429,7 +1573,7 @@ export default function Page() {
     if (changed) {
       clearComputed();
     }
-  }, [clearComputed, dutyStopsText, isTutorialPinDraftMode]);
+  }, [clearComputed, dutyStopsText, isTutorialPinDraftMode, tutorialRunning, tutorialStep?.id]);
 
   useEffect(() => {
     const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
@@ -1956,6 +2100,12 @@ export default function Page() {
 
   function handleMapClick(lat: number, lon: number) {
     setError(null);
+    if (tutorialRunning && tutorialStep?.id === 'map_set_pins') {
+      const now = Date.now();
+      if (now < tutorialMapClickGuardUntilRef.current) {
+        return;
+      }
+    }
 
     if (tutorialRunning && tutorialStep?.id === 'map_set_pins') {
       const canPlaceOrAdjustOrigin = tutorialPlacementStage === 'newcastle_origin';
@@ -2028,8 +2178,52 @@ export default function Page() {
     setLiveMessage('Pins move by drag only. Drag Start, End, or Stop #1 to reposition.');
   }
 
-  function handleMoveMarker(kind: MarkerKind, lat: number, lon: number) {
+  function handleMoveMarker(kind: MarkerKind, lat: number, lon: number): boolean {
     setError(null);
+
+    if (tutorialRunning && tutorialStep?.id === 'map_set_pins' && tutorialPlacementStage === 'post_confirm_marker_actions') {
+      const dragActionId = kind === 'origin' ? 'map.drag_origin_marker' : 'map.drag_destination_marker';
+      const confirmActionId =
+        kind === 'origin'
+          ? 'map.confirm_drag_origin_marker'
+          : 'map.confirm_drag_destination_marker';
+      if (
+        tutorialBlockingActionId !== dragActionId &&
+        tutorialBlockingActionId !== confirmActionId
+      ) {
+        setLiveMessage('Follow the checklist order. Complete the current marker action first.');
+        return false;
+      }
+
+      const targetCity = kind === 'origin' ? TUTORIAL_CITY_TARGETS.newcastle : TUTORIAL_CITY_TARGETS.london;
+      const cityLabel = kind === 'origin' ? 'Newcastle' : 'London';
+      const pinLabel = kind === 'origin' ? 'Start' : 'End';
+      const distanceKm = haversineDistanceKm(
+        { lat, lon },
+        { lat: targetCity.lat, lon: targetCity.lon },
+      );
+      if (distanceKm > targetCity.radiusKm) {
+        setLiveMessage(
+          `Keep ${pinLabel} within ${targetCity.radiusKm} km of ${cityLabel} when dragging during tutorial.`,
+        );
+        return false;
+      }
+
+      if (kind === 'origin') {
+        setTutorialDragDraftOrigin({ lat, lon });
+      } else {
+        setTutorialDragDraftDestination({ lat, lon });
+      }
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      markTutorialAction(dragActionId, { force: true });
+      setLiveMessage(
+        kind === 'origin'
+          ? 'Start drag draft set. Use Confirm Start Drag near the marker.'
+          : 'End drag draft set. Use Confirm End Drag near the marker.',
+      );
+      return true;
+    }
 
     if (kind === 'origin') setOrigin({ lat, lon });
     else setDestination({ lat, lon });
@@ -2041,6 +2235,7 @@ export default function Page() {
     } else {
       markTutorialAction('map.drag_destination_marker');
     }
+    return true;
   }
 
   function handleMoveStop(lat: number, lon: number) {
@@ -2098,13 +2293,39 @@ export default function Page() {
 
     if (kind === 'origin') {
       if (tutorialPlacementStage !== 'newcastle_origin') return;
-      const nextOrigin = tutorialDraftOrigin ?? origin;
+      const nextOrigin = tutorialDraftOrigin ?? (tutorialOriginPlaced ? origin : null);
       if (!nextOrigin) return;
+      tutorialMapClickGuardUntilRef.current = Date.now() + 900;
       if (!tutorialActionSet.has('map.set_origin_newcastle')) {
         markTutorialAction('map.set_origin_newcastle', { force: true });
       }
       setOrigin(nextOrigin);
       setTutorialDraftOrigin(null);
+      setDestination(null);
+      setTutorialDraftDestination(null);
+      setTutorialDragDraftOrigin(null);
+      setTutorialDragDraftDestination(null);
+      setTutorialStepActionsById((prev) => {
+        const existing = prev[tutorialStep.id] ?? [];
+        if (!existing.length) return prev;
+        const resetActions = new Set([
+          'map.set_destination_london',
+          'map.confirm_destination_london',
+          'map.click_destination_marker',
+          'map.click_origin_marker',
+          'map.popup_close_destination_marker',
+          'map.popup_close_origin_marker',
+          'map.popup_copy',
+          'map.popup_close',
+          'map.drag_destination_marker',
+          'map.confirm_drag_destination_marker',
+          'map.drag_origin_marker',
+          'map.confirm_drag_origin_marker',
+        ]);
+        const next = existing.filter((actionId) => !resetActions.has(actionId));
+        if (next.length === existing.length) return prev;
+        return { ...prev, [tutorialStep.id]: next };
+      });
       clearComputed();
       setSelectedPinId(null);
       window.requestAnimationFrame(() => {
@@ -2115,17 +2336,50 @@ export default function Page() {
     }
 
     if (tutorialPlacementStage !== 'london_destination') return;
-    const nextDestination = tutorialDraftDestination ?? destination;
+    const nextDestination = tutorialDraftDestination ?? (tutorialDestinationPlaced ? destination : null);
     if (!nextDestination) return;
+    tutorialMapClickGuardUntilRef.current = Date.now() + 450;
     if (!tutorialActionSet.has('map.set_destination_london')) {
       markTutorialAction('map.set_destination_london', { force: true });
     }
     setDestination(nextDestination);
     setTutorialDraftDestination(null);
+    setTutorialDragDraftDestination(null);
     clearComputed();
     markTutorialAction('map.confirm_destination_london', { force: true });
     setSelectedPinId(null);
-    setLiveMessage('End confirmed. Continue with marker clicks and drags to finish Step 1.');
+    setLiveMessage('End confirmed. Click the End marker first, then Start.');
+  }
+
+  function handleTutorialConfirmDrag(kind: 'origin' | 'destination') {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return;
+    if (tutorialPlacementStage !== 'post_confirm_marker_actions') return;
+
+    if (kind === 'destination') {
+      if (tutorialBlockingActionId !== 'map.confirm_drag_destination_marker') return;
+      const nextDestination = tutorialDragDraftDestination;
+      if (!nextDestination) return;
+      setDestination(nextDestination);
+      setTutorialDragDraftDestination(null);
+      clearComputed();
+      tutorialMapClickGuardUntilRef.current = Date.now() + 350;
+      markTutorialAction('map.confirm_drag_destination_marker', { force: true });
+      setSelectedPinId(null);
+      setLiveMessage('End drag confirmed. Now drag Start within Newcastle and confirm.');
+      return;
+    }
+
+    if (tutorialBlockingActionId !== 'map.confirm_drag_origin_marker') return;
+    const nextOrigin = tutorialDragDraftOrigin;
+    if (!nextOrigin) return;
+    setOrigin(nextOrigin);
+    setTutorialDragDraftOrigin(null);
+    clearComputed();
+    tutorialMapClickGuardUntilRef.current = Date.now() + 350;
+    markTutorialAction('map.confirm_drag_origin_marker', { force: true });
+    setSelectedPinId(null);
+    setLiveMessage('Start drag confirmed. Step 1 marker workflow complete.');
+    setTutorialStepIndex((prev) => Math.min(TUTORIAL_STEPS.length - 1, prev + 1));
   }
 
   function selectPinFromSidebar(id: 'origin' | 'destination' | 'stop-1') {
@@ -2164,6 +2418,8 @@ export default function Page() {
     setDestination(null);
     setTutorialDraftOrigin(null);
     setTutorialDraftDestination(null);
+    setTutorialDragDraftOrigin(null);
+    setTutorialDragDraftDestination(null);
     setManagedStop(null);
     setSelectedPinId(null);
     setFocusPinRequest(null);
@@ -2195,6 +2451,8 @@ export default function Page() {
     setDestination(null);
     setTutorialDraftOrigin(null);
     setTutorialDraftDestination(null);
+    setTutorialDragDraftOrigin(null);
+    setTutorialDragDraftDestination(null);
     setManagedStop(null);
     setSelectedPinId(null);
     setFocusPinRequest(null);
@@ -3075,10 +3333,12 @@ export default function Page() {
         className={`mapStage ${tutorialMapLocked ? 'isTutorialLocked' : ''} ${tutorialGuideVisible ? 'isTutorialGuided' : ''}`.trim()}
       >
         <MapView
-          origin={origin}
-          destination={destination}
+          origin={mapOriginForRender}
+          destination={mapDestinationForRender}
           tutorialDraftOrigin={tutorialDraftOrigin}
           tutorialDraftDestination={tutorialDraftDestination}
+          tutorialDragDraftOrigin={tutorialDragDraftOrigin}
+          tutorialDragDraftDestination={tutorialDragDraftDestination}
           managedStop={managedStop}
           originLabel="Start"
           destinationLabel="End"
@@ -3099,6 +3359,7 @@ export default function Page() {
           tutorialGuideTarget={tutorialGuideTarget}
           tutorialGuideVisible={tutorialGuideVisible}
           tutorialConfirmPin={tutorialConfirmPin}
+          tutorialDragConfirmPin={tutorialDragConfirmPin}
           onMapClick={handleMapClick}
           onSelectPinId={setSelectedPinId}
           onMoveMarker={handleMoveMarker}
@@ -3109,6 +3370,7 @@ export default function Page() {
           onFocusPin={setSelectedPinId}
           onSwapMarkers={swapMarkers}
           onTutorialConfirmPin={handleTutorialConfirmPin}
+          onTutorialConfirmDrag={handleTutorialConfirmDrag}
           onTutorialAction={markTutorialAction}
           onTutorialTargetState={(state) => {
             if (state.hasSegmentTooltipPath) {
@@ -3147,9 +3409,9 @@ export default function Page() {
                 title={t('setup')}
                 hint={SIDEBAR_SECTION_HINTS.setup}
                 dataTutorialId="setup.section"
-                isOpen={tutorialSectionControlFor('setup.section')?.isOpen}
-                lockToggle={tutorialSectionControlFor('setup.section')?.lockToggle}
-                tutorialLocked={tutorialSectionControlFor('setup.section')?.tutorialLocked}
+                isOpen={tutorialSectionControl.setup?.isOpen}
+                lockToggle={tutorialSectionControl.setup?.lockToggle}
+                tutorialLocked={tutorialSectionControl.setup?.tutorialLocked}
               >
 
                 <div className="fieldLabelRow">
@@ -3314,7 +3576,7 @@ export default function Page() {
                 onDeleteStop={deleteStop}
                 onSwapPins={swapMarkers}
                 onClearPins={reset}
-                sectionControl={tutorialSectionControlFor('pins.section')}
+                sectionControl={tutorialSectionControl.pins}
               />
 
               <ScenarioParameterEditor
@@ -3322,16 +3584,16 @@ export default function Page() {
                 onChange={setAdvancedParams}
                 disabled={busy}
                 validationError={advancedError}
-                sectionControl={tutorialSectionControlFor('advanced.section')}
+                sectionControl={tutorialSectionControl.advanced}
               />
 
               <CollapsibleCard
                 title={t('preferences')}
                 hint={SIDEBAR_SECTION_HINTS.preferences}
                 dataTutorialId="preferences.section"
-                isOpen={tutorialSectionControlFor('preferences.section')?.isOpen}
-                lockToggle={tutorialSectionControlFor('preferences.section')?.lockToggle}
-                tutorialLocked={tutorialSectionControlFor('preferences.section')?.tutorialLocked}
+                isOpen={tutorialSectionControl.preferences?.isOpen}
+                lockToggle={tutorialSectionControl.preferences?.lockToggle}
+                tutorialLocked={tutorialSectionControl.preferences?.tutorialLocked}
               >
 
                 <div className="sliderField" data-tutorial-id="preferences.weights">
@@ -3471,9 +3733,9 @@ export default function Page() {
               hint={SIDEBAR_SECTION_HINTS.selectedRoute}
               dataTutorialId="selected.route_panel"
               className="selectedRouteCard"
-              isOpen={tutorialSectionControlFor('selected.route_panel')?.isOpen}
-              lockToggle={tutorialSectionControlFor('selected.route_panel')?.lockToggle}
-              tutorialLocked={tutorialSectionControlFor('selected.route_panel')?.tutorialLocked}
+              isOpen={tutorialSectionControl.selectedRoute?.isOpen}
+              lockToggle={tutorialSectionControl.selectedRoute?.lockToggle}
+              tutorialLocked={tutorialSectionControl.selectedRoute?.tutorialLocked}
             >
               <div data-tutorial-action="selected.panel_click">
               <div className="metrics">
@@ -3579,7 +3841,7 @@ export default function Page() {
           <ScenarioTimeLapse
             route={selectedRoute}
             onPositionChange={setTimeLapsePosition}
-            sectionControl={tutorialSectionControlFor('timelapse.section')}
+            sectionControl={tutorialSectionControl.timelapse}
           />
 
           {showRoutesSection && (
@@ -3588,9 +3850,9 @@ export default function Page() {
               title="Routes"
               hint={SIDEBAR_SECTION_HINTS.routes}
               dataTutorialId="routes.list"
-              isOpen={tutorialSectionControlFor('routes.list')?.isOpen}
-              lockToggle={tutorialSectionControlFor('routes.list')?.lockToggle}
-              tutorialLocked={tutorialSectionControlFor('routes.list')?.tutorialLocked}
+              isOpen={tutorialSectionControl.routes?.isOpen}
+              lockToggle={tutorialSectionControl.routes?.lockToggle}
+              tutorialLocked={tutorialSectionControl.routes?.tutorialLocked}
             >
               <div className="sectionTitleRow">
                 <div className="sectionTitleMeta">
@@ -3809,9 +4071,9 @@ export default function Page() {
             title={t('compare_scenarios')}
             hint={SIDEBAR_SECTION_HINTS.compareScenarios}
             dataTutorialId="compare.section"
-            isOpen={tutorialSectionControlFor('compare.section')?.isOpen}
-            lockToggle={tutorialSectionControlFor('compare.section')?.lockToggle}
-            tutorialLocked={tutorialSectionControlFor('compare.section')?.tutorialLocked}
+            isOpen={tutorialSectionControl.compare?.isOpen}
+            lockToggle={tutorialSectionControl.compare?.lockToggle}
+            tutorialLocked={tutorialSectionControl.compare?.tutorialLocked}
           >
             <div className="sectionTitleRow">
               <button
@@ -3849,7 +4111,7 @@ export default function Page() {
             onRun={optimizeDepartures}
             onApplyDepartureTime={applyOptimizedDeparture}
             locale={locale}
-            sectionControl={tutorialSectionControlFor('departure.section')}
+            sectionControl={tutorialSectionControl.departure}
           />
 
           <DutyChainPlanner
@@ -3861,7 +4123,7 @@ export default function Page() {
             data={dutyChainData}
             disabled={busy}
             locale={locale}
-            sectionControl={tutorialSectionControlFor('duty.section')}
+            sectionControl={tutorialSectionControl.duty}
           />
 
           <OracleQualityDashboard
@@ -3877,7 +4139,7 @@ export default function Page() {
             onIngest={ingestOracleCheck}
             locale={locale}
             tutorialResetNonce={tutorialResetNonce}
-            sectionControl={tutorialSectionControlFor('oracle.section')}
+            sectionControl={tutorialSectionControl.oracle}
           />
 
           <ExperimentManager
@@ -3918,7 +4180,7 @@ export default function Page() {
             defaultName={tutorialExperimentPrefill?.name}
             defaultDescription={tutorialExperimentPrefill?.description}
             tutorialResetNonce={tutorialResetNonce}
-            sectionControl={tutorialSectionControlFor('experiments.section')}
+            sectionControl={tutorialSectionControl.experiments}
           />
             </div>
       </aside>
@@ -3959,3 +4221,4 @@ export default function Page() {
     </div>
   );
 }
+

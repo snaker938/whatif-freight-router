@@ -46,6 +46,8 @@ type Props = {
   destination: LatLng | null;
   tutorialDraftOrigin?: LatLng | null;
   tutorialDraftDestination?: LatLng | null;
+  tutorialDragDraftOrigin?: LatLng | null;
+  tutorialDragDraftDestination?: LatLng | null;
   managedStop?: ManagedStop | null;
   originLabel?: string;
   destinationLabel?: string;
@@ -74,10 +76,11 @@ type Props = {
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
   tutorialConfirmPin?: 'origin' | 'destination' | null;
+  tutorialDragConfirmPin?: 'origin' | 'destination' | null;
 
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: PinSelectionId | null) => void;
-  onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => void;
+  onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => boolean;
   onMoveStop?: (lat: number, lon: number) => void;
   onAddStopFromPin?: () => void;
   onRenameStop?: (name: string) => void;
@@ -85,6 +88,7 @@ type Props = {
   onFocusPin?: (id: PinSelectionId) => void;
   onSwapMarkers?: () => void;
   onTutorialConfirmPin?: (kind: 'origin' | 'destination') => void;
+  onTutorialConfirmDrag?: (kind: 'origin' | 'destination') => void;
 };
 
 // Rough UK bounds (keeps the demo focused on UK routing).
@@ -166,11 +170,18 @@ function FocusPinRequestHandler({
     else target = managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null;
     if (!target) return;
 
-    const nextZoom = Math.min(14, Math.max(map.getZoom() + 1, 11));
+    const nextZoom =
+      request.zoom !== undefined
+        ? request.zoom
+        : Math.min(14, Math.max(map.getZoom() + 1, 11));
     map.flyTo([target.lat, target.lon], nextZoom, {
       animate: true,
       duration: 0.45,
     });
+
+    if (request.openPopup === false) {
+      return;
+    }
 
     const timer = window.setTimeout(() => {
       try {
@@ -270,23 +281,196 @@ function TutorialGuidePanHandler({
 }) {
   const map = useMap();
 
+  const computeGuidePanShift = useCallback(
+    (guideBounds: L.LatLngBounds, guideStage: number) => {
+      const mapRect = map.getContainer().getBoundingClientRect();
+      const margin = 14;
+      const maxShiftX = Math.ceil(mapRect.width * 0.32);
+      const maxShiftY = Math.ceil(mapRect.height * 0.26);
+      let shiftX = 0;
+      let shiftY = 0;
+
+      const nw = map.latLngToContainerPoint(guideBounds.getNorthWest());
+      const se = map.latLngToContainerPoint(guideBounds.getSouthEast());
+      const guideRect = {
+        left: Math.min(nw.x, se.x),
+        right: Math.max(nw.x, se.x),
+        top: Math.min(nw.y, se.y),
+        bottom: Math.max(nw.y, se.y),
+      };
+
+      const toContainerRect = (rect: DOMRect) => ({
+        left: rect.left - mapRect.left,
+        right: rect.right - mapRect.left,
+        top: rect.top - mapRect.top,
+        bottom: rect.bottom - mapRect.top,
+      });
+
+      const applyOccluderShift = (rect: DOMRect) => {
+        const occ = toContainerRect(rect);
+        const visibleOcc = {
+          left: Math.max(0, occ.left),
+          right: Math.min(mapRect.width, occ.right),
+          top: Math.max(0, occ.top),
+          bottom: Math.min(mapRect.height, occ.bottom),
+        };
+
+        if (visibleOcc.right <= visibleOcc.left || visibleOcc.bottom <= visibleOcc.top) {
+          return;
+        }
+
+        const currentRect = {
+          left: guideRect.left + shiftX,
+          right: guideRect.right + shiftX,
+          top: guideRect.top + shiftY,
+          bottom: guideRect.bottom + shiftY,
+        };
+
+        const intersectX =
+          Math.min(currentRect.right, visibleOcc.right) - Math.max(currentRect.left, visibleOcc.left);
+        const intersectY =
+          Math.min(currentRect.bottom, visibleOcc.bottom) - Math.max(currentRect.top, visibleOcc.top);
+        if (intersectX <= 0 || intersectY <= 0) {
+          return;
+        }
+
+        const centerX = (visibleOcc.left + visibleOcc.right) / 2;
+        const centerY = (visibleOcc.top + visibleOcc.bottom) / 2;
+        const midX = mapRect.width / 2;
+        const midY = mapRect.height / 2;
+
+        if (centerX <= midX) {
+          const needed = Math.ceil(Math.max(0, visibleOcc.right - currentRect.left) + margin);
+          shiftX = Math.max(shiftX, needed);
+        } else {
+          const needed = Math.ceil(Math.max(0, currentRect.right - visibleOcc.left) + margin);
+          shiftX = Math.min(shiftX, -needed);
+        }
+
+        if (centerY <= midY) {
+          const needed = Math.ceil(Math.max(0, visibleOcc.bottom - currentRect.top) + margin);
+          shiftY = Math.max(shiftY, needed);
+        } else {
+          const needed = Math.ceil(Math.max(0, currentRect.bottom - visibleOcc.top) + margin);
+          shiftY = Math.min(shiftY, -needed);
+        }
+      };
+
+      const panel = document.querySelector<HTMLElement>('.panel:not(.isCollapsed)');
+      if (panel) {
+        applyOccluderShift(panel.getBoundingClientRect());
+      }
+
+      const tutorialCard = document.querySelector<HTMLElement>(
+        '.tutorialOverlay.isRunning .tutorialOverlay__card',
+      );
+      if (tutorialCard && guideStage !== 1) {
+        applyOccluderShift(tutorialCard.getBoundingClientRect());
+      }
+
+      shiftX = Math.max(-maxShiftX, Math.min(maxShiftX, shiftX));
+      shiftY = Math.max(-maxShiftY, Math.min(maxShiftY, shiftY));
+
+      const shifted = {
+        left: guideRect.left + shiftX,
+        right: guideRect.right + shiftX,
+        top: guideRect.top + shiftY,
+        bottom: guideRect.bottom + shiftY,
+      };
+
+      if (shifted.left < margin) {
+        shiftX += margin - shifted.left;
+      } else if (shifted.right > mapRect.width - margin) {
+        shiftX -= shifted.right - (mapRect.width - margin);
+      }
+
+      if (shifted.top < margin) {
+        shiftY += margin - shifted.top;
+      } else if (shifted.bottom > mapRect.height - margin) {
+        shiftY -= shifted.bottom - (mapRect.height - margin);
+      }
+
+      return [Math.round(shiftX), Math.round(shiftY)] as const;
+    },
+    [map],
+  );
+
   useEffect(() => {
     if (!visible || !guideTarget) return;
-    map.stop();
-    if (viewportLocked) {
-      map.setView([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
-        animate: false,
+    let disposed = false;
+    let panAdjustRaf = 0;
+
+    const applyGuideViewport = () => {
+      const radiusMeters = Math.max(1, guideTarget.radius_km * 1000);
+      const earthRadiusMeters = 6371000;
+      const latRad = (guideTarget.lat * Math.PI) / 180;
+      const deltaLatDeg = (radiusMeters / earthRadiusMeters) * (180 / Math.PI);
+      const cosLat = Math.max(0.01, Math.abs(Math.cos(latRad)));
+      const deltaLonDeg =
+        (radiusMeters / (earthRadiusMeters * cosLat)) * (180 / Math.PI);
+      const south = Math.max(-90, guideTarget.lat - deltaLatDeg);
+      const north = Math.min(90, guideTarget.lat + deltaLatDeg);
+      const west = guideTarget.lon - deltaLonDeg;
+      const east = guideTarget.lon + deltaLonDeg;
+      const guideBounds = L.latLngBounds([south, west], [north, east]);
+
+      map.stop();
+      map.fitBounds(guideBounds, {
+        animate: !viewportLocked,
+        duration: viewportLocked ? undefined : 0.45,
+        paddingTopLeft: [22, 22],
+        paddingBottomRight: [22, 22],
+        maxZoom: guideTarget.zoom,
       });
-      return;
-    }
-    map.flyTo([guideTarget.lat, guideTarget.lon], guideTarget.zoom, {
-      animate: true,
-      duration: 0.55,
-    });
+
+      if (panAdjustRaf) {
+        window.cancelAnimationFrame(panAdjustRaf);
+      }
+      panAdjustRaf = window.requestAnimationFrame(() => {
+        if (disposed) return;
+        const [shiftX, shiftY] = computeGuidePanShift(guideBounds, guideTarget.stage);
+        if (Math.abs(shiftX) < 1 && Math.abs(shiftY) < 1) {
+          return;
+        }
+        map.panBy([shiftX, shiftY], {
+          animate: !viewportLocked,
+          duration: viewportLocked ? undefined : 0.35,
+        });
+      });
+    };
+
+    applyGuideViewport();
+
+    let raf = 0;
+    const handleResize = () => {
+      if (raf) {
+        window.cancelAnimationFrame(raf);
+      }
+      raf = window.requestAnimationFrame(() => {
+        applyGuideViewport();
+      });
+    };
+
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleResize);
+
+    return () => {
+      disposed = true;
+      if (panAdjustRaf) {
+        window.cancelAnimationFrame(panAdjustRaf);
+      }
+      if (raf) {
+        window.cancelAnimationFrame(raf);
+      }
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
   }, [
+    computeGuidePanShift,
     guideTarget?.lat,
     guideTarget?.lon,
     guideTarget?.pan_nonce,
+    guideTarget?.radius_km,
     guideTarget?.zoom,
     visible,
     map,
@@ -619,6 +803,8 @@ export default function MapView({
   destination,
   tutorialDraftOrigin = null,
   tutorialDraftDestination = null,
+  tutorialDragDraftOrigin = null,
+  tutorialDragDraftDestination = null,
   managedStop = null,
   originLabel = 'Start',
   destinationLabel = 'End',
@@ -641,6 +827,7 @@ export default function MapView({
   tutorialGuideTarget = null,
   tutorialGuideVisible = false,
   tutorialConfirmPin = null,
+  tutorialDragConfirmPin = null,
   onMapClick,
   onSelectPinId,
   onMoveMarker,
@@ -651,6 +838,7 @@ export default function MapView({
   onFocusPin,
   onSwapMarkers,
   onTutorialConfirmPin,
+  onTutorialConfirmDrag,
 }: Props) {
   const initialCenterRef = useRef<LatLngExpression>(
     origin ? ([origin.lat, origin.lon] as [number, number]) : ([52.4862, -1.8904] as [number, number]),
@@ -758,8 +946,8 @@ export default function MapView({
     }
   }, [selectedPinId, draggingPinId]);
 
-  const renderedOrigin = tutorialDraftOrigin ?? origin;
-  const renderedDestination = tutorialDraftDestination ?? destination;
+  const renderedOrigin = tutorialDragDraftOrigin ?? tutorialDraftOrigin ?? origin;
+  const renderedDestination = tutorialDragDraftDestination ?? tutorialDraftDestination ?? destination;
   const effectiveOrigin = dragPreview.origin ?? renderedOrigin;
   const effectiveDestination = dragPreview.destination ?? renderedDestination;
   const effectiveStop = dragPreview.stop ?? (managedStop ? { lat: managedStop.lat, lon: managedStop.lon } : null);
@@ -839,21 +1027,45 @@ export default function MapView({
       actionId: string,
       markerKind?: 'origin' | 'destination',
     ) => {
-      if (isActionExpected(actionId)) return true;
-      if (markerKind === 'origin' && tutorialConfirmPin === 'origin') {
-        return actionId === 'map.click_origin_marker';
+      if (
+        markerKind === 'origin' &&
+        tutorialExpectedAction === 'map.confirm_drag_origin_marker' &&
+        actionId === 'map.drag_origin_marker'
+      ) {
+        return true;
       }
-      if (markerKind === 'destination' && tutorialConfirmPin === 'destination') {
-        return actionId === 'map.click_destination_marker';
+      if (
+        markerKind === 'destination' &&
+        tutorialExpectedAction === 'map.confirm_drag_destination_marker' &&
+        actionId === 'map.drag_destination_marker'
+      ) {
+        return true;
       }
-      return false;
+      return isActionExpected(actionId);
     },
-    [isActionExpected, tutorialConfirmPin],
+    [isActionExpected, tutorialExpectedAction],
   );
+  const canUsePopupSwap = isActionExpected('map.popup_swap');
+  const canUsePopupAddStop = isActionExpected('map.add_stop_midpoint');
   const disableTutorialPopupAutoPan = Boolean(
-    tutorialViewportLocked || (tutorialGuideVisible && tutorialConfirmPin),
+    tutorialViewportLocked || tutorialGuideVisible,
   );
   const mapInteractionLocked = tutorialMapLocked || tutorialViewportLocked;
+  const blockMarkerClick = useCallback(
+    (event: {
+      originalEvent?: MouseEvent;
+      target?: L.Layer;
+    }) => {
+      event.originalEvent?.preventDefault();
+      event.originalEvent?.stopPropagation();
+      try {
+        (event.target as L.Marker | undefined)?.closePopup();
+      } catch {
+        // no-op
+      }
+    },
+    [],
+  );
 
   const handleCopyCoords = useCallback(async (kind: MarkerKind | 'stop', lat: number, lon: number) => {
     const text = `${fmtCoord(lat)}, ${fmtCoord(lon)}`;
@@ -863,6 +1075,15 @@ export default function MapView({
       onTutorialAction?.('map.popup_copy');
     }
   }, [onTutorialAction]);
+  const resolvePopupCloseAction = useCallback(() => {
+    if (tutorialExpectedAction === 'map.popup_close_destination_marker') {
+      return 'map.popup_close_destination_marker';
+    }
+    if (tutorialExpectedAction === 'map.popup_close_origin_marker') {
+      return 'map.popup_close_origin_marker';
+    }
+    return 'map.popup_close';
+  }, [tutorialExpectedAction]);
 
   const handleMapClickFromMap = useCallback(
     (lat: number, lon: number) => {
@@ -975,10 +1196,15 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
-                if (tutorialMapLocked) return;
-                if (!isMarkerActionAllowed('map.click_origin_marker', 'origin')) return;
+                if (
+                  tutorialMapLocked ||
+                  !isMarkerActionAllowed('map.click_origin_marker', 'origin') ||
+                  Date.now() < suppressMarkerClickUntilRef.current
+                ) {
+                  blockMarkerClick(e);
+                  return;
+                }
                 e.originalEvent?.stopPropagation();
-                if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
                 onFocusPin?.('origin');
                 onTutorialAction?.('map.click_origin_marker');
@@ -990,8 +1216,13 @@ export default function MapView({
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, origin: { lat: pos.lat, lon: pos.lng } }));
                 suppressInteractionsBriefly();
-                onMoveMarker('origin', pos.lat, pos.lng);
-                onTutorialAction?.('map.drag_origin_marker');
+                const accepted = onMoveMarker('origin', pos.lat, pos.lng);
+                if (!accepted) {
+                  setDragPreview((prev) => ({ ...prev, origin: null }));
+                }
+                if (accepted) {
+                  onTutorialAction?.('map.drag_origin_marker');
+                }
               },
               dragstart() {
                 if (tutorialMapLocked) return;
@@ -1030,8 +1261,10 @@ export default function MapView({
                       <button
                         type="button"
                         className="markerPopup__iconBtn"
+                        disabled={!canUsePopupSwap}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (!canUsePopupSwap) return;
                           onSwapMarkers();
                           onTutorialAction?.('map.popup_swap');
                         }}
@@ -1047,8 +1280,10 @@ export default function MapView({
                       <button
                         type="button"
                         className="markerPopup__iconBtn"
+                        disabled={!canUsePopupAddStop}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (!canUsePopupAddStop) return;
                           onAddStopFromPin();
                           onTutorialAction?.('map.add_stop_midpoint');
                         }}
@@ -1066,11 +1301,11 @@ export default function MapView({
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectPinId?.(null);
-                        onTutorialAction?.('map.popup_close');
+                        onTutorialAction?.(resolvePopupCloseAction());
                       }}
                       aria-label="Close"
                       title="Close"
-                      data-tutorial-action="map.popup_close"
+                      data-tutorial-action={resolvePopupCloseAction()}
                     >
                       <CloseIcon />
                     </button>
@@ -1129,12 +1364,43 @@ export default function MapView({
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      suppressInteractionsBriefly();
                       onTutorialConfirmPin('origin');
                     }}
                     data-tutorial-action="map.confirm_origin_newcastle"
                   >
                     <span className="tutorialConfirmPinTooltip__dot" aria-hidden="true" />
                     Confirm Start
+                  </button>
+                </div>
+              </Tooltip>
+            ) : null}
+            {tutorialDragConfirmPin === 'origin' && onTutorialConfirmDrag ? (
+              <Tooltip
+                permanent={true}
+                interactive={true}
+                direction="top"
+                offset={[0, -62]}
+                className="tutorialConfirmPinTooltip tutorialConfirmPinTooltip--origin"
+              >
+                <div
+                  className="tutorialConfirmPinTooltip__wrap"
+                  role="group"
+                  aria-label="Confirm Start drag"
+                >
+                  <button
+                    type="button"
+                    className="tutorialConfirmPinTooltip__button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      suppressInteractionsBriefly();
+                      onTutorialConfirmDrag('origin');
+                    }}
+                    data-tutorial-action="map.confirm_drag_origin_marker"
+                  >
+                    <span className="tutorialConfirmPinTooltip__dot" aria-hidden="true" />
+                    Confirm Start Drag
                   </button>
                 </div>
               </Tooltip>
@@ -1157,10 +1423,15 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
-                if (tutorialMapLocked) return;
-                if (!isMarkerActionAllowed('map.click_destination_marker', 'destination')) return;
+                if (
+                  tutorialMapLocked ||
+                  !isMarkerActionAllowed('map.click_destination_marker', 'destination') ||
+                  Date.now() < suppressMarkerClickUntilRef.current
+                ) {
+                  blockMarkerClick(e);
+                  return;
+                }
                 e.originalEvent?.stopPropagation();
-                if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
                 onFocusPin?.('destination');
                 onTutorialAction?.('map.click_destination_marker');
@@ -1172,8 +1443,13 @@ export default function MapView({
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, destination: { lat: pos.lat, lon: pos.lng } }));
                 suppressInteractionsBriefly();
-                onMoveMarker('destination', pos.lat, pos.lng);
-                onTutorialAction?.('map.drag_destination_marker');
+                const accepted = onMoveMarker('destination', pos.lat, pos.lng);
+                if (!accepted) {
+                  setDragPreview((prev) => ({ ...prev, destination: null }));
+                }
+                if (accepted) {
+                  onTutorialAction?.('map.drag_destination_marker');
+                }
               },
               dragstart() {
                 if (tutorialMapLocked) return;
@@ -1212,8 +1488,10 @@ export default function MapView({
                       <button
                         type="button"
                         className="markerPopup__iconBtn"
+                        disabled={!canUsePopupSwap}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (!canUsePopupSwap) return;
                           onSwapMarkers();
                           onTutorialAction?.('map.popup_swap');
                         }}
@@ -1229,8 +1507,10 @@ export default function MapView({
                       <button
                         type="button"
                         className="markerPopup__iconBtn"
+                        disabled={!canUsePopupAddStop}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (!canUsePopupAddStop) return;
                           onAddStopFromPin();
                           onTutorialAction?.('map.add_stop_midpoint');
                         }}
@@ -1248,11 +1528,11 @@ export default function MapView({
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectPinId?.(null);
-                        onTutorialAction?.('map.popup_close');
+                        onTutorialAction?.(resolvePopupCloseAction());
                       }}
                       aria-label="Close"
                       title="Close"
-                      data-tutorial-action="map.popup_close"
+                      data-tutorial-action={resolvePopupCloseAction()}
                     >
                       <CloseIcon />
                     </button>
@@ -1311,12 +1591,43 @@ export default function MapView({
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      suppressInteractionsBriefly();
                       onTutorialConfirmPin('destination');
                     }}
                     data-tutorial-action="map.confirm_destination_london"
                   >
                     <span className="tutorialConfirmPinTooltip__dot" aria-hidden="true" />
                     Confirm End
+                  </button>
+                </div>
+              </Tooltip>
+            ) : null}
+            {tutorialDragConfirmPin === 'destination' && onTutorialConfirmDrag ? (
+              <Tooltip
+                permanent={true}
+                interactive={true}
+                direction="top"
+                offset={[0, -62]}
+                className="tutorialConfirmPinTooltip tutorialConfirmPinTooltip--destination"
+              >
+                <div
+                  className="tutorialConfirmPinTooltip__wrap"
+                  role="group"
+                  aria-label="Confirm End drag"
+                >
+                  <button
+                    type="button"
+                    className="tutorialConfirmPinTooltip__button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      suppressInteractionsBriefly();
+                      onTutorialConfirmDrag('destination');
+                    }}
+                    data-tutorial-action="map.confirm_drag_destination_marker"
+                  >
+                    <span className="tutorialConfirmPinTooltip__dot" aria-hidden="true" />
+                    Confirm End Drag
                   </button>
                 </div>
               </Tooltip>
@@ -1333,10 +1644,15 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
-                if (tutorialMapLocked) return;
-                if (!isActionExpected('map.click_stop_marker')) return;
+                if (
+                  tutorialMapLocked ||
+                  !isActionExpected('map.click_stop_marker') ||
+                  Date.now() < suppressMarkerClickUntilRef.current
+                ) {
+                  blockMarkerClick(e);
+                  return;
+                }
                 e.originalEvent?.stopPropagation();
-                if (Date.now() < suppressMarkerClickUntilRef.current) return;
                 onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
                 onFocusPin?.('stop-1');
                 onTutorialAction?.('map.click_stop_marker');
