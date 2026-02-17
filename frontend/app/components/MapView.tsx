@@ -70,8 +70,10 @@ type Props = {
   onTutorialAction?: (actionId: string) => void;
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
+  tutorialMapDimmed?: boolean;
   tutorialViewportLocked?: boolean;
   tutorialHideZoomControls?: boolean;
+  tutorialRelaxBounds?: boolean;
   tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
@@ -95,6 +97,10 @@ type Props = {
 const UK_BOUNDS: LatLngBoundsExpression = [
   [49.5, -8.7],
   [61.1, 2.1],
+];
+const WORLD_BOUNDS: LatLngBoundsExpression = [
+  [-85, -180],
+  [85, 180],
 ];
 
 // Fix for Leaflet + Next.js Fast Refresh:
@@ -219,19 +225,46 @@ function FitAllRequestHandler({
   destination,
   managedStop,
   route,
+  lockViewport,
 }: {
   nonce: number;
   origin: LatLng | null;
   destination: LatLng | null;
   managedStop: ManagedStop | null;
   route: RouteOption | null;
+  lockViewport: boolean;
 }) {
   const map = useMap();
   const lastHandledNonceRef = useRef(nonce);
+  const logFitDebug = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      if (typeof window === 'undefined') return;
+      console.log(`[midpoint-fit-debug] ${event}`, payload ?? {});
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (nonce <= 0) return;
-    if (nonce === lastHandledNonceRef.current) return;
+    logFitDebug('effect:enter', {
+      nonce,
+      lastHandledNonce: lastHandledNonceRef.current,
+      lockViewport,
+      hasOrigin: Boolean(origin),
+      hasDestination: Boolean(destination),
+      hasStop: Boolean(managedStop),
+      routeId: route?.id ?? null,
+      routeGeomPoints: route?.geometry?.coordinates?.length ?? 0,
+      zoomBefore: map.getZoom(),
+      centerBefore: map.getCenter(),
+    });
+    if (nonce <= 0) {
+      logFitDebug('effect:skip:nonce<=0');
+      return;
+    }
+    if (nonce === lastHandledNonceRef.current) {
+      logFitDebug('effect:skip:nonce-unchanged');
+      return;
+    }
     lastHandledNonceRef.current = nonce;
     const points: LatLngExpression[] = [];
 
@@ -249,23 +282,432 @@ function FitAllRequestHandler({
       const [lastLon, lastLat] = coords[coords.length - 1];
       points.push([lastLat, lastLon]);
     }
+    logFitDebug('effect:points-built', {
+      pointsCount: points.length,
+      origin,
+      destination,
+      managedStop,
+      sampledRoutePointsCount: coords.length > 1 ? points.length - (origin ? 1 : 0) - (managedStop ? 1 : 0) - (destination ? 1 : 0) : 0,
+      firstPoint: points[0] ?? null,
+      lastPoint: points[points.length - 1] ?? null,
+    });
+
+    const getFitPadding = () => {
+      const basePadX = lockViewport ? 26 : 36;
+      const basePadY = lockViewport ? 26 : 36;
+      const paddingTopLeft: [number, number] = [basePadX, basePadY];
+      const paddingBottomRight: [number, number] = [basePadX, basePadY];
+      const mapRect = map.getContainer().getBoundingClientRect();
+      const maxPadX = lockViewport
+        ? Math.max(260, Math.min(560, Math.floor(mapRect.width * 0.48)))
+        : Math.max(36, Math.floor(mapRect.width * 0.33));
+      const maxPadY = lockViewport
+        ? Math.max(90, Math.min(220, Math.floor(mapRect.height * 0.28)))
+        : Math.max(36, Math.floor(mapRect.height * 0.28));
+      const occluders: HTMLElement[] = [];
+      const occluderDebug: Array<Record<string, unknown>> = [];
+      const panel = document.querySelector<HTMLElement>('.panel:not(.isCollapsed)');
+      if (panel) occluders.push(panel);
+      const tutorialCard = document.querySelector<HTMLElement>(
+        '.tutorialOverlay.isRunning .tutorialOverlay__card',
+      );
+      if (tutorialCard) occluders.push(tutorialCard);
+      logFitDebug('padding:occluder-scan', {
+        mapRect: {
+          left: mapRect.left,
+          top: mapRect.top,
+          width: mapRect.width,
+          height: mapRect.height,
+          right: mapRect.right,
+          bottom: mapRect.bottom,
+        },
+        maxPadX,
+        maxPadY,
+        lockViewport,
+        occluderCount: occluders.length,
+        occluderClasses: occluders.map((node) => node.className),
+      });
+
+      if (lockViewport) {
+        for (const occluder of occluders) {
+          const rect = occluder.getBoundingClientRect();
+          const overlapLeft = Math.max(mapRect.left, rect.left);
+          const overlapRight = Math.min(mapRect.right, rect.right);
+          const overlapTop = Math.max(mapRect.top, rect.top);
+          const overlapBottom = Math.min(mapRect.bottom, rect.bottom);
+          const overlapWidth = overlapRight - overlapLeft;
+          const overlapHeight = overlapBottom - overlapTop;
+          if (overlapWidth <= 0 || overlapHeight <= 0) {
+            occluderDebug.push({
+              className: occluder.className,
+              mode: 'lockViewport-side-only',
+              skipped: 'no-overlap',
+              overlapWidth,
+              overlapHeight,
+            });
+            continue;
+          }
+
+          const centerX = overlapLeft + overlapWidth / 2;
+          const onLeft = centerX < mapRect.left + mapRect.width / 2;
+          const candidatePadX = Math.ceil(
+            onLeft
+              ? overlapRight - mapRect.left + 20
+              : mapRect.right - overlapLeft + 20,
+          );
+          occluderDebug.push({
+            className: occluder.className,
+            mode: 'lockViewport-side-only',
+            overlap: {
+              left: overlapLeft,
+              top: overlapTop,
+              right: overlapRight,
+              bottom: overlapBottom,
+              width: overlapWidth,
+              height: overlapHeight,
+            },
+            onLeft,
+            candidatePadX,
+          });
+          if (onLeft) {
+            paddingTopLeft[0] = Math.max(
+              paddingTopLeft[0],
+              Math.min(candidatePadX, maxPadX),
+            );
+          } else {
+            paddingBottomRight[0] = Math.max(
+              paddingBottomRight[0],
+              Math.min(candidatePadX, maxPadX),
+            );
+          }
+        }
+
+        const lane = {
+          left: paddingTopLeft[0],
+          right: Math.max(paddingTopLeft[0], mapRect.width - paddingBottomRight[0]),
+          top: paddingTopLeft[1],
+          bottom: Math.max(paddingTopLeft[1], mapRect.height - paddingBottomRight[1]),
+        };
+        const laneCenter = {
+          x: (lane.left + lane.right) / 2,
+          y: (lane.top + lane.bottom) / 2,
+        };
+        const clampToRange = (value: number, min: number, max: number) =>
+          Math.max(min, Math.min(max, value));
+        const tutorialMidpoint = tutorialCard
+          ? {
+              x: clampToRange(
+                tutorialCard.getBoundingClientRect().right - mapRect.left,
+                0,
+                mapRect.width,
+              ),
+              y: clampToRange(
+                (tutorialCard.getBoundingClientRect().top +
+                  tutorialCard.getBoundingClientRect().bottom) /
+                  2 -
+                  mapRect.top,
+                0,
+                mapRect.height,
+              ),
+            }
+          : null;
+        const sidebarMidpoint = panel
+          ? {
+              x: clampToRange(
+                panel.getBoundingClientRect().left - mapRect.left,
+                0,
+                mapRect.width,
+              ),
+              y: clampToRange(
+                (panel.getBoundingClientRect().top + panel.getBoundingClientRect().bottom) / 2 -
+                  mapRect.top,
+                0,
+                mapRect.height,
+              ),
+            }
+          : null;
+        const hasUsableCorridor =
+          Boolean(tutorialMidpoint && sidebarMidpoint) &&
+          (sidebarMidpoint?.x ?? 0) - (tutorialMidpoint?.x ?? 0) > 24;
+        const targetCenter = hasUsableCorridor
+          ? {
+              x: ((tutorialMidpoint?.x ?? laneCenter.x) + (sidebarMidpoint?.x ?? laneCenter.x)) / 2,
+              y: ((tutorialMidpoint?.y ?? laneCenter.y) + (sidebarMidpoint?.y ?? laneCenter.y)) / 2,
+            }
+          : laneCenter;
+        return {
+          paddingTopLeft,
+          paddingBottomRight,
+          debug: {
+            mode: 'lockViewport-side-only',
+            mapRect: {
+              width: mapRect.width,
+              height: mapRect.height,
+            },
+            occluders: occluderDebug,
+            lane,
+            laneCenter,
+            targetCenter,
+            corridorAnchors: {
+              tutorialMidpoint,
+              sidebarMidpoint,
+              hasUsableCorridor,
+              tutorialRightX: tutorialMidpoint?.x ?? null,
+              sidebarLeftX: sidebarMidpoint?.x ?? null,
+              corridorWidth:
+                tutorialMidpoint && sidebarMidpoint
+                  ? sidebarMidpoint.x - tutorialMidpoint.x
+                  : null,
+              targetCenterX: targetCenter.x,
+              targetCenterY: targetCenter.y,
+            },
+          },
+        };
+      }
+
+      for (const occluder of occluders) {
+        const rect = occluder.getBoundingClientRect();
+        const overlapLeft = Math.max(mapRect.left, rect.left);
+        const overlapRight = Math.min(mapRect.right, rect.right);
+        const overlapTop = Math.max(mapRect.top, rect.top);
+        const overlapBottom = Math.min(mapRect.bottom, rect.bottom);
+        const overlapWidth = overlapRight - overlapLeft;
+        const overlapHeight = overlapBottom - overlapTop;
+        if (overlapWidth <= 0 || overlapHeight <= 0) {
+          occluderDebug.push({
+            className: occluder.className,
+            skipped: 'no-overlap',
+            overlapWidth,
+            overlapHeight,
+          });
+          continue;
+        }
+
+        const centerX = overlapLeft + overlapWidth / 2;
+        const centerY = overlapTop + overlapHeight / 2;
+        const onLeft = centerX < mapRect.left + mapRect.width / 2;
+        const onTop = centerY < mapRect.top + mapRect.height / 2;
+        const occluderPadX = Math.min(
+          Math.ceil(overlapWidth * 0.72 + 16),
+          maxPadX,
+        );
+        const occluderPadY = Math.min(
+          Math.ceil(overlapHeight * 0.72 + 14),
+          maxPadY,
+        );
+        occluderDebug.push({
+          className: occluder.className,
+          overlap: {
+            left: overlapLeft,
+            top: overlapTop,
+            width: overlapWidth,
+            height: overlapHeight,
+            right: overlapRight,
+            bottom: overlapBottom,
+          },
+          onLeft,
+          onTop,
+          occluderPadX,
+          occluderPadY,
+        });
+
+        if (onLeft) {
+          paddingTopLeft[0] = Math.max(
+            paddingTopLeft[0],
+            occluderPadX,
+          );
+        } else {
+          paddingBottomRight[0] = Math.max(
+            paddingBottomRight[0],
+            occluderPadX,
+          );
+        }
+        if (onTop) {
+          paddingTopLeft[1] = Math.max(
+            paddingTopLeft[1],
+            occluderPadY,
+          );
+        } else {
+          paddingBottomRight[1] = Math.max(
+            paddingBottomRight[1],
+            occluderPadY,
+          );
+        }
+      }
+
+      const lane = {
+        left: paddingTopLeft[0],
+        right: Math.max(paddingTopLeft[0], mapRect.width - paddingBottomRight[0]),
+        top: paddingTopLeft[1],
+        bottom: Math.max(paddingTopLeft[1], mapRect.height - paddingBottomRight[1]),
+      };
+      const laneCenter = {
+        x: (lane.left + lane.right) / 2,
+        y: (lane.top + lane.bottom) / 2,
+      };
+      return {
+        paddingTopLeft,
+        paddingBottomRight,
+        debug: {
+          mode: 'default-occluder',
+          mapRect: {
+            width: mapRect.width,
+            height: mapRect.height,
+          },
+          occluders: occluderDebug,
+          lane,
+          laneCenter,
+        },
+      };
+    };
 
     if (points.length >= 2) {
+      const sourceBounds = L.latLngBounds(points as LatLngExpression[]);
+      const pathLatLngs = (points as [number, number][]).map(([lat, lon]) => L.latLng(lat, lon));
+      const routeMidpointLatLng = (() => {
+        if (!pathLatLngs.length) return sourceBounds.getCenter();
+        if (pathLatLngs.length === 1) return pathLatLngs[0];
+        const segmentLengths: number[] = [];
+        let totalLength = 0;
+        for (let i = 1; i < pathLatLngs.length; i += 1) {
+          const len = pathLatLngs[i - 1].distanceTo(pathLatLngs[i]);
+          segmentLengths.push(len);
+          totalLength += len;
+        }
+        if (totalLength <= 0) return sourceBounds.getCenter();
+        let remaining = totalLength / 2;
+        for (let i = 0; i < segmentLengths.length; i += 1) {
+          const segLen = segmentLengths[i];
+          if (remaining <= segLen) {
+            const a = pathLatLngs[i];
+            const b = pathLatLngs[i + 1];
+            const ratio = segLen <= 0 ? 0 : remaining / segLen;
+            return L.latLng(
+              a.lat + (b.lat - a.lat) * ratio,
+              a.lng + (b.lng - a.lng) * ratio,
+            );
+          }
+          remaining -= segLen;
+        }
+        return pathLatLngs[pathLatLngs.length - 1];
+      })();
+      const { paddingTopLeft, paddingBottomRight, debug } = getFitPadding();
+      logFitDebug('fitBounds:before', {
+        paddingTopLeft,
+        paddingBottomRight,
+        sourceBounds: {
+          south: sourceBounds.getSouth(),
+          west: sourceBounds.getWest(),
+          north: sourceBounds.getNorth(),
+          east: sourceBounds.getEast(),
+          center: sourceBounds.getCenter(),
+        },
+        debug,
+      });
+      map.once('moveend', () => {
+        const nw = map.latLngToContainerPoint(sourceBounds.getNorthWest());
+        const se = map.latLngToContainerPoint(sourceBounds.getSouthEast());
+        const minX = Math.min(nw.x, se.x);
+        const maxX = Math.max(nw.x, se.x);
+        const minY = Math.min(nw.y, se.y);
+        const maxY = Math.max(nw.y, se.y);
+        const lane = debug.lane;
+        const laneCenter = debug.laneCenter;
+        const targetCenter =
+          'targetCenter' in debug && debug.targetCenter ? debug.targetCenter : laneCenter;
+        const sourceCenterPx = map.latLngToContainerPoint(sourceBounds.getCenter());
+        const routeMidpointPx = map.latLngToContainerPoint(routeMidpointLatLng);
+        const centerDelta = {
+          dx: routeMidpointPx.x - targetCenter.x,
+          dy: routeMidpointPx.y - targetCenter.y,
+        };
+        logFitDebug('fitBounds:after-moveend', {
+          zoomAfter: map.getZoom(),
+          centerAfter: map.getCenter(),
+          sourcePixelBounds: { minX, minY, maxX, maxY },
+          sourceCenterPx,
+          routeMidpointLatLng,
+          routeMidpointPx,
+          lane,
+          laneCenter,
+          targetCenter,
+          centerDeltaPx: centerDelta,
+          outsideLane: {
+            left: minX < lane.left,
+            right: maxX > lane.right,
+            top: minY < lane.top,
+            bottom: maxY > lane.bottom,
+          },
+        });
+        if (lockViewport && Math.abs(centerDelta.dx) > 1) {
+          const zoom = map.getZoom();
+          const currentCenter = map.getCenter();
+          const currentCenterProjected = map.project(currentCenter, zoom);
+          const correctedCenterProjected = L.point(
+            currentCenterProjected.x + centerDelta.dx,
+            currentCenterProjected.y,
+          );
+          const correctedCenterLatLng = map.unproject(correctedCenterProjected, zoom);
+          const beforeSetViewMidpointPx = map.latLngToContainerPoint(routeMidpointLatLng);
+          logFitDebug('fitBounds:post-center-adjust', {
+            strategy: 'projected-center-x',
+            currentCenter,
+            correctedCenterLatLng,
+            centerDeltaX: centerDelta.dx,
+            targetCenterX: targetCenter.x,
+            routeMidpointXBeforeSetView: beforeSetViewMidpointPx.x,
+          });
+          map.once('moveend', () => {
+            const midpointAfter = map.latLngToContainerPoint(routeMidpointLatLng);
+            const centerAfterAdjust = map.getCenter();
+            logFitDebug('fitBounds:post-center-adjust:moveend', {
+              centerAfterAdjust,
+              routeMidpointXAfterSetView: midpointAfter.x,
+              targetCenterX: targetCenter.x,
+              remainingDeltaX: midpointAfter.x - targetCenter.x,
+            });
+          });
+          map.setView(correctedCenterLatLng, zoom, { animate: false });
+          const immediateCenter = map.getCenter();
+          const immediateMidpoint = map.latLngToContainerPoint(routeMidpointLatLng);
+          logFitDebug('fitBounds:post-center-adjust:immediate', {
+            requestedCenter: correctedCenterLatLng,
+            immediateCenter,
+            routeMidpointXImmediate: immediateMidpoint.x,
+            targetCenterX: targetCenter.x,
+            immediateDeltaX: immediateMidpoint.x - targetCenter.x,
+          });
+        }
+      });
       map.fitBounds(points as LatLngBoundsExpression, {
-        animate: true,
-        duration: 0.45,
-        padding: [36, 36],
+        animate: !lockViewport,
+        duration: lockViewport ? undefined : 0.45,
+        paddingTopLeft,
+        paddingBottomRight,
       });
       return;
     }
     if (points.length === 1) {
       const [lat, lon] = points[0] as [number, number];
-      map.flyTo([lat, lon], Math.min(map.getZoom(), 11), {
-        animate: true,
-        duration: 0.35,
+      logFitDebug('flyTo:single-point', {
+        lat,
+        lon,
+        zoomBefore: map.getZoom(),
       });
+      map.flyTo([lat, lon], Math.min(map.getZoom(), 11), {
+        animate: !lockViewport,
+        duration: lockViewport ? undefined : 0.35,
+      });
+      map.once('moveend', () => {
+        logFitDebug('flyTo:after-moveend', {
+          zoomAfter: map.getZoom(),
+          centerAfter: map.getCenter(),
+        });
+      });
+      return;
     }
-  }, [nonce, origin, destination, managedStop, route?.id, map]);
+    logFitDebug('effect:skip:no-points');
+  }, [nonce, origin, destination, managedStop, route?.id, map, lockViewport, logFitDebug]);
 
   return null;
 }
@@ -526,6 +968,26 @@ function MapInteractionLockHandler({
       enableInteractions();
     };
   }, [map, viewportLocked]);
+
+  return null;
+}
+
+function MapBoundsModeHandler({
+  relaxBounds,
+}: {
+  relaxBounds: boolean;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (relaxBounds) {
+      map.options.maxBoundsViscosity = 0;
+      map.setMaxBounds(WORLD_BOUNDS);
+      return;
+    }
+    map.options.maxBoundsViscosity = 1.0;
+    map.setMaxBounds(UK_BOUNDS);
+  }, [map, relaxBounds]);
 
   return null;
 }
@@ -821,8 +1283,10 @@ export default function MapView({
   onTutorialAction,
   onTutorialTargetState,
   tutorialMapLocked = false,
+  tutorialMapDimmed = false,
   tutorialViewportLocked = false,
   tutorialHideZoomControls = false,
+  tutorialRelaxBounds = false,
   tutorialExpectedAction = null,
   tutorialGuideTarget = null,
   tutorialGuideVisible = false,
@@ -853,6 +1317,11 @@ export default function MapView({
   const [draggingPinId, setDraggingPinId] = useState<PinSelectionId | null>(null);
   const suppressMapClickUntilRef = useRef(0);
   const suppressMarkerClickUntilRef = useRef(0);
+  const mapPaneRef = useRef<HTMLDivElement | null>(null);
+  const mapMidpointLogSeqRef = useRef(0);
+  const mapMidpointLogStartRef = useRef(
+    typeof performance !== 'undefined' ? performance.now() : 0,
+  );
   const [dragPreview, setDragPreview] = useState<{
     origin: LatLng | null;
     destination: LatLng | null;
@@ -862,6 +1331,58 @@ export default function MapView({
     destination: null,
     stop: null,
   });
+  const logMapDim = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      if (typeof window === 'undefined') return;
+      mapMidpointLogSeqRef.current += 1;
+      const now = typeof performance !== 'undefined' ? performance.now() : 0;
+      const elapsed = (now - mapMidpointLogStartRef.current).toFixed(1);
+      console.log(`[tutorial-map-debug][${mapMidpointLogSeqRef.current}] +${elapsed}ms ${event}`, payload ?? {});
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!tutorialMapLocked && !tutorialMapDimmed && !tutorialViewportLocked) return;
+    if (typeof window === 'undefined') return;
+
+    const pane = mapPaneRef.current;
+    const stage = pane?.closest('.mapStage') as HTMLElement | null;
+    const overlay = document.querySelector<HTMLElement>('.tutorialOverlay');
+    const backdrop = overlay?.querySelector<HTMLElement>('.tutorialOverlay__backdrop') ?? null;
+    const spotlight = overlay?.querySelector<HTMLElement>('.tutorialOverlay__spotlight') ?? null;
+    const paneStyle = pane ? window.getComputedStyle(pane) : null;
+    const stageAfterStyle = stage ? window.getComputedStyle(stage, '::after') : null;
+    const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+
+    logMapDim('map-pane-style-snapshot', {
+      tutorialMapLocked,
+      tutorialMapDimmed,
+      tutorialViewportLocked,
+      tutorialHideZoomControls,
+      tutorialGuideVisible,
+      tutorialExpectedAction,
+      mapPaneClass: pane?.className ?? null,
+      mapStageClass: stage?.className ?? null,
+      overlayClass: overlay?.className ?? null,
+      hasSpotlight: Boolean(spotlight),
+      mapPaneFilter: paneStyle?.filter ?? null,
+      mapPaneOpacity: paneStyle?.opacity ?? null,
+      mapStageAfterBackground: stageAfterStyle?.backgroundColor ?? null,
+      mapStageAfterContent: stageAfterStyle?.content ?? null,
+      backdropBackground: backdropStyle?.backgroundColor ?? null,
+      backdropDisplay: backdropStyle?.display ?? null,
+      backdropOpacity: backdropStyle?.opacity ?? null,
+    });
+  }, [
+    logMapDim,
+    tutorialExpectedAction,
+    tutorialGuideVisible,
+    tutorialHideZoomControls,
+    tutorialMapDimmed,
+    tutorialMapLocked,
+    tutorialViewportLocked,
+  ]);
 
   useEffect(() => {
     if (!copied) return;
@@ -995,6 +1516,56 @@ export default function MapView({
     [previewNodes],
   );
 
+  useEffect(() => {
+    const midpointStepLike =
+      tutorialExpectedAction === 'pins.add_stop' ||
+      tutorialExpectedAction === 'map.add_stop_midpoint' ||
+      tutorialExpectedAction === 'map.click_stop_marker' ||
+      tutorialExpectedAction === 'map.drag_stop_marker' ||
+      Boolean(managedStop);
+    if (!midpointStepLike) return;
+    logMapDim('midpoint-visual-state', {
+      tutorialExpectedAction,
+      tutorialMapLocked,
+      tutorialMapDimmed,
+      tutorialViewportLocked,
+      showStopOverlay,
+      hasManagedStop: Boolean(managedStop),
+      managedStop,
+      hasEffectiveStop: Boolean(effectiveStop),
+      effectiveStop,
+      selectedPinId,
+      draggingPinId,
+      hasDragPreviewStop: Boolean(dragPreview.stop),
+      dragPreviewStop: dragPreview.stop,
+      dutyStopsCount: dutyStops.length,
+      effectiveDutyStopsCount: effectiveDutyStops.length,
+      previewNodes: previewNodes.map((node) => ({
+        id: node.id,
+        role: node.role,
+        lat: node.lat,
+        lon: node.lon,
+      })),
+      previewDotSegmentsCount: previewDotSegments.length,
+    });
+  }, [
+    draggingPinId,
+    dragPreview.stop,
+    dutyStops.length,
+    effectiveDutyStops,
+    effectiveStop,
+    logMapDim,
+    managedStop,
+    previewDotSegments.length,
+    previewNodes,
+    selectedPinId,
+    showStopOverlay,
+    tutorialExpectedAction,
+    tutorialMapDimmed,
+    tutorialMapLocked,
+    tutorialViewportLocked,
+  ]);
+
   const incidentOverlayPoints = useMemo(() => {
     if (!showIncidentOverlay || !route) return [];
     return buildIncidentOverlayPoints(route);
@@ -1098,7 +1669,8 @@ export default function MapView({
 
   return (
     <div
-      className={`mapPane ${tutorialMapLocked ? 'mapPane--tutorialLocked' : ''} ${tutorialGuideVisible ? 'mapPane--guide' : ''}`.trim()}
+      ref={mapPaneRef}
+      className={`mapPane ${tutorialMapDimmed ? 'mapPane--tutorialLocked' : ''} ${tutorialGuideVisible ? 'mapPane--guide' : ''}`.trim()}
       data-segment-tooltips={showSegmentTooltips ? 'on' : 'off'}
       data-tutorial-hide-zoom-controls={tutorialHideZoomControls ? 'true' : 'false'}
       data-tutorial-id="map.interactive"
@@ -1119,10 +1691,11 @@ export default function MapView({
         boxZoom={!mapInteractionLocked}
         keyboard={!mapInteractionLocked}
         touchZoom={!mapInteractionLocked}
-        maxBounds={UK_BOUNDS}
-        maxBoundsViscosity={1.0}
+        maxBounds={tutorialRelaxBounds ? WORLD_BOUNDS : UK_BOUNDS}
+        maxBoundsViscosity={tutorialRelaxBounds ? 0 : 1.0}
         style={{ height: '100%', width: '100%' }}
       >
+        <MapBoundsModeHandler relaxBounds={tutorialRelaxBounds} />
         <FocusPinRequestHandler
           request={focusPinRequest}
           origin={renderedOrigin}
@@ -1138,6 +1711,7 @@ export default function MapView({
           destination={renderedDestination}
           managedStop={managedStop}
           route={route}
+          lockViewport={mapInteractionLocked}
         />
         <TutorialGuidePanHandler
           guideTarget={tutorialGuideTarget}
@@ -1196,15 +1770,29 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                const expectsOriginClose =
+                  tutorialExpectedAction === 'map.popup_close_origin_marker';
+                const allowOriginClickForClose =
+                  expectsOriginClose && (e.target as L.Marker).isPopupOpen();
                 if (
                   tutorialMapLocked ||
-                  !isMarkerActionAllowed('map.click_origin_marker', 'origin') ||
+                  (!isMarkerActionAllowed('map.click_origin_marker', 'origin') &&
+                    !allowOriginClickForClose) ||
                   Date.now() < suppressMarkerClickUntilRef.current
                 ) {
                   blockMarkerClick(e);
                   return;
                 }
                 e.originalEvent?.stopPropagation();
+                const marker = e.target as L.Marker;
+                const closeActionId = resolvePopupCloseAction();
+                if (expectsOriginClose && marker.isPopupOpen()) {
+                  onSelectPinId?.(null);
+                  onTutorialAction?.(closeActionId);
+                  suppressInteractionsBriefly();
+                  marker.closePopup();
+                  return;
+                }
                 onSelectPinId?.(selectedPinId === 'origin' ? null : 'origin');
                 onFocusPin?.('origin');
                 onTutorialAction?.('map.click_origin_marker');
@@ -1249,6 +1837,13 @@ export default function MapView({
               closeButton={false}
               autoPan={!disableTutorialPopupAutoPan}
               autoPanPadding={[22, 22]}
+              eventHandlers={{
+                remove() {
+                  if (tutorialExpectedAction === 'map.popup_close_origin_marker') {
+                    onTutorialAction?.('map.popup_close_origin_marker');
+                  }
+                },
+              }}
             >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
@@ -1284,6 +1879,13 @@ export default function MapView({
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!canUsePopupAddStop) return;
+                          logMapDim('popup-add-stop-click:origin', {
+                            tutorialExpectedAction,
+                            canUsePopupAddStop,
+                            origin,
+                            destination,
+                            managedStop,
+                          });
                           onAddStopFromPin();
                           onTutorialAction?.('map.add_stop_midpoint');
                         }}
@@ -1423,15 +2025,29 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                const expectsDestinationClose =
+                  tutorialExpectedAction === 'map.popup_close_destination_marker';
+                const allowDestinationClickForClose =
+                  expectsDestinationClose && (e.target as L.Marker).isPopupOpen();
                 if (
                   tutorialMapLocked ||
-                  !isMarkerActionAllowed('map.click_destination_marker', 'destination') ||
+                  (!isMarkerActionAllowed('map.click_destination_marker', 'destination') &&
+                    !allowDestinationClickForClose) ||
                   Date.now() < suppressMarkerClickUntilRef.current
                 ) {
                   blockMarkerClick(e);
                   return;
                 }
                 e.originalEvent?.stopPropagation();
+                const marker = e.target as L.Marker;
+                const closeActionId = resolvePopupCloseAction();
+                if (expectsDestinationClose && marker.isPopupOpen()) {
+                  onSelectPinId?.(null);
+                  onTutorialAction?.(closeActionId);
+                  suppressInteractionsBriefly();
+                  marker.closePopup();
+                  return;
+                }
                 onSelectPinId?.(selectedPinId === 'destination' ? null : 'destination');
                 onFocusPin?.('destination');
                 onTutorialAction?.('map.click_destination_marker');
@@ -1476,6 +2092,13 @@ export default function MapView({
               closeButton={false}
               autoPan={!disableTutorialPopupAutoPan}
               autoPanPadding={[22, 22]}
+              eventHandlers={{
+                remove() {
+                  if (tutorialExpectedAction === 'map.popup_close_destination_marker') {
+                    onTutorialAction?.('map.popup_close_destination_marker');
+                  }
+                },
+              }}
             >
               <div className="markerPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
@@ -1511,6 +2134,13 @@ export default function MapView({
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!canUsePopupAddStop) return;
+                          logMapDim('popup-add-stop-click:destination', {
+                            tutorialExpectedAction,
+                            canUsePopupAddStop,
+                            origin,
+                            destination,
+                            managedStop,
+                          });
                           onAddStopFromPin();
                           onTutorialAction?.('map.add_stop_midpoint');
                         }}

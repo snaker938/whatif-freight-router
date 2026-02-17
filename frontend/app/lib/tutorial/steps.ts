@@ -131,20 +131,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'map_stop_lifecycle',
     chapterId: 'chapter_map',
-    title: 'Run full stop lifecycle actions on the map',
+    title: 'Add a midpoint stop',
     what:
-      'Add a midpoint stop from a marker popup, rename it, drag it to a nearby location, and delete it.',
+      'Go straight to midpoint setup: open Pins & Stops and click Add Stop to place a midpoint between your current Start and End pins. You can also add a midpoint from Start/End marker popup actions during normal map use.',
     impact:
-      'This proves stop lifecycle reliability: creation, editing, repositioning, and deletion all work without destabilizing Start/End pins.',
-    targetIds: ['map.interactive'],
+      'Adding a midpoint introduces a controlled route split and shows how one intermediate stop changes the preview path and downstream optimization context.',
+    targetIds: ['pins.section'],
     required: [
-      { actionId: 'map.add_stop_midpoint', label: 'Add or replace a midpoint stop from a pin popup.' },
-      { actionId: 'map.rename_stop', label: 'Rename the stop from map popup controls.' },
-      { actionId: 'map.drag_stop_marker', label: 'Drag the stop marker to a nearby location.' },
-      { actionId: 'map.delete_stop', label: 'Delete the stop from stop controls.' },
+      {
+        actionId: 'pins.add_stop',
+        label: 'Add a midpoint stop once.',
+        details: 'Use Add Stop in Pins & Stops; map markers remain locked in this step.',
+      },
     ],
-    prefillId: 'canonical_map',
-    lockScope: 'map_only',
+    activeSectionId: 'pins.section',
+    lockScope: 'sidebar_section_only',
   },
   {
     id: 'setup_vehicle',

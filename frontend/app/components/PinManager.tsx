@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import type { PinDisplayNode, PinSelectionId } from '../lib/types';
@@ -11,6 +11,9 @@ type Props = {
   disabled: boolean;
   hasStop: boolean;
   canAddStop: boolean;
+  tutorialRunning?: boolean;
+  tutorialStepId?: string | null;
+  tutorialBlockingActionId?: string | null;
   oneStopHint?: string | null;
   onSelectPin: (id: PinSelectionId) => void;
   onRenameStop: (name: string) => void;
@@ -35,6 +38,9 @@ export default function PinManager({
   disabled,
   hasStop,
   canAddStop,
+  tutorialRunning = false,
+  tutorialStepId = null,
+  tutorialBlockingActionId = null,
   oneStopHint = null,
   onSelectPin,
   onRenameStop,
@@ -44,6 +50,23 @@ export default function PinManager({
   onClearPins,
   sectionControl,
 }: Props) {
+  const midpointUiLogSeqRef = useRef(0);
+  const midpointUiLogStartRef = useRef(
+    typeof performance !== 'undefined' ? performance.now() : 0,
+  );
+  const logMidpointUi = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      if (typeof window === 'undefined') return;
+      midpointUiLogSeqRef.current += 1;
+      const now = typeof performance !== 'undefined' ? performance.now() : 0;
+      const elapsed = (now - midpointUiLogStartRef.current).toFixed(1);
+      console.log(
+        `[pins-midpoint-ui][${midpointUiLogSeqRef.current}] +${elapsed}ms ${event}`,
+        payload ?? {},
+      );
+    },
+    [],
+  );
   const originNode = useMemo(() => nodes.find((node) => node.id === 'origin') ?? null, [nodes]);
   const stopNode = useMemo(() => nodes.find((node) => node.id === 'stop-1') ?? null, [nodes]);
   const destinationNode = useMemo(
@@ -54,6 +77,91 @@ export default function PinManager({
     () => [originNode, stopNode, destinationNode].filter((node): node is PinDisplayNode => Boolean(node)),
     [originNode, stopNode, destinationNode],
   );
+  const strictStepActionMode =
+    tutorialRunning && tutorialStepId === 'map_stop_lifecycle';
+  const isActionEnabled = (actionId: string) => {
+    if (!strictStepActionMode) return true;
+    return tutorialBlockingActionId === actionId;
+  };
+  const addStopDisabled = disabled || !canAddStop;
+  const addStopDisabledReason = addStopDisabled
+    ? disabled
+      ? 'panel-disabled'
+      : 'missing-start-or-end'
+    : !isActionEnabled('pins.add_stop')
+      ? 'blocked-by-tutorial-action'
+      : null;
+  const addStopActionEnabled = isActionEnabled('pins.add_stop');
+
+  useEffect(() => {
+    if (!(tutorialRunning && tutorialStepId === 'map_stop_lifecycle')) return;
+    logMidpointUi('state', {
+      disabled,
+      canAddStop,
+      hasStop,
+      addStopDisabled,
+      addStopDisabledReason,
+      addStopActionEnabled,
+      tutorialRunning,
+      tutorialStepId,
+      tutorialBlockingActionId,
+      strictStepActionMode,
+      selectedPinId,
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        kind: node.kind,
+        lat: node.lat,
+        lon: node.lon,
+        label: node.label,
+      })),
+      sectionOpen: sectionControl?.isOpen ?? null,
+      sectionLocked: sectionControl?.tutorialLocked ?? null,
+      panelDisabled: disabled,
+    });
+  }, [
+    addStopActionEnabled,
+    addStopDisabled,
+    addStopDisabledReason,
+    canAddStop,
+    disabled,
+    hasStop,
+    logMidpointUi,
+    nodes,
+    sectionControl?.isOpen,
+    sectionControl?.tutorialLocked,
+    selectedPinId,
+    strictStepActionMode,
+    tutorialBlockingActionId,
+    tutorialRunning,
+    tutorialStepId,
+  ]);
+
+  const handleAddStopClick = useCallback(() => {
+    logMidpointUi('add-stop-click', {
+      addStopDisabled,
+      addStopDisabledReason,
+      addStopActionEnabled,
+      tutorialRunning,
+      tutorialStepId,
+      tutorialBlockingActionId,
+      canAddStop,
+      hasStop,
+      disabled,
+    });
+    onAddStop();
+  }, [
+    addStopActionEnabled,
+    addStopDisabled,
+    addStopDisabledReason,
+    canAddStop,
+    disabled,
+    hasStop,
+    logMidpointUi,
+    onAddStop,
+    tutorialBlockingActionId,
+    tutorialRunning,
+    tutorialStepId,
+  ]);
 
   function renderNodeRow(
     node: PinDisplayNode,
@@ -71,7 +179,7 @@ export default function PinManager({
           type="button"
           className="pinManager__nodeBtn"
           onClick={() => onSelectPin(node.id)}
-          disabled={disabled}
+          disabled={disabled || !isActionEnabled('pins.sidebar_select')}
           aria-pressed={isSelected}
           aria-label={`${isSelected ? 'Deselect' : 'Select'} ${label} Pin`}
           data-tutorial-action="pins.sidebar_select"
@@ -94,6 +202,7 @@ export default function PinManager({
               onChange={(event) => options.onRename?.(event.target.value)}
               placeholder={node.label || 'Stop #1'}
               disabled={disabled}
+              readOnly={!isActionEnabled('pins.rename_stop')}
               aria-label={`${label} Name`}
               data-tutorial-action="pins.rename_stop"
             />
@@ -128,7 +237,7 @@ export default function PinManager({
                   type="button"
                   className={`pinManager__railNode ${isSelected ? 'isSelected' : ''}`}
                   style={{ color: node.color }}
-                  disabled={disabled}
+                  disabled={disabled || !isActionEnabled('pins.sidebar_select')}
                   onClick={() => onSelectPin(node.id)}
                   aria-pressed={isSelected}
                   aria-label={`${isSelected ? 'Deselect' : 'Select'} ${node.label}`}
@@ -170,8 +279,8 @@ export default function PinManager({
         <button
           type="button"
           className="secondary"
-          disabled={disabled || !canAddStop}
-          onClick={onAddStop}
+          disabled={addStopDisabled || !addStopActionEnabled}
+          onClick={handleAddStopClick}
           title={!canAddStop ? 'Set Both Start And End To Add A Stop.' : 'Add Midpoint Stop'}
           data-tutorial-action="pins.add_stop"
         >
@@ -180,7 +289,7 @@ export default function PinManager({
         <button
           type="button"
           className="secondary"
-          disabled={disabled || !hasStop}
+          disabled={disabled || !hasStop || !isActionEnabled('pins.delete_stop')}
           onClick={onDeleteStop}
           title={!hasStop ? 'No Stop Exists To Delete.' : 'Delete Stop'}
           data-tutorial-action="pins.delete_stop"
@@ -190,7 +299,7 @@ export default function PinManager({
         <button
           type="button"
           className="secondary"
-          disabled={disabled}
+          disabled={disabled || !isActionEnabled('pins.swap_start_end')}
           onClick={onSwapPins}
           data-tutorial-action="pins.swap_start_end"
         >
@@ -199,7 +308,7 @@ export default function PinManager({
         <button
           type="button"
           className="secondary"
-          disabled={disabled}
+          disabled={disabled || !isActionEnabled('pins.clear_pins')}
           onClick={onClearPins}
           data-tutorial-action="pins.clear_pins"
         >
@@ -229,6 +338,11 @@ export default function PinManager({
       </div>
       <div className="tiny">Reorder Is Disabled In One-Stop Mode. Enable When Multi-Stop Support Is Added.</div>
       <div className="tiny">Tip: Click Into Stop #1 Name To Rename, Then Drag The Stop Marker On The Map.</div>
+      {strictStepActionMode ? (
+        <div className="tiny">
+          Tutorial tip: you can also use marker popups on Start/End to add a midpoint in normal map workflows.
+        </div>
+      ) : null}
       {oneStopHint ? <div className="pinManager__hintError">{oneStopHint}</div> : null}
     </CollapsibleCard>
   );

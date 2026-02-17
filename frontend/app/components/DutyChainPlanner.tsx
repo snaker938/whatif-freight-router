@@ -76,7 +76,7 @@ export default function DutyChainPlanner({
       ) : null}
 
       <div className="actionGrid actionGrid--single" style={{ marginTop: 12 }}>
-        <button
+        <button type="button"
           className="secondary"
           onClick={onRun}
           disabled={disabled || loading || nonEmptyLines.length > 3}

@@ -207,7 +207,7 @@ export default function ExperimentManager({
       </div>
 
       <div className="actionGrid actionGrid--single" style={{ marginTop: 10 }}>
-        <button
+        <button type="button"
           className="secondary"
           onClick={onRefresh}
           disabled={loading || disabled}
@@ -215,7 +215,7 @@ export default function ExperimentManager({
         >
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={onApplyCatalogFilters}
           disabled={loading || disabled}
@@ -223,7 +223,7 @@ export default function ExperimentManager({
         >
           Apply Filters
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             onCatalogQueryChange('');
@@ -277,7 +277,7 @@ export default function ExperimentManager({
       />
 
       <div className="actionGrid" style={{ marginTop: 10 }}>
-        <button
+        <button type="button"
           className="primary"
           onClick={handleSave}
           disabled={!canSave || !trimmedName || disabled || Boolean(nameError)}
@@ -299,7 +299,7 @@ export default function ExperimentManager({
               </div>
             {bundle.description ? <div className="helper">{bundle.description}</div> : null}
             <div className="row" style={{ marginTop: 10 }}>
-              <button
+              <button type="button"
                 className="secondary"
                 onClick={() => onLoad(bundle)}
                 disabled={disabled || loading}
@@ -307,7 +307,7 @@ export default function ExperimentManager({
               >
                 Load
               </button>
-                <button
+                <button type="button"
                   className="secondary"
                   onClick={() => onReplay(bundle.id)}
                   disabled={disabled || loading}
@@ -315,7 +315,7 @@ export default function ExperimentManager({
                 >
                   Run Compare
                 </button>
-              <button
+              <button type="button"
                 className="secondary"
                 onClick={() => onDelete(bundle.id)}
                 disabled={disabled || loading}

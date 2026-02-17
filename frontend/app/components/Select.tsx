@@ -74,10 +74,11 @@ export default function Select<T extends string>({
   tutorialActionPrefix,
 }: Props<T>) {
   const generatedId = useId();
-  const id = providedId ?? generatedId;
+  const id = (providedId ?? generatedId).replace(/[:]/g, '-');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const wasOpenRef = useRef(false);
 
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number>(() =>
@@ -118,9 +119,13 @@ export default function Select<T extends string>({
 
   useEffect(() => {
     if (!open) {
-      buttonRef.current?.focus?.();
+      if (wasOpenRef.current) {
+        buttonRef.current?.focus?.();
+      }
+      wasOpenRef.current = false;
       return;
     }
+    wasOpenRef.current = true;
     const t = window.setTimeout(() => menuRef.current?.focus?.(), 0);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -228,6 +233,7 @@ export default function Select<T extends string>({
     <div
       ref={rootRef}
       className={`select ${isDisabled ? 'isDisabled' : ''}`}
+      aria-disabled={isDisabled}
       {...(tutorialId ? { 'data-tutorial-id': tutorialId } : {})}
     >
       <button

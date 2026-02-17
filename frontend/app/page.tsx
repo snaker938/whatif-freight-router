@@ -116,8 +116,10 @@ type MapViewProps = {
   onTutorialAction?: (actionId: string) => void;
   onTutorialTargetState?: (state: { hasSegmentTooltipPath: boolean; hasIncidentMarkers: boolean }) => void;
   tutorialMapLocked?: boolean;
+  tutorialMapDimmed?: boolean;
   tutorialViewportLocked?: boolean;
   tutorialHideZoomControls?: boolean;
+  tutorialRelaxBounds?: boolean;
   tutorialExpectedAction?: string | null;
   tutorialGuideTarget?: TutorialGuideTarget | null;
   tutorialGuideVisible?: boolean;
@@ -700,7 +702,44 @@ export default function Page() {
   const focusPinNonceRef = useRef(0);
   const tutorialPlacementStageRef = useRef<TutorialPlacementStage>('done');
   const tutorialMapClickGuardUntilRef = useRef(0);
+  const tutorialStepEnterRef = useRef<string | null>(null);
   const tutorialLockNoticeAtRef = useRef(0);
+  const tutorialConfirmedOriginRef = useRef<LatLng | null>(null);
+  const tutorialConfirmedDestinationRef = useRef<LatLng | null>(null);
+  const tutorialMidpointLogSeqRef = useRef(0);
+  const tutorialMidpointLogStartRef = useRef(
+    typeof performance !== 'undefined' ? performance.now() : 0,
+  );
+  const midpointFitLogSeqRef = useRef(0);
+  const midpointFitLogStartRef = useRef(
+    typeof performance !== 'undefined' ? performance.now() : 0,
+  );
+  const logTutorialMidpoint = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      if (typeof window === 'undefined') return;
+      tutorialMidpointLogSeqRef.current += 1;
+      const now = typeof performance !== 'undefined' ? performance.now() : 0;
+      const elapsed = (now - tutorialMidpointLogStartRef.current).toFixed(1);
+      console.log(
+        `[tutorial-midpoint-debug][${tutorialMidpointLogSeqRef.current}] +${elapsed}ms ${event}`,
+        payload ?? {},
+      );
+    },
+    [],
+  );
+  const logMidpointFitFlow = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      if (typeof window === 'undefined') return;
+      midpointFitLogSeqRef.current += 1;
+      const now = typeof performance !== 'undefined' ? performance.now() : 0;
+      const elapsed = (now - midpointFitLogStartRef.current).toFixed(1);
+      console.log(
+        `[midpoint-fit-flow][${midpointFitLogSeqRef.current}] +${elapsed}ms ${event}`,
+        payload ?? {},
+      );
+    },
+    [],
+  );
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
@@ -948,9 +987,117 @@ export default function Page() {
     }),
     [tutorialSectionControlFor],
   );
-  const tutorialMapLocked = tutorialRunning && tutorialLockScope === 'sidebar_section_only';
-  const tutorialViewportLocked = tutorialRunning && tutorialStep?.id === 'map_set_pins';
-  const tutorialHideZoomControls = tutorialRunning && tutorialLockScope === 'map_only';
+  const tutorialMapLocked =
+    tutorialRunning &&
+    (tutorialLockScope === 'sidebar_section_only' || tutorialStep?.id === 'map_stop_lifecycle');
+  const tutorialViewportLocked =
+    tutorialRunning &&
+    (tutorialStep?.id === 'map_set_pins' || tutorialStep?.id === 'map_stop_lifecycle');
+  const tutorialHideZoomControls =
+    tutorialRunning &&
+    (tutorialLockScope === 'map_only' || tutorialStep?.id === 'map_stop_lifecycle');
+  const tutorialRelaxBounds =
+    tutorialRunning &&
+    tutorialStep?.id === 'map_stop_lifecycle';
+  const tutorialMapDimmed =
+    tutorialRunning &&
+    tutorialLockScope === 'sidebar_section_only' &&
+    tutorialStep?.id !== 'map_stop_lifecycle';
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    if (tutorialStep?.id !== 'map_stop_lifecycle') return;
+    logTutorialMidpoint('midpoint-dim-state', {
+      tutorialStepId: tutorialStep?.id ?? null,
+      tutorialLockScope,
+      tutorialMapDimmed,
+      tutorialMapLocked,
+      tutorialViewportLocked,
+      tutorialHideZoomControls,
+      tutorialPlacementStage,
+      tutorialSidebarLocked,
+      tutorialActiveSectionId,
+      tutorialBlockingActionId,
+      tutorialNextRequiredActionId,
+      tutorialMode,
+      tutorialOpen,
+    });
+  }, [
+    logTutorialMidpoint,
+    tutorialActiveSectionId,
+    tutorialBlockingActionId,
+    tutorialHideZoomControls,
+    tutorialLockScope,
+    tutorialMapDimmed,
+    tutorialMapLocked,
+    tutorialMode,
+    tutorialNextRequiredActionId,
+    tutorialOpen,
+    tutorialRunning,
+    tutorialSidebarLocked,
+    tutorialStep?.id,
+    tutorialPlacementStage,
+    tutorialViewportLocked,
+  ]);
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    if (tutorialStep?.id !== 'map_stop_lifecycle') return;
+    if (typeof window === 'undefined') return;
+
+    let raf = 0;
+    let t1 = 0;
+    let t2 = 0;
+
+    const probe = (phase: string) => {
+      const mapStage = document.querySelector<HTMLElement>('.mapStage');
+      const mapPane = document.querySelector<HTMLElement>('.mapPane');
+      const overlay = document.querySelector<HTMLElement>('.tutorialOverlay');
+      const backdrop = overlay?.querySelector<HTMLElement>('.tutorialOverlay__backdrop') ?? null;
+      const spotlight = overlay?.querySelector<HTMLElement>('.tutorialOverlay__spotlight') ?? null;
+      const panel = document.querySelector<HTMLElement>('.panel');
+      const mapStageAfter = mapStage ? window.getComputedStyle(mapStage, '::after') : null;
+      const mapPaneStyle = mapPane ? window.getComputedStyle(mapPane) : null;
+      const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+      const overlayStyle = overlay ? window.getComputedStyle(overlay) : null;
+      const panelStyle = panel ? window.getComputedStyle(panel) : null;
+
+      logTutorialMidpoint(`midpoint-dim-dom-probe:${phase}`, {
+        mapStageClass: mapStage?.className ?? null,
+        mapPaneClass: mapPane?.className ?? null,
+        overlayClass: overlay?.className ?? null,
+        panelClass: panel?.className ?? null,
+        hasSpotlight: Boolean(spotlight),
+        spotlightDisplay: spotlight ? window.getComputedStyle(spotlight).display : null,
+        mapStageAfterBackground: mapStageAfter?.backgroundColor ?? null,
+        mapStageAfterContent: mapStageAfter?.content ?? null,
+        mapPaneFilter: mapPaneStyle?.filter ?? null,
+        mapPaneOpacity: mapPaneStyle?.opacity ?? null,
+        backdropBackground: backdropStyle?.backgroundColor ?? null,
+        backdropOpacity: backdropStyle?.opacity ?? null,
+        backdropDisplay: backdropStyle?.display ?? null,
+        overlayPointerEvents: overlayStyle?.pointerEvents ?? null,
+        panelFilter: panelStyle?.filter ?? null,
+      });
+    };
+
+    probe('effect-start');
+    raf = window.requestAnimationFrame(() => probe('raf'));
+    t1 = window.setTimeout(() => probe('timeout-120'), 120);
+    t2 = window.setTimeout(() => probe('timeout-450'), 450);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [
+    logTutorialMidpoint,
+    tutorialMapDimmed,
+    tutorialMapLocked,
+    tutorialOpen,
+    tutorialRunning,
+    tutorialStep?.id,
+    tutorialViewportLocked,
+  ]);
   const tutorialGuideTarget = useMemo<TutorialGuideTarget | null>(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
     if (tutorialPlacementStage === 'done') return null;
@@ -1090,6 +1237,126 @@ export default function Page() {
     }
     return null;
   }, [tutorialBlockingActionId, tutorialRunning, tutorialStep?.id]);
+
+  useEffect(() => {
+    if (!tutorialRunning || !tutorialStep?.id) {
+      tutorialStepEnterRef.current = null;
+      return;
+    }
+    if (tutorialStepEnterRef.current === tutorialStep.id) {
+      return;
+    }
+    tutorialStepEnterRef.current = tutorialStep.id;
+
+    if (tutorialStep.id === 'map_stop_lifecycle') {
+      const stableOrigin = origin ?? tutorialConfirmedOriginRef.current;
+      const stableDestination = destination ?? tutorialConfirmedDestinationRef.current;
+      logMidpointFitFlow('step-enter', {
+        stepId: tutorialStep.id,
+        origin,
+        destination,
+        stableOrigin,
+        stableDestination,
+        managedStop,
+        tutorialBlockingActionId,
+        tutorialNextRequiredActionId,
+        tutorialLockScope,
+        tutorialMapLocked,
+        tutorialMapDimmed,
+        tutorialViewportLocked,
+      });
+      logTutorialMidpoint('step-enter:map_stop_lifecycle', {
+        origin,
+        destination,
+        stableOrigin,
+        stableDestination,
+        confirmedOriginRef: tutorialConfirmedOriginRef.current,
+        confirmedDestinationRef: tutorialConfirmedDestinationRef.current,
+        tutorialBlockingActionId,
+        tutorialNextRequiredActionId,
+      });
+      if (!origin && stableOrigin) {
+        setOrigin(stableOrigin);
+      }
+      if (!destination && stableDestination) {
+        setDestination(stableDestination);
+      }
+      if (stableOrigin && stableDestination) {
+        const canonicalDutyText = serializePinsToDutyText(stableOrigin, managedStop, stableDestination);
+        dutySyncSourceRef.current = 'pins';
+        setDutyStopsText(canonicalDutyText);
+        setDutySyncError(null);
+        logTutorialMidpoint('step-enter:map_stop_lifecycle-sync-duty-text', {
+          canonicalDutyText,
+        });
+      }
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      setLiveMessage('Map locked. Use Pins & Stops and click Add Stop to place a midpoint.');
+      window.requestAnimationFrame(() => {
+        setFitAllRequestNonce((prev) => {
+          const next = prev + 1;
+          logMidpointFitFlow('fit-nonce:step-enter-raf', {
+            prev,
+            next,
+            originAfterStabilize: stableOrigin,
+            destinationAfterStabilize: stableDestination,
+            hasStop: Boolean(managedStop),
+          });
+          return next;
+        });
+      });
+    }
+  }, [
+    destination,
+    logMidpointFitFlow,
+    logTutorialMidpoint,
+    managedStop,
+    origin,
+    tutorialBlockingActionId,
+    tutorialLockScope,
+    tutorialMapDimmed,
+    tutorialMapLocked,
+    tutorialNextRequiredActionId,
+    tutorialRunning,
+    tutorialStep?.id,
+    tutorialViewportLocked,
+  ]);
+
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_stop_lifecycle') return;
+    if (!origin || !destination) {
+      logMidpointFitFlow('fit-nonce:timer-skip-missing-pins', {
+        hasOrigin: Boolean(origin),
+        hasDestination: Boolean(destination),
+        managedStop,
+      });
+      return;
+    }
+    logMidpointFitFlow('fit-nonce:timer-scheduled', {
+      origin,
+      destination,
+      managedStop,
+      delayMs: 280,
+    });
+    const timer = window.setTimeout(() => {
+      setFitAllRequestNonce((prev) => {
+        const next = prev + 1;
+        logMidpointFitFlow('fit-nonce:timer-fired', {
+          prev,
+          next,
+          origin,
+          destination,
+          managedStop,
+        });
+        return next;
+      });
+    }, 280);
+    return () => {
+      window.clearTimeout(timer);
+      logMidpointFitFlow('fit-nonce:timer-cleared');
+    };
+  }, [destination, logMidpointFitFlow, origin, tutorialRunning, tutorialStep?.id, managedStop]);
 
   useEffect(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') {
@@ -1573,20 +1840,47 @@ export default function Page() {
   useEffect(() => {
     if (isTutorialPinDraftMode) return;
     if (dutySyncSourceRef.current === 'text') {
+      logTutorialMidpoint('duty-sync:pins-to-text-skip:text-source');
       dutySyncSourceRef.current = null;
       return;
     }
 
     const nextText = serializePinsToDutyText(origin, managedStop, destination);
     if (nextText === dutyStopsText) return;
+    logTutorialMidpoint('duty-sync:pins-to-text-write', {
+      nextText,
+      previousText: dutyStopsText,
+      origin,
+      destination,
+      managedStop,
+      tutorialStepId: tutorialStep?.id ?? null,
+    });
     dutySyncSourceRef.current = 'pins';
     setDutyStopsText(nextText);
     setDutySyncError(null);
-  }, [origin, destination, managedStop, dutyStopsText, isTutorialPinDraftMode, tutorialRunning, tutorialStep?.id]);
+  }, [
+    destination,
+    dutyStopsText,
+    isTutorialPinDraftMode,
+    logTutorialMidpoint,
+    managedStop,
+    origin,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
 
   useEffect(() => {
     if (isTutorialPinDraftMode) return;
+    if (tutorialRunning && tutorialStep?.id === 'map_stop_lifecycle') {
+      logTutorialMidpoint('duty-sync:text-to-pins-skipped-midpoint-step', {
+        dutyStopsText,
+        tutorialStepId: tutorialStep?.id ?? null,
+        tutorialBlockingActionId,
+      });
+      return;
+    }
     if (dutySyncSourceRef.current === 'pins') {
+      logTutorialMidpoint('duty-sync:text-to-pins-skip:pins-source');
       dutySyncSourceRef.current = null;
       return;
     }
@@ -1616,6 +1910,16 @@ export default function Page() {
       setManagedStop(parsed.stop);
       changed = true;
     }
+    logTutorialMidpoint('duty-sync:text-to-pins-applied', {
+      parsedOrigin: parsed.origin,
+      parsedDestination: parsed.destination,
+      parsedStop: parsed.stop,
+      changed,
+      previousOrigin: origin,
+      previousDestination: destination,
+      previousStop: managedStop,
+      dutyStopsText,
+    });
     const canonicalText = serializePinsToDutyText(parsed.origin, parsed.stop, parsed.destination);
     if (canonicalText !== dutyStopsText) {
       dutySyncSourceRef.current = 'pins';
@@ -1624,7 +1928,15 @@ export default function Page() {
     if (changed) {
       clearComputed();
     }
-  }, [clearComputed, dutyStopsText, isTutorialPinDraftMode, tutorialRunning, tutorialStep?.id]);
+  }, [
+    clearComputed,
+    dutyStopsText,
+    isTutorialPinDraftMode,
+    logTutorialMidpoint,
+    tutorialBlockingActionId,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
 
   useEffect(() => {
     const normalizedSelection = normalizeSelectedPinId(selectedPinId, {
@@ -1758,24 +2070,76 @@ export default function Page() {
       if (!actionId) return;
       if (actionable?.matches(':disabled')) return;
 
+      if (actionId === 'pins.add_stop') {
+        logTutorialMidpoint('action-event:received', {
+          actionId,
+          tutorialStepId: tutorialStep?.id ?? null,
+          tutorialRunning,
+          tutorialLockScope,
+          tutorialActiveSectionId,
+          tutorialBlockingActionId,
+        });
+      }
+
       const inMap = Boolean(target.closest('[data-tutorial-id="map.interactive"]'));
       const inPanel = Boolean(target.closest('.panel'));
       const activeSectionNode = tutorialActiveSectionId
         ? document.querySelector<HTMLElement>(`[data-tutorial-id="${tutorialActiveSectionId}"]`)
         : null;
 
-      if (tutorialLockScope === 'map_only' && !inMap) return;
+      if (tutorialLockScope === 'map_only' && !inMap) {
+        if (actionId === 'pins.add_stop') {
+          logTutorialMidpoint('action-event:blocked-map-only', { actionId });
+        }
+        return;
+      }
       if (tutorialLockScope === 'sidebar_section_only') {
-        if (!inPanel) return;
-        if (activeSectionNode && !activeSectionNode.contains(target)) return;
+        if (!inPanel) {
+          if (actionId === 'pins.add_stop') {
+            logTutorialMidpoint('action-event:blocked-not-in-panel', { actionId });
+          }
+          return;
+        }
+        if (activeSectionNode && !activeSectionNode.contains(target)) {
+          if (actionId === 'pins.add_stop') {
+            logTutorialMidpoint('action-event:blocked-not-in-active-section', {
+              actionId,
+              tutorialActiveSectionId,
+            });
+          }
+          return;
+        }
         if (
           !isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes) &&
           !(isTargetAllowedByStep(target) && !tutorialUsesSectionTarget)
         ) {
+          if (actionId === 'pins.add_stop') {
+            logTutorialMidpoint('action-event:blocked-allowlist', {
+              actionId,
+              tutorialAllowedActionExact: [...tutorialAllowedActionExact],
+              tutorialAllowedActionPrefixes,
+              tutorialUsesSectionTarget,
+            });
+          }
           return;
         }
       }
 
+      if (actionId === 'pins.add_stop') {
+        logTutorialMidpoint('action-event:accepted', {
+          actionId,
+          tutorialBlockingActionId,
+          tutorialStepId: tutorialStep?.id ?? null,
+        });
+        // Important: do not mark pins.add_stop here.
+        // The actual midpoint creation flow is in addStopFromMidpoint().
+        // Marking here (capture-phase) can lock the panel before button onClick runs.
+        logTutorialMidpoint('action-event:defer-pins.add_stop-to-handler', {
+          actionId,
+          tutorialStepId: tutorialStep?.id ?? null,
+        });
+        return;
+      }
       markTutorialAction(actionId);
     };
 
@@ -1792,9 +2156,12 @@ export default function Page() {
     tutorialActiveSectionId,
     tutorialAllowedActionExact,
     tutorialAllowedActionPrefixes,
+    logTutorialMidpoint,
     tutorialLockScope,
     tutorialRunning,
+    tutorialStep?.id,
     tutorialTargetIdSet,
+    tutorialBlockingActionId,
     tutorialUsesSectionTarget,
   ]);
 
@@ -1826,6 +2193,9 @@ export default function Page() {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('.tutorialOverlay__card')) return;
+      const actionId =
+        target.closest<HTMLElement>('[data-tutorial-action]')?.dataset.tutorialAction ?? '';
+      const isMidpointAction = actionId === 'pins.add_stop';
 
       const inMap = Boolean(target.closest('[data-tutorial-id="map.interactive"]'));
       const inPanel = Boolean(target.closest('.panel'));
@@ -1835,6 +2205,12 @@ export default function Page() {
 
       if (tutorialLockScope === 'map_only') {
         if (!inMap) {
+          if (isMidpointAction) {
+            logTutorialMidpoint('guard:block-map-only', {
+              actionId,
+              eventType: event.type,
+            });
+          }
           blockInteraction(event);
         }
         return;
@@ -1842,27 +2218,60 @@ export default function Page() {
 
       if (tutorialLockScope === 'sidebar_section_only') {
         if (!inPanel) {
+          if (isMidpointAction) {
+            logTutorialMidpoint('guard:block-not-panel', {
+              actionId,
+              eventType: event.type,
+            });
+          }
           blockInteraction(event);
           return;
         }
         if (activeSectionNode && !activeSectionNode.contains(target)) {
+          if (isMidpointAction) {
+            logTutorialMidpoint('guard:block-not-active-section', {
+              actionId,
+              eventType: event.type,
+              tutorialActiveSectionId,
+            });
+          }
           blockInteraction(event);
           return;
         }
 
-        const actionId =
-          target.closest<HTMLElement>('[data-tutorial-action]')?.dataset.tutorialAction ?? '';
         if (
           actionId &&
           isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)
         ) {
+          if (isMidpointAction) {
+            logTutorialMidpoint('guard:allowed-action', {
+              actionId,
+              eventType: event.type,
+              tutorialAllowedActionExact: [...tutorialAllowedActionExact],
+            });
+          }
           return;
         }
 
         if (isTargetAllowedByStep(target) && !tutorialUsesSectionTarget) {
+          if (isMidpointAction) {
+            logTutorialMidpoint('guard:allowed-target-step-fallback', {
+              actionId,
+              eventType: event.type,
+            });
+          }
           return;
         }
 
+        if (isMidpointAction) {
+          logTutorialMidpoint('guard:block-non-allowed-action', {
+            actionId,
+            eventType: event.type,
+            tutorialAllowedActionExact: [...tutorialAllowedActionExact],
+            tutorialAllowedActionPrefixes,
+            tutorialUsesSectionTarget,
+          });
+        }
         blockInteraction(event);
       }
     };
@@ -1880,6 +2289,7 @@ export default function Page() {
     tutorialActiveSectionId,
     tutorialAllowedActionExact,
     tutorialAllowedActionPrefixes,
+    logTutorialMidpoint,
     tutorialLockScope,
     tutorialRunning,
     tutorialTargetIdSet,
@@ -1910,11 +2320,19 @@ export default function Page() {
 
     let raf = 0;
     let timeoutId = 0;
-    let intervalId = 0;
+    let mutationObserver: MutationObserver | null = null;
+    let lastTargetSignature = '';
+    let lastMissingState: boolean | null = null;
     const resolveTarget = (scrollIntoViewTarget: boolean) => {
       if (!tutorialStep.targetIds.length) {
-        setTutorialTargetRect(null);
-        setTutorialTargetMissing(false);
+        if (lastTargetSignature !== 'none') {
+          lastTargetSignature = 'none';
+          setTutorialTargetRect(null);
+        }
+        if (lastMissingState !== false) {
+          lastMissingState = false;
+          setTutorialTargetMissing(false);
+        }
         return;
       }
       const element = tutorialStep.targetIds
@@ -1924,8 +2342,14 @@ export default function Page() {
         .find((candidate) => Boolean(candidate));
 
       if (!element) {
-        setTutorialTargetRect(null);
-        setTutorialTargetMissing(true);
+        if (lastTargetSignature !== 'none') {
+          lastTargetSignature = 'none';
+          setTutorialTargetRect(null);
+        }
+        if (lastMissingState !== true) {
+          lastMissingState = true;
+          setTutorialTargetMissing(true);
+        }
         return;
       }
 
@@ -1939,17 +2363,30 @@ export default function Page() {
       }
       const rect = element.getBoundingClientRect();
       if (rect.width <= 1 || rect.height <= 1) {
-        setTutorialTargetRect(null);
-        setTutorialTargetMissing(true);
+        if (lastTargetSignature !== 'none') {
+          lastTargetSignature = 'none';
+          setTutorialTargetRect(null);
+        }
+        if (lastMissingState !== true) {
+          lastMissingState = true;
+          setTutorialTargetMissing(true);
+        }
         return;
       }
-      setTutorialTargetRect({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-      });
-      setTutorialTargetMissing(false);
+      const signature = `${Math.round(rect.top)}:${Math.round(rect.left)}:${Math.round(rect.width)}:${Math.round(rect.height)}`;
+      if (signature !== lastTargetSignature) {
+        lastTargetSignature = signature;
+        setTutorialTargetRect({
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+      if (lastMissingState !== false) {
+        lastMissingState = false;
+        setTutorialTargetMissing(false);
+      }
     };
 
     resolveTarget(false);
@@ -1957,17 +2394,25 @@ export default function Page() {
     timeoutId = window.setTimeout(() => {
       resolveTarget(true);
     }, 40);
-    intervalId = window.setInterval(() => resolveTarget(false), 450);
     const onResize = () => resolveTarget(false);
     const onScroll = () => resolveTarget(false);
     window.addEventListener('resize', onResize);
     window.addEventListener('scroll', onScroll, true);
+    if (typeof MutationObserver !== 'undefined') {
+      mutationObserver = new MutationObserver(() => resolveTarget(false));
+      mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+      });
+    }
     return () => {
       window.clearTimeout(timeoutId);
-      window.clearInterval(intervalId);
       window.cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll, true);
+      mutationObserver?.disconnect();
     };
   }, [isPanelCollapsed, tutorialRunning, tutorialStep]);
 
@@ -2023,7 +2468,119 @@ export default function Page() {
     () => buildManagedPinNodes(origin, destination, managedStop, { origin: 'Start', destination: 'End' }),
     [origin, destination, managedStop],
   );
-  const canAddStop = Boolean(origin && destination);
+  const midpointBaseOrigin =
+    origin ??
+    (tutorialRunning && tutorialStep?.id === 'map_stop_lifecycle'
+      ? tutorialConfirmedOriginRef.current
+      : null);
+  const midpointBaseDestination =
+    destination ??
+    (tutorialRunning && tutorialStep?.id === 'map_stop_lifecycle'
+      ? tutorialConfirmedDestinationRef.current
+      : null);
+  const canAddStop = Boolean(midpointBaseOrigin && midpointBaseDestination);
+  const tutorialSidebarActionLocked =
+    tutorialRunning &&
+    tutorialStep?.id === 'map_stop_lifecycle' &&
+    tutorialActionSet.has('pins.add_stop');
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    const isMidpointStep = tutorialStep?.id === 'map_stop_lifecycle';
+    const isAddStopPending = tutorialBlockingActionId === 'pins.add_stop';
+    if (!isMidpointStep && !isAddStopPending) return;
+    logTutorialMidpoint('midpoint-state-snapshot', {
+      tutorialStepId: tutorialStep?.id ?? null,
+      tutorialBlockingActionId,
+      tutorialNextRequiredActionId,
+      tutorialLockScope,
+      tutorialActiveSectionId,
+      tutorialSidebarLocked,
+      tutorialMapLocked,
+      pinsSectionOpen: tutorialSectionControl.pins?.isOpen ?? null,
+      pinsSectionLocked: tutorialSectionControl.pins?.tutorialLocked ?? null,
+      loading,
+      isPending,
+      busyLike: loading || isPending,
+      canAddStop,
+      showStopOverlay,
+      hasOrigin: Boolean(origin),
+      hasDestination: Boolean(destination),
+      hasManagedStop: Boolean(managedStop),
+      dutyStopsText,
+      dutySyncError,
+      origin,
+      destination,
+      managedStop,
+      confirmedOriginRef: tutorialConfirmedOriginRef.current,
+      confirmedDestinationRef: tutorialConfirmedDestinationRef.current,
+      allowedActions: [...tutorialAllowedActionExact],
+      allowedActionPrefixes: tutorialAllowedActionPrefixes,
+    });
+  }, [
+    canAddStop,
+    destination,
+    dutyStopsText,
+    dutySyncError,
+    isPending,
+    loading,
+    logTutorialMidpoint,
+    managedStop,
+    origin,
+    showStopOverlay,
+    tutorialActiveSectionId,
+    tutorialAllowedActionExact,
+    tutorialAllowedActionPrefixes,
+    tutorialBlockingActionId,
+    tutorialLockScope,
+    tutorialMapLocked,
+    tutorialNextRequiredActionId,
+    tutorialRunning,
+    tutorialSectionControl.pins?.isOpen,
+    tutorialSectionControl.pins?.tutorialLocked,
+    tutorialSidebarLocked,
+    tutorialStep?.id,
+  ]);
+
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    if (tutorialStep?.id !== 'map_stop_lifecycle') return;
+    logTutorialMidpoint('midpoint-stop-watch', {
+      tutorialBlockingActionId,
+      tutorialNextRequiredActionId,
+      tutorialActionSet: [...tutorialActionSet],
+      origin,
+      destination,
+      managedStop,
+      midpointBaseOrigin,
+      midpointBaseDestination,
+      canAddStop,
+      dutyStopsText,
+      dutySyncError,
+      selectedPinId,
+      focusPinRequest,
+      showStopOverlay,
+      selectedRouteId: selectedRoute?.id ?? null,
+    });
+  }, [
+    canAddStop,
+    destination,
+    dutyStopsText,
+    dutySyncError,
+    focusPinRequest,
+    logTutorialMidpoint,
+    managedStop,
+    midpointBaseDestination,
+    midpointBaseOrigin,
+    origin,
+    selectedPinId,
+    selectedRoute?.id,
+    showStopOverlay,
+    tutorialActionSet,
+    tutorialBlockingActionId,
+    tutorialNextRequiredActionId,
+    tutorialRunning,
+    tutorialStep?.id,
+  ]);
   const mapOverlayLabels = useMemo(
     () => ({
       stopLabel: t('stop_label'),
@@ -2303,23 +2860,90 @@ export default function Page() {
   }
 
   function addStopFromMidpoint() {
-    if (!origin || !destination) return;
+    logTutorialMidpoint('add-stop:invoked', {
+      tutorialRunning,
+      tutorialStepId: tutorialStep?.id ?? null,
+      tutorialBlockingActionId,
+      tutorialLockScope,
+      busy,
+      canAddStop: Boolean(origin && destination),
+      hasOrigin: Boolean(origin),
+      hasDestination: Boolean(destination),
+      hasManagedStop: Boolean(managedStop),
+      origin,
+      destination,
+      managedStop,
+      confirmedOriginRef: tutorialConfirmedOriginRef.current,
+      confirmedDestinationRef: tutorialConfirmedDestinationRef.current,
+    });
+    const baseOrigin =
+      origin ??
+      (tutorialRunning && tutorialStep?.id === 'map_stop_lifecycle'
+        ? tutorialConfirmedOriginRef.current
+        : null);
+    const baseDestination =
+      destination ??
+      (tutorialRunning && tutorialStep?.id === 'map_stop_lifecycle'
+        ? tutorialConfirmedDestinationRef.current
+        : null);
+    if (!baseOrigin || !baseDestination) {
+      logTutorialMidpoint('add-stop:exit-missing-base-pins', {
+        baseOrigin,
+        baseDestination,
+      });
+      return;
+    }
     if (managedStop) {
+      logTutorialMidpoint('add-stop:replace-confirm-required', {
+        currentStop: managedStop,
+      });
       const shouldReplace = window.confirm(
         'A stop already exists in one-stop mode. Replace it with a new midpoint stop?',
       );
-      if (!shouldReplace) return;
+      logTutorialMidpoint('add-stop:replace-confirm-result', {
+        shouldReplace,
+      });
+      if (!shouldReplace) {
+        logTutorialMidpoint('add-stop:exit-replace-cancelled');
+        return;
+      }
+    }
+    if (!origin) {
+      logTutorialMidpoint('add-stop:set-origin-from-base', {
+        baseOrigin,
+      });
+      setOrigin(baseOrigin);
+    }
+    if (!destination) {
+      logTutorialMidpoint('add-stop:set-destination-from-base', {
+        baseDestination,
+      });
+      setDestination(baseDestination);
     }
     const nextLabel = managedStop?.label?.trim() || 'Stop #1';
-    setManagedStop({
-      id: 'stop-1',
-      lat: (origin.lat + destination.lat) / 2,
-      lon: (origin.lon + destination.lon) / 2,
+    const midpoint = {
+      id: 'stop-1' as const,
+      lat: (baseOrigin.lat + baseDestination.lat) / 2,
+      lon: (baseOrigin.lon + baseDestination.lon) / 2,
       label: nextLabel,
+    };
+    logTutorialMidpoint('add-stop:computed-midpoint', midpoint);
+    setManagedStop({
+      ...midpoint,
     });
     setSelectedPinId('stop-1');
     clearComputed();
+    logTutorialMidpoint('add-stop:mark-action', {
+      actionId: 'pins.add_stop',
+      force: true,
+    });
+    markTutorialAction('pins.add_stop', { force: true });
+    logTutorialMidpoint('add-stop:mark-action', {
+      actionId: 'map.add_stop_midpoint',
+      force: false,
+    });
     markTutorialAction('map.add_stop_midpoint');
+    logTutorialMidpoint('add-stop:completed');
   }
 
   function renameStop(name: string) {
@@ -2358,8 +2982,10 @@ export default function Page() {
         markTutorialAction('map.set_origin_newcastle', { force: true });
       }
       setOrigin(nextOrigin);
+      tutorialConfirmedOriginRef.current = nextOrigin;
       setTutorialDraftOrigin(null);
       setDestination(null);
+      tutorialConfirmedDestinationRef.current = null;
       setTutorialDraftDestination(null);
       setTutorialDragDraftOrigin(null);
       setTutorialDragDraftDestination(null);
@@ -2401,6 +3027,7 @@ export default function Page() {
       markTutorialAction('map.set_destination_london', { force: true });
     }
     setDestination(nextDestination);
+    tutorialConfirmedDestinationRef.current = nextDestination;
     setTutorialDraftDestination(null);
     setTutorialDragDraftDestination(null);
     clearComputed();
@@ -2418,6 +3045,7 @@ export default function Page() {
       const nextDestination = tutorialDragDraftDestination;
       if (!nextDestination) return;
       setDestination(nextDestination);
+      tutorialConfirmedDestinationRef.current = nextDestination;
       setTutorialDragDraftDestination(null);
       clearComputed();
       tutorialMapClickGuardUntilRef.current = Date.now() + 350;
@@ -2431,6 +3059,7 @@ export default function Page() {
     const nextOrigin = tutorialDragDraftOrigin;
     if (!nextOrigin) return;
     setOrigin(nextOrigin);
+    tutorialConfirmedOriginRef.current = nextOrigin;
     setTutorialDragDraftOrigin(null);
     clearComputed();
     tutorialMapClickGuardUntilRef.current = Date.now() + 350;
@@ -2481,6 +3110,8 @@ export default function Page() {
     setManagedStop(null);
     setSelectedPinId(null);
     setFocusPinRequest(null);
+    tutorialConfirmedOriginRef.current = null;
+    tutorialConfirmedDestinationRef.current = null;
     setFitAllRequestNonce((n) => n + 1);
     clearComputed();
     setError(null);
@@ -2514,6 +3145,8 @@ export default function Page() {
     setManagedStop(null);
     setSelectedPinId(null);
     setFocusPinRequest(null);
+    tutorialConfirmedOriginRef.current = null;
+    tutorialConfirmedDestinationRef.current = null;
     setFitAllRequestNonce((n) => n + 1);
     setVehicleType('rigid_hgv');
     setScenarioMode('no_sharing');
@@ -3394,7 +4027,7 @@ export default function Page() {
         {liveMessage}
       </div>
       <div
-        className={`mapStage ${tutorialMapLocked ? 'isTutorialLocked' : ''} ${tutorialGuideVisible ? 'isTutorialGuided' : ''}`.trim()}
+        className={`mapStage ${tutorialMapDimmed ? 'isTutorialLocked' : ''} ${tutorialGuideVisible ? 'isTutorialGuided' : ''}`.trim()}
       >
         <MapView
           origin={mapOriginForRender}
@@ -3417,8 +4050,10 @@ export default function Page() {
           showSegmentTooltips={showSegmentTooltips}
           overlayLabels={mapOverlayLabels}
           tutorialMapLocked={tutorialMapLocked}
+          tutorialMapDimmed={tutorialMapDimmed}
           tutorialViewportLocked={tutorialViewportLocked}
           tutorialHideZoomControls={tutorialHideZoomControls}
+          tutorialRelaxBounds={tutorialRelaxBounds}
           tutorialExpectedAction={tutorialRunning ? tutorialBlockingActionId : null}
           tutorialGuideTarget={tutorialGuideTarget}
           tutorialGuideVisible={tutorialGuideVisible}
@@ -3447,19 +4082,21 @@ export default function Page() {
         />
       </div>
 
-      <button
-        type="button"
-        className={`sidebarToggle ${isPanelCollapsed ? 'isCollapsed' : ''}`}
-        onClick={() => setIsPanelCollapsed((prev) => !prev)}
-        aria-label={sidebarToggleLabel}
-        aria-pressed={isPanelCollapsed}
-        title={sidebarToggleLabel}
-      >
-        <SidebarToggleIcon collapsed={isPanelCollapsed} />
-      </button>
+      {!tutorialRunning ? (
+        <button
+          type="button"
+          className={`sidebarToggle ${isPanelCollapsed ? 'isCollapsed' : ''}`}
+          onClick={() => setIsPanelCollapsed((prev) => !prev)}
+          aria-label={sidebarToggleLabel}
+          aria-pressed={isPanelCollapsed}
+          title={sidebarToggleLabel}
+        >
+          <SidebarToggleIcon collapsed={isPanelCollapsed} />
+        </button>
+      ) : null}
 
       <aside
-        className={`panel ${isPanelCollapsed ? 'isCollapsed' : ''} ${tutorialSidebarLocked ? 'isTutorialLocked' : ''}`.trim()}
+        className={`panel ${isPanelCollapsed ? 'isCollapsed' : ''} ${tutorialSidebarLocked ? 'isTutorialLocked' : ''} ${tutorialSidebarActionLocked ? 'isTutorialActionLocked' : ''}`.trim()}
         aria-hidden={isPanelCollapsed}
       >
             <header className="panelHeader">
@@ -3582,8 +4219,8 @@ export default function Page() {
                     </button>
                   </div>
 
-                  <div className="actionGrid" style={{ marginTop: 12 }}>
-                    <button
+                  <div className="actionGrid u-mt12">
+                    <button type="button"
                       className="secondary"
                       onClick={() => {
                         setOrigin(TUTORIAL_CANONICAL_ORIGIN);
@@ -3598,7 +4235,7 @@ export default function Page() {
                     >
                       Use Sample Pins
                     </button>
-                    <button
+                    <button type="button"
                       className="secondary"
                       onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
                       disabled={busy || (!origin && !destination && !managedStop)}
@@ -3606,7 +4243,7 @@ export default function Page() {
                     >
                       Fit Map To Pins
                     </button>
-                    <button
+                    <button type="button"
                       className="secondary"
                       onClick={swapMarkers}
                       disabled={!origin || !destination || busy}
@@ -3615,7 +4252,7 @@ export default function Page() {
                     >
                       Swap Pins
                     </button>
-                    <button
+                    <button type="button"
                       className="secondary"
                       onClick={reset}
                       disabled={busy}
@@ -3630,9 +4267,12 @@ export default function Page() {
               <PinManager
                 nodes={pinNodes}
                 selectedPinId={selectedPinId}
-                disabled={busy}
+                disabled={busy || tutorialSidebarActionLocked}
                 hasStop={Boolean(managedStop)}
                 canAddStop={canAddStop}
+                tutorialRunning={tutorialRunning}
+                tutorialStepId={tutorialStep?.id ?? null}
+                tutorialBlockingActionId={tutorialBlockingActionId}
                 oneStopHint={dutySyncError}
                 onSelectPin={selectPinFromSidebar}
                 onRenameStop={renameStop}
@@ -3720,9 +4360,9 @@ export default function Page() {
                   />
                 </div>
 
-                <div className="actionGrid" style={{ marginTop: 12 }}>
+                <div className="actionGrid u-mt12">
                   {WEIGHT_PRESETS.map((preset) => (
-                    <button
+                    <button type="button"
                       key={preset.id}
                       className="ghostButton"
                       onClick={() => setWeights(preset.value)}
@@ -3734,8 +4374,8 @@ export default function Page() {
                   ))}
                 </div>
 
-                <div className="actionGrid" style={{ marginTop: 10 }}>
-                  <button
+                <div className="actionGrid u-mt10">
+                  <button type="button"
                     className="primary"
                     onClick={computePareto}
                     disabled={!canCompute}
@@ -3755,7 +4395,7 @@ export default function Page() {
                     )}
                   </button>
 
-                  <button
+                  <button type="button"
                     className="secondary"
                     onClick={clearComputedFromUi}
                     disabled={busy || paretoRoutes.length === 0}
@@ -3765,7 +4405,7 @@ export default function Page() {
                   </button>
 
                   {loading && (
-                    <button className="secondary" onClick={cancelCompute}>
+                    <button type="button" className="secondary" onClick={cancelCompute}>
                       Cancel
                     </button>
                   )}
@@ -3844,8 +4484,8 @@ export default function Page() {
                 )}
               </div>
 
-              <div className="actionGrid" style={{ marginTop: 10 }}>
-                <button
+              <div className="actionGrid u-mt10">
+                <button type="button"
                   className="secondary"
                   onClick={() => setFitAllRequestNonce((prev) => prev + 1)}
                   disabled={!selectedRoute}
@@ -3853,7 +4493,7 @@ export default function Page() {
                 >
                   Fit Map To Route
                 </button>
-                <button
+                <button type="button"
                   className="secondary"
                   onClick={async () => {
                     if (!selectedRoute) return;
@@ -3878,11 +4518,11 @@ export default function Page() {
               </div>
 
               {selectedRoute?.eta_explanations?.length ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="fieldLabel" style={{ marginBottom: 6 }}>
+                <div className="u-mt12">
+                  <div className="fieldLabel u-mb6">
                     ETA explanation
                   </div>
-                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                  <ul className="u-m0 u-pl16">
                     {selectedRoute.eta_explanations.map((item, idx) => (
                       <li key={`${idx}-${item}`} className="tiny">
                         {item}
@@ -3892,7 +4532,7 @@ export default function Page() {
                 </div>
               ) : null}
 
-              <div style={{ marginTop: 12 }}>
+              <div className="u-mt12">
                 <EtaTimelineChart route={selectedRoute} />
               </div>
 
@@ -3976,7 +4616,7 @@ export default function Page() {
                 <>
                   {paretoRoutes.length > 0 && (
                     <>
-                      <div className="actionGrid actionGrid--single" style={{ marginBottom: 10 }}>
+                      <div className="actionGrid actionGrid--single u-mb10">
                         <Select
                           id="route-sort"
                           ariaLabel="Sort routes"
@@ -3996,7 +4636,7 @@ export default function Page() {
                         />
                       </div>
 
-                      <div className="helper" style={{ marginTop: 10 }}>
+                      <div className="helper u-mt10">
                         Tip: click a point (or a route card) to lock a specific route. Moving
                         sliders will re-select the best route for your weights.
                         {paretoRoutes.length === 1 && (
@@ -4140,7 +4780,7 @@ export default function Page() {
             tutorialLocked={tutorialSectionControl.compare?.tutorialLocked}
           >
             <div className="sectionTitleRow">
-              <button
+              <button type="button"
                 className="secondary"
                 onClick={compareScenarios}
                 disabled={!canCompareScenarios}

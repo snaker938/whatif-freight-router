@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import type { TutorialLockScope, TutorialTargetRect } from '../lib/tutorial/types';
 
@@ -98,6 +98,7 @@ export default function TutorialOverlay({
   const suppressBackdropCloseRef = useRef(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const mapFocusedRunning = mode === 'running' && runningScope === 'map_only';
+  const sidebarFocusedRunning = mode === 'running' && runningScope === 'sidebar_section_only';
   const titleId = useId();
   const bodyId = useId();
   const [cardContentHeight, setCardContentHeight] = useState(0);
@@ -106,6 +107,32 @@ export default function TutorialOverlay({
     width: typeof window !== 'undefined' ? window.innerWidth : 1440,
     height: typeof window !== 'undefined' ? window.innerHeight : 900,
   }));
+  const logOverlayDim = useCallback(
+    (_event: string, _payload?: Record<string, unknown>) => {},
+    [],
+  );
+
+  useEffect(() => {
+    if (!open || mode !== 'running') return;
+    const overlay = document.querySelector<HTMLElement>('.tutorialOverlay');
+    const backdrop = overlay?.querySelector<HTMLElement>('.tutorialOverlay__backdrop') ?? null;
+    const spotlight = overlay?.querySelector<HTMLElement>('.tutorialOverlay__spotlight') ?? null;
+    const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+    const spotlightStyle = spotlight ? window.getComputedStyle(spotlight) : null;
+    logOverlayDim('running-style-snapshot', {
+      runningScope,
+      mapFocusedRunning,
+      sidebarFocusedRunning,
+      overlayClass: overlay?.className ?? null,
+      hasBackdrop: Boolean(backdrop),
+      hasSpotlight: Boolean(spotlight),
+      backdropBackground: backdropStyle?.backgroundColor ?? null,
+      backdropDisplay: backdropStyle?.display ?? null,
+      backdropOpacity: backdropStyle?.opacity ?? null,
+      spotlightDisplay: spotlightStyle?.display ?? null,
+      spotlightBoxShadow: spotlightStyle?.boxShadow ?? null,
+    });
+  }, [logOverlayDim, mapFocusedRunning, mode, open, runningScope, sidebarFocusedRunning, stepIndex]);
 
   useEffect(() => {
     setTargetResolveTimedOut(false);
@@ -119,6 +146,7 @@ export default function TutorialOverlay({
   }, [mapFocusedRunning, mode, open, requiresTargetRect, stepIndex, targetRect]);
 
   useEffect(() => {
+    if (!open) return;
     if (typeof window === 'undefined') return;
 
     let raf = 0;
@@ -144,7 +172,7 @@ export default function TutorialOverlay({
       vv?.removeEventListener('resize', handleResize);
       vv?.removeEventListener('scroll', handleResize);
     };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,6 +182,7 @@ export default function TutorialOverlay({
   }, [chapterIndex, mode, open, stepIndex]);
 
   useEffect(() => {
+    if (!open) return;
     const node = cardRef.current;
     if (!node) return;
 
@@ -221,20 +250,40 @@ export default function TutorialOverlay({
     const vh = viewport.height;
     const availableWidth = Math.max(280, vw - 24);
     const cardWidth = Math.min(520, availableWidth);
-    const safeBottomGap = 16;
-    const defaultTop = clamp(vh * 0.12, 12, Math.max(12, vh - 320));
-    const guidedTop = clamp(vh * 0.1, 12, Math.max(12, vh - 360));
+    const safeViewportInset = 16;
+    const maxVisibleHeight = Math.max(220, vh - safeViewportInset * 2);
+    const estimatedHeight = cardContentHeight > 0 ? cardContentHeight : Math.min(vh * 0.64, 520);
+    const needsScale = cardContentHeight > 0 && cardContentHeight > maxVisibleHeight;
+    const scale = needsScale
+      ? clamp(maxVisibleHeight / cardContentHeight, 0.84, 1)
+      : 1;
+    const renderedHeight = estimatedHeight * scale;
+    const centeredTop = clamp(
+      (vh - renderedHeight) / 2,
+      safeViewportInset,
+      Math.max(safeViewportInset, vh - renderedHeight - safeViewportInset),
+    );
+
+    if (mode === 'running' && runningScope === 'sidebar_section_only') {
+      const dockedWidth = Math.min(430, availableWidth);
+      return {
+        cardStyle: {
+          left: 12,
+          top: centeredTop,
+          width: dockedWidth,
+          transform: scale < 1 ? `scale(${scale})` : undefined,
+          transformOrigin: 'top left',
+        },
+        arrowStyle: null as { left: number; top: number } | null,
+        arrowClass: 'isHidden',
+      };
+    }
 
     if (!targetRect || mode !== 'running') {
-      const availableHeight = vh - defaultTop - safeBottomGap;
-      const needsScale = cardContentHeight > 0 && cardContentHeight > availableHeight;
-      const scale = needsScale
-        ? clamp(availableHeight / cardContentHeight, 0.84, 1)
-        : 1;
       return {
         cardStyle: {
           left: clamp((vw - cardWidth) / 2, 12, vw - cardWidth - 12),
-          top: defaultTop,
+          top: centeredTop,
           width: cardWidth,
           transform: scale < 1 ? `scale(${scale})` : undefined,
           transformOrigin: 'top center',
@@ -245,36 +294,24 @@ export default function TutorialOverlay({
     }
 
     const targetRight = targetRect.left + targetRect.width;
-    const targetMidY = targetRect.top + targetRect.height / 2;
 
     const preferRight = targetRight + 24 + cardWidth < vw - 16;
     const left = preferRight
       ? targetRight + 24
       : clamp(targetRect.left - cardWidth - 24, 12, vw - cardWidth - 12);
-    let top = clamp(targetMidY - 220, guidedTop, Math.max(guidedTop, vh - 360 - safeBottomGap));
-    const naturalAvailableHeight = vh - top - safeBottomGap;
-    if (cardContentHeight > 0 && cardContentHeight > naturalAvailableHeight) {
-      const desiredTop = Math.max(8, vh - cardContentHeight - safeBottomGap);
-      top = clamp(desiredTop, 8, top);
-    }
-    const availableHeight = vh - top - safeBottomGap;
-    const needsScale = cardContentHeight > 0 && cardContentHeight > availableHeight;
-    const scale = needsScale
-      ? clamp(availableHeight / cardContentHeight, 0.84, 1)
-      : 1;
 
     return {
       cardStyle: {
         left,
-        top,
+        top: centeredTop,
         width: cardWidth,
         transform: scale < 1 ? `scale(${scale})` : undefined,
         transformOrigin: 'top left',
       },
-      arrowStyle: { left, top },
+      arrowStyle: { left, top: centeredTop },
       arrowClass: preferRight ? 'isLeftAnchor' : 'isRightAnchor',
     };
-  }, [cardContentHeight, mode, targetRect, viewport.height, viewport.width]);
+  }, [cardContentHeight, mode, runningScope, targetRect, viewport.height, viewport.width]);
   const firstPendingIndex = useMemo(
     () => checklist.findIndex((item) => !item.done),
     [checklist],
@@ -320,16 +357,18 @@ export default function TutorialOverlay({
 
   return (
     <div
-      className={`tutorialOverlay ${mode === 'running' ? 'isRunning' : ''} ${mapFocusedRunning ? 'isMapFocused' : ''}`.trim()}
+      className={`tutorialOverlay ${mode === 'running' ? 'isRunning' : ''} ${mapFocusedRunning ? 'isMapFocused' : ''} ${sidebarFocusedRunning ? 'isSidebarFocused' : ''}`.trim()}
       role="dialog"
       aria-modal={mode === 'running' && runningScope === 'map_only' ? 'false' : 'true'}
       aria-labelledby={titleId}
       aria-describedby={bodyId}
       aria-label="Guided frontend tutorial"
     >
-      <div className="tutorialOverlay__backdrop" onClick={handleBackdropClick} />
+      {!sidebarFocusedRunning ? (
+        <div className="tutorialOverlay__backdrop" onClick={handleBackdropClick} />
+      ) : null}
 
-      {mode === 'running' && targetRect && !mapFocusedRunning ? (
+      {mode === 'running' && targetRect && !mapFocusedRunning && !sidebarFocusedRunning ? (
         <>
           <div
             className="tutorialOverlay__spotlight"
@@ -353,7 +392,7 @@ export default function TutorialOverlay({
       {!waitingForTargetRect ? (
         <div
           ref={cardRef}
-          className={`tutorialOverlay__card tutorialOverlay__card--guided ${waitingForTargetRect ? 'isDeferred' : ''}`.trim()}
+          className="tutorialOverlay__card tutorialOverlay__card--guided"
           style={layout.cardStyle}
           onMouseDown={() => {
             suppressBackdropCloseRef.current = true;

@@ -287,7 +287,7 @@ export default function OracleQualityDashboard({
       />
 
       <div className="actionGrid" style={{ marginTop: 12 }}>
-        <button
+        <button type="button"
           className="secondary"
           onClick={applySampleValues}
           disabled={disabled || loading || ingesting}
@@ -295,7 +295,7 @@ export default function OracleQualityDashboard({
         >
           Load Sample
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={onRefresh}
           disabled={disabled || loading || ingesting}
@@ -314,7 +314,7 @@ export default function OracleQualityDashboard({
         >
           Download CSV
         </a>
-        <button
+        <button type="button"
           className="secondary"
           onClick={clearFormValues}
           disabled={disabled || loading || ingesting}
@@ -322,7 +322,7 @@ export default function OracleQualityDashboard({
         >
           Clear Form
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={handleIngest}
           disabled={disabled || ingesting || loading}

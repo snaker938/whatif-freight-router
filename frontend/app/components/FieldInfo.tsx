@@ -31,10 +31,17 @@ export default function FieldInfo({ text, id }: Props) {
         type="button"
         className="fieldInfo"
         aria-label={`Field Information: ${text}`}
-        aria-describedby={tooltipId}
+        aria-controls={tooltipId}
+        aria-describedby={open ? tooltipId : undefined}
+        aria-haspopup="true"
         aria-expanded={open}
         onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onBlur={(event) => {
+          if (event.relatedTarget instanceof Node && rootRef.current?.contains(event.relatedTarget)) {
+            return;
+          }
+          setOpen(false);
+        }}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
         onClick={() => setOpen((prev) => !prev)}

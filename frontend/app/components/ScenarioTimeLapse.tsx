@@ -184,7 +184,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
       </div>
 
       <div className="actionGrid">
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             if (progress >= 1) {
@@ -196,7 +196,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
         >
           {isPlaying ? 'Pause' : 'Play'}
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             setIsPlaying(false);
@@ -206,7 +206,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
         >
           Reset
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             setIsPlaying(false);
@@ -216,7 +216,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
         >
           -10%
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             setIsPlaying(false);
@@ -272,7 +272,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
       />
 
       <div className="actionGrid" style={{ marginTop: 8 }}>
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             setIsPlaying(false);
@@ -282,7 +282,7 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
         >
           Jump To Start
         </button>
-        <button
+        <button type="button"
           className="secondary"
           onClick={() => {
             setIsPlaying(false);

@@ -153,7 +153,7 @@ export default function DepartureOptimizerChart({
       />
 
       <div className="actionGrid actionGrid--single" style={{ marginTop: 12 }}>
-        <button
+        <button type="button"
           className="secondary"
           onClick={onRun}
           disabled={disabled || loading}
@@ -198,7 +198,7 @@ export default function DepartureOptimizerChart({
                 </span>
               </div>
               <div className="row" style={{ marginTop: 10 }}>
-                <button
+                <button type="button"
                   className="secondary"
                   onClick={() => onApplyDepartureTime(candidate.departure_time_utc)}
                   disabled={disabled}

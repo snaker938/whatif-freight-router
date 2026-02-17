@@ -186,6 +186,30 @@ a {
     border: 0;
   }
 
+  .u-m0 {
+    margin: 0;
+  }
+
+  .u-mt10 {
+    margin-top: 10px;
+  }
+
+  .u-mt12 {
+    margin-top: 12px;
+  }
+
+  .u-mb6 {
+    margin-bottom: 6px;
+  }
+
+  .u-mb10 {
+    margin-bottom: 10px;
+  }
+
+  .u-pl16 {
+    padding-left: 16px;
+  }
+
   .mapStage {
     position: relative;
     min-width: 0;
@@ -1854,6 +1878,10 @@ a {
     pointer-events: none;
   }
 
+  .panel.isTutorialActionLocked {
+    pointer-events: none;
+  }
+
   .tutorialOverlay.isRunning {
     pointer-events: none;
   }
@@ -1876,6 +1904,12 @@ a {
     -webkit-backdrop-filter: none;
   }
 
+  .tutorialOverlay.isRunning.isSidebarFocused .tutorialOverlay__backdrop {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .tutorialOverlay__card {
     position: fixed;
     width: min(500px, calc(100vw - 28px));
@@ -1889,12 +1923,6 @@ a {
     gap: 8px;
     max-height: none;
     overflow: hidden;
-  }
-
-  .tutorialOverlay__card.isDeferred {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms ease;
   }
 
   .tutorialOverlay__loading {
@@ -2233,7 +2261,9 @@ a {
   }
 
   .tutorialOverlay.isRunning.isMapFocused .tutorialOverlay__spotlight,
-  .tutorialOverlay.isRunning.isMapFocused .tutorialOverlay__arrow {
+  .tutorialOverlay.isRunning.isMapFocused .tutorialOverlay__arrow,
+  .tutorialOverlay.isRunning.isSidebarFocused .tutorialOverlay__spotlight,
+  .tutorialOverlay.isRunning.isSidebarFocused .tutorialOverlay__arrow {
     display: none;
   }
 
