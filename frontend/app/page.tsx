@@ -2,7 +2,7 @@
 // frontend/app/page.tsx
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import CollapsibleCard from './components/CollapsibleCard';
 import CounterfactualPanel from './components/CounterfactualPanel';
@@ -237,6 +237,7 @@ const TutorialOverlay = dynamic<
     } | null;
     targetRect: TutorialTargetRect | null;
     targetMissing: boolean;
+    requiresTargetRect?: boolean;
     runningScope?: TutorialLockScope;
     onClose: () => void;
     onStartNew: () => void;
@@ -626,6 +627,7 @@ export default function Page() {
   const [editingName, setEditingName] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [appBootReady, setAppBootReady] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [showWarnings, setShowWarnings] = useState(false);
@@ -703,6 +705,55 @@ export default function Page() {
     const token = apiToken.trim();
     return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
   }, [apiToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let minDelayTimer = 0;
+    let rafA = 0;
+    let rafB = 0;
+    let onLoad: (() => void) | null = null;
+
+    const markBootReady = () => {
+      if (cancelled) return;
+      rafA = window.requestAnimationFrame(() => {
+        rafB = window.requestAnimationFrame(() => {
+          if (!cancelled) {
+            setAppBootReady(true);
+          }
+        });
+      });
+    };
+
+    const fontsReady =
+      typeof document !== 'undefined' && 'fonts' in document
+        ? (document as Document & { fonts: FontFaceSet }).fonts.ready.catch(() => undefined)
+        : Promise.resolve();
+
+    const loadReady =
+      document.readyState === 'complete'
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            onLoad = () => resolve();
+            window.addEventListener('load', onLoad, { once: true });
+          });
+
+    const minDelay = new Promise<void>((resolve) => {
+      minDelayTimer = window.setTimeout(resolve, 700);
+    });
+
+    Promise.all([fontsReady, loadReady, minDelay]).then(markBootReady);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(minDelayTimer);
+      if (rafA) window.cancelAnimationFrame(rafA);
+      if (rafB) window.cancelAnimationFrame(rafB);
+      if (onLoad) {
+        window.removeEventListener('load', onLoad);
+      }
+    };
+  }, []);
+
   const t = useMemo(() => createTranslator(locale), [locale]);
   const tutorialStep = useMemo<TutorialStep | null>(() => {
     if (tutorialStepIndex < 0 || tutorialStepIndex >= TUTORIAL_STEPS.length) return null;
@@ -1848,6 +1899,12 @@ export default function Page() {
     setTutorialSavedProgress(payload);
   }, [tutorialOptionalDecisionsByStep, tutorialRunning, tutorialStepActionsById, tutorialStepIndex]);
 
+  useLayoutEffect(() => {
+    if (!tutorialRunning) return;
+    setTutorialTargetRect(null);
+    setTutorialTargetMissing(false);
+  }, [tutorialMode, tutorialRunning, tutorialStepId, tutorialStepIndex]);
+
   useEffect(() => {
     if (!tutorialRunning || !tutorialStep) return;
 
@@ -1895,10 +1952,11 @@ export default function Page() {
       setTutorialTargetMissing(false);
     };
 
+    resolveTarget(false);
+    raf = window.requestAnimationFrame(() => resolveTarget(false));
     timeoutId = window.setTimeout(() => {
       resolveTarget(true);
-      raf = window.requestAnimationFrame(() => resolveTarget(false));
-    }, 120);
+    }, 40);
     intervalId = window.setInterval(() => resolveTarget(false), 450);
     const onResize = () => resolveTarget(false);
     const onScroll = () => resolveTarget(false);
@@ -3322,7 +3380,13 @@ export default function Page() {
   const sidebarToggleLabel = isPanelCollapsed ? 'Extend sidebar' : 'Collapse sidebar';
 
   return (
-    <div className="app">
+    <div className={`app ${appBootReady ? 'isBootReady' : 'isBooting'}`}>
+      <div className={`appBootOverlay ${appBootReady ? 'isHidden' : ''}`} aria-hidden={appBootReady}>
+        <div className="appBootOverlay__veil" />
+        <div className="appBootOverlay__spinner" role="status" aria-live="polite" aria-label="Loading">
+          <span className="srOnly">Loading interface</span>
+        </div>
+      </div>
       <a href="#app-sidebar-content" className="skipLink">
         {t('skip_to_controls')}
       </a>
@@ -4186,7 +4250,7 @@ export default function Page() {
       </aside>
 
       <TutorialOverlay
-        open={tutorialOpen}
+        open={appBootReady && tutorialOpen}
         mode={tutorialMode}
         isDesktop={tutorialIsDesktop}
         hasSavedProgress={Boolean(tutorialSavedProgress)}
@@ -4207,6 +4271,7 @@ export default function Page() {
         optionalDecision={tutorialOptionalState}
         targetRect={tutorialTargetRect}
         targetMissing={tutorialTargetMissing && !(tutorialStep?.allowMissingTarget ?? false)}
+        requiresTargetRect={Boolean(tutorialStep?.targetIds?.length)}
         runningScope={tutorialLockScope}
         onClose={closeTutorial}
         onStartNew={startTutorialFresh}

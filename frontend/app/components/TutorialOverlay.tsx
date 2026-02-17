@@ -44,6 +44,7 @@ type Props = {
   optionalDecision: OptionalDecisionState | null;
   targetRect: TutorialTargetRect | null;
   targetMissing: boolean;
+  requiresTargetRect?: boolean;
   runningScope?: TutorialLockScope;
   onClose: () => void;
   onStartNew: () => void;
@@ -82,6 +83,7 @@ export default function TutorialOverlay({
   optionalDecision,
   targetRect,
   targetMissing,
+  requiresTargetRect = false,
   runningScope = 'free',
   onClose,
   onStartNew,
@@ -95,13 +97,26 @@ export default function TutorialOverlay({
 }: Props) {
   const suppressBackdropCloseRef = useRef(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const mapFocusedRunning = mode === 'running' && runningScope === 'map_only';
   const titleId = useId();
   const bodyId = useId();
   const [cardContentHeight, setCardContentHeight] = useState(0);
+  const [targetResolveTimedOut, setTargetResolveTimedOut] = useState(false);
   const [viewport, setViewport] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1440,
     height: typeof window !== 'undefined' ? window.innerHeight : 900,
   }));
+
+  useEffect(() => {
+    setTargetResolveTimedOut(false);
+    if (!open || mode !== 'running' || !requiresTargetRect || mapFocusedRunning || targetRect) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setTargetResolveTimedOut(true);
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [mapFocusedRunning, mode, open, requiresTargetRect, stepIndex, targetRect]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -285,7 +300,12 @@ export default function TutorialOverlay({
   }, [checklist, currentTaskOverride]);
 
   if (!open) return null;
-  const mapFocusedRunning = mode === 'running' && runningScope === 'map_only';
+  const waitingForTargetRect =
+    mode === 'running' &&
+    requiresTargetRect &&
+    !mapFocusedRunning &&
+    !targetRect &&
+    !targetResolveTimedOut;
 
   function handleBackdropClick() {
     if (mode === 'running') {
@@ -324,22 +344,29 @@ export default function TutorialOverlay({
         </>
       ) : null}
 
-      <div
-        ref={cardRef}
-        className="tutorialOverlay__card tutorialOverlay__card--guided"
-        style={layout.cardStyle}
-        onMouseDown={() => {
-          suppressBackdropCloseRef.current = true;
-        }}
-        onMouseUp={() => {
-          window.setTimeout(() => {
-            suppressBackdropCloseRef.current = false;
-          }, 0);
-        }}
-        onClick={(event) => {
-          event.stopPropagation();
-        }}
-      >
+      {waitingForTargetRect ? (
+        <div className="tutorialOverlay__loading" aria-live="polite" aria-label="Positioning tutorial">
+          <span className="tutorialOverlay__loadingSpinner" aria-hidden="true" />
+        </div>
+      ) : null}
+
+      {!waitingForTargetRect ? (
+        <div
+          ref={cardRef}
+          className={`tutorialOverlay__card tutorialOverlay__card--guided ${waitingForTargetRect ? 'isDeferred' : ''}`.trim()}
+          style={layout.cardStyle}
+          onMouseDown={() => {
+            suppressBackdropCloseRef.current = true;
+          }}
+          onMouseUp={() => {
+            window.setTimeout(() => {
+              suppressBackdropCloseRef.current = false;
+            }, 0);
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
         {mode === 'blocked' ? (
           <>
             <div className="tutorialOverlay__badge">Desktop only</div>
@@ -545,7 +572,8 @@ export default function TutorialOverlay({
             </div>
           </>
         ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
