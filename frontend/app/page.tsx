@@ -2368,6 +2368,18 @@ export default function Page() {
     const activeSectionNode = tutorialActiveSectionId
       ? document.querySelector<HTMLElement>(`[data-tutorial-id="${tutorialActiveSectionId}"]`)
       : null;
+    const currentActionIds = new Set<string>();
+    if (tutorialBlockingActionId) {
+      currentActionIds.add(tutorialBlockingActionId);
+      const lastColonIndex = tutorialBlockingActionId.lastIndexOf(':');
+      if (lastColonIndex > 0) {
+        const actionPrefix = tutorialBlockingActionId.slice(0, lastColonIndex);
+        const actionValue = tutorialBlockingActionId.slice(lastColonIndex + 1);
+        if (actionValue !== 'open') {
+          currentActionIds.add(`${actionPrefix}:open`);
+        }
+      }
+    }
     const interestingActionIds = new Set<string>([
       'map.popup_close_origin_marker',
       'map.popup_close_destination_marker',
@@ -2405,7 +2417,7 @@ export default function Page() {
       const allowed = actionId
         ? isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)
         : false;
-      const isCurrent = Boolean(tutorialBlockingActionId && actionId === tutorialBlockingActionId);
+      const isCurrent = Boolean(actionId && currentActionIds.has(actionId));
       const isBlocked = !inScope || !allowed || node.matches(':disabled');
 
       if (isBlocked) {
@@ -4293,7 +4305,7 @@ export default function Page() {
         },
       ];
 
-  const scenarioOptions: { value: ScenarioMode; label: string; description: string }[] = [
+  const scenarioOptions: SelectOption<ScenarioMode | ''>[] = [
     {
       value: 'no_sharing',
       label: 'No sharing',
@@ -4310,6 +4322,16 @@ export default function Page() {
       description: 'Maximum coordination with strongest sharing assumptions.',
     },
   ];
+  const vehicleSelectionPending =
+    tutorialRunning &&
+    tutorialStep?.id === 'setup_vehicle' &&
+    !tutorialActionSet.has('setup.vehicle_option:rigid_hgv');
+  const scenarioSelectionPending =
+    tutorialRunning &&
+    tutorialStep?.id === 'setup_scenario' &&
+    !tutorialActionSet.has('setup.scenario_option:no_sharing');
+  const vehicleSelectValue = vehicleSelectionPending ? '' : vehicleType;
+  const scenarioSelectValue: ScenarioMode | '' = scenarioSelectionPending ? '' : scenarioMode;
 
   const localeOptions: SelectOption<Locale>[] = LOCALE_OPTIONS.map((option) => ({
     value: option.value,
@@ -4438,11 +4460,14 @@ export default function Page() {
                 </div>
                 <Select
                   ariaLabel="Vehicle type"
-                  value={vehicleType}
+                  value={vehicleSelectValue}
                   options={vehicleOptions}
+                  placeholder="Select vehicle profile"
                   onChange={(next) => {
+                    if (!next) return;
                     setVehicleType(next);
                     markTutorialAction('setup.vehicle_select');
+                    markTutorialAction(`setup.vehicle_option:${next}`);
                   }}
                   disabled={busy}
                   tutorialId="setup.vehicle"
@@ -4455,11 +4480,14 @@ export default function Page() {
                 </div>
                 <Select
                   ariaLabel="Scenario mode"
-                  value={scenarioMode}
+                  value={scenarioSelectValue}
                   options={scenarioOptions}
+                  placeholder="Select scenario mode"
                   onChange={(next) => {
+                    if (!next) return;
                     setScenarioMode(next);
                     markTutorialAction('setup.scenario_select');
+                    markTutorialAction(`setup.scenario_option:${next}`);
                   }}
                   disabled={busy}
                   tutorialId="setup.scenario"

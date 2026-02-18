@@ -165,31 +165,31 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'setup_vehicle',
     chapterId: 'chapter_setup',
-    title: 'Choose a vehicle profile',
+    title: 'Set vehicle profile to Rigid HGV.',
     what:
-      'Open Vehicle type and actively pick a profile. Review the option hint text before selecting.',
+      'Open Vehicle type and explicitly select Rigid HGV for the guided baseline configuration.',
     impact:
-      'Vehicle profile changes cost/emissions coefficients and can reorder best-route selection under the same OD pair.',
+      'Rigid HGV is the backend default profile and aligns with the tutorial baseline used across route, compare, and reporting flows.',
     targetIds: ['setup.vehicle'],
-    required: [{ actionId: 'setup.vehicle_select', label: 'Select a vehicle option.' }],
+    required: [{ actionId: 'setup.vehicle_option:rigid_hgv', label: 'Select Rigid HGV.' }],
     prefillId: 'canonical_setup',
     activeSectionId: 'setup.section',
     lockScope: 'sidebar_section_only',
-    allowedActions: ['setup.vehicle_option:*'],
+    allowedActions: ['setup.vehicle_option:open', 'setup.vehicle_option:rigid_hgv'],
   },
   {
     id: 'setup_scenario',
     chapterId: 'chapter_setup',
-    title: 'Choose scenario mode',
+    title: 'Set scenario mode to No sharing.',
     what:
-      'Switch Scenario mode between sharing policies to understand available assumptions.',
+      'Open Scenario mode and explicitly select No sharing for the guided baseline.',
     impact:
-      'Scenario mode changes delay assumptions and can materially shift ETA, money, and CO2 values across candidates.',
+      'No sharing is the baseline comparator in backend scenario-delta logic and keeps tutorial outcomes deterministic.',
     targetIds: ['setup.scenario'],
-    required: [{ actionId: 'setup.scenario_select', label: 'Select a scenario option.' }],
+    required: [{ actionId: 'setup.scenario_option:no_sharing', label: 'Select No sharing.' }],
     activeSectionId: 'setup.section',
     lockScope: 'sidebar_section_only',
-    allowedActions: ['setup.scenario_option:*'],
+    allowedActions: ['setup.scenario_option:open', 'setup.scenario_option:no_sharing'],
   },
   {
     id: 'setup_api_token_optional',
@@ -208,25 +208,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       defaultLabel: 'Keep API token empty (default).',
     },
     activeSectionId: 'setup.section',
-    lockScope: 'sidebar_section_only',
-  },
-  {
-    id: 'pins_sidebar_manage',
-    chapterId: 'chapter_setup',
-    title: 'Manage pin state from Pins and Stops',
-    what:
-      'Use the Pins and Stops section to select pins, add or replace a stop, rename the stop, and remove it.',
-    impact:
-      'Sidebar pin controls provide deterministic pin-state management without relying on map popups during constrained workflows.',
-    targetIds: ['pins.section'],
-    required: [
-      { actionId: 'pins.sidebar_select', label: 'Select or deselect a pin from the sidebar rail/list.' },
-      { actionId: 'pins.add_stop', label: 'Add or replace the midpoint stop from sidebar controls.' },
-      { actionId: 'pins.rename_stop', label: 'Rename Stop #1 from the sidebar input.' },
-      { actionId: 'pins.delete_stop', label: 'Delete the stop from sidebar controls.' },
-    ],
-    prefillId: 'canonical_map',
-    activeSectionId: 'pins.section',
     lockScope: 'sidebar_section_only',
   },
   {
