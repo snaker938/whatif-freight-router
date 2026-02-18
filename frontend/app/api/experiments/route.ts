@@ -4,22 +4,12 @@ function backendBase(): string {
   return process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
 }
 
-function forwardedAuthHeaders(req: Request): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const auth = req.headers.get('authorization');
-  const token = req.headers.get('x-api-token');
-  if (auth) headers.authorization = auth;
-  if (token) headers['x-api-token'] = token;
-  return headers;
-}
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const query = url.searchParams.toString();
   const target = query ? `${backendBase()}/experiments?${query}` : `${backendBase()}/experiments`;
   const resp = await fetch(target, {
     cache: 'no-store',
-    headers: forwardedAuthHeaders(req),
   });
   const text = await resp.text();
   return new NextResponse(text, { status: resp.status, headers: { 'content-type': 'application/json' } });
@@ -29,7 +19,7 @@ export async function POST(req: Request) {
   const body = await req.text();
   const resp = await fetch(`${backendBase()}/experiments`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...forwardedAuthHeaders(req) },
+    headers: { 'content-type': 'application/json' },
     body,
     cache: 'no-store',
   });

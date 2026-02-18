@@ -9,7 +9,7 @@ export const TUTORIAL_CHAPTERS: TutorialChapter[] = [
   {
     id: 'chapter_setup',
     title: '2. Setup and core context',
-    description: 'Configure vehicle/scenario context and optional API behavior.',
+    description: 'Configure vehicle and scenario context.',
   },
   {
     id: 'chapter_advanced',
@@ -190,25 +190,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     activeSectionId: 'setup.section',
     lockScope: 'sidebar_section_only',
     allowedActions: ['setup.scenario_option:open', 'setup.scenario_option:no_sharing'],
-  },
-  {
-    id: 'setup_api_token_optional',
-    chapterId: 'chapter_setup',
-    title: 'Optional API token behavior',
-    what:
-      'API token is optional in local mode. Enter one if needed for protected environments, or explicitly keep it blank.',
-    impact:
-      'When RBAC is enabled, token presence determines access. In default local mode, leaving it empty is valid.',
-    targetIds: ['setup.api_token'],
-    required: [],
-    optional: {
-      id: 'setup.api_token_decision',
-      label: 'Provide API token input or explicitly keep the default empty value.',
-      actionIds: ['setup.api_token_input'],
-      defaultLabel: 'Keep API token empty (default).',
-    },
-    activeSectionId: 'setup.section',
-    lockScope: 'sidebar_section_only',
   },
   {
     id: 'advanced_optimization_and_risk',

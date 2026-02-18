@@ -618,7 +618,6 @@ export default function Page() {
   const [scenarioMode, setScenarioMode] = useState<ScenarioMode>('no_sharing');
 
   const [weights, setWeights] = useState<WeightState>({ time: 60, money: 20, co2: 20 });
-  const [apiToken, setApiToken] = useState('');
   const [advancedParams, setAdvancedParams] = useState<ScenarioAdvancedParams>(DEFAULT_ADVANCED_PARAMS);
   const [advancedError, setAdvancedError] = useState<string | null>(null);
   const [routeSort, setRouteSort] = useState<'duration' | 'cost' | 'co2'>('duration');
@@ -735,10 +734,6 @@ export default function Page() {
     (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
-  const authHeaders = useMemo(() => {
-    const token = apiToken.trim();
-    return token ? ({ 'x-api-token': token } as Record<string, string>) : undefined;
-  }, [apiToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1813,7 +1808,6 @@ export default function Page() {
     void (async () => {
       try {
         const resp = await fetch('/api/vehicles', {
-          headers: authHeaders,
           signal: controller.signal,
           cache: 'no-store',
         });
@@ -1833,7 +1827,7 @@ export default function Page() {
 
   useEffect(() => {
     void Promise.all([loadExperiments(), refreshOracleDashboard()]);
-  }, [authHeaders]);
+  }, []);
 
   useEffect(() => {
     if (depWindowStartLocal || depWindowEndLocal) return;
@@ -3479,7 +3473,6 @@ export default function Page() {
     setVehicleType('rigid_hgv');
     setScenarioMode('no_sharing');
     setWeights({ time: 60, money: 20, co2: 20 });
-    setApiToken('');
     setAdvancedParams(DEFAULT_ADVANCED_PARAMS);
     setDepEarliestArrivalLocal('');
     setDepLatestArrivalLocal('');
@@ -3768,7 +3761,6 @@ export default function Page() {
     try {
       await postNDJSON<ParetoStreamEvent>('/api/pareto/stream', body, {
         signal: controller.signal,
-        headers: authHeaders,
         onEvent: (event) => {
           if (seq !== requestSeqRef.current) return;
 
@@ -3804,7 +3796,7 @@ export default function Page() {
               const finalRoutes = sortRoutesDeterministic(event.routes ?? []);
               startTransition(() => {
                 setParetoRoutes(finalRoutes);
-              });
+      });
 
               setProgress({ done: event.done, total: event.total });
               const doneWarnings = event.warnings ?? [];
@@ -3865,7 +3857,6 @@ export default function Page() {
         '/api/scenario/compare',
         requestBody,
         undefined,
-        authHeaders,
       );
       setScenarioCompare(payload);
       markTutorialAction('compare.run_done');
@@ -3950,7 +3941,6 @@ export default function Page() {
 
       const payload = await fetch(path, {
         cache: 'no-store',
-        headers: authHeaders,
       });
       if (!payload.ok) {
         throw new Error(await payload.text());
@@ -3981,7 +3971,6 @@ export default function Page() {
           request,
         },
         undefined,
-        authHeaders,
       );
       await loadExperiments();
     } catch (e: unknown) {
@@ -3998,7 +3987,6 @@ export default function Page() {
       const resp = await fetch(`/api/experiments/${experimentId}`, {
         method: 'DELETE',
         cache: 'no-store',
-        headers: authHeaders,
       });
       if (!resp.ok) {
         throw new Error(await resp.text());
@@ -4020,7 +4008,6 @@ export default function Page() {
           overrides: {},
         },
         undefined,
-        authHeaders,
       );
       setScenarioCompare(payload);
     } catch (e: unknown) {
@@ -4118,7 +4105,6 @@ export default function Page() {
         '/api/duty/chain',
         req,
         undefined,
-        authHeaders,
       );
       setDutyChainData(payload);
       markTutorialAction('duty.run_done');
@@ -4140,7 +4126,6 @@ export default function Page() {
     try {
       const resp = await fetch('/api/oracle/quality/dashboard', {
         cache: 'no-store',
-        headers: authHeaders,
       });
       const text = await resp.text();
       if (!resp.ok) {
@@ -4166,7 +4151,6 @@ export default function Page() {
         '/api/oracle/quality/check',
         payload,
         undefined,
-        authHeaders,
       );
       setOracleLatestCheck(record);
       markTutorialAction('oracle.record_check_done');
@@ -4262,7 +4246,6 @@ export default function Page() {
         '/api/departure/optimize',
         req,
         undefined,
-        authHeaders,
       );
       setDepOptimizeData(payload);
       markTutorialAction('dep.optimize_done');
@@ -4492,20 +4475,6 @@ export default function Page() {
                   disabled={busy}
                   tutorialId="setup.scenario"
                   tutorialActionPrefix="setup.scenario_option"
-                />
-
-                <div className="fieldLabelRow">
-                  <div className="fieldLabel">API token (optional)</div>
-                  <FieldInfo text={SIDEBAR_FIELD_HELP.apiToken} />
-                </div>
-                <input
-                  className="input"
-                  type="password"
-                  placeholder="x-api-token for RBAC-enabled backends"
-                  value={apiToken}
-                  onChange={(event) => setApiToken(event.target.value)}
-                  data-tutorial-id="setup.api_token"
-                  data-tutorial-action="setup.api_token_input"
                 />
 
                 <div className="fieldLabelRow">
@@ -5223,7 +5192,7 @@ export default function Page() {
                 vehicleType: expCatalogVehicleType,
                 scenarioMode: expCatalogScenarioMode,
                 sort: expCatalogSort,
-              });
+      });
             }}
             locale={locale}
             defaultName={tutorialExperimentPrefill?.name}

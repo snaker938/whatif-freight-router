@@ -1,14 +1,5 @@
 import { NextResponse } from 'next/server';
 
-function forwardedAuthHeaders(req: Request): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const auth = req.headers.get('authorization');
-  const token = req.headers.get('x-api-token');
-  if (auth) headers.authorization = auth;
-  if (token) headers['x-api-token'] = token;
-  return headers;
-}
-
 export async function POST(req: Request) {
   const backendBase =
     process.env.BACKEND_INTERNAL_URL ??
@@ -18,7 +9,7 @@ export async function POST(req: Request) {
 
   const resp = await fetch(`${backendBase}/scenario/compare`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...forwardedAuthHeaders(req) },
+    headers: { 'content-type': 'application/json' },
     body,
     cache: 'no-store',
   });

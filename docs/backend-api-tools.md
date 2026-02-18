@@ -158,19 +158,3 @@ uv run python scripts/run_sensitivity_analysis.py --mode inprocess-fake --pair-c
 
 Outputs are written under:
 - `backend/out/analysis`
-
-## Basic RBAC
-
-RBAC is opt-in and token-based:
-- `RBAC_ENABLED` (default `false`)
-- `RBAC_USER_TOKEN`
-- `RBAC_ADMIN_TOKEN`
-
-Header options:
-- `X-API-Token: <token>`
-- `Authorization: Bearer <token>`
-
-Role policy:
-- `user` (or `admin`) token required for compute endpoints (`/route`, `/pareto`, `/batch/pareto`, `/scenario/compare`, `/departure/optimize`, replay compare).
-- `admin` token required for mutating admin endpoints (`/vehicles/custom` mutations, `/cache` clear, experiment create/update/delete).
-- read-only endpoints remain public by default.

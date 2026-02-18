@@ -46,9 +46,6 @@ class Settings(BaseSettings):
         default="dev-manifest-signing-secret",
         alias="MANIFEST_SIGNING_SECRET",
     )
-    rbac_enabled: bool = Field(default=False, alias="RBAC_ENABLED")
-    rbac_user_token: str = Field(default="dev-user-token", alias="RBAC_USER_TOKEN")
-    rbac_admin_token: str = Field(default="dev-admin-token", alias="RBAC_ADMIN_TOKEN")
 
 
 settings = Settings()
