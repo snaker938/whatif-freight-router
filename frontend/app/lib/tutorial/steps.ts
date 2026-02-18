@@ -133,15 +133,30 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_map',
     title: 'Add a midpoint stop',
     what:
-      'Go straight to midpoint setup: open Pins & Stops and click Add Stop to place a midpoint between your current Start and End pins. You can also add a midpoint from Start/End marker popup actions during normal map use.',
+      'Open Pins & Stops and click Add Stop to place a midpoint between Start and End. Then click the new midpoint marker once and drag it once to practice stop interaction on-map.',
     impact:
-      'Adding a midpoint introduces a controlled route split and shows how one intermediate stop changes the preview path and downstream optimization context.',
+      'Adding and then adjusting a midpoint demonstrates how intermediate stops reshape route structure before downstream optimization and comparison.',
     targetIds: ['pins.section'],
     required: [
       {
         actionId: 'pins.add_stop',
         label: 'Add a midpoint stop once.',
-        details: 'Use Add Stop in Pins & Stops; map markers remain locked in this step.',
+        details: 'Use Add Stop in Pins & Stops while map interactions are locked for this task.',
+      },
+      {
+        actionId: 'map.click_stop_marker',
+        label: 'Click the midpoint marker once.',
+        details: 'Select the midpoint pin on the map to open stop-level interactions.',
+      },
+      {
+        actionId: 'map.popup_close',
+        label: 'Close the midpoint popup once.',
+        details: 'Close it with the popup close button or by clicking the midpoint marker again.',
+      },
+      {
+        actionId: 'map.drag_stop_marker',
+        label: 'Drag the midpoint marker once.',
+        details: 'Move the midpoint pin once inside the Stoke-on-Trent guided zone shown on the map.',
       },
     ],
     activeSectionId: 'pins.section',
@@ -177,19 +192,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowedActions: ['setup.scenario_option:*'],
   },
   {
-    id: 'setup_language',
-    chapterId: 'chapter_setup',
-    title: 'Confirm language/local formatting control',
-    what:
-      'Change Language once to verify locale-aware labels and number/date presentation.',
-    impact:
-      'Locale improves operator readability and changes how metrics are rendered during review and reporting.',
-    targetIds: ['setup.language'],
-    required: [{ actionId: 'setup.language_select', label: 'Change language selection once.' }],
-    activeSectionId: 'setup.section',
-    lockScope: 'sidebar_section_only',
-  },
-  {
     id: 'setup_api_token_optional',
     chapterId: 'chapter_setup',
     title: 'Optional API token behavior',
@@ -205,24 +207,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       actionIds: ['setup.api_token_input'],
       defaultLabel: 'Keep API token empty (default).',
     },
-    activeSectionId: 'setup.section',
-    lockScope: 'sidebar_section_only',
-  },
-  {
-    id: 'setup_map_actions',
-    chapterId: 'chapter_setup',
-    title: 'Use setup map action buttons',
-    what:
-      'Run setup map actions once: clear pins, restore sample pins, fit map to pins, then swap Start/End.',
-    impact:
-      'These quick actions speed up scenario setup and let operators recover, reframe, and reorder endpoints without manual re-entry.',
-    targetIds: ['setup.section'],
-    required: [
-      { actionId: 'setup.clear_pins_button', label: 'Clear all pins once.' },
-      { actionId: 'setup.sample_pins_button', label: 'Restore sample Start/End pins.' },
-      { actionId: 'setup.fit_map_button', label: 'Fit map to current pins.' },
-      { actionId: 'setup.swap_pins_button', label: 'Swap Start and End once.' },
-    ],
     activeSectionId: 'setup.section',
     lockScope: 'sidebar_section_only',
   },

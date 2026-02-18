@@ -75,9 +75,9 @@ export default function TutorialOverlay({
   stepImpact,
   stepIndex,
   stepCount,
-  canGoNext,
-  atStart,
-  atEnd,
+  canGoNext: _canGoNext,
+  atStart: _atStart,
+  atEnd: _atEnd,
   checklist,
   currentTaskOverride = null,
   optionalDecision,
@@ -89,9 +89,9 @@ export default function TutorialOverlay({
   onStartNew,
   onResume,
   onRestart,
-  onBack,
-  onNext,
-  onFinish,
+  onBack: _onBack,
+  onNext: _onNext,
+  onFinish: _onFinish,
   onMarkManual,
   onUseOptionalDefault,
 }: Props) {
@@ -214,7 +214,7 @@ export default function TutorialOverlay({
       (primary ?? fallback)?.focus();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [atEnd, mode, open, runningScope, stepIndex]);
+  }, [mode, open, runningScope, stepIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -223,27 +223,12 @@ export default function TutorialOverlay({
       if (event.key === 'Escape') {
         event.preventDefault();
         onClose();
-        return;
-      }
-      if (mode !== 'running') return;
-
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault();
-        if (!canGoNext) return;
-        if (atEnd) onFinish();
-        else onNext();
-        return;
-      }
-
-      if (event.altKey && event.key === 'ArrowLeft') {
-        event.preventDefault();
-        if (!atStart) onBack();
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [atEnd, atStart, canGoNext, mode, onBack, onClose, onFinish, onNext, open]);
+  }, [onClose, open]);
 
   const layout = useMemo(() => {
     const vw = viewport.width;
@@ -264,7 +249,10 @@ export default function TutorialOverlay({
       Math.max(safeViewportInset, vh - renderedHeight - safeViewportInset),
     );
 
-    if (mode === 'running' && runningScope === 'sidebar_section_only') {
+    if (
+      mode === 'running' &&
+      (runningScope === 'sidebar_section_only' || runningScope === 'map_only')
+    ) {
       const dockedWidth = Math.min(430, availableWidth);
       return {
         cardStyle: {
@@ -587,19 +575,8 @@ export default function TutorialOverlay({
               </div>
             ) : null}
 
-            <div className="tutorialOverlay__actions">
-              <button type="button" className="secondary" onClick={onBack} disabled={atStart}>
-                Back
-              </button>
-              {atEnd ? (
-                <button type="button" className="primary" onClick={onFinish} disabled={!canGoNext}>
-                  Finish tutorial
-                </button>
-              ) : (
-                <button type="button" className="primary" onClick={onNext} disabled={!canGoNext}>
-                  Next
-                </button>
-              )}
+            <div className="tutorialOverlay__autoAdvanceHint">
+              Progression is automatic when the current task list is complete.
             </div>
 
             <div className="tutorialOverlay__footer">

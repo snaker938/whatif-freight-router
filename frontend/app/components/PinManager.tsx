@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import type { PinDisplayNode, PinSelectionId } from '../lib/types';
@@ -50,21 +50,8 @@ export default function PinManager({
   onClearPins,
   sectionControl,
 }: Props) {
-  const midpointUiLogSeqRef = useRef(0);
-  const midpointUiLogStartRef = useRef(
-    typeof performance !== 'undefined' ? performance.now() : 0,
-  );
   const logMidpointUi = useCallback(
-    (event: string, payload?: Record<string, unknown>) => {
-      if (typeof window === 'undefined') return;
-      midpointUiLogSeqRef.current += 1;
-      const now = typeof performance !== 'undefined' ? performance.now() : 0;
-      const elapsed = (now - midpointUiLogStartRef.current).toFixed(1);
-      console.log(
-        `[pins-midpoint-ui][${midpointUiLogSeqRef.current}] +${elapsed}ms ${event}`,
-        payload ?? {},
-      );
-    },
+    (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
   const originNode = useMemo(() => nodes.find((node) => node.id === 'origin') ?? null, [nodes]);

@@ -62,6 +62,7 @@ type Props = {
   showStopOverlay?: boolean;
   showIncidentOverlay?: boolean;
   showSegmentTooltips?: boolean;
+  showPreviewConnector?: boolean;
   overlayLabels?: {
     stopLabel: string;
     segmentLabel: string;
@@ -83,7 +84,7 @@ type Props = {
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: PinSelectionId | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => boolean;
-  onMoveStop?: (lat: number, lon: number) => void;
+  onMoveStop?: (lat: number, lon: number) => boolean;
   onAddStopFromPin?: () => void;
   onRenameStop?: (name: string) => void;
   onDeleteStop?: () => void;
@@ -237,10 +238,7 @@ function FitAllRequestHandler({
   const map = useMap();
   const lastHandledNonceRef = useRef(nonce);
   const logFitDebug = useCallback(
-    (event: string, payload?: Record<string, unknown>) => {
-      if (typeof window === 'undefined') return;
-      console.log(`[midpoint-fit-debug] ${event}`, payload ?? {});
-    },
+    (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
 
@@ -839,6 +837,10 @@ function TutorialGuidePanHandler({
 
   useEffect(() => {
     if (!visible || !guideTarget) return;
+    if (guideTarget.stage === 3) {
+      // Midpoint drag guidance should not alter the current viewport.
+      return;
+    }
     let disposed = false;
     let panAdjustRaf = 0;
 
@@ -1279,6 +1281,7 @@ export default function MapView({
   showStopOverlay = true,
   showIncidentOverlay = true,
   showSegmentTooltips = true,
+  showPreviewConnector = true,
   overlayLabels,
   onTutorialAction,
   onTutorialTargetState,
@@ -1318,10 +1321,7 @@ export default function MapView({
   const suppressMapClickUntilRef = useRef(0);
   const suppressMarkerClickUntilRef = useRef(0);
   const mapPaneRef = useRef<HTMLDivElement | null>(null);
-  const mapMidpointLogSeqRef = useRef(0);
-  const mapMidpointLogStartRef = useRef(
-    typeof performance !== 'undefined' ? performance.now() : 0,
-  );
+  const tutorialPulseMapLogSeqRef = useRef(0);
   const [dragPreview, setDragPreview] = useState<{
     origin: LatLng | null;
     destination: LatLng | null;
@@ -1332,15 +1332,24 @@ export default function MapView({
     stop: null,
   });
   const logMapDim = useCallback(
-    (event: string, payload?: Record<string, unknown>) => {
-      if (typeof window === 'undefined') return;
-      mapMidpointLogSeqRef.current += 1;
-      const now = typeof performance !== 'undefined' ? performance.now() : 0;
-      const elapsed = (now - mapMidpointLogStartRef.current).toFixed(1);
-      console.log(`[tutorial-map-debug][${mapMidpointLogSeqRef.current}] +${elapsed}ms ${event}`, payload ?? {});
-    },
+    (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
+  const logTutorialPulseMap = useCallback((event: string, payload?: Record<string, unknown>) => {
+    if (typeof window === 'undefined') return;
+    tutorialPulseMapLogSeqRef.current += 1;
+    const elapsed = window.performance.now().toFixed(1);
+    if (payload) {
+      console.log(
+        `[tutorial-pulse-map-debug][${tutorialPulseMapLogSeqRef.current}] +${elapsed}ms ${event}`,
+        payload,
+      );
+      return;
+    }
+    console.log(
+      `[tutorial-pulse-map-debug][${tutorialPulseMapLogSeqRef.current}] +${elapsed}ms ${event}`,
+    );
+  }, []);
 
   useEffect(() => {
     if (!tutorialMapLocked && !tutorialMapDimmed && !tutorialViewportLocked) return;
@@ -1383,6 +1392,55 @@ export default function MapView({
     tutorialMapLocked,
     tutorialViewportLocked,
   ]);
+
+  useEffect(() => {
+    if (!tutorialExpectedAction || !tutorialExpectedAction.includes('popup_close')) return;
+    const pane = mapPaneRef.current;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const closeButtons = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-tutorial-action="map.popup_close_origin_marker"], [data-tutorial-action="map.popup_close_destination_marker"], [data-tutorial-action="map.popup_close"]',
+      ),
+    );
+    logTutorialPulseMap('popup-close-step:dom-snapshot', {
+      tutorialExpectedAction,
+      selectedPinId,
+      originPopupOpen: originRef.current?.isPopupOpen?.() ?? null,
+      destinationPopupOpen: destRef.current?.isPopupOpen?.() ?? null,
+      stopPopupOpen: stopRef.current?.isPopupOpen?.() ?? null,
+      reducedMotion,
+      mapPaneClass: pane?.className ?? null,
+      closeButtonCount: closeButtons.length,
+      closeButtons: closeButtons.map((node) => {
+        const styles = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return {
+          actionId: node.dataset.tutorialAction ?? '',
+          className: node.className,
+          dataTutorialState: node.getAttribute('data-tutorial-state'),
+          animationName: styles.animationName,
+          animationDuration: styles.animationDuration,
+          animationPlayState: styles.animationPlayState,
+          boxShadow: styles.boxShadow,
+          opacity: styles.opacity,
+          filter: styles.filter,
+          pointerEvents: styles.pointerEvents,
+          rect: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        };
+      }),
+    });
+    for (const node of closeButtons) {
+      const styles = window.getComputedStyle(node);
+      console.log(
+        `[tutorial-pulse-map-debug] close-button action=${node.dataset.tutorialAction ?? ''} reducedMotion=${String(reducedMotion)} anim=${styles.animationName} duration=${styles.animationDuration} iter=${styles.animationIterationCount} play=${styles.animationPlayState} class=${node.className}`,
+      );
+    }
+  }, [logTutorialPulseMap, selectedPinId, tutorialExpectedAction]);
 
   useEffect(() => {
     if (!copied) return;
@@ -1442,7 +1500,7 @@ export default function MapView({
   }, [selectedPinId, draggingPinId]);
 
   const suppressInteractionsBriefly = useCallback(() => {
-    const until = Date.now() + 820;
+    const until = Date.now() + 1400;
     suppressMapClickUntilRef.current = until;
     suppressMarkerClickUntilRef.current = until;
   }, []);
@@ -1619,7 +1677,7 @@ export default function MapView({
   const canUsePopupSwap = isActionExpected('map.popup_swap');
   const canUsePopupAddStop = isActionExpected('map.add_stop_midpoint');
   const disableTutorialPopupAutoPan = Boolean(
-    tutorialViewportLocked || tutorialGuideVisible,
+    tutorialMapLocked || tutorialViewportLocked || tutorialGuideVisible || tutorialExpectedAction !== null,
   );
   const mapInteractionLocked = tutorialMapLocked || tutorialViewportLocked;
   const blockMarkerClick = useCallback(
@@ -1770,6 +1828,7 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                const suppressed = Date.now() < suppressMarkerClickUntilRef.current;
                 const expectsOriginClose =
                   tutorialExpectedAction === 'map.popup_close_origin_marker';
                 const allowOriginClickForClose =
@@ -1778,8 +1837,9 @@ export default function MapView({
                   tutorialMapLocked ||
                   (!isMarkerActionAllowed('map.click_origin_marker', 'origin') &&
                     !allowOriginClickForClose) ||
-                  Date.now() < suppressMarkerClickUntilRef.current
+                  suppressed
                 ) {
+                  if (suppressed) onSelectPinId?.(null);
                   blockMarkerClick(e);
                   return;
                 }
@@ -1787,6 +1847,12 @@ export default function MapView({
                 const marker = e.target as L.Marker;
                 const closeActionId = resolvePopupCloseAction();
                 if (expectsOriginClose && marker.isPopupOpen()) {
+                  logTutorialPulseMap('origin-marker-click-close-path', {
+                    tutorialExpectedAction,
+                    closeActionId,
+                    markerPopupOpen: marker.isPopupOpen(),
+                    selectedPinId,
+                  });
                   onSelectPinId?.(null);
                   onTutorialAction?.(closeActionId);
                   suppressInteractionsBriefly();
@@ -1816,6 +1882,7 @@ export default function MapView({
                 if (tutorialMapLocked) return;
                 if (!isMarkerActionAllowed('map.drag_origin_marker', 'origin')) return;
                 suppressInteractionsBriefly();
+                onSelectPinId?.(null);
                 try {
                   originRef.current?.closePopup();
                 } catch {
@@ -1840,6 +1907,9 @@ export default function MapView({
               eventHandlers={{
                 remove() {
                   if (tutorialExpectedAction === 'map.popup_close_origin_marker') {
+                    logTutorialPulseMap('origin-popup-remove-event', {
+                      tutorialExpectedAction,
+                    });
                     onTutorialAction?.('map.popup_close_origin_marker');
                   }
                 },
@@ -1902,6 +1972,11 @@ export default function MapView({
                       className="markerPopup__iconBtn"
                       onClick={(e) => {
                         e.stopPropagation();
+                        logTutorialPulseMap('origin-popup-close-button-click', {
+                          tutorialExpectedAction,
+                          resolvedActionId: resolvePopupCloseAction(),
+                          selectedPinId,
+                        });
                         onSelectPinId?.(null);
                         onTutorialAction?.(resolvePopupCloseAction());
                       }}
@@ -2025,6 +2100,7 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                const suppressed = Date.now() < suppressMarkerClickUntilRef.current;
                 const expectsDestinationClose =
                   tutorialExpectedAction === 'map.popup_close_destination_marker';
                 const allowDestinationClickForClose =
@@ -2033,8 +2109,9 @@ export default function MapView({
                   tutorialMapLocked ||
                   (!isMarkerActionAllowed('map.click_destination_marker', 'destination') &&
                     !allowDestinationClickForClose) ||
-                  Date.now() < suppressMarkerClickUntilRef.current
+                  suppressed
                 ) {
+                  if (suppressed) onSelectPinId?.(null);
                   blockMarkerClick(e);
                   return;
                 }
@@ -2042,6 +2119,12 @@ export default function MapView({
                 const marker = e.target as L.Marker;
                 const closeActionId = resolvePopupCloseAction();
                 if (expectsDestinationClose && marker.isPopupOpen()) {
+                  logTutorialPulseMap('destination-marker-click-close-path', {
+                    tutorialExpectedAction,
+                    closeActionId,
+                    markerPopupOpen: marker.isPopupOpen(),
+                    selectedPinId,
+                  });
                   onSelectPinId?.(null);
                   onTutorialAction?.(closeActionId);
                   suppressInteractionsBriefly();
@@ -2071,6 +2154,7 @@ export default function MapView({
                 if (tutorialMapLocked) return;
                 if (!isMarkerActionAllowed('map.drag_destination_marker', 'destination')) return;
                 suppressInteractionsBriefly();
+                onSelectPinId?.(null);
                 try {
                   destRef.current?.closePopup();
                 } catch {
@@ -2095,6 +2179,9 @@ export default function MapView({
               eventHandlers={{
                 remove() {
                   if (tutorialExpectedAction === 'map.popup_close_destination_marker') {
+                    logTutorialPulseMap('destination-popup-remove-event', {
+                      tutorialExpectedAction,
+                    });
                     onTutorialAction?.('map.popup_close_destination_marker');
                   }
                 },
@@ -2157,6 +2244,11 @@ export default function MapView({
                       className="markerPopup__iconBtn"
                       onClick={(e) => {
                         e.stopPropagation();
+                        logTutorialPulseMap('destination-popup-close-button-click', {
+                          tutorialExpectedAction,
+                          resolvedActionId: resolvePopupCloseAction(),
+                          selectedPinId,
+                        });
                         onSelectPinId?.(null);
                         onTutorialAction?.(resolvePopupCloseAction());
                       }}
@@ -2274,15 +2366,27 @@ export default function MapView({
             riseOnHover={true}
             eventHandlers={{
               click(e) {
+                const marker = e.target as L.Marker;
+                const suppressed = Date.now() < suppressMarkerClickUntilRef.current;
+                const expectsStopClose = tutorialExpectedAction === 'map.popup_close';
+                const allowStopClickForClose = expectsStopClose && marker.isPopupOpen();
                 if (
                   tutorialMapLocked ||
-                  !isActionExpected('map.click_stop_marker') ||
-                  Date.now() < suppressMarkerClickUntilRef.current
+                  (!isActionExpected('map.click_stop_marker') && !allowStopClickForClose) ||
+                  suppressed
                 ) {
+                  if (suppressed) onSelectPinId?.(null);
                   blockMarkerClick(e);
                   return;
                 }
                 e.originalEvent?.stopPropagation();
+                if (expectsStopClose && marker.isPopupOpen()) {
+                  onSelectPinId?.(null);
+                  onTutorialAction?.('map.popup_close');
+                  suppressInteractionsBriefly();
+                  marker.closePopup();
+                  return;
+                }
                 onSelectPinId?.(selectedPinId === 'stop-1' ? null : 'stop-1');
                 onFocusPin?.('stop-1');
                 onTutorialAction?.('map.click_stop_marker');
@@ -2294,8 +2398,17 @@ export default function MapView({
                 const pos = marker.getLatLng();
                 setDragPreview((prev) => ({ ...prev, stop: { lat: pos.lat, lon: pos.lng } }));
                 suppressInteractionsBriefly();
-                onMoveStop?.(pos.lat, pos.lng);
-                onTutorialAction?.('map.drag_stop_marker');
+                const accepted = onMoveStop ? onMoveStop(pos.lat, pos.lng) : false;
+                if (!accepted) {
+                  const fallback = effectiveStop ?? managedStop;
+                  if (fallback) {
+                    marker.setLatLng([fallback.lat, fallback.lon]);
+                  }
+                  setDragPreview((prev) => ({ ...prev, stop: null }));
+                } else {
+                  onSelectPinId?.(null);
+                  onTutorialAction?.('map.drag_stop_marker');
+                }
               },
               dragstart() {
                 if (tutorialMapLocked) return;
@@ -2306,6 +2419,7 @@ export default function MapView({
                 } catch {
                   // no-op
                 }
+                onSelectPinId?.(null);
                 setDraggingPinId('stop-1');
               },
               drag(e) {
@@ -2317,7 +2431,19 @@ export default function MapView({
               },
             }}
           >
-            <Popup className="stopOverlayPopup" autoPan={true} autoPanPadding={[22, 22]} closeButton={false}>
+            <Popup
+              className="stopOverlayPopup"
+              autoPan={!disableTutorialPopupAutoPan}
+              autoPanPadding={[22, 22]}
+              closeButton={false}
+              eventHandlers={{
+                remove() {
+                  if (tutorialExpectedAction === 'map.popup_close') {
+                    onTutorialAction?.('map.popup_close');
+                  }
+                },
+              }}
+            >
               <div className="overlayPopup__card stopPopup__card" onClick={(e) => e.stopPropagation()}>
                 <div className="markerPopup__header">
                   <span className="markerPopup__pill markerPopup__pill--stop">{stopDisplayName}</span>
@@ -2411,7 +2537,7 @@ export default function MapView({
           </Marker>
         ) : null}
 
-        {!suppressRoutePath && !tutorialGuideVisible && polylinePositions.length > 0 && (
+        {!suppressRoutePath && polylinePositions.length > 0 && (
           <>
             <Polyline
               positions={polylinePositions}
@@ -2488,7 +2614,7 @@ export default function MapView({
           );
         })}
 
-        {!tutorialGuideVisible && previewDotSegments.map((segment) => (
+        {showPreviewConnector && previewDotSegments.map((segment) => (
           <Polyline
             key={segment.id}
             positions={[

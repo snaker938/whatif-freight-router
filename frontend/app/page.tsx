@@ -108,6 +108,7 @@ type MapViewProps = {
   showStopOverlay?: boolean;
   showIncidentOverlay?: boolean;
   showSegmentTooltips?: boolean;
+  showPreviewConnector?: boolean;
   overlayLabels?: {
     stopLabel: string;
     segmentLabel: string;
@@ -129,7 +130,7 @@ type MapViewProps = {
   onMapClick: (lat: number, lon: number) => void;
   onSelectPinId?: (id: 'origin' | 'destination' | 'stop-1' | null) => void;
   onMoveMarker: (kind: MarkerKind, lat: number, lon: number) => boolean;
-  onMoveStop?: (lat: number, lon: number) => void;
+  onMoveStop?: (lat: number, lon: number) => boolean;
   onAddStopFromPin?: () => void;
   onRenameStop?: (name: string) => void;
   onDeleteStop?: () => void;
@@ -577,6 +578,7 @@ type TutorialPlacementStage =
 const TUTORIAL_CITY_TARGETS = {
   newcastle: { lat: 54.9783, lon: -1.6178, radiusKm: 20, zoom: 11 },
   london: { lat: 51.5072, lon: -0.1276, radiusKm: 20, zoom: 12 },
+  stoke: { lat: 53.0027, lon: -2.1794, radiusKm: 8, zoom: 9 },
 } as const;
 const TUTORIAL_FORCE_ONLY_ACTIONS = new Set([
   'map.confirm_origin_newcastle',
@@ -703,41 +705,34 @@ export default function Page() {
   const tutorialPlacementStageRef = useRef<TutorialPlacementStage>('done');
   const tutorialMapClickGuardUntilRef = useRef(0);
   const tutorialStepEnterRef = useRef<string | null>(null);
+  const tutorialAutoAdvanceTokenRef = useRef('');
+  const tutorialPreviousStepIdRef = useRef<string | null>(null);
+  const tutorialRouteCenteredStepRef = useRef<string | null>(null);
   const tutorialLockNoticeAtRef = useRef(0);
   const tutorialConfirmedOriginRef = useRef<LatLng | null>(null);
   const tutorialConfirmedDestinationRef = useRef<LatLng | null>(null);
-  const tutorialMidpointLogSeqRef = useRef(0);
-  const tutorialMidpointLogStartRef = useRef(
-    typeof performance !== 'undefined' ? performance.now() : 0,
-  );
-  const midpointFitLogSeqRef = useRef(0);
-  const midpointFitLogStartRef = useRef(
-    typeof performance !== 'undefined' ? performance.now() : 0,
-  );
+  const tutorialPulseLogSeqRef = useRef(0);
   const logTutorialMidpoint = useCallback(
-    (event: string, payload?: Record<string, unknown>) => {
-      if (typeof window === 'undefined') return;
-      tutorialMidpointLogSeqRef.current += 1;
-      const now = typeof performance !== 'undefined' ? performance.now() : 0;
-      const elapsed = (now - tutorialMidpointLogStartRef.current).toFixed(1);
-      console.log(
-        `[tutorial-midpoint-debug][${tutorialMidpointLogSeqRef.current}] +${elapsed}ms ${event}`,
-        payload ?? {},
-      );
-    },
+    (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
-  const logMidpointFitFlow = useCallback(
-    (event: string, payload?: Record<string, unknown>) => {
-      if (typeof window === 'undefined') return;
-      midpointFitLogSeqRef.current += 1;
-      const now = typeof performance !== 'undefined' ? performance.now() : 0;
-      const elapsed = (now - midpointFitLogStartRef.current).toFixed(1);
+  const logTutorialPulse = useCallback((event: string, payload?: Record<string, unknown>) => {
+    if (typeof window === 'undefined') return;
+    tutorialPulseLogSeqRef.current += 1;
+    const elapsed = window.performance.now().toFixed(1);
+    if (payload) {
       console.log(
-        `[midpoint-fit-flow][${midpointFitLogSeqRef.current}] +${elapsed}ms ${event}`,
-        payload ?? {},
+        `[tutorial-pulse-debug][${tutorialPulseLogSeqRef.current}] +${elapsed}ms ${event}`,
+        payload,
       );
-    },
+      return;
+    }
+    console.log(
+      `[tutorial-pulse-debug][${tutorialPulseLogSeqRef.current}] +${elapsed}ms ${event}`,
+    );
+  }, []);
+  const logMidpointFitFlow = useCallback(
+    (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
   const authHeaders = useMemo(() => {
@@ -917,7 +912,25 @@ export default function Page() {
       actionTouched,
     };
   }, [tutorialOptionalSet, tutorialActionSet, tutorialStep]);
-  const tutorialLockScope = useMemo(() => inferTutorialLockScope(tutorialStep), [tutorialStep]);
+  const tutorialBaseLockScope = useMemo(() => inferTutorialLockScope(tutorialStep), [tutorialStep]);
+  const tutorialLockScope = useMemo<TutorialLockScope>(() => {
+    if (!tutorialRunning || !tutorialStep) return tutorialBaseLockScope;
+    if (tutorialStep.id !== 'map_stop_lifecycle') return tutorialBaseLockScope;
+    const blockingAction = tutorialBlockingActionId ?? tutorialNextRequiredActionId ?? '';
+    if (blockingAction === 'pins.add_stop') {
+      return 'sidebar_section_only';
+    }
+    if (blockingAction.startsWith('map.')) {
+      return 'map_only';
+    }
+    return tutorialBaseLockScope;
+  }, [
+    tutorialBaseLockScope,
+    tutorialBlockingActionId,
+    tutorialNextRequiredActionId,
+    tutorialRunning,
+    tutorialStep,
+  ]);
   const tutorialActiveSectionId = useMemo(() => inferTutorialSectionId(tutorialStep), [tutorialStep]);
   const tutorialAllowedActionSet = useMemo(() => {
     if (!tutorialStep) return new Set<string>();
@@ -952,8 +965,9 @@ export default function Page() {
     (sectionId: TutorialSectionId): TutorialSectionControl | undefined => {
       if (!tutorialRunning) return undefined;
       if (tutorialLockScope === 'map_only') {
+        const keepPinsOpen = tutorialStep?.id === 'map_stop_lifecycle' && sectionId === 'pins.section';
         return {
-          isOpen: false,
+          isOpen: keepPinsOpen,
           lockToggle: true,
           tutorialLocked: true,
         };
@@ -968,7 +982,7 @@ export default function Page() {
       }
       return undefined;
     },
-    [tutorialActiveSectionId, tutorialLockScope, tutorialRunning],
+    [tutorialActiveSectionId, tutorialLockScope, tutorialRunning, tutorialStep?.id],
   );
   const tutorialSectionControl = useMemo(
     () => ({
@@ -989,117 +1003,28 @@ export default function Page() {
   );
   const tutorialMapLocked =
     tutorialRunning &&
-    (tutorialLockScope === 'sidebar_section_only' || tutorialStep?.id === 'map_stop_lifecycle');
-  const tutorialViewportLocked =
-    tutorialRunning &&
-    (tutorialStep?.id === 'map_set_pins' || tutorialStep?.id === 'map_stop_lifecycle');
-  const tutorialHideZoomControls =
-    tutorialRunning &&
-    (tutorialLockScope === 'map_only' || tutorialStep?.id === 'map_stop_lifecycle');
+    tutorialLockScope === 'sidebar_section_only';
+  const tutorialViewportLocked = tutorialRunning;
+  const tutorialHideZoomControls = tutorialRunning;
   const tutorialRelaxBounds =
     tutorialRunning &&
     tutorialStep?.id === 'map_stop_lifecycle';
-  const tutorialMapDimmed =
-    tutorialRunning &&
-    tutorialLockScope === 'sidebar_section_only' &&
-    tutorialStep?.id !== 'map_stop_lifecycle';
-  useEffect(() => {
-    if (!tutorialRunning) return;
-    if (tutorialStep?.id !== 'map_stop_lifecycle') return;
-    logTutorialMidpoint('midpoint-dim-state', {
-      tutorialStepId: tutorialStep?.id ?? null,
-      tutorialLockScope,
-      tutorialMapDimmed,
-      tutorialMapLocked,
-      tutorialViewportLocked,
-      tutorialHideZoomControls,
-      tutorialPlacementStage,
-      tutorialSidebarLocked,
-      tutorialActiveSectionId,
-      tutorialBlockingActionId,
-      tutorialNextRequiredActionId,
-      tutorialMode,
-      tutorialOpen,
-    });
-  }, [
-    logTutorialMidpoint,
-    tutorialActiveSectionId,
-    tutorialBlockingActionId,
-    tutorialHideZoomControls,
-    tutorialLockScope,
-    tutorialMapDimmed,
-    tutorialMapLocked,
-    tutorialMode,
-    tutorialNextRequiredActionId,
-    tutorialOpen,
-    tutorialRunning,
-    tutorialSidebarLocked,
-    tutorialStep?.id,
-    tutorialPlacementStage,
-    tutorialViewportLocked,
-  ]);
-  useEffect(() => {
-    if (!tutorialRunning) return;
-    if (tutorialStep?.id !== 'map_stop_lifecycle') return;
-    if (typeof window === 'undefined') return;
-
-    let raf = 0;
-    let t1 = 0;
-    let t2 = 0;
-
-    const probe = (phase: string) => {
-      const mapStage = document.querySelector<HTMLElement>('.mapStage');
-      const mapPane = document.querySelector<HTMLElement>('.mapPane');
-      const overlay = document.querySelector<HTMLElement>('.tutorialOverlay');
-      const backdrop = overlay?.querySelector<HTMLElement>('.tutorialOverlay__backdrop') ?? null;
-      const spotlight = overlay?.querySelector<HTMLElement>('.tutorialOverlay__spotlight') ?? null;
-      const panel = document.querySelector<HTMLElement>('.panel');
-      const mapStageAfter = mapStage ? window.getComputedStyle(mapStage, '::after') : null;
-      const mapPaneStyle = mapPane ? window.getComputedStyle(mapPane) : null;
-      const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
-      const overlayStyle = overlay ? window.getComputedStyle(overlay) : null;
-      const panelStyle = panel ? window.getComputedStyle(panel) : null;
-
-      logTutorialMidpoint(`midpoint-dim-dom-probe:${phase}`, {
-        mapStageClass: mapStage?.className ?? null,
-        mapPaneClass: mapPane?.className ?? null,
-        overlayClass: overlay?.className ?? null,
-        panelClass: panel?.className ?? null,
-        hasSpotlight: Boolean(spotlight),
-        spotlightDisplay: spotlight ? window.getComputedStyle(spotlight).display : null,
-        mapStageAfterBackground: mapStageAfter?.backgroundColor ?? null,
-        mapStageAfterContent: mapStageAfter?.content ?? null,
-        mapPaneFilter: mapPaneStyle?.filter ?? null,
-        mapPaneOpacity: mapPaneStyle?.opacity ?? null,
-        backdropBackground: backdropStyle?.backgroundColor ?? null,
-        backdropOpacity: backdropStyle?.opacity ?? null,
-        backdropDisplay: backdropStyle?.display ?? null,
-        overlayPointerEvents: overlayStyle?.pointerEvents ?? null,
-        panelFilter: panelStyle?.filter ?? null,
-      });
-    };
-
-    probe('effect-start');
-    raf = window.requestAnimationFrame(() => probe('raf'));
-    t1 = window.setTimeout(() => probe('timeout-120'), 120);
-    t2 = window.setTimeout(() => probe('timeout-450'), 450);
-
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-    };
-  }, [
-    logTutorialMidpoint,
-    tutorialMapDimmed,
-    tutorialMapLocked,
-    tutorialOpen,
-    tutorialRunning,
-    tutorialStep?.id,
-    tutorialViewportLocked,
-  ]);
+  const tutorialMapDimmed = false;
   const tutorialGuideTarget = useMemo<TutorialGuideTarget | null>(() => {
-    if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return null;
+    if (!tutorialRunning) return null;
+    if (tutorialStep?.id === 'map_stop_lifecycle') {
+      if (tutorialBlockingActionId !== 'map.drag_stop_marker') return null;
+      return {
+        lat: TUTORIAL_CITY_TARGETS.stoke.lat,
+        lon: TUTORIAL_CITY_TARGETS.stoke.lon,
+        radius_km: TUTORIAL_CITY_TARGETS.stoke.radiusKm,
+        label: 'Drag Midpoint Toward Stoke-on-Trent',
+        stage: 3,
+        pan_nonce: tutorialGuidePanNonce,
+        zoom: TUTORIAL_CITY_TARGETS.stoke.zoom,
+      };
+    }
+    if (tutorialStep?.id !== 'map_set_pins') return null;
     if (tutorialPlacementStage === 'done') return null;
     if (tutorialPlacementStage === 'newcastle_origin') {
       return {
@@ -1149,6 +1074,7 @@ export default function Page() {
     };
   }, [tutorialBlockingActionId, tutorialGuidePanNonce, tutorialPlacementStage, tutorialRunning, tutorialStep?.id]);
   const tutorialGuideVisible = Boolean(tutorialGuideTarget);
+  const showPreviewConnector = !tutorialRunning || tutorialStep?.id !== 'map_set_pins';
   const mapOriginForRender = useMemo(() => {
     if (!tutorialRunning || tutorialStep?.id !== 'map_set_pins') return origin;
     if (tutorialPlacementStage === 'post_confirm_marker_actions' && tutorialDragDraftOrigin) {
@@ -1321,6 +1247,60 @@ export default function Page() {
     tutorialRunning,
     tutorialStep?.id,
     tutorialViewportLocked,
+  ]);
+
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_stop_lifecycle') return;
+    if (tutorialBlockingActionId === 'pins.add_stop') {
+      setLiveMessage('Map locked. Use Pins & Stops and click Add Stop to place a midpoint.');
+      return;
+    }
+    if (tutorialBlockingActionId === 'map.click_stop_marker') {
+      setLiveMessage('Map unlocked for this task. Click the midpoint marker once.');
+      return;
+    }
+    if (tutorialBlockingActionId === 'map.popup_close') {
+      setLiveMessage('Close the midpoint popup to continue.');
+      return;
+    }
+    if (tutorialBlockingActionId === 'map.drag_stop_marker') {
+      setLiveMessage('Drag the midpoint marker once to complete this task.');
+      return;
+    }
+  }, [tutorialBlockingActionId, tutorialRunning, tutorialStep?.id]);
+
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'map_stop_lifecycle') return;
+    if (tutorialBlockingActionId !== 'map.drag_stop_marker') return;
+    if (selectedPinId !== null) {
+      setSelectedPinId(null);
+    }
+  }, [selectedPinId, tutorialBlockingActionId, tutorialRunning, tutorialStep?.id]);
+
+  useEffect(() => {
+    if (!tutorialRunning) {
+      tutorialRouteCenteredStepRef.current = null;
+      return;
+    }
+    if (!origin || !destination) return;
+    if (!tutorialStep?.id) return;
+    if (tutorialStep.id === 'map_set_pins') return;
+    if (tutorialRouteCenteredStepRef.current === tutorialStep.id) return;
+    tutorialRouteCenteredStepRef.current = tutorialStep.id;
+    setFitAllRequestNonce((prev) => prev + 1);
+    logTutorialMidpoint('route-center:sidebar-step-refit', {
+      stepId: tutorialStep.id,
+      origin,
+      destination,
+      managedStop,
+    });
+  }, [
+    destination,
+    logTutorialMidpoint,
+    managedStop,
+    origin,
+    tutorialRunning,
+    tutorialStep?.id,
   ]);
 
   useEffect(() => {
@@ -1513,6 +1493,58 @@ export default function Page() {
   const tutorialAtStart = tutorialStepIndex <= 0;
   const tutorialAtEnd = tutorialStepIndex >= TUTORIAL_STEPS.length - 1;
   const weightSum = weights.time + weights.money + weights.co2;
+
+  useEffect(() => {
+    if (!tutorialRunning || !tutorialStep?.id) {
+      tutorialAutoAdvanceTokenRef.current = '';
+      return;
+    }
+    if (!tutorialCanAdvance) {
+      tutorialAutoAdvanceTokenRef.current = '';
+      return;
+    }
+    const token = `${tutorialStep.id}:${tutorialStepIndex}:${tutorialActionSet.size}:${tutorialOptionalState?.resolved ? '1' : '0'}:${tutorialOptionalState?.actionTouched ? '1' : '0'}`;
+    if (tutorialAutoAdvanceTokenRef.current === token) return;
+    tutorialAutoAdvanceTokenRef.current = token;
+
+    const timer = window.setTimeout(() => {
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      if (tutorialAtEnd) {
+        tutorialFinish();
+      } else {
+        tutorialNext();
+      }
+    }, 420);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    tutorialActionSet.size,
+    tutorialAtEnd,
+    tutorialCanAdvance,
+    tutorialOptionalState?.actionTouched,
+    tutorialOptionalState?.resolved,
+    tutorialRunning,
+    tutorialStep?.id,
+    tutorialStepIndex,
+  ]);
+
+  useEffect(() => {
+    if (!tutorialRunning) {
+      tutorialPreviousStepIdRef.current = null;
+      return;
+    }
+    const currentStepId = tutorialStep?.id ?? null;
+    const previousStepId = tutorialPreviousStepIdRef.current;
+    if (currentStepId && previousStepId === 'map_stop_lifecycle' && currentStepId !== 'map_stop_lifecycle') {
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      setFitAllRequestNonce((prev) => prev + 1);
+    }
+    tutorialPreviousStepIdRef.current = currentStepId;
+  }, [tutorialRunning, tutorialStep?.id]);
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current !== null) {
@@ -1991,10 +2023,12 @@ export default function Page() {
 
   useEffect(() => {
     if (!tutorialRunning) return;
-    if (tutorialLockScope === 'sidebar_section_only' && isPanelCollapsed) {
+    const shouldForcePanelOpen =
+      tutorialLockScope === 'sidebar_section_only' || tutorialStep?.id === 'map_stop_lifecycle';
+    if (shouldForcePanelOpen && isPanelCollapsed) {
       setIsPanelCollapsed(false);
     }
-  }, [isPanelCollapsed, tutorialLockScope, tutorialRunning]);
+  }, [isPanelCollapsed, tutorialLockScope, tutorialRunning, tutorialStep?.id]);
 
   useEffect(() => {
     if (tutorialBootstrappedRef.current) return;
@@ -2110,8 +2144,7 @@ export default function Page() {
           return;
         }
         if (
-          !isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes) &&
-          !(isTargetAllowedByStep(target) && !tutorialUsesSectionTarget)
+          !isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)
         ) {
           if (actionId === 'pins.add_stop') {
             logTutorialMidpoint('action-event:blocked-allowlist', {
@@ -2123,6 +2156,17 @@ export default function Page() {
           }
           return;
         }
+      }
+
+      if (!isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)) {
+        if (actionId === 'pins.add_stop') {
+          logTutorialMidpoint('action-event:blocked-allowlist-global', {
+            actionId,
+            tutorialAllowedActionExact: [...tutorialAllowedActionExact],
+            tutorialAllowedActionPrefixes,
+          });
+        }
+        return;
       }
 
       if (actionId === 'pins.add_stop') {
@@ -2253,7 +2297,7 @@ export default function Page() {
           return;
         }
 
-        if (isTargetAllowedByStep(target) && !tutorialUsesSectionTarget) {
+        if (!actionId && isTargetAllowedByStep(target) && !tutorialUsesSectionTarget) {
           if (isMidpointAction) {
             logTutorialMidpoint('guard:allowed-target-step-fallback', {
               actionId,
@@ -2294,6 +2338,249 @@ export default function Page() {
     tutorialRunning,
     tutorialTargetIdSet,
     tutorialUsesSectionTarget,
+  ]);
+
+  useEffect(() => {
+    const actionNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-tutorial-action]'));
+    const targetNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-tutorial-id]'));
+    const sidebarControlNodes = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.panel button, .panel input, .panel select, .panel textarea, .panel [role="button"], .panel [role="option"]',
+      ),
+    );
+    const resetNode = (node: HTMLElement) => {
+      node.classList.remove('tutorialActionPulse', 'tutorialActionCurrent', 'tutorialActionBlocked');
+      node.removeAttribute('data-tutorial-state');
+    };
+    const resetTargetNode = (node: HTMLElement) => {
+      node.classList.remove('tutorialTargetPulse', 'tutorialTargetCurrent');
+    };
+    const resetControlNode = (node: HTMLElement) => {
+      node.classList.remove('tutorialControlBlocked');
+    };
+    actionNodes.forEach(resetNode);
+    targetNodes.forEach(resetTargetNode);
+    sidebarControlNodes.forEach(resetControlNode);
+    let styleProbeRaf = 0;
+
+    if (!tutorialRunning) return;
+
+    const activeSectionNode = tutorialActiveSectionId
+      ? document.querySelector<HTMLElement>(`[data-tutorial-id="${tutorialActiveSectionId}"]`)
+      : null;
+    const interestingActionIds = new Set<string>([
+      'map.popup_close_origin_marker',
+      'map.popup_close_destination_marker',
+      'map.popup_close',
+      tutorialBlockingActionId ?? '',
+    ]);
+
+    logTutorialPulse('highlight-pass:start', {
+      tutorialStepId: tutorialStep?.id ?? null,
+      tutorialBlockingActionId,
+      tutorialLockScope,
+      tutorialActiveSectionId,
+      tutorialTargetIds: [...tutorialTargetIdSet],
+      allowedActionExact: [...tutorialAllowedActionExact],
+      allowedActionPrefixes: tutorialAllowedActionPrefixes,
+      actionNodeCount: actionNodes.length,
+      targetNodeCount: targetNodes.length,
+      sidebarControlNodeCount: sidebarControlNodes.length,
+    });
+
+    const isInScope = (node: HTMLElement): boolean => {
+      const inMap = Boolean(node.closest('[data-tutorial-id="map.interactive"]'));
+      const inPanel = Boolean(node.closest('.panel'));
+      if (tutorialLockScope === 'map_only') return inMap;
+      if (tutorialLockScope === 'sidebar_section_only') {
+        if (!inPanel) return false;
+        if (activeSectionNode && !activeSectionNode.contains(node)) return false;
+      }
+      return true;
+    };
+
+    for (const node of actionNodes) {
+      const actionId = node.dataset.tutorialAction ?? '';
+      const inScope = isInScope(node);
+      const allowed = actionId
+        ? isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)
+        : false;
+      const isCurrent = Boolean(tutorialBlockingActionId && actionId === tutorialBlockingActionId);
+      const isBlocked = !inScope || !allowed || node.matches(':disabled');
+
+      if (isBlocked) {
+        node.classList.add('tutorialActionBlocked');
+        node.setAttribute('data-tutorial-state', 'blocked');
+        if (interestingActionIds.has(actionId)) {
+          logTutorialPulse('highlight-pass:node-blocked', {
+            actionId,
+            isCurrent,
+            inScope,
+            allowed,
+            disabled: node.matches(':disabled'),
+            nodeClassName: node.className,
+            state: node.getAttribute('data-tutorial-state'),
+          });
+        }
+        continue;
+      }
+
+      node.setAttribute('data-tutorial-state', 'active');
+      if (isCurrent) {
+        node.classList.add('tutorialActionPulse');
+        logTutorialPulse('highlight-pass:node-current', {
+          actionId,
+          inScope,
+          allowed,
+          disabled: node.matches(':disabled'),
+          nodeClassName: node.className,
+          state: node.getAttribute('data-tutorial-state'),
+        });
+      } else if (interestingActionIds.has(actionId)) {
+        logTutorialPulse('highlight-pass:node-allowed-not-current', {
+          actionId,
+          inScope,
+          allowed,
+          disabled: node.matches(':disabled'),
+          nodeClassName: node.className,
+          state: node.getAttribute('data-tutorial-state'),
+        });
+      }
+    }
+
+    for (const node of sidebarControlNodes) {
+      let blocked = false;
+      if (node.matches(':disabled')) {
+        blocked = true;
+      }
+      if (!blocked && tutorialLockScope === 'map_only') {
+        blocked = true;
+      }
+      if (!blocked && tutorialLockScope === 'sidebar_section_only') {
+        if (activeSectionNode && !activeSectionNode.contains(node)) {
+          blocked = true;
+        } else {
+          const actionHost = node.closest<HTMLElement>('[data-tutorial-action]');
+          const actionId = actionHost?.dataset.tutorialAction ?? '';
+          const actionAllowed = actionId
+            ? isTutorialActionAllowed(actionId, tutorialAllowedActionExact, tutorialAllowedActionPrefixes)
+            : false;
+          if (!actionAllowed) {
+            blocked = true;
+          }
+        }
+      }
+      if (blocked) {
+        node.classList.add('tutorialControlBlocked');
+      }
+    }
+
+    const currentActionNodes = actionNodes.filter((node) => node.classList.contains('tutorialActionCurrent'));
+    const pulsingActionNodes = actionNodes.filter((node) => node.classList.contains('tutorialActionPulse'));
+    const blockedActionNodes = actionNodes.filter((node) => node.classList.contains('tutorialActionBlocked'));
+    logTutorialPulse('highlight-pass:summary', {
+      currentCount: currentActionNodes.length,
+      pulsingCount: pulsingActionNodes.length,
+      blockedCount: blockedActionNodes.length,
+      currentActionIds: currentActionNodes.map((node) => node.dataset.tutorialAction ?? ''),
+      pulsingActionIds: pulsingActionNodes.map((node) => node.dataset.tutorialAction ?? ''),
+      blockedActionIds: blockedActionNodes.map((node) => node.dataset.tutorialAction ?? ''),
+    });
+
+    styleProbeRaf = window.requestAnimationFrame(() => {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const probeNodes = actionNodes.filter((node) => {
+        const id = node.dataset.tutorialAction ?? '';
+        return interestingActionIds.has(id);
+      });
+      const probePayload = probeNodes.map((node) => {
+        const styles = window.getComputedStyle(node);
+        const actionId = node.dataset.tutorialAction ?? '';
+        const rect = node.getBoundingClientRect();
+        return {
+          actionId,
+          className: node.className,
+          state: node.getAttribute('data-tutorial-state'),
+          animationName: styles.animationName,
+          animationDuration: styles.animationDuration,
+          animationPlayState: styles.animationPlayState,
+          opacity: styles.opacity,
+          boxShadow: styles.boxShadow,
+          filter: styles.filter,
+          display: styles.display,
+          visibility: styles.visibility,
+          pointerEvents: styles.pointerEvents,
+          rect: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+          closestPopupCardClass: node.closest('.markerPopup__card')?.className ?? null,
+        };
+      });
+      logTutorialPulse('highlight-pass:computed-style-probe', {
+        probeCount: probePayload.length,
+        reducedMotion,
+        probePayload,
+      });
+      for (const entry of probePayload) {
+        if (!entry.actionId.includes('popup_close')) continue;
+        console.log(
+          `[tutorial-pulse-debug] close-probe action=${entry.actionId} state=${entry.state} reducedMotion=${String(reducedMotion)} anim=${entry.animationName} duration=${entry.animationDuration} play=${entry.animationPlayState} boxShadow=${entry.boxShadow}`,
+        );
+      }
+
+      const closeButtons = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-tutorial-action="map.popup_close_origin_marker"], [data-tutorial-action="map.popup_close_destination_marker"], [data-tutorial-action="map.popup_close"]',
+        ),
+      );
+      logTutorialPulse('highlight-pass:close-button-dom-scan', {
+        closeButtonCount: closeButtons.length,
+        closeButtons: closeButtons.map((node) => {
+          const styles = window.getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          return {
+            actionId: node.dataset.tutorialAction ?? '',
+            className: node.className,
+            state: node.getAttribute('data-tutorial-state'),
+            animationName: styles.animationName,
+            animationDuration: styles.animationDuration,
+            animationPlayState: styles.animationPlayState,
+            boxShadow: styles.boxShadow,
+            opacity: styles.opacity,
+            filter: styles.filter,
+            pointerEvents: styles.pointerEvents,
+            rect: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+          };
+        }),
+      });
+    });
+
+    return () => {
+      if (styleProbeRaf) {
+        window.cancelAnimationFrame(styleProbeRaf);
+      }
+      actionNodes.forEach(resetNode);
+      targetNodes.forEach(resetTargetNode);
+      sidebarControlNodes.forEach(resetControlNode);
+    };
+  }, [
+    tutorialActiveSectionId,
+    tutorialAllowedActionExact,
+    tutorialAllowedActionPrefixes,
+    tutorialBlockingActionId,
+    logTutorialPulse,
+    tutorialLockScope,
+    tutorialRunning,
+    tutorialStep?.id,
+    tutorialTargetIdSet,
   ]);
 
   useEffect(() => {
@@ -2853,10 +3140,39 @@ export default function Page() {
     return true;
   }
 
-  function handleMoveStop(lat: number, lon: number) {
+  function handleMoveStop(lat: number, lon: number): boolean {
     setError(null);
+    if (!managedStop) return false;
+    if (
+      tutorialRunning &&
+      tutorialStep?.id === 'map_stop_lifecycle' &&
+      tutorialBlockingActionId === 'map.drag_stop_marker'
+    ) {
+      const target = TUTORIAL_CITY_TARGETS.stoke;
+      const distanceKm = haversineDistanceKm(
+        { lat, lon },
+        { lat: target.lat, lon: target.lon },
+      );
+      if (distanceKm > target.radiusKm) {
+        const approxMiles = Math.round(target.radiusKm * 0.621371);
+        setLiveMessage(
+          `Keep midpoint stop inside the Stoke guided zone (~${approxMiles} miles radius).`,
+        );
+        logTutorialMidpoint('stop-drag:rejected-outside-guided-zone', {
+          lat,
+          lon,
+          distanceKm,
+          radiusKm: target.radiusKm,
+          tutorialBlockingActionId,
+        });
+        return false;
+      }
+    }
     setManagedStop((prev) => (prev ? { ...prev, lat, lon } : prev));
+    setSelectedPinId(null);
+    setFocusPinRequest(null);
     clearComputed();
+    return true;
   }
 
   function addStopFromMidpoint() {
@@ -4048,6 +4364,7 @@ export default function Page() {
           showStopOverlay={showStopOverlay}
           showIncidentOverlay={showIncidentOverlay}
           showSegmentTooltips={showSegmentTooltips}
+          showPreviewConnector={showPreviewConnector}
           overlayLabels={mapOverlayLabels}
           tutorialMapLocked={tutorialMapLocked}
           tutorialMapDimmed={tutorialMapDimmed}
