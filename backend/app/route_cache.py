@@ -13,7 +13,7 @@ from .settings import settings
 @dataclass
 class _RouteCacheEntry:
     inserted_at: float
-    payload: tuple[list[dict[str, Any]], list[str], int]
+    payload: tuple[list[dict[str, Any]], list[str], int] | tuple[list[dict[str, Any]], list[str], int, dict[str, Any]]
 
 
 class RouteCacheStore:
@@ -30,7 +30,9 @@ class RouteCacheStore:
     def _is_expired(self, entry: _RouteCacheEntry) -> bool:
         return (time.time() - entry.inserted_at) > self._ttl_s
 
-    def get(self, key: str) -> tuple[list[dict[str, Any]], list[str], int] | None:
+    def get(
+        self, key: str
+    ) -> tuple[list[dict[str, Any]], list[str], int] | tuple[list[dict[str, Any]], list[str], int, dict[str, Any]] | None:
         with self._lock:
             entry = self._items.get(key)
             if entry is None:
@@ -46,7 +48,11 @@ class RouteCacheStore:
             self._hits += 1
             return copy.deepcopy(entry.payload)
 
-    def set(self, key: str, value: tuple[list[dict[str, Any]], list[str], int]) -> None:
+    def set(
+        self,
+        key: str,
+        value: tuple[list[dict[str, Any]], list[str], int] | tuple[list[dict[str, Any]], list[str], int, dict[str, Any]],
+    ) -> None:
         payload = copy.deepcopy(value)
         with self._lock:
             if key in self._items:
@@ -81,11 +87,16 @@ ROUTE_CACHE = RouteCacheStore(
 )
 
 
-def get_cached_routes(key: str) -> tuple[list[dict[str, Any]], list[str], int] | None:
+def get_cached_routes(
+    key: str,
+) -> tuple[list[dict[str, Any]], list[str], int] | tuple[list[dict[str, Any]], list[str], int, dict[str, Any]] | None:
     return ROUTE_CACHE.get(key)
 
 
-def set_cached_routes(key: str, value: tuple[list[dict[str, Any]], list[str], int]) -> None:
+def set_cached_routes(
+    key: str,
+    value: tuple[list[dict[str, Any]], list[str], int] | tuple[list[dict[str, Any]], list[str], int, dict[str, Any]],
+) -> None:
     ROUTE_CACHE.set(key, value)
 
 

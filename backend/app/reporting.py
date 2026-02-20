@@ -46,7 +46,6 @@ def _report_lines(
         f"pair_count: {metadata.get('pair_count', execution.get('pair_count', 'n/a'))}",
         f"error_count: {metadata.get('error_count', execution.get('error_count', 'n/a'))}",
         f"duration_ms: {metadata.get('duration_ms', execution.get('duration_ms', 'n/a'))}",
-        f"fallback_used: {metadata.get('fallback_used', execution.get('fallback_used', 'n/a'))}",
         f"optimization_mode: {execution.get('optimization_mode', 'expected_value')}",
         f"risk_aversion: {execution.get('risk_aversion', 1.0)}",
         (

@@ -33,6 +33,9 @@ backend/out/analysis/*
 !backend/out/analysis/.gitkeep
 backend/out/experiments/*
 !backend/out/experiments/.gitkeep
+backend/out/model_assets/*
+!backend/out/model_assets/.gitkeep
+backend/assets/uk/*.osm.pbf
 
 # Frontend
 frontend/node_modules/

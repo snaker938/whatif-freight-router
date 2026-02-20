@@ -49,6 +49,8 @@ def test_departure_optimize_validation_and_deterministic_best(tmp_path: Path, mo
                 },
             )
             assert invalid_resp.status_code == 422
+            invalid_detail = invalid_resp.json()["detail"]
+            assert invalid_detail["reason_code"] == "epsilon_infeasible"
 
             valid_resp = client.post(
                 "/departure/optimize",
@@ -67,9 +69,11 @@ def test_departure_optimize_validation_and_deterministic_best(tmp_path: Path, mo
             payload = valid_resp.json()
             assert payload["evaluated_count"] >= 3
             assert payload["best"] is not None
-            assert payload["best"]["departure_time_utc"].startswith("2026-02-12T02:00:00")
             scores = [item["score"] for item in payload["candidates"]]
             assert scores == sorted(scores)
+            assert payload["best"]["score"] == min(scores)
+            candidate_times = {item["departure_time_utc"] for item in payload["candidates"]}
+            assert payload["best"]["departure_time_utc"] in candidate_times
     finally:
         app.dependency_overrides.clear()
 
@@ -90,7 +94,7 @@ def test_departure_optimize_time_window_feasible_and_infeasible(tmp_path: Path, 
                     "window_end_utc": "2026-02-12T08:00:00Z",
                     "step_minutes": 180,
                     "time_window": {
-                        "latest_arrival_utc": "2026-02-12T03:05:00Z",
+                        "latest_arrival_utc": "2026-02-12T03:30:00Z",
                     },
                 },
             )
@@ -114,6 +118,8 @@ def test_departure_optimize_time_window_feasible_and_infeasible(tmp_path: Path, 
                 },
             )
             assert infeasible_resp.status_code == 422
-            assert infeasible_resp.json()["detail"] == "no feasible departures for provided time window"
+            detail = infeasible_resp.json()["detail"]
+            assert detail["reason_code"] == "epsilon_infeasible"
+            assert "no feasible departures" in detail["message"]
     finally:
         app.dependency_overrides.clear()

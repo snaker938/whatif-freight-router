@@ -1,0 +1,8 @@
+{
+  "fixture_id": "class_0056",
+  "route_fixture": "bristol_manchester_mixed.json",
+  "expected_has_toll": false,
+  "expected_reason": "step_class_signal",
+  "weight": 0.9342,
+  "as_of_utc": "2026-02-20T12:07:46Z"
+}

@@ -1,0 +1,21 @@
+{
+  "distance": 76000.0,
+  "duration": 4200.0,
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [[-4.2518,55.8642],[-3.8,55.9],[-3.1883,55.9533]]
+  },
+  "legs": [
+    {
+      "annotation": {
+        "distance": [25000.0, 25000.0, 26000.0],
+        "duration": [1400.0, 1350.0, 1450.0]
+      },
+      "steps": [
+        {"distance": 25000.0, "classes": ["motorway"]},
+        {"distance": 25000.0, "classes": ["trunk"]},
+        {"distance": 26000.0, "classes": ["primary"]}
+      ]
+    }
+  ]
+}

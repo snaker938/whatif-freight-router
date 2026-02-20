@@ -91,12 +91,9 @@ def _summarise_batch(batch: dict[str, Any], seed: int) -> dict[str, Any]:
     durations: list[float] = []
     moneys: list[float] = []
     emissions: list[float] = []
-    fallback_count = 0
     error_count = 0
 
     for item in results:
-        if item.get("fallback_used"):
-            fallback_count += 1
         if item.get("error"):
             error_count += 1
             continue
@@ -114,7 +111,6 @@ def _summarise_batch(batch: dict[str, Any], seed: int) -> dict[str, Any]:
         "seed": seed,
         "run_id": batch.get("run_id", ""),
         "error_count": error_count,
-        "fallback_count": fallback_count,
         "avg_duration_s": round(statistics.fmean(durations), 6) if durations else 0.0,
         "avg_monetary_cost": round(statistics.fmean(moneys), 6) if moneys else 0.0,
         "avg_emissions_kg": round(statistics.fmean(emissions), 6) if emissions else 0.0,
@@ -201,7 +197,6 @@ def _write_outputs(
                 "seed",
                 "run_id",
                 "error_count",
-                "fallback_count",
                 "avg_duration_s",
                 "avg_monetary_cost",
                 "avg_emissions_kg",

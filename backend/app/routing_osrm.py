@@ -132,6 +132,7 @@ class OSRMClient:
             "overview": "full",
             "geometries": "geojson",
             "annotations": "true",
+            "steps": "true",
         }
         if exclude:
             base_params["exclude"] = exclude

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 from .models import EpsilonConstraints, ParetoMethod, RouteOption
 from .pareto import pareto_filter
@@ -13,67 +14,55 @@ def _norm(v: float, vmin: float, vmax: float) -> float:
 def filter_by_epsilon(
     options: list[RouteOption],
     epsilon: EpsilonConstraints | None,
+    objective_key: Callable[[RouteOption], tuple[float, ...]] | None = None,
 ) -> list[RouteOption]:
     if epsilon is None:
         return options
 
     filtered: list[RouteOption] = []
     for route in options:
-        m = route.metrics
-        if epsilon.duration_s is not None and m.duration_s > epsilon.duration_s:
+        # Epsilon bounds are always interpreted against raw physical objectives
+        # (duration/money/co2), independent of any robust utility objective keying.
+        duration_s = float(route.metrics.duration_s)
+        monetary_cost = float(route.metrics.monetary_cost)
+        emissions_kg = float(route.metrics.emissions_kg)
+        if epsilon.duration_s is not None and duration_s > epsilon.duration_s:
             continue
-        if epsilon.monetary_cost is not None and m.monetary_cost > epsilon.monetary_cost:
+        if epsilon.monetary_cost is not None and monetary_cost > epsilon.monetary_cost:
             continue
-        if epsilon.emissions_kg is not None and m.emissions_kg > epsilon.emissions_kg:
+        if epsilon.emissions_kg is not None and emissions_kg > epsilon.emissions_kg:
             continue
         filtered.append(route)
     return filtered
 
 
-def _fallback_diverse_subset(options: list[RouteOption], max_alternatives: int) -> list[RouteOption]:
-    desired = min(len(options), max(2, min(max_alternatives, 4)))
-    ranked_time = sorted(options, key=lambda o: o.metrics.duration_s)
-    ranked_cost = sorted(options, key=lambda o: o.metrics.monetary_cost)
-    ranked_co2 = sorted(options, key=lambda o: o.metrics.emissions_kg)
-
-    chosen: dict[str, RouteOption] = {}
-
-    def pick_first(ranked: list[RouteOption]) -> None:
-        for route in ranked:
-            if route.id not in chosen:
-                chosen[route.id] = route
-                return
-
-    for ranked in (ranked_time, ranked_cost, ranked_co2):
-        pick_first(ranked)
-
-    for route in ranked_time:
-        if len(chosen) >= desired:
-            break
-        if route.id not in chosen:
-            chosen[route.id] = route
-
-    return sorted(chosen.values(), key=lambda route: (route.metrics.duration_s, route.id))
-
-
-def annotate_knee_scores(routes: list[RouteOption]) -> list[RouteOption]:
+def annotate_knee_scores(
+    routes: list[RouteOption],
+    objective_key: Callable[[RouteOption], tuple[float, ...]] | None = None,
+) -> list[RouteOption]:
     if not routes:
         return []
 
-    durations = [r.metrics.duration_s for r in routes]
-    costs = [r.metrics.monetary_cost for r in routes]
-    co2s = [r.metrics.emissions_kg for r in routes]
-
-    dmin, dmax = min(durations), max(durations)
-    cmin, cmax = min(costs), max(costs)
-    emin, emax = min(co2s), max(co2s)
+    objective = objective_key or (
+        lambda route: (
+            float(route.metrics.duration_s),
+            float(route.metrics.monetary_cost),
+            float(route.metrics.emissions_kg),
+        )
+    )
+    objective_values = [objective(route) for route in routes]
+    dim_count = len(objective_values[0])
+    mins = [min(vals[idx] for vals in objective_values) for idx in range(dim_count)]
+    maxs = [max(vals[idx] for vals in objective_values) for idx in range(dim_count)]
 
     scores: list[tuple[float, RouteOption]] = []
-    for route in routes:
-        d = _norm(route.metrics.duration_s, dmin, dmax)
-        c = _norm(route.metrics.monetary_cost, cmin, cmax)
-        e = _norm(route.metrics.emissions_kg, emin, emax)
-        score = math.sqrt((d * d) + (c * c) + (e * e))
+    for route, values in zip(routes, objective_values, strict=True):
+        score = math.sqrt(
+            sum(
+                (_norm(values[idx], mins[idx], maxs[idx]) ** 2)
+                for idx in range(dim_count)
+            )
+        )
         scores.append((score, route))
 
     knee_route_id = min(
@@ -100,21 +89,36 @@ def select_pareto_routes(
     max_alternatives: int,
     pareto_method: ParetoMethod,
     epsilon: EpsilonConstraints | None,
+    objective_key: Callable[[RouteOption], tuple[float, ...]] | None = None,
+    strict_frontier: bool = False,
 ) -> list[RouteOption]:
+    objective = objective_key or (
+        lambda route: (
+            float(route.metrics.duration_s),
+            float(route.metrics.monetary_cost),
+            float(route.metrics.emissions_kg),
+        )
+    )
     considered = options
     if pareto_method == "epsilon_constraint":
-        constrained = filter_by_epsilon(options, epsilon)
-        if constrained:
-            considered = constrained
+        constrained = filter_by_epsilon(options, epsilon, objective_key=objective)
+        considered = constrained
 
-    pareto = pareto_filter(
-        considered,
-        key=lambda o: (o.metrics.duration_s, o.metrics.monetary_cost, o.metrics.emissions_kg),
-    )
-    pareto_sorted = sorted(pareto, key=lambda o: (o.metrics.duration_s, o.id))
+    if not considered:
+        return []
 
-    if len(pareto_sorted) < 2 and len(considered) > 1:
-        pareto_sorted = _fallback_diverse_subset(considered, max_alternatives=max_alternatives)
+    pareto = pareto_filter(considered, key=objective)
+    pareto_sorted = sorted(pareto, key=lambda option: (*objective(option), option.id))
+    if strict_frontier:
+        return annotate_knee_scores(pareto_sorted, objective_key=objective)
 
-    return annotate_knee_scores(pareto_sorted)
+    if pareto_sorted:
+        return annotate_knee_scores(
+            pareto_sorted[: max(1, max_alternatives)],
+            objective_key=objective,
+        )
 
+    # Non-strict fallback only when strict frontier is disabled and no pareto
+    # candidates survived (e.g. corrupted objective payloads).
+    non_strict_sorted = sorted(considered, key=lambda option: (*objective(option), option.id))
+    return annotate_knee_scores(non_strict_sorted[:max(1, max_alternatives)], objective_key=objective)

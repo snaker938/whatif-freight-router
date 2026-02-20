@@ -1,0 +1,8 @@
+{
+  "fixture_id": "price_0085",
+  "route_fixture": "cardiff_bristol_crossing.json",
+  "expected_contains_toll": true,
+  "expected_toll_cost_gbp": 5.76,
+  "expected_currency": "GBP",
+  "as_of_utc": "2026-02-20T12:07:46Z"
+}

@@ -44,7 +44,7 @@ def test_finalize_pareto_prefers_true_nondominated_set() -> None:
     assert ids == {"r0", "r1"}
 
 
-def test_finalize_pareto_fallback_returns_multiple_choices() -> None:
+def test_finalize_pareto_strict_default_does_not_inject_fallback_choices() -> None:
     options = [
         _option("best", duration=100.0, money=10.0, co2=10.0),
         _option("dominated_a", duration=110.0, money=12.0, co2=12.0),
@@ -52,8 +52,7 @@ def test_finalize_pareto_fallback_returns_multiple_choices() -> None:
     ]
 
     out = _finalize_pareto_options(options, max_alternatives=5)
-    assert len(out) >= 2
-    assert any(o.id == "best" for o in out)
+    assert [option.id for option in out] == ["best"]
 
 
 def test_select_ranked_candidate_routes_sorts_by_duration() -> None:

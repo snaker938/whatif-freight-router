@@ -4,31 +4,42 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react';
 
+import BatchRunner from './components/devtools/BatchRunner';
 import CollapsibleCard from './components/CollapsibleCard';
 import CounterfactualPanel from './components/CounterfactualPanel';
+import CustomVehicleManager from './components/devtools/CustomVehicleManager';
 import DepartureOptimizerChart from './components/DepartureOptimizerChart';
 import DutyChainPlanner from './components/DutyChainPlanner';
 import ExperimentManager from './components/ExperimentManager';
 import FieldInfo from './components/FieldInfo';
+import OpsDiagnosticsPanel from './components/devtools/OpsDiagnosticsPanel';
 import OracleQualityDashboard from './components/OracleQualityDashboard';
 import PinManager from './components/PinManager';
+import RunInspector from './components/devtools/RunInspector';
 import ScenarioParameterEditor, {
   type ScenarioAdvancedParams,
 } from './components/ScenarioParameterEditor';
 import ScenarioTimeLapse from './components/ScenarioTimeLapse';
 import Select, { type SelectOption } from './components/Select';
-import { postJSON, postNDJSON } from './lib/api';
+import SignatureVerifier from './components/devtools/SignatureVerifier';
+import { deleteJSON, getJSON, getText, postJSON, postNDJSON, putJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
 import { buildManagedPinNodes } from './lib/mapOverlays';
+import {
+  buildDepartureOptimizeRequest,
+  buildDutyChainRequest,
+  buildParetoRequest,
+  buildRouteRequest,
+  buildScenarioCompareRequest as buildScenarioCompareRequestPayload,
+  type RoutingAdvancedPatch,
+} from './lib/requestBuilders';
 import {
   SIDEBAR_FIELD_HELP,
   SIDEBAR_SECTION_HINTS,
   vehicleDescriptionFromId,
 } from './lib/sidebarHelpText';
 import {
-  LEGACY_TUTORIAL_COMPLETED_KEYS,
-  LEGACY_TUTORIAL_PROGRESS_KEYS,
   TUTORIAL_CANONICAL_DESTINATION,
   TUTORIAL_CANONICAL_DUTY_STOPS,
   TUTORIAL_CANONICAL_ORIGIN,
@@ -53,6 +64,25 @@ import type {
 } from './lib/tutorial/types';
 import type {
   CostToggles,
+  ComputeMode,
+  CustomVehicleListResponse,
+  EmissionsContext,
+  FuelType,
+  EuroClass,
+  HealthResponse,
+  IncidentSimulatorConfig,
+  MetricsResponse,
+  CacheStatsResponse,
+  CacheClearResponse,
+  RouteRequest,
+  RouteResponse,
+  ParetoRequest,
+  BatchParetoRequest,
+  BatchCSVImportRequest,
+  BatchParetoResponse,
+  RunArtifactsListResponse,
+  SignatureVerificationRequest,
+  SignatureVerificationResponse,
   DutyChainRequest,
   DutyChainResponse,
   DepartureOptimizeRequest,
@@ -66,6 +96,7 @@ import type {
   OracleFeedCheckRecord,
   OracleQualityDashboardResponse,
   OptimizationMode,
+  ParetoResponse,
   ParetoMethod,
   ParetoStreamEvent,
   ManagedStop,
@@ -81,6 +112,9 @@ import type {
   TutorialGuideTarget,
   VehicleListResponse,
   VehicleProfile,
+  Waypoint,
+  WeatherImpactConfig,
+  WeatherProfile,
 } from './lib/types';
 import { normaliseWeights, pickBestByWeightedSum, type WeightState } from './lib/weights';
 
@@ -181,6 +215,9 @@ const ScenarioComparison = dynamic<
     loading: boolean;
     error: string | null;
     locale: Locale;
+    onInspectScenarioManifest?: (runId: string) => void;
+    onInspectScenarioSignature?: (runId: string) => void;
+    onOpenRunInspector?: (runId: string) => void;
   }
 >(() => import('./components/ScenarioComparison'), {
   ssr: false,
@@ -258,6 +295,7 @@ const TutorialOverlay = dynamic<
 });
 
 const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
+  maxAlternatives: '24',
   paretoMethod: 'dominance',
   epsilonDurationS: '',
   epsilonMonetaryCost: '',
@@ -274,6 +312,22 @@ const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   stochasticSeed: '',
   stochasticSigma: '0.08',
   stochasticSamples: '25',
+  fuelType: 'diesel',
+  euroClass: 'euro6',
+  ambientTempC: '15',
+  weatherEnabled: false,
+  weatherProfile: 'clear',
+  weatherIntensity: '1.0',
+  weatherIncidentUplift: true,
+  incidentSimulationEnabled: false,
+  incidentSeed: '',
+  incidentDwellRatePer100km: '0.8',
+  incidentAccidentRatePer100km: '0.25',
+  incidentClosureRatePer100km: '0.05',
+  incidentDwellDelayS: '120',
+  incidentAccidentDelayS: '480',
+  incidentClosureDelayS: '900',
+  incidentMaxEventsPerRoute: '12',
 };
 
 const LOCALE_STORAGE_KEY = 'ui_locale_v1';
@@ -339,15 +393,16 @@ function toDutyLine(lat: number, lon: number, label?: string): string {
 
 function serializePinsToDutyText(
   origin: LatLng | null,
-  stop: ManagedStop | null,
+  stops: Array<{ lat: number; lon: number; label?: string | null }>,
   destination: LatLng | null,
 ): string {
   const lines: string[] = [];
   if (origin) {
     lines.push(toDutyLine(origin.lat, origin.lon, 'Start'));
   }
-  if (stop) {
-    lines.push(toDutyLine(stop.lat, stop.lon, stop.label || 'Stop #1'));
+  for (let idx = 0; idx < stops.length; idx += 1) {
+    const stop = stops[idx];
+    lines.push(toDutyLine(stop.lat, stop.lon, stop.label || `Stop #${idx + 1}`));
   }
   if (destination) {
     lines.push(toDutyLine(destination.lat, destination.lon, 'End'));
@@ -361,6 +416,7 @@ type ParsedPinSync =
       origin: LatLng | null;
       destination: LatLng | null;
       stop: ManagedStop | null;
+      stops: Array<{ lat: number; lon: number; label: string }>;
     }
   | {
       ok: false;
@@ -379,11 +435,8 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
       origin: null,
       destination: null,
       stop: null,
+      stops: [],
     };
-  }
-
-  if (lines.length > 3) {
-    return { ok: false, error: 'One-stop mode allows at most one intermediate stop (three lines total).' };
   }
 
   const parsed = lines.map((line, idx) => {
@@ -413,25 +466,63 @@ function parseDutyTextToPins(text: string): ParsedPinSync {
       origin: { lat: first.lat, lon: first.lon },
       destination: null,
       stop: null,
+      stops: [],
     };
   }
 
   const first = parsed[0];
   const last = parsed[parsed.length - 1];
-  const mid = parsed.length === 3 ? parsed[1] : null;
+  const stopRows = parsed.slice(1, -1).map((row, idx) => ({
+    lat: row.lat,
+    lon: row.lon,
+    label: row.label || `Stop #${idx + 1}`,
+  }));
+  const firstStop = stopRows[0] ?? null;
   return {
     ok: true,
     origin: { lat: first.lat, lon: first.lon },
     destination: { lat: last.lat, lon: last.lon },
-    stop: mid
+    stop: firstStop
       ? {
           id: 'stop-1',
-          lat: mid.lat,
-          lon: mid.lon,
-          label: mid.label || 'Stop #1',
+          lat: firstStop.lat,
+          lon: firstStop.lon,
+          label: firstStop.label,
         }
       : null,
+    stops: stopRows,
   };
+}
+
+function extractIntermediateStops(text: string): Array<{ lat: number; lon: number; label: string }> {
+  const parsed = parseDutyTextToPins(text);
+  if (!parsed.ok) return [];
+  return parsed.stops;
+}
+
+function buildDutyStopsForTextSync(
+  dutyStopsText: string,
+  managedStop: ManagedStop | null,
+): Array<{ lat: number; lon: number; label: string }> {
+  const existing = extractIntermediateStops(dutyStopsText);
+  if (!managedStop) return [];
+  if (existing.length === 0) {
+    return [
+      {
+        lat: managedStop.lat,
+        lon: managedStop.lon,
+        label: managedStop.label || 'Stop #1',
+      },
+    ];
+  }
+  return [
+    {
+      lat: managedStop.lat,
+      lon: managedStop.lon,
+      label: managedStop.label || existing[0].label || 'Stop #1',
+    },
+    ...existing.slice(1),
+  ];
 }
 
 function RoutesSkeleton() {
@@ -566,6 +657,13 @@ function inferTutorialLockScope(step: TutorialStep | null): TutorialLockScope {
 function isTutorialActionAllowed(actionId: string, allowSet: Set<string>, allowPrefixes: string[]): boolean {
   if (!actionId) return false;
   if (allowSet.has(actionId)) return true;
+  if (actionId.endsWith(':open')) {
+    const stem = actionId.slice(0, -5);
+    if (allowSet.has(stem)) return true;
+    for (const allowedId of allowSet) {
+      if (allowedId.startsWith(`${stem}:`)) return true;
+    }
+  }
   return allowPrefixes.some((prefix) => actionId.startsWith(prefix));
 }
 
@@ -585,6 +683,22 @@ const TUTORIAL_FORCE_ONLY_ACTIONS = new Set([
   'map.confirm_destination_london',
   'map.confirm_drag_destination_marker',
   'map.confirm_drag_origin_marker',
+]);
+const TUTORIAL_VALUE_CONSTRAINED_ACTIONS = new Set([
+  'advanced.risk_aversion_input',
+  'advanced.epsilon_duration_input',
+  'advanced.epsilon_money_input',
+  'advanced.epsilon_emissions_input',
+  'advanced.stochastic_seed_input',
+  'advanced.stochastic_sigma_input',
+  'advanced.stochastic_samples_input',
+  'advanced.use_tolls_toggle',
+  'advanced.fuel_multiplier_input',
+  'advanced.carbon_price_input',
+  'advanced.toll_per_km_input',
+  'pref.weight_time',
+  'pref.weight_money',
+  'pref.weight_co2',
 ]);
 
 function haversineDistanceKm(a: LatLng, b: LatLng): number {
@@ -620,6 +734,7 @@ export default function Page() {
   const [weights, setWeights] = useState<WeightState>({ time: 60, money: 20, co2: 20 });
   const [advancedParams, setAdvancedParams] = useState<ScenarioAdvancedParams>(DEFAULT_ADVANCED_PARAMS);
   const [advancedError, setAdvancedError] = useState<string | null>(null);
+  const [computeMode, setComputeMode] = useState<ComputeMode>('pareto_stream');
   const [routeSort, setRouteSort] = useState<'duration' | 'cost' | 'co2'>('duration');
 
   const [paretoRoutes, setParetoRoutes] = useState<RouteOption[]>([]);
@@ -662,6 +777,33 @@ export default function Page() {
   const [oracleIngestLoading, setOracleIngestLoading] = useState(false);
   const [oracleError, setOracleError] = useState<string | null>(null);
   const [oracleLatestCheck, setOracleLatestCheck] = useState<OracleFeedCheckRecord | null>(null);
+  const [opsHealth, setOpsHealth] = useState<HealthResponse | null>(null);
+  const [opsMetrics, setOpsMetrics] = useState<MetricsResponse | null>(null);
+  const [opsCacheStats, setOpsCacheStats] = useState<CacheStatsResponse | null>(null);
+  const [opsLoading, setOpsLoading] = useState(false);
+  const [opsClearing, setOpsClearing] = useState(false);
+  const [opsError, setOpsError] = useState<string | null>(null);
+  const [customVehicles, setCustomVehicles] = useState<VehicleProfile[]>([]);
+  const [customVehiclesLoading, setCustomVehiclesLoading] = useState(false);
+  const [customVehicleSaving, setCustomVehicleSaving] = useState(false);
+  const [customVehicleError, setCustomVehicleError] = useState<string | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchParetoResponse | null>(null);
+  const [signatureLoading, setSignatureLoading] = useState(false);
+  const [signatureError, setSignatureError] = useState<string | null>(null);
+  const [signatureResult, setSignatureResult] = useState<SignatureVerificationResponse | null>(null);
+  const [runInspectorRunId, setRunInspectorRunId] = useState('');
+  const [runInspectorLoading, setRunInspectorLoading] = useState(false);
+  const [runInspectorError, setRunInspectorError] = useState<string | null>(null);
+  const [runManifest, setRunManifest] = useState<unknown | null>(null);
+  const [runScenarioManifest, setRunScenarioManifest] = useState<unknown | null>(null);
+  const [runProvenance, setRunProvenance] = useState<unknown | null>(null);
+  const [runSignature, setRunSignature] = useState<unknown | null>(null);
+  const [runScenarioSignature, setRunScenarioSignature] = useState<unknown | null>(null);
+  const [runArtifacts, setRunArtifacts] = useState<RunArtifactsListResponse | null>(null);
+  const [runArtifactPreviewName, setRunArtifactPreviewName] = useState<string | null>(null);
+  const [runArtifactPreviewText, setRunArtifactPreviewText] = useState<string | null>(null);
   const [timeLapsePosition, setTimeLapsePosition] = useState<LatLng | null>(null);
   const [showStopOverlay, setShowStopOverlay] = useState(true);
   const [showIncidentOverlay, setShowIncidentOverlay] = useState(true);
@@ -1003,7 +1145,7 @@ export default function Page() {
   const tutorialHideZoomControls = tutorialRunning;
   const tutorialRelaxBounds =
     tutorialRunning &&
-    tutorialStep?.id === 'map_stop_lifecycle';
+    (tutorialStep?.id === 'map_stop_lifecycle' || tutorialMapLocked);
   const tutorialMapDimmed = false;
   const tutorialGuideTarget = useMemo<TutorialGuideTarget | null>(() => {
     if (!tutorialRunning) return null;
@@ -1203,7 +1345,11 @@ export default function Page() {
         setDestination(stableDestination);
       }
       if (stableOrigin && stableDestination) {
-        const canonicalDutyText = serializePinsToDutyText(stableOrigin, managedStop, stableDestination);
+        const canonicalDutyText = serializePinsToDutyText(
+          stableOrigin,
+          buildDutyStopsForTextSync(dutyStopsText, managedStop),
+          stableDestination,
+        );
         dutySyncSourceRef.current = 'pins';
         setDutyStopsText(canonicalDutyText);
         setDutySyncError(null);
@@ -1232,6 +1378,7 @@ export default function Page() {
     destination,
     logMidpointFitFlow,
     logTutorialMidpoint,
+    dutyStopsText,
     managedStop,
     origin,
     tutorialBlockingActionId,
@@ -1548,6 +1695,66 @@ export default function Page() {
     }
   }, []);
 
+  const tutorialActionValueSatisfied = useCallback(
+    (actionId: string): boolean => {
+      const parseNumber = (raw: string): number | null => {
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : null;
+      };
+      const nearlyEqual = (a: number | null, b: number, tolerance = 1e-3): boolean =>
+        a !== null && Math.abs(a - b) <= tolerance;
+
+      switch (actionId) {
+        case 'advanced.risk_aversion_input':
+          return nearlyEqual(parseNumber(advancedParams.riskAversion), 1.4, 1e-4);
+        case 'advanced.epsilon_duration_input':
+          return nearlyEqual(parseNumber(advancedParams.epsilonDurationS), 9000, 1e-3);
+        case 'advanced.epsilon_money_input':
+          return nearlyEqual(parseNumber(advancedParams.epsilonMonetaryCost), 250, 1e-3);
+        case 'advanced.epsilon_emissions_input':
+          return nearlyEqual(parseNumber(advancedParams.epsilonEmissionsKg), 900, 1e-3);
+        case 'advanced.stochastic_seed_input':
+          return nearlyEqual(parseNumber(advancedParams.stochasticSeed), 42, 1e-6);
+        case 'advanced.stochastic_sigma_input':
+          return nearlyEqual(parseNumber(advancedParams.stochasticSigma), 0.08, 1e-5);
+        case 'advanced.stochastic_samples_input':
+          return nearlyEqual(parseNumber(advancedParams.stochasticSamples), 25, 1e-6);
+        case 'advanced.use_tolls_toggle':
+          return advancedParams.useTolls;
+        case 'advanced.fuel_multiplier_input':
+          return nearlyEqual(parseNumber(advancedParams.fuelPriceMultiplier), 1.1, 1e-5);
+        case 'advanced.carbon_price_input':
+          return nearlyEqual(parseNumber(advancedParams.carbonPricePerKg), 0.08, 1e-5);
+        case 'advanced.toll_per_km_input':
+          return nearlyEqual(parseNumber(advancedParams.tollCostPerKm), 0.12, 1e-5);
+        case 'pref.weight_time':
+          return weights.time === 55;
+        case 'pref.weight_money':
+          return weights.money === 25;
+        case 'pref.weight_co2':
+          return weights.co2 === 20;
+        default:
+          return true;
+      }
+    },
+    [
+      advancedParams.carbonPricePerKg,
+      advancedParams.epsilonDurationS,
+      advancedParams.epsilonEmissionsKg,
+      advancedParams.epsilonMonetaryCost,
+      advancedParams.fuelPriceMultiplier,
+      advancedParams.riskAversion,
+      advancedParams.stochasticSamples,
+      advancedParams.stochasticSeed,
+      advancedParams.stochasticSigma,
+      advancedParams.tollCostPerKm,
+      advancedParams.useTolls,
+      weights.co2,
+      weights.money,
+      weights.time,
+    ],
+  );
+
   const markTutorialAction = useCallback(
     (actionId: string, options?: { force?: boolean }) => {
       if (!actionId) return;
@@ -1555,6 +1762,9 @@ export default function Page() {
         return;
       }
       if (TUTORIAL_FORCE_ONLY_ACTIONS.has(actionId) && !options?.force) {
+        return;
+      }
+      if (!options?.force && !tutorialActionValueSatisfied(actionId)) {
         return;
       }
       const nextRequiredAction = tutorialBlockingActionId ?? tutorialNextRequiredActionId;
@@ -1574,10 +1784,27 @@ export default function Page() {
       tutorialActionSet,
       tutorialBlockingActionId,
       tutorialNextRequiredActionId,
+      tutorialActionValueSatisfied,
       tutorialRunning,
       tutorialStepId,
     ],
   );
+
+  useEffect(() => {
+    if (!tutorialRunning) return;
+    const actionId = tutorialBlockingActionId;
+    if (!actionId) return;
+    if (!TUTORIAL_VALUE_CONSTRAINED_ACTIONS.has(actionId)) return;
+    if (tutorialActionSet.has(actionId)) return;
+    if (!tutorialActionValueSatisfied(actionId)) return;
+    markTutorialAction(actionId);
+  }, [
+    markTutorialAction,
+    tutorialActionSet,
+    tutorialActionValueSatisfied,
+    tutorialBlockingActionId,
+    tutorialRunning,
+  ]);
 
   const markTutorialOptionalDefault = useCallback(
     (decisionId: string) => {
@@ -1622,34 +1849,34 @@ export default function Page() {
       }
 
       if (prefillId === 'canonical_setup') {
-        setVehicleType('rigid_hgv');
-        setScenarioMode('no_sharing');
+        setVehicleType('');
+        setScenarioMode('partial_sharing');
       }
 
       if (prefillId === 'canonical_advanced') {
         setAdvancedParams((prev) => ({
           ...prev,
-          optimizationMode: 'robust',
-          riskAversion: '1.4',
-          paretoMethod: 'epsilon_constraint',
-          epsilonDurationS: '9000',
-          epsilonMonetaryCost: '250',
-          epsilonEmissionsKg: '900',
-          departureTimeUtcLocal: nextUtcHourLocalInput(),
-          stochasticEnabled: true,
-          stochasticSeed: '42',
-          stochasticSigma: '0.08',
-          stochasticSamples: '25',
-          terrainProfile: 'rolling',
-          useTolls: true,
-          fuelPriceMultiplier: '1.1',
-          carbonPricePerKg: '0.08',
-          tollCostPerKm: '0.12',
+          optimizationMode: 'expected_value',
+          riskAversion: '1.0',
+          paretoMethod: 'dominance',
+          epsilonDurationS: '',
+          epsilonMonetaryCost: '',
+          epsilonEmissionsKg: '',
+          departureTimeUtcLocal: '',
+          stochasticEnabled: false,
+          stochasticSeed: '',
+          stochasticSigma: '0.05',
+          stochasticSamples: '10',
+          terrainProfile: 'flat',
+          useTolls: false,
+          fuelPriceMultiplier: '1.0',
+          carbonPricePerKg: '0.0',
+          tollCostPerKm: '0.0',
         }));
       }
 
       if (prefillId === 'canonical_preferences') {
-        setWeights({ time: 55, money: 25, co2: 20 });
+        setWeights({ time: 60, money: 20, co2: 20 });
       }
 
       if (prefillId === 'canonical_departure') {
@@ -1807,14 +2034,7 @@ export default function Page() {
 
     void (async () => {
       try {
-        const resp = await fetch('/api/vehicles', {
-          signal: controller.signal,
-          cache: 'no-store',
-        });
-        if (!resp.ok) return;
-
-        const payload = (await resp.json()) as Partial<VehicleListResponse>;
-        setVehicles(Array.isArray(payload.vehicles) ? payload.vehicles : []);
+        await loadVehicles(controller.signal);
       } catch (e) {
         if (!controller.signal.aborted) {
           console.error('Failed to load vehicles:', e);
@@ -1826,7 +2046,12 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    void Promise.all([loadExperiments(), refreshOracleDashboard()]);
+    void Promise.all([
+      loadExperiments(),
+      refreshOracleDashboard(),
+      refreshOpsDiagnostics(),
+      refreshCustomVehicles(),
+    ]);
   }, []);
 
   useEffect(() => {
@@ -1871,7 +2096,8 @@ export default function Page() {
       return;
     }
 
-    const nextText = serializePinsToDutyText(origin, managedStop, destination);
+    const syncedStops = buildDutyStopsForTextSync(dutyStopsText, managedStop);
+    const nextText = serializePinsToDutyText(origin, syncedStops, destination);
     if (nextText === dutyStopsText) return;
     logTutorialMidpoint('duty-sync:pins-to-text-write', {
       nextText,
@@ -1879,6 +2105,7 @@ export default function Page() {
       origin,
       destination,
       managedStop,
+      syncedStops,
       tutorialStepId: tutorialStep?.id ?? null,
     });
     dutySyncSourceRef.current = 'pins';
@@ -1946,7 +2173,7 @@ export default function Page() {
       previousStop: managedStop,
       dutyStopsText,
     });
-    const canonicalText = serializePinsToDutyText(parsed.origin, parsed.stop, parsed.destination);
+    const canonicalText = serializePinsToDutyText(parsed.origin, parsed.stops, parsed.destination);
     if (canonicalText !== dutyStopsText) {
       dutySyncSourceRef.current = 'pins';
       setDutyStopsText(canonicalText);
@@ -2027,33 +2254,8 @@ export default function Page() {
   useEffect(() => {
     if (tutorialBootstrappedRef.current) return;
     tutorialBootstrappedRef.current = true;
-    let savedProgress = loadTutorialProgress(TUTORIAL_PROGRESS_KEY);
-    if (!savedProgress) {
-      for (const legacyKey of LEGACY_TUTORIAL_PROGRESS_KEYS) {
-        const legacyProgress = loadTutorialProgress(legacyKey);
-        if (!legacyProgress) continue;
-        savedProgress = legacyProgress;
-        saveTutorialProgress(TUTORIAL_PROGRESS_KEY, legacyProgress);
-        break;
-      }
-    }
-
-    let isCompleted = loadTutorialCompleted(TUTORIAL_COMPLETED_KEY);
-    if (!isCompleted) {
-      for (const legacyCompletedKey of LEGACY_TUTORIAL_COMPLETED_KEYS) {
-        if (!loadTutorialCompleted(legacyCompletedKey)) continue;
-        isCompleted = true;
-        saveTutorialCompleted(TUTORIAL_COMPLETED_KEY, true);
-        break;
-      }
-    }
-
-    for (const legacyKey of LEGACY_TUTORIAL_PROGRESS_KEYS) {
-      clearTutorialProgress(legacyKey);
-    }
-    for (const legacyCompletedKey of LEGACY_TUTORIAL_COMPLETED_KEYS) {
-      saveTutorialCompleted(legacyCompletedKey, false);
-    }
+    const savedProgress = loadTutorialProgress(TUTORIAL_PROGRESS_KEY);
+    const isCompleted = loadTutorialCompleted(TUTORIAL_COMPLETED_KEY);
 
     setTutorialSavedProgress(savedProgress);
     setTutorialCompleted(isCompleted);
@@ -2365,6 +2567,9 @@ export default function Page() {
     const currentActionIds = new Set<string>();
     if (tutorialBlockingActionId) {
       currentActionIds.add(tutorialBlockingActionId);
+      if (!tutorialBlockingActionId.endsWith(':open')) {
+        currentActionIds.add(`${tutorialBlockingActionId}:open`);
+      }
       const lastColonIndex = tutorialBlockingActionId.lastIndexOf(':');
       if (lastColonIndex > 0) {
         const actionPrefix = tutorialBlockingActionId.slice(0, lastColonIndex);
@@ -2744,18 +2949,28 @@ export default function Page() {
     return paretoRoutes.find((route) => route.id === selectedId) ?? null;
   }, [paretoRoutes, selectedId]);
 
+  const parsedDutyStops = useMemo(() => {
+    const parsed = parseDutyTextToPins(dutyStopsText);
+    if (!parsed.ok) return [] as Array<{ lat: number; lon: number; label: string }>;
+    return parsed.stops;
+  }, [dutyStopsText]);
   const dutyStopsForOverlay = useMemo(
     () =>
-      managedStop
-        ? [
-            {
-              lat: managedStop.lat,
-              lon: managedStop.lon,
-              label: managedStop.label,
-            },
-          ]
-        : [],
-    [managedStop],
+      parsedDutyStops.map((stop) => ({
+        lat: stop.lat,
+        lon: stop.lon,
+        label: stop.label,
+      })),
+    [parsedDutyStops],
+  );
+  const requestWaypoints = useMemo<Waypoint[]>(
+    () =>
+      parsedDutyStops.map((stop) => ({
+        lat: stop.lat,
+        lon: stop.lon,
+        label: stop.label,
+      })),
+    [parsedDutyStops],
   );
   const pinNodes = useMemo(
     () => buildManagedPinNodes(origin, destination, managedStop, { origin: 'Start', destination: 'End' }),
@@ -3215,21 +3430,6 @@ export default function Page() {
       });
       return;
     }
-    if (managedStop) {
-      logTutorialMidpoint('add-stop:replace-confirm-required', {
-        currentStop: managedStop,
-      });
-      const shouldReplace = window.confirm(
-        'A stop already exists in one-stop mode. Replace it with a new midpoint stop?',
-      );
-      logTutorialMidpoint('add-stop:replace-confirm-result', {
-        shouldReplace,
-      });
-      if (!shouldReplace) {
-        logTutorialMidpoint('add-stop:exit-replace-cancelled');
-        return;
-      }
-    }
     if (!origin) {
       logTutorialMidpoint('add-stop:set-origin-from-base', {
         baseOrigin,
@@ -3242,7 +3442,8 @@ export default function Page() {
       });
       setDestination(baseDestination);
     }
-    const nextLabel = managedStop?.label?.trim() || 'Stop #1';
+    const existingStops = extractIntermediateStops(dutyStopsText);
+    const nextLabel = `Stop #${existingStops.length + 1}`;
     const midpoint = {
       id: 'stop-1' as const,
       lat: (baseOrigin.lat + baseDestination.lat) / 2,
@@ -3250,9 +3451,20 @@ export default function Page() {
       label: nextLabel,
     };
     logTutorialMidpoint('add-stop:computed-midpoint', midpoint);
-    setManagedStop({
-      ...midpoint,
-    });
+    const nextStops = [...existingStops, { lat: midpoint.lat, lon: midpoint.lon, label: midpoint.label }];
+    dutySyncSourceRef.current = 'pins';
+    setDutyStopsText(serializePinsToDutyText(baseOrigin, nextStops, baseDestination));
+    const firstStop = nextStops[0];
+    setManagedStop(
+      firstStop
+        ? {
+            id: 'stop-1',
+            lat: firstStop.lat,
+            lon: firstStop.lon,
+            label: firstStop.label || 'Stop #1',
+          }
+        : null,
+    );
     setSelectedPinId('stop-1');
     clearComputed();
     logTutorialMidpoint('add-stop:mark-action', {
@@ -3279,13 +3491,38 @@ export default function Page() {
   }
 
   function deleteStop() {
-    if (!managedStop) return;
-    setManagedStop(null);
+    const existingStops = extractIntermediateStops(dutyStopsText);
+    if (existingStops.length === 0) return;
+    const nextStops = existingStops.slice(1).map((stop, idx) => ({
+      lat: stop.lat,
+      lon: stop.lon,
+      label: stop.label || `Stop #${idx + 1}`,
+    }));
+    dutySyncSourceRef.current = 'pins';
+    setDutyStopsText(serializePinsToDutyText(origin, nextStops, destination));
+    const nextManagedStop = nextStops[0];
+    setManagedStop(
+      nextManagedStop
+        ? {
+            id: 'stop-1',
+            lat: nextManagedStop.lat,
+            lon: nextManagedStop.lon,
+            label: nextManagedStop.label || 'Stop #1',
+          }
+        : null,
+    );
     setSelectedPinId((prev) =>
       normalizeSelectedPinId(prev, {
         origin,
         destination,
-        stop: null,
+        stop: nextManagedStop
+          ? {
+              id: 'stop-1',
+              lat: nextManagedStop.lat,
+              lon: nextManagedStop.lon,
+              label: nextManagedStop.label || 'Stop #1',
+            }
+          : null,
       }),
     );
     clearComputed();
@@ -3474,6 +3711,7 @@ export default function Page() {
     setScenarioMode('no_sharing');
     setWeights({ time: 60, money: 20, co2: 20 });
     setAdvancedParams(DEFAULT_ADVANCED_PARAMS);
+    setComputeMode('pareto_stream');
     setDepEarliestArrivalLocal('');
     setDepLatestArrivalLocal('');
     setDutyStopsText('');
@@ -3572,25 +3810,13 @@ export default function Page() {
   }
 
   function buildAdvancedRequestPatch(): {
-    pareto_method?: ParetoMethod;
-    epsilon?: EpsilonConstraints;
-    departure_time_utc?: string;
-    cost_toggles?: CostToggles;
-    terrain_profile?: TerrainProfile;
-    stochastic?: StochasticConfig;
-    optimization_mode?: OptimizationMode;
-    risk_aversion?: number;
+    maxAlternatives: number;
+    advancedPatch: RoutingAdvancedPatch;
   } {
-    const patch: {
-      pareto_method?: ParetoMethod;
-      epsilon?: EpsilonConstraints;
-      departure_time_utc?: string;
-      cost_toggles?: CostToggles;
-      terrain_profile?: TerrainProfile;
-      stochastic?: StochasticConfig;
-      optimization_mode?: OptimizationMode;
-      risk_aversion?: number;
-    } = {};
+    const patch: RoutingAdvancedPatch = {};
+    const maxAlternatives = Math.round(
+      parseBounded(advancedParams.maxAlternatives, 'Max alternatives', 1, 48),
+    );
 
     if (advancedParams.optimizationMode !== 'expected_value') {
       patch.optimization_mode = advancedParams.optimizationMode;
@@ -3682,24 +3908,106 @@ export default function Page() {
       patch.terrain_profile = advancedParams.terrainProfile;
     }
 
-    return patch;
+    const ambientTempC = parseBounded(advancedParams.ambientTempC, 'Ambient temperature', -60, 70);
+    patch.emissions_context = {
+      fuel_type: advancedParams.fuelType as FuelType,
+      euro_class: advancedParams.euroClass as EuroClass,
+      ambient_temp_c: ambientTempC,
+    } satisfies EmissionsContext;
+
+    const weatherIntensity = parseBounded(advancedParams.weatherIntensity, 'Weather intensity', 0, 2);
+    if (
+      advancedParams.weatherEnabled ||
+      advancedParams.weatherProfile !== 'clear' ||
+      Math.abs(weatherIntensity - 1.0) > 1e-9 ||
+      !advancedParams.weatherIncidentUplift
+    ) {
+      patch.weather = {
+        enabled: advancedParams.weatherEnabled,
+        profile: advancedParams.weatherProfile as WeatherProfile,
+        intensity: weatherIntensity,
+        apply_incident_uplift: advancedParams.weatherIncidentUplift,
+      } satisfies WeatherImpactConfig;
+    }
+
+    const incidentSeed = parseOptionalInteger(advancedParams.incidentSeed, 'Incident seed');
+    const incidentDwellRate = parseNonNegativeOrDefault(
+      advancedParams.incidentDwellRatePer100km,
+      'Incident dwell rate',
+      0.8,
+    );
+    const incidentAccidentRate = parseNonNegativeOrDefault(
+      advancedParams.incidentAccidentRatePer100km,
+      'Incident accident rate',
+      0.25,
+    );
+    const incidentClosureRate = parseNonNegativeOrDefault(
+      advancedParams.incidentClosureRatePer100km,
+      'Incident closure rate',
+      0.05,
+    );
+    const incidentDwellDelay = parseNonNegativeOrDefault(
+      advancedParams.incidentDwellDelayS,
+      'Incident dwell delay',
+      120,
+    );
+    const incidentAccidentDelay = parseNonNegativeOrDefault(
+      advancedParams.incidentAccidentDelayS,
+      'Incident accident delay',
+      480,
+    );
+    const incidentClosureDelay = parseNonNegativeOrDefault(
+      advancedParams.incidentClosureDelayS,
+      'Incident closure delay',
+      900,
+    );
+    const incidentMaxEvents = Math.round(
+      parseBounded(advancedParams.incidentMaxEventsPerRoute, 'Incident max events', 0, 1000),
+    );
+
+    if (
+      advancedParams.incidentSimulationEnabled ||
+      incidentSeed !== undefined ||
+      Math.abs(incidentDwellRate - 0.8) > 1e-9 ||
+      Math.abs(incidentAccidentRate - 0.25) > 1e-9 ||
+      Math.abs(incidentClosureRate - 0.05) > 1e-9 ||
+      Math.abs(incidentDwellDelay - 120) > 1e-9 ||
+      Math.abs(incidentAccidentDelay - 480) > 1e-9 ||
+      Math.abs(incidentClosureDelay - 900) > 1e-9 ||
+      incidentMaxEvents !== 12
+    ) {
+      patch.incident_simulation = {
+        enabled: advancedParams.incidentSimulationEnabled,
+        dwell_rate_per_100km: incidentDwellRate,
+        accident_rate_per_100km: incidentAccidentRate,
+        closure_rate_per_100km: incidentClosureRate,
+        dwell_delay_s: incidentDwellDelay,
+        accident_delay_s: incidentAccidentDelay,
+        closure_delay_s: incidentClosureDelay,
+        max_events_per_route: incidentMaxEvents,
+        ...(incidentSeed !== undefined ? { seed: incidentSeed } : {}),
+      } satisfies IncidentSimulatorConfig;
+    }
+
+    return { maxAlternatives, advancedPatch: patch };
   }
 
   function buildScenarioCompareRequest(originPoint: LatLng, destinationPoint: LatLng): ScenarioCompareRequest {
-    const advancedPatch = buildAdvancedRequestPatch();
-    return {
+    const { maxAlternatives, advancedPatch } = buildAdvancedRequestPatch();
+    return buildScenarioCompareRequestPayload({
       origin: originPoint,
       destination: destinationPoint,
+      waypoints: requestWaypoints,
       vehicle_type: vehicleType,
       scenario_mode: scenarioMode,
-      max_alternatives: 5,
+      max_alternatives: maxAlternatives,
       weights: {
         time: weights.time,
         money: weights.money,
         co2: weights.co2,
       },
-      ...advancedPatch,
-    };
+      advanced: advancedPatch,
+    });
   }
 
   async function computePareto() {
@@ -3735,9 +4043,12 @@ export default function Page() {
     setScenarioCompareLoading(false);
     setAdvancedError(null);
 
-    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    let advancedPatch: RoutingAdvancedPatch;
+    let maxAlternatives = 5;
     try {
-      advancedPatch = buildAdvancedRequestPatch();
+      const parsed = buildAdvancedRequestPatch();
+      advancedPatch = parsed.advancedPatch;
+      maxAlternatives = parsed.maxAlternatives;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
       setAdvancedError(msg);
@@ -3747,78 +4058,124 @@ export default function Page() {
       return;
     }
 
-    const body = {
+    const paretoBody = buildParetoRequest({
       origin,
       destination,
+      waypoints: requestWaypoints,
       vehicle_type: vehicleType,
       scenario_mode: scenarioMode,
-      max_alternatives: 5,
-      ...advancedPatch,
-    };
+      max_alternatives: maxAlternatives,
+      weights: {
+        time: weights.time,
+        money: weights.money,
+        co2: weights.co2,
+      },
+      advanced: advancedPatch,
+    });
+    const routeBody = buildRouteRequest({
+      origin,
+      destination,
+      waypoints: requestWaypoints,
+      vehicle_type: vehicleType,
+      scenario_mode: scenarioMode,
+      max_alternatives: maxAlternatives,
+      weights: {
+        time: weights.time,
+        money: weights.money,
+        co2: weights.co2,
+      },
+      advanced: advancedPatch,
+    });
 
     let sawDone = false;
 
     try {
-      await postNDJSON<ParetoStreamEvent>('/api/pareto/stream', body, {
-        signal: controller.signal,
-        onEvent: (event) => {
-          if (seq !== requestSeqRef.current) return;
+      if (computeMode === 'pareto_stream') {
+        await postNDJSON<ParetoStreamEvent>('/api/pareto/stream', paretoBody, {
+          signal: controller.signal,
+          onEvent: (event) => {
+            if (seq !== requestSeqRef.current) return;
 
-          switch (event.type) {
-            case 'meta': {
-              setProgress({ done: 0, total: event.total });
-              return;
-            }
-
-            case 'route': {
-              routeBufferRef.current.push(event.route);
-              scheduleRouteFlush(seq);
-              setProgress({ done: event.done, total: event.total });
-              return;
-            }
-
-            case 'error': {
-              setProgress({ done: event.done, total: event.total });
-              setWarnings((prev) => dedupeWarnings([...prev, event.message]));
-              return;
-            }
-
-            case 'fatal': {
-              setError(event.message || 'Route computation failed.');
-              return;
-            }
-
-            case 'done': {
-              sawDone = true;
-              flushRouteBufferNow(seq);
-              markTutorialAction('pref.compute_pareto_done');
-
-              const finalRoutes = sortRoutesDeterministic(event.routes ?? []);
-              startTransition(() => {
-                setParetoRoutes(finalRoutes);
-      });
-
-              setProgress({ done: event.done, total: event.total });
-              const doneWarnings = event.warnings ?? [];
-              if (doneWarnings.length) {
-                setWarnings((prev) => dedupeWarnings([...prev, ...doneWarnings]));
+            switch (event.type) {
+              case 'meta': {
+                setProgress({ done: 0, total: event.total });
+                return;
               }
-              return;
+
+              case 'route': {
+                routeBufferRef.current.push(event.route);
+                scheduleRouteFlush(seq);
+                setProgress({ done: event.done, total: event.total });
+                return;
+              }
+
+              case 'error': {
+                setProgress({ done: event.done, total: event.total });
+                setWarnings((prev) => dedupeWarnings([...prev, event.message]));
+                return;
+              }
+
+              case 'fatal': {
+                setError(event.message || 'Route computation failed.');
+                return;
+              }
+
+              case 'done': {
+                sawDone = true;
+                flushRouteBufferNow(seq);
+                markTutorialAction('pref.compute_pareto_done');
+
+                const finalRoutes = sortRoutesDeterministic(event.routes ?? []);
+                startTransition(() => {
+                  setParetoRoutes(finalRoutes);
+                });
+
+                setProgress({ done: event.done, total: event.total });
+                const doneWarnings = event.warnings ?? [];
+                if (doneWarnings.length) {
+                  setWarnings((prev) => dedupeWarnings([...prev, ...doneWarnings]));
+                }
+                return;
+              }
+
+              default:
+                return;
             }
+          },
+        });
 
-            default:
-              return;
+        if (seq === requestSeqRef.current) {
+          flushRouteBufferNow(seq);
+          if (!sawDone) {
+            startTransition(() => {
+              setParetoRoutes((prev) => sortRoutesDeterministic(prev));
+            });
           }
-        },
-      });
-
-      if (seq === requestSeqRef.current) {
-        flushRouteBufferNow(seq);
-        if (!sawDone) {
-          startTransition(() => {
-            setParetoRoutes((prev) => sortRoutesDeterministic(prev));
-          });
         }
+      } else if (computeMode === 'pareto_json') {
+        const payload = await postJSON<ParetoResponse>('/api/pareto', paretoBody, controller.signal);
+        if (seq !== requestSeqRef.current) return;
+        const finalRoutes = sortRoutesDeterministic(payload.routes ?? []);
+        startTransition(() => {
+          setParetoRoutes(finalRoutes);
+        });
+        setProgress({ done: finalRoutes.length, total: finalRoutes.length });
+        if (payload.warnings?.length) {
+          setWarnings(dedupeWarnings(payload.warnings));
+        }
+        markTutorialAction('pref.compute_pareto_done');
+      } else {
+        const payload = await postJSON<RouteResponse>('/api/route', routeBody, controller.signal);
+        if (seq !== requestSeqRef.current) return;
+        const routeMap = new Map<string, RouteOption>();
+        [payload.selected, ...(payload.candidates ?? [])].forEach((route) => routeMap.set(route.id, route));
+        const finalRoutes = sortRoutesDeterministic(Array.from(routeMap.values()));
+        startTransition(() => {
+          setParetoRoutes(finalRoutes);
+        });
+        setSelectedId(payload.selected.id);
+        setProgress({ done: finalRoutes.length, total: finalRoutes.length });
+        markTutorialAction('pref.compute_pareto_done');
       }
     } catch (e: unknown) {
       if (seq !== requestSeqRef.current) return;
@@ -3859,6 +4216,7 @@ export default function Page() {
         undefined,
       );
       setScenarioCompare(payload);
+      setRunInspectorRunId(payload.run_id);
       markTutorialAction('compare.run_done');
       setLiveMessage(t('live_compare_complete'));
     } catch (e: unknown) {
@@ -3879,6 +4237,28 @@ export default function Page() {
   function applyScenarioRequestToState(req: ScenarioCompareRequest) {
     setOrigin(req.origin);
     setDestination(req.destination);
+    const incomingStops =
+      Array.isArray(req.waypoints) && req.waypoints.length > 0
+        ? req.waypoints.map((waypoint, idx) => ({
+            lat: waypoint.lat,
+            lon: waypoint.lon,
+            label: waypoint.label?.trim() || `Stop #${idx + 1}`,
+          }))
+        : [];
+    if (Array.isArray(req.waypoints) && req.waypoints.length > 0) {
+      const firstWaypoint = req.waypoints[0];
+      setManagedStop({
+        id: 'stop-1',
+        lat: firstWaypoint.lat,
+        lon: firstWaypoint.lon,
+        label: firstWaypoint.label?.trim() || 'Stop #1',
+      });
+    } else {
+      setManagedStop(null);
+    }
+    dutySyncSourceRef.current = 'pins';
+    setDutyStopsText(serializePinsToDutyText(req.origin, incomingStops, req.destination));
+    setDutySyncError(null);
     if (req.vehicle_type) {
       setVehicleType(req.vehicle_type);
     }
@@ -3895,7 +4275,11 @@ export default function Page() {
 
     const cost = req.cost_toggles;
     const stochastic = req.stochastic;
+    const emissionsContext = req.emissions_context;
+    const weather = req.weather;
+    const incident = req.incident_simulation;
     setAdvancedParams({
+      maxAlternatives: String(req.max_alternatives ?? 24),
       paretoMethod: req.pareto_method ?? 'dominance',
       epsilonDurationS: req.epsilon?.duration_s !== undefined ? String(req.epsilon.duration_s) : '',
       epsilonMonetaryCost:
@@ -3914,7 +4298,29 @@ export default function Page() {
         stochastic?.seed !== undefined && stochastic?.seed !== null ? String(stochastic.seed) : '',
       stochasticSigma: String(stochastic?.sigma ?? 0.08),
       stochasticSamples: String(stochastic?.samples ?? 25),
+      fuelType: (emissionsContext?.fuel_type as FuelType | undefined) ?? 'diesel',
+      euroClass: (emissionsContext?.euro_class as EuroClass | undefined) ?? 'euro6',
+      ambientTempC: String(emissionsContext?.ambient_temp_c ?? 15),
+      weatherEnabled: Boolean(weather?.enabled),
+      weatherProfile: (weather?.profile as WeatherProfile | undefined) ?? 'clear',
+      weatherIntensity: String(weather?.intensity ?? 1.0),
+      weatherIncidentUplift: weather?.apply_incident_uplift ?? true,
+      incidentSimulationEnabled: Boolean(incident?.enabled),
+      incidentSeed:
+        incident?.seed !== undefined && incident?.seed !== null ? String(incident.seed) : '',
+      incidentDwellRatePer100km: String(incident?.dwell_rate_per_100km ?? 0.8),
+      incidentAccidentRatePer100km: String(incident?.accident_rate_per_100km ?? 0.25),
+      incidentClosureRatePer100km: String(incident?.closure_rate_per_100km ?? 0.05),
+      incidentDwellDelayS: String(incident?.dwell_delay_s ?? 120),
+      incidentAccidentDelayS: String(incident?.accident_delay_s ?? 480),
+      incidentClosureDelayS: String(incident?.closure_delay_s ?? 900),
+      incidentMaxEventsPerRoute: String(incident?.max_events_per_route ?? 12),
     });
+  }
+
+  async function loadVehicles(signal?: AbortSignal) {
+    const payload = await getJSON<VehicleListResponse>('/api/vehicles', signal);
+    setVehicles(Array.isArray(payload.vehicles) ? payload.vehicles : []);
   }
 
   async function loadExperiments(
@@ -3938,14 +4344,7 @@ export default function Page() {
       if (scenarioMode) qs.set('scenario_mode', scenarioMode);
       if (sort) qs.set('sort', sort);
       const path = qs.toString() ? `/api/experiments?${qs.toString()}` : '/api/experiments';
-
-      const payload = await fetch(path, {
-        cache: 'no-store',
-      });
-      if (!payload.ok) {
-        throw new Error(await payload.text());
-      }
-      const parsed = (await payload.json()) as ExperimentListResponse;
+      const parsed = await getJSON<ExperimentListResponse>(path);
       setExperiments(Array.isArray(parsed.experiments) ? parsed.experiments : []);
     } catch (e: unknown) {
       setExperimentsError(e instanceof Error ? e.message : 'Failed to load experiments');
@@ -3984,16 +4383,37 @@ export default function Page() {
     try {
       setExperimentsError(null);
       markTutorialAction('exp.delete_click');
-      const resp = await fetch(`/api/experiments/${experimentId}`, {
-        method: 'DELETE',
-        cache: 'no-store',
-      });
-      if (!resp.ok) {
-        throw new Error(await resp.text());
-      }
+      await deleteJSON<{ experiment_id: string; deleted: boolean }>(`/api/experiments/${experimentId}`);
       await loadExperiments();
     } catch (e: unknown) {
       setExperimentsError(e instanceof Error ? e.message : 'Failed to delete experiment');
+    }
+  }
+
+  async function openExperimentById(experimentId: string) {
+    try {
+      setExperimentsError(null);
+      const payload = await getJSON<ExperimentBundle>(`/api/experiments/${experimentId}`);
+      applyScenarioRequestToState(payload.request);
+    } catch (e: unknown) {
+      setExperimentsError(e instanceof Error ? e.message : 'Failed to open experiment');
+    }
+  }
+
+  async function updateExperimentMetadata(
+    bundle: ExperimentBundle,
+    next: { name: string; description?: string | null },
+  ) {
+    try {
+      setExperimentsError(null);
+      await putJSON<ExperimentBundle>(`/api/experiments/${bundle.id}`, {
+        name: next.name,
+        description: next.description ?? null,
+        request: bundle.request,
+      });
+      await loadExperiments();
+    } catch (e: unknown) {
+      setExperimentsError(e instanceof Error ? e.message : 'Failed to update experiment');
     }
   }
 
@@ -4010,11 +4430,300 @@ export default function Page() {
         undefined,
       );
       setScenarioCompare(payload);
+      setRunInspectorRunId(payload.run_id);
     } catch (e: unknown) {
       setScenarioCompareError(e instanceof Error ? e.message : 'Failed to replay experiment');
     } finally {
       setScenarioCompareLoading(false);
     }
+  }
+
+  async function refreshOpsDiagnostics() {
+    setOpsLoading(true);
+    setOpsError(null);
+    try {
+      const [health, metrics, cacheStats] = await Promise.all([
+        getJSON<HealthResponse>('/api/health'),
+        getJSON<MetricsResponse>('/api/metrics'),
+        getJSON<CacheStatsResponse>('/api/cache/stats'),
+      ]);
+      setOpsHealth(health);
+      setOpsMetrics(metrics);
+      setOpsCacheStats(cacheStats);
+    } catch (e: unknown) {
+      setOpsError(e instanceof Error ? e.message : 'Failed to load ops diagnostics.');
+    } finally {
+      setOpsLoading(false);
+    }
+  }
+
+  async function clearOpsCache() {
+    const confirmed = window.confirm('Clear backend route cache now?');
+    if (!confirmed) return;
+    setOpsClearing(true);
+    setOpsError(null);
+    try {
+      await deleteJSON<CacheClearResponse>('/api/cache');
+      await refreshOpsDiagnostics();
+    } catch (e: unknown) {
+      setOpsError(e instanceof Error ? e.message : 'Failed to clear backend cache.');
+    } finally {
+      setOpsClearing(false);
+    }
+  }
+
+  async function refreshCustomVehicles() {
+    setCustomVehiclesLoading(true);
+    setCustomVehicleError(null);
+    try {
+      const payload = await getJSON<CustomVehicleListResponse>('/api/vehicles/custom');
+      setCustomVehicles(payload.vehicles ?? []);
+    } catch (e: unknown) {
+      setCustomVehicleError(e instanceof Error ? e.message : 'Failed to load custom vehicles.');
+    } finally {
+      setCustomVehiclesLoading(false);
+    }
+  }
+
+  async function createCustomVehicle(vehicle: VehicleProfile) {
+    setCustomVehicleSaving(true);
+    setCustomVehicleError(null);
+    try {
+      await postJSON('/api/vehicles/custom', vehicle);
+      await refreshCustomVehicles();
+      await loadVehicles();
+    } catch (e: unknown) {
+      setCustomVehicleError(e instanceof Error ? e.message : 'Failed to create custom vehicle.');
+    } finally {
+      setCustomVehicleSaving(false);
+    }
+  }
+
+  async function updateCustomVehicle(vehicleId: string, vehicle: VehicleProfile) {
+    setCustomVehicleSaving(true);
+    setCustomVehicleError(null);
+    try {
+      await putJSON(`/api/vehicles/custom/${vehicleId}`, vehicle);
+      await refreshCustomVehicles();
+      await loadVehicles();
+    } catch (e: unknown) {
+      setCustomVehicleError(e instanceof Error ? e.message : 'Failed to update custom vehicle.');
+    } finally {
+      setCustomVehicleSaving(false);
+    }
+  }
+
+  async function removeCustomVehicle(vehicleId: string) {
+    setCustomVehicleSaving(true);
+    setCustomVehicleError(null);
+    try {
+      await deleteJSON(`/api/vehicles/custom/${vehicleId}`);
+      await refreshCustomVehicles();
+      await loadVehicles();
+    } catch (e: unknown) {
+      setCustomVehicleError(e instanceof Error ? e.message : 'Failed to delete custom vehicle.');
+    } finally {
+      setCustomVehicleSaving(false);
+    }
+  }
+
+  async function runBatchParetoRequest(req: BatchParetoRequest) {
+    setBatchLoading(true);
+    setBatchError(null);
+    try {
+      const payload = await postJSON<BatchParetoResponse>('/api/batch/pareto', req);
+      setBatchResult(payload);
+      setRunInspectorRunId(payload.run_id);
+    } catch (e: unknown) {
+      setBatchError(e instanceof Error ? e.message : 'Failed to run batch pareto.');
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  async function runBatchCsvRequest(req: BatchCSVImportRequest) {
+    setBatchLoading(true);
+    setBatchError(null);
+    try {
+      const payload = await postJSON<BatchParetoResponse>('/api/batch/import/csv', req);
+      setBatchResult(payload);
+      setRunInspectorRunId(payload.run_id);
+    } catch (e: unknown) {
+      setBatchError(e instanceof Error ? e.message : 'Failed to run batch CSV import.');
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  async function runSignatureVerification(req: SignatureVerificationRequest) {
+    setSignatureLoading(true);
+    setSignatureError(null);
+    try {
+      const payload = await postJSON<SignatureVerificationResponse>('/api/verify/signature', req);
+      setSignatureResult(payload);
+    } catch (e: unknown) {
+      setSignatureError(e instanceof Error ? e.message : 'Failed to verify signature.');
+    } finally {
+      setSignatureLoading(false);
+    }
+  }
+
+  async function loadRunCoreDocs() {
+    if (!runInspectorRunId.trim()) {
+      setRunInspectorError('Enter a run_id first.');
+      return;
+    }
+    setRunInspectorLoading(true);
+    setRunInspectorError(null);
+    try {
+      const runId = runInspectorRunId.trim();
+      const [manifest, scenarioManifest, provenance, signature, scenarioSignature] = await Promise.all([
+        getJSON<unknown>(`/api/runs/${runId}/manifest`),
+        getJSON<unknown>(`/api/runs/${runId}/scenario-manifest`),
+        getJSON<unknown>(`/api/runs/${runId}/provenance`),
+        getJSON<unknown>(`/api/runs/${runId}/signature`),
+        getJSON<unknown>(`/api/runs/${runId}/scenario-signature`),
+      ]);
+      setRunManifest(manifest);
+      setRunScenarioManifest(scenarioManifest);
+      setRunProvenance(provenance);
+      setRunSignature(signature);
+      setRunScenarioSignature(scenarioSignature);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : 'Failed to load run core docs.');
+    } finally {
+      setRunInspectorLoading(false);
+    }
+  }
+
+  async function loadRunArtifactsList() {
+    if (!runInspectorRunId.trim()) {
+      setRunInspectorError('Enter a run_id first.');
+      return;
+    }
+    setRunInspectorLoading(true);
+    setRunInspectorError(null);
+    try {
+      const runId = runInspectorRunId.trim();
+      const payload = await getJSON<RunArtifactsListResponse>(`/api/runs/${runId}/artifacts`);
+      setRunArtifacts(payload);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : 'Failed to load run artifacts.');
+    } finally {
+      setRunInspectorLoading(false);
+    }
+  }
+
+  async function previewRunArtifact(name: string) {
+    if (!runInspectorRunId.trim()) {
+      setRunInspectorError('Enter a run_id first.');
+      return;
+    }
+    setRunInspectorLoading(true);
+    setRunInspectorError(null);
+    try {
+      const runId = runInspectorRunId.trim();
+      const text = await getText(`/api/runs/${runId}/artifacts/${name}`);
+      setRunArtifactPreviewName(name);
+      setRunArtifactPreviewText(text);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : `Failed to preview artifact ${name}.`);
+    } finally {
+      setRunInspectorLoading(false);
+    }
+  }
+
+  async function downloadFromApi(path: string, fallbackName: string) {
+    const resp = await fetch(path, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!resp.ok) {
+      throw new Error(await resp.text());
+    }
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    const disposition = resp.headers.get('content-disposition');
+    const fileNameMatch = disposition?.match(/filename=\"?([^\";]+)\"?/i);
+    link.download = fileNameMatch?.[1] ?? fallbackName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  async function downloadRunCore(kind: 'manifest' | 'scenarioManifest' | 'provenance' | 'signature' | 'scenarioSignature') {
+    if (!runInspectorRunId.trim()) {
+      setRunInspectorError('Enter a run_id first.');
+      return;
+    }
+    const runId = runInspectorRunId.trim();
+    const endpointByKind: Record<typeof kind, { path: string; file: string }> = {
+      manifest: { path: `/api/runs/${runId}/manifest`, file: `${runId}-manifest.json` },
+      scenarioManifest: {
+        path: `/api/runs/${runId}/scenario-manifest`,
+        file: `${runId}-scenario-manifest.json`,
+      },
+      provenance: { path: `/api/runs/${runId}/provenance`, file: `${runId}-provenance.json` },
+      signature: { path: `/api/runs/${runId}/signature`, file: `${runId}-signature.json` },
+      scenarioSignature: {
+        path: `/api/runs/${runId}/scenario-signature`,
+        file: `${runId}-scenario-signature.json`,
+      },
+    };
+    const target = endpointByKind[kind];
+    try {
+      await downloadFromApi(target.path, target.file);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : `Failed to download ${kind}.`);
+    }
+  }
+
+  async function downloadRunArtifact(name: string) {
+    if (!runInspectorRunId.trim()) {
+      setRunInspectorError('Enter a run_id first.');
+      return;
+    }
+    const runId = runInspectorRunId.trim();
+    try {
+      await downloadFromApi(`/api/runs/${runId}/artifacts/${name}`, name);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : `Failed to download artifact ${name}.`);
+    }
+  }
+
+  async function inspectScenarioManifestForRun(runId: string) {
+    setRunInspectorRunId(runId);
+    setRunInspectorLoading(true);
+    setRunInspectorError(null);
+    try {
+      const payload = await getJSON<unknown>(`/api/runs/${runId}/scenario-manifest`);
+      setRunScenarioManifest(payload);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : 'Failed to inspect scenario manifest.');
+    } finally {
+      setRunInspectorLoading(false);
+    }
+  }
+
+  async function inspectScenarioSignatureForRun(runId: string) {
+    setRunInspectorRunId(runId);
+    setRunInspectorLoading(true);
+    setRunInspectorError(null);
+    try {
+      const payload = await getJSON<unknown>(`/api/runs/${runId}/scenario-signature`);
+      setRunScenarioSignature(payload);
+    } catch (e: unknown) {
+      setRunInspectorError(e instanceof Error ? e.message : 'Failed to inspect scenario signature.');
+    } finally {
+      setRunInspectorLoading(false);
+    }
+  }
+
+  function openRunInspectorForRun(runId: string) {
+    setRunInspectorRunId(runId);
   }
 
   function parseDutyStops(text: string): DutyChainRequest['stops'] {
@@ -4031,6 +4740,9 @@ export default function Page() {
     if (!parsed.origin || !parsed.destination) {
       throw new Error('Duty chain requires both Start and End rows.');
     }
+    if (parsed.stops.length + 2 > 50) {
+      throw new Error('Duty chain supports at most 50 stops including Start and End.');
+    }
 
     const out: DutyChainRequest['stops'] = [
       {
@@ -4039,11 +4751,12 @@ export default function Page() {
         label: 'Start',
       },
     ];
-    if (parsed.stop) {
+    for (let idx = 0; idx < parsed.stops.length; idx += 1) {
+      const stop = parsed.stops[idx];
       out.push({
-        lat: parsed.stop.lat,
-        lon: parsed.stop.lon,
-        label: parsed.stop.label || 'Stop #1',
+        lat: stop.lat,
+        lon: stop.lon,
+        label: stop.label || `Stop #${idx + 1}`,
       });
     }
     out.push({
@@ -4064,12 +4777,15 @@ export default function Page() {
   }
 
   async function runDutyChain() {
-    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    let advancedPatch: RoutingAdvancedPatch;
+    let maxAlternatives = 5;
     let stops: DutyChainRequest['stops'];
     try {
       setAdvancedError(null);
       setDutyChainError(null);
-      advancedPatch = buildAdvancedRequestPatch();
+      const parsed = buildAdvancedRequestPatch();
+      advancedPatch = parsed.advancedPatch;
+      maxAlternatives = parsed.maxAlternatives;
       stops = parseDutyStops(dutyStopsText);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Invalid duty chain request.';
@@ -4078,25 +4794,18 @@ export default function Page() {
       return;
     }
 
-    const req: DutyChainRequest = {
+    const req = buildDutyChainRequest({
       stops,
       vehicle_type: vehicleType,
       scenario_mode: scenarioMode,
-      max_alternatives: 5,
+      max_alternatives: maxAlternatives,
       weights: {
         time: weights.time,
         money: weights.money,
         co2: weights.co2,
       },
-      ...(advancedPatch.cost_toggles ? { cost_toggles: advancedPatch.cost_toggles } : {}),
-      ...(advancedPatch.terrain_profile ? { terrain_profile: advancedPatch.terrain_profile } : {}),
-      ...(advancedPatch.stochastic ? { stochastic: advancedPatch.stochastic } : {}),
-      ...(advancedPatch.optimization_mode ? { optimization_mode: advancedPatch.optimization_mode } : {}),
-      ...(advancedPatch.risk_aversion !== undefined ? { risk_aversion: advancedPatch.risk_aversion } : {}),
-      ...(advancedPatch.departure_time_utc ? { departure_time_utc: advancedPatch.departure_time_utc } : {}),
-      ...(advancedPatch.pareto_method ? { pareto_method: advancedPatch.pareto_method } : {}),
-      ...(advancedPatch.epsilon ? { epsilon: advancedPatch.epsilon } : {}),
-    };
+      advanced: advancedPatch,
+    });
 
     setDutyChainLoading(true);
     try {
@@ -4168,10 +4877,13 @@ export default function Page() {
       return;
     }
 
-    let advancedPatch: ReturnType<typeof buildAdvancedRequestPatch>;
+    let advancedPatch: RoutingAdvancedPatch;
+    let maxAlternatives = 5;
     try {
       setAdvancedError(null);
-      advancedPatch = buildAdvancedRequestPatch();
+      const parsed = buildAdvancedRequestPatch();
+      advancedPatch = parsed.advancedPatch;
+      maxAlternatives = parsed.maxAlternatives;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
       setAdvancedError(msg);
@@ -4214,12 +4926,13 @@ export default function Page() {
       };
     }
 
-    const req: DepartureOptimizeRequest = {
+    const req = buildDepartureOptimizeRequest({
       origin,
       destination,
+      waypoints: requestWaypoints,
       vehicle_type: vehicleType,
       scenario_mode: scenarioMode,
-      max_alternatives: 5,
+      max_alternatives: maxAlternatives,
       weights: {
         time: weights.time,
         money: weights.money,
@@ -4228,15 +4941,9 @@ export default function Page() {
       window_start_utc: startDate.toISOString(),
       window_end_utc: endDate.toISOString(),
       step_minutes: depStepMinutes,
-      ...(advancedPatch.cost_toggles ? { cost_toggles: advancedPatch.cost_toggles } : {}),
-      ...(advancedPatch.terrain_profile ? { terrain_profile: advancedPatch.terrain_profile } : {}),
-      ...(advancedPatch.stochastic ? { stochastic: advancedPatch.stochastic } : {}),
-      ...(advancedPatch.optimization_mode ? { optimization_mode: advancedPatch.optimization_mode } : {}),
-      ...(advancedPatch.risk_aversion !== undefined ? { risk_aversion: advancedPatch.risk_aversion } : {}),
-      ...(advancedPatch.pareto_method ? { pareto_method: advancedPatch.pareto_method } : {}),
-      ...(advancedPatch.epsilon ? { epsilon: advancedPatch.epsilon } : {}),
       ...(timeWindow ? { time_window: timeWindow } : {}),
-    };
+      advanced: advancedPatch,
+    });
 
     setDepOptimizeLoading(true);
     setDepOptimizeError(null);
@@ -4267,6 +4974,23 @@ export default function Page() {
   }
 
   const m = selectedRoute?.metrics ?? null;
+  const terrainSummary = selectedRoute?.terrain_summary ?? null;
+  const terrainBadgeLabel =
+    terrainSummary?.source === 'dem_real'
+      ? 'DEM Real'
+      : terrainSummary
+        ? 'Terrain Missing'
+        : null;
+  const terrainBadgeClass =
+    terrainSummary?.source === 'dem_real'
+      ? 'terrainBadge isDemReal'
+      : terrainSummary
+        ? 'terrainBadge isMissing'
+        : 'terrainBadge';
+  const terrainTooltip =
+    terrainSummary
+      ? `Source: ${terrainSummary.source} | Coverage: ${(terrainSummary.coverage_ratio * 100).toFixed(1)}% | Ascent: ${terrainSummary.ascent_m.toFixed(0)}m | Descent: ${terrainSummary.descent_m.toFixed(0)}m | Spacing: ${terrainSummary.sample_spacing_m.toFixed(0)}m | Confidence: ${(terrainSummary.confidence * 100).toFixed(0)}% | Version: ${terrainSummary.version}`
+      : null;
 
   const vehicleOptions = vehicles.length
     ? vehicles.map((v) => ({
@@ -4326,6 +5050,23 @@ export default function Page() {
     { value: 'duration', label: 'Sort By ETA', description: 'Show fastest routes first.' },
     { value: 'cost', label: 'Sort By Cost', description: 'Show lowest-cost routes first.' },
     { value: 'co2', label: 'Sort By CO2', description: 'Show lowest-emission routes first.' },
+  ];
+  const computeModeOptions: SelectOption<ComputeMode>[] = [
+    {
+      value: 'pareto_stream',
+      label: t('compute_mode_pareto_stream'),
+      description: 'Streams candidates as they are computed.',
+    },
+    {
+      value: 'pareto_json',
+      label: t('compute_mode_pareto_json'),
+      description: 'Fetches full Pareto set in one JSON response.',
+    },
+    {
+      value: 'route_single',
+      label: t('compute_mode_route_single'),
+      description: 'Calls single-route endpoint and returns selected+candidates.',
+    },
   ];
 
   const showRoutesSection = loading || paretoRoutes.length > 0 || warnings.length > 0;
@@ -4688,6 +5429,19 @@ export default function Page() {
                   ))}
                 </div>
 
+                <div className="fieldLabelRow u-mt12">
+                  <div className="fieldLabel">{t('compute_mode_label')}</div>
+                  <FieldInfo text={SIDEBAR_FIELD_HELP.computeMode} />
+                </div>
+                <Select
+                  id="compute-mode"
+                  ariaLabel="Compute mode"
+                  value={computeMode}
+                  options={computeModeOptions}
+                  disabled={busy}
+                  onChange={setComputeMode}
+                />
+
                 <div className="actionGrid u-mt10">
                   <button type="button"
                     className="primary"
@@ -4797,6 +5551,17 @@ export default function Page() {
                   </div>
                 )}
               </div>
+              {terrainSummary && terrainBadgeLabel ? (
+                <div className="terrainBadgeRow">
+                  <span className={terrainBadgeClass} title={terrainTooltip ?? undefined}>
+                    {terrainBadgeLabel}
+                  </span>
+                  <span className="terrainBadgeMeta">
+                    Coverage {(terrainSummary.coverage_ratio * 100).toFixed(1)}% | Confidence{' '}
+                    {(terrainSummary.confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
+              ) : null}
 
               <div className="actionGrid u-mt10">
                 <button type="button"
@@ -4918,7 +5683,16 @@ export default function Page() {
                   </div>
                   <ul className="warningPanel__list">
                     {warnings.map((warning, idx) => (
-                      <li key={`${idx}-${warning}`}>{warning}</li>
+                      <li
+                        key={`${idx}-${warning}`}
+                        className={
+                          warning.includes('terrain_fail_closed')
+                            ? 'warningPanel__item warningPanel__item--terrainFailClosed'
+                            : 'warningPanel__item'
+                        }
+                      >
+                        {warning}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -5108,6 +5882,13 @@ export default function Page() {
               loading={scenarioCompareLoading}
               error={scenarioCompareError}
               locale={locale}
+              onInspectScenarioManifest={(runId) => {
+                void inspectScenarioManifestForRun(runId);
+              }}
+              onInspectScenarioSignature={(runId) => {
+                void inspectScenarioSignatureForRun(runId);
+              }}
+              onOpenRunInspector={openRunInspectorForRun}
             />
           </CollapsibleCard>
 
@@ -5172,8 +5953,14 @@ export default function Page() {
             onSave={saveCurrentExperiment}
             onLoad={(bundle) => {
               markTutorialAction('exp.load_click');
-              applyScenarioRequestToState(bundle.request);
+              void openExperimentById(bundle.id);
               clearComputed();
+            }}
+            onOpen={(experimentId) => {
+              void openExperimentById(experimentId);
+            }}
+            onUpdateMetadata={(bundle, next) => {
+              void updateExperimentMetadata(bundle, next);
             }}
             onDelete={deleteExperimentById}
             onReplay={replayExperimentById}
@@ -5192,7 +5979,7 @@ export default function Page() {
                 vehicleType: expCatalogVehicleType,
                 scenarioMode: expCatalogScenarioMode,
                 sort: expCatalogSort,
-      });
+              });
             }}
             locale={locale}
             defaultName={tutorialExperimentPrefill?.name}
@@ -5200,6 +5987,93 @@ export default function Page() {
             tutorialResetNonce={tutorialResetNonce}
             sectionControl={tutorialSectionControl.experiments}
           />
+
+          <CollapsibleCard title="Dev Tools" hint={SIDEBAR_SECTION_HINTS.devTools} isOpen={true}>
+            <OpsDiagnosticsPanel
+              health={opsHealth}
+              metrics={opsMetrics}
+              cacheStats={opsCacheStats}
+              loading={opsLoading}
+              clearing={opsClearing}
+              error={opsError}
+              onRefresh={() => {
+                void refreshOpsDiagnostics();
+              }}
+              onClearCache={() => {
+                void clearOpsCache();
+              }}
+            />
+
+            <CustomVehicleManager
+              vehicles={customVehicles}
+              loading={customVehiclesLoading}
+              saving={customVehicleSaving}
+              error={customVehicleError}
+              onRefresh={() => {
+                void refreshCustomVehicles();
+              }}
+              onCreate={(vehicle) => {
+                void createCustomVehicle(vehicle);
+              }}
+              onUpdate={(vehicleId, vehicle) => {
+                void updateCustomVehicle(vehicleId, vehicle);
+              }}
+              onDelete={(vehicleId) => {
+                void removeCustomVehicle(vehicleId);
+              }}
+            />
+
+            <BatchRunner
+              loading={batchLoading}
+              error={batchError}
+              result={batchResult}
+              onRunPairs={(request) => {
+                void runBatchParetoRequest(request);
+              }}
+              onRunCsv={(request) => {
+                void runBatchCsvRequest(request);
+              }}
+            />
+
+            <RunInspector
+              runId={runInspectorRunId}
+              onRunIdChange={setRunInspectorRunId}
+              loading={runInspectorLoading}
+              error={runInspectorError}
+              manifest={runManifest}
+              scenarioManifest={runScenarioManifest}
+              provenance={runProvenance}
+              signature={runSignature}
+              scenarioSignature={runScenarioSignature}
+              artifacts={runArtifacts}
+              artifactPreviewName={runArtifactPreviewName}
+              artifactPreviewText={runArtifactPreviewText}
+              onLoadCore={() => {
+                void loadRunCoreDocs();
+              }}
+              onLoadArtifacts={() => {
+                void loadRunArtifactsList();
+              }}
+              onPreviewArtifact={(name) => {
+                void previewRunArtifact(name);
+              }}
+              onDownloadCore={(kind) => {
+                void downloadRunCore(kind);
+              }}
+              onDownloadArtifact={(name) => {
+                void downloadRunArtifact(name);
+              }}
+            />
+
+            <SignatureVerifier
+              loading={signatureLoading}
+              error={signatureError}
+              result={signatureResult}
+              onVerify={(request) => {
+                void runSignatureVerification(request);
+              }}
+            />
+          </CollapsibleCard>
             </div>
       </aside>
 

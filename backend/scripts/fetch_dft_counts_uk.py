@@ -1,0 +1,337 @@
+from __future__ import annotations
+
+import argparse
+import csv
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@dataclass(frozen=True)
+class NormalizedRow:
+    region: str
+    road_bucket: str
+    day_kind: str
+    minute: int
+    multiplier: float
+    as_of_utc: str
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return min(high, max(low, value))
+
+
+def _pick(row: dict[str, str], *candidates: str) -> str:
+    for name in candidates:
+        if name in row and str(row[name]).strip():
+            return str(row[name]).strip()
+    return ""
+
+
+def _canonical_region(raw: str) -> str:
+    key = raw.strip().lower()
+    if not key:
+        return "uk_default"
+    aliases = {
+        "london": "london_southeast",
+        "greater london": "london_southeast",
+        "south east": "south_england",
+        "south west": "south_england",
+        "east of england": "south_england",
+        "east midlands": "midlands_east",
+        "west midlands": "midlands_west",
+        "north west": "north_west_corridor",
+        "north east": "north_east_corridor",
+        "yorkshire and the humber": "north_england_central",
+        "wales": "wales_west",
+        "scotland": "scotland_south",
+    }
+    return aliases.get(key, key.replace(" ", "_"))
+
+
+def _canonical_road_bucket(raw: str) -> str:
+    key = raw.strip().lower()
+    if not key:
+        return "mixed"
+    if "motorway" in key:
+        return "motorway_dominant"
+    if "trunk" in key:
+        return "trunk_heavy"
+    if "primary" in key:
+        return "primary_heavy"
+    if "residential" in key or "local" in key or "urban" in key:
+        return "urban_local_heavy"
+    if "secondary" in key or "arterial" in key:
+        return "arterial_heavy"
+    return "mixed"
+
+
+def _day_kind_from_datetime(dt: datetime, holiday_flag: str) -> str:
+    h = holiday_flag.strip().lower()
+    if h in {"1", "true", "yes", "holiday"}:
+        return "holiday"
+    if dt.weekday() >= 5:
+        return "weekend"
+    return "weekday"
+
+
+def _parse_minute(row: dict[str, str]) -> int:
+    minute_raw = _pick(row, "minute", "minute_of_day")
+    if minute_raw:
+        try:
+            return max(0, min(1439, int(float(minute_raw))))
+        except ValueError:
+            pass
+    hour_raw = _pick(row, "hour", "hour_of_day")
+    try:
+        hour = max(0, min(23, int(float(hour_raw))))
+    except ValueError:
+        hour = 0
+    return hour * 60
+
+
+def _parse_datetime(row: dict[str, str]) -> datetime | None:
+    raw = _pick(
+        row,
+        "timestamp",
+        "datetime",
+        "date_time",
+        "observed_at_utc",
+        "observed_at",
+        "date",
+    )
+    if not raw:
+        return None
+    txt = raw.strip()
+    for variant in (txt, txt.replace("Z", "+00:00")):
+        try:
+            parsed = datetime.fromisoformat(variant)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        else:
+            parsed = parsed.astimezone(UTC)
+        return parsed
+    return None
+
+
+def _read_direct_rows(
+    raw_rows: list[dict[str, str]],
+    *,
+    as_of_utc: str,
+) -> list[NormalizedRow]:
+    out: list[NormalizedRow] = []
+    for row in raw_rows:
+        region = _canonical_region(_pick(row, "region"))
+        road_bucket = _canonical_road_bucket(_pick(row, "road_bucket"))
+        day_kind = _pick(row, "day_kind").strip().lower()
+        if day_kind not in {"weekday", "weekend", "holiday"}:
+            continue
+        minute = _parse_minute(row)
+        try:
+            multiplier = float(_pick(row, "multiplier"))
+        except ValueError:
+            continue
+        out.append(
+            NormalizedRow(
+                region=region,
+                road_bucket=road_bucket,
+                day_kind=day_kind,
+                minute=minute,
+                multiplier=_clamp(multiplier, 0.45, 3.25),
+                as_of_utc=as_of_utc,
+            )
+        )
+    return out
+
+
+def _read_observed_count_rows(
+    raw_rows: list[dict[str, str]],
+    *,
+    as_of_utc: str,
+) -> list[NormalizedRow]:
+    aggregated: dict[tuple[str, str, str, int], list[float]] = defaultdict(list)
+    as_of_candidates: list[datetime] = []
+    for row in raw_rows:
+        region = _canonical_region(
+            _pick(
+                row,
+                "region",
+                "local_authority",
+                "county",
+                "area",
+            )
+        )
+        road_bucket = _canonical_road_bucket(
+            _pick(
+                row,
+                "road_bucket",
+                "road_class",
+                "road_type",
+                "road_category",
+                "road",
+            )
+        )
+        observed = _parse_datetime(row)
+        if observed is None:
+            minute = _parse_minute(row)
+            day_kind = _pick(row, "day_kind").strip().lower()
+            if day_kind not in {"weekday", "weekend", "holiday"}:
+                day_kind = "weekday"
+        else:
+            as_of_candidates.append(observed)
+            minute = (observed.hour * 60) + observed.minute
+            day_kind = _day_kind_from_datetime(observed, _pick(row, "holiday", "is_holiday"))
+        count_raw = _pick(row, "count", "flow", "volume", "vehicles")
+        if not count_raw:
+            continue
+        try:
+            count = float(count_raw)
+        except ValueError:
+            continue
+        if count < 0:
+            continue
+        aggregated[(region, road_bucket, day_kind, minute)].append(count)
+
+    context_series: dict[tuple[str, str, str], dict[int, float]] = defaultdict(dict)
+    for (region, road_bucket, day_kind, minute), values in aggregated.items():
+        if not values:
+            continue
+        avg_count = sum(values) / len(values)
+        context_series[(region, road_bucket, day_kind)][minute] = avg_count
+
+    out: list[NormalizedRow] = []
+    for (region, road_bucket, day_kind), minute_map in context_series.items():
+        if not minute_map:
+            continue
+        ordered_values = sorted(minute_map.values())
+        median = ordered_values[len(ordered_values) // 2]
+        baseline = max(1.0, median)
+        for minute, avg_count in minute_map.items():
+            multiplier = _clamp(avg_count / baseline, 0.45, 3.25)
+            out.append(
+                NormalizedRow(
+                    region=region,
+                    road_bucket=road_bucket,
+                    day_kind=day_kind,
+                    minute=int(minute),
+                    multiplier=float(multiplier),
+                    as_of_utc=as_of_utc,
+                )
+            )
+
+    if as_of_candidates:
+        latest = max(as_of_candidates).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        out = [
+            NormalizedRow(
+                region=row.region,
+                road_bucket=row.road_bucket,
+                day_kind=row.day_kind,
+                minute=row.minute,
+                multiplier=row.multiplier,
+                as_of_utc=latest,
+            )
+            for row in out
+        ]
+    return out
+
+
+def build(
+    *,
+    raw_csv: Path,
+    output_csv: Path,
+    as_of_utc: str | None = None,
+    min_rows: int = 2000,
+) -> int:
+    if not raw_csv.exists():
+        raise FileNotFoundError(
+            f"DfT raw counts file is required for empirical profile ingestion: {raw_csv}"
+        )
+    with raw_csv.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        raw_rows = [{str(k).strip().lower(): str(v).strip() for k, v in row.items()} for row in reader]
+    if not raw_rows:
+        raise RuntimeError(f"Raw DfT counts file is empty: {raw_csv}")
+
+    now_iso = (
+        as_of_utc.strip()
+        if as_of_utc and as_of_utc.strip()
+        else datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+    columns = set(raw_rows[0].keys())
+    direct_columns = {"region", "road_bucket", "day_kind", "minute", "multiplier"}
+    if direct_columns.issubset(columns):
+        rows = _read_direct_rows(raw_rows, as_of_utc=now_iso)
+    else:
+        rows = _read_observed_count_rows(raw_rows, as_of_utc=now_iso)
+
+    if len(rows) < max(1, int(min_rows)):
+        raise RuntimeError(
+            f"Empirical departure corpus too small ({len(rows)} rows). "
+            f"At least {int(min_rows)} rows are required for strict runtime."
+        )
+
+    rows.sort(key=lambda r: (r.region, r.road_bucket, r.day_kind, r.minute))
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    with output_csv.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["region", "road_bucket", "day_kind", "minute", "multiplier", "as_of_utc"],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "region": row.region,
+                    "road_bucket": row.road_bucket,
+                    "day_kind": row.day_kind,
+                    "minute": row.minute,
+                    "multiplier": f"{row.multiplier:.6f}",
+                    "as_of_utc": row.as_of_utc,
+                }
+            )
+    return len(rows)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Normalize empirical DfT counts into contextual minute profiles.")
+    parser.add_argument(
+        "--raw-csv",
+        type=Path,
+        default=ROOT / "data" / "raw" / "uk" / "dft_counts_raw.csv",
+        help="Raw empirical input CSV (direct contextual rows or observed-count rows).",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ROOT / "assets" / "uk" / "departure_counts_empirical.csv",
+    )
+    parser.add_argument(
+        "--as-of-utc",
+        type=str,
+        default="",
+        help="Optional explicit as_of_utc timestamp.",
+    )
+    parser.add_argument(
+        "--min-rows",
+        type=int,
+        default=2000,
+        help="Strict minimum output rows.",
+    )
+    args = parser.parse_args()
+    rows = build(
+        raw_csv=args.raw_csv,
+        output_csv=args.output,
+        as_of_utc=(args.as_of_utc or None),
+        min_rows=max(1, int(args.min_rows)),
+    )
+    print(f"Wrote {rows} empirical departure rows to {args.output}")
+
+
+if __name__ == "__main__":
+    main()

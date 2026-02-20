@@ -1,0 +1,41 @@
+{
+  "version": "uk-toll-confidence-v1",
+  "source": "labeled toll classification fixture corpus",
+  "generated_at_utc": "2026-02-20T12:07:46Z",
+  "as_of_utc": "2026-02-20T12:07:46Z",
+  "logit_model": {
+    "intercept": -1.05,
+    "class_signal": 1.85,
+    "seed_signal": 2.1,
+    "segment_signal": 0.55,
+    "source_bonus_both": 0.06,
+    "source_bonus_class": 0.02
+  },
+  "reliability_bins": [
+    {
+      "min": 0.0,
+      "max": 0.2,
+      "calibrated": 0.08
+    },
+    {
+      "min": 0.2,
+      "max": 0.4,
+      "calibrated": 0.29
+    },
+    {
+      "min": 0.4,
+      "max": 0.6,
+      "calibrated": 0.51
+    },
+    {
+      "min": 0.6,
+      "max": 0.8,
+      "calibrated": 0.72
+    },
+    {
+      "min": 0.8,
+      "max": 1.0,
+      "calibrated": 0.9
+    }
+  ]
+}

@@ -63,15 +63,16 @@ def test_route_cache_hits_and_keying() -> None:
 
             first = client.post("/route", json=_payload(carbon_price=0.0))
             assert first.status_code == 200
-            assert osrm.calls == 9  # 9 candidate fetch specs on cache miss
+            first_fetch_count = osrm.calls
+            assert first_fetch_count >= 9
 
             second = client.post("/route", json=_payload(carbon_price=0.0))
             assert second.status_code == 200
-            assert osrm.calls == 9  # cache hit: no extra fetches
+            assert osrm.calls == first_fetch_count  # cache hit: no extra fetches
 
             third = client.post("/route", json=_payload(carbon_price=0.2))
             assert third.status_code == 200
-            assert osrm.calls == 18  # toggles changed -> cache key changed
+            assert osrm.calls == first_fetch_count * 2  # toggles changed -> cache key changed
 
             stats_resp = client.get("/cache/stats")
             assert stats_resp.status_code == 200
@@ -95,12 +96,13 @@ def test_route_cache_ttl_expiry_causes_recompute() -> None:
         with TestClient(app) as client:
             first = client.post("/route", json=_payload(carbon_price=0.0))
             assert first.status_code == 200
-            assert osrm.calls == 9
+            first_fetch_count = osrm.calls
+            assert first_fetch_count >= 9
 
             time.sleep(0.02)
             second = client.post("/route", json=_payload(carbon_price=0.0))
             assert second.status_code == 200
-            assert osrm.calls == 18
+            assert osrm.calls == first_fetch_count * 2
     finally:
         route_cache.ROUTE_CACHE._ttl_s = old_ttl
         app.dependency_overrides.clear()

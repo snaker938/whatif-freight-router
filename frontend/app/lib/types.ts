@@ -2,6 +2,10 @@ export type ScenarioMode = 'no_sharing' | 'partial_sharing' | 'full_sharing';
 export type ParetoMethod = 'dominance' | 'epsilon_constraint';
 export type TerrainProfile = 'flat' | 'rolling' | 'hilly';
 export type OptimizationMode = 'expected_value' | 'robust';
+export type ComputeMode = 'pareto_stream' | 'pareto_json' | 'route_single';
+export type FuelType = 'diesel' | 'petrol' | 'lng' | 'ev';
+export type EuroClass = 'euro4' | 'euro5' | 'euro6';
+export type WeatherProfile = 'clear' | 'rain' | 'storm' | 'snow' | 'fog';
 
 export type CostToggles = {
   use_tolls: boolean;
@@ -23,12 +27,42 @@ export type StochasticConfig = {
   samples?: number;
 };
 
+export type EmissionsContext = {
+  fuel_type?: FuelType;
+  euro_class?: EuroClass;
+  ambient_temp_c?: number;
+};
+
+export type WeatherImpactConfig = {
+  enabled?: boolean;
+  profile?: WeatherProfile;
+  intensity?: number;
+  apply_incident_uplift?: boolean;
+};
+
+export type IncidentSimulatorConfig = {
+  enabled?: boolean;
+  seed?: number | null;
+  dwell_rate_per_100km?: number;
+  accident_rate_per_100km?: number;
+  closure_rate_per_100km?: number;
+  dwell_delay_s?: number;
+  accident_delay_s?: number;
+  closure_delay_s?: number;
+  max_events_per_route?: number;
+};
+
 export type TimeWindowConstraints = {
   earliest_arrival_utc?: string;
   latest_arrival_utc?: string;
 };
 
 export type LatLng = { lat: number; lon: number };
+export type Waypoint = {
+  lat: number;
+  lon: number;
+  label?: string | null;
+};
 export type PinNodeKind = 'origin' | 'destination' | 'stop';
 export type PinSelectionId = 'origin' | 'destination' | 'stop-1';
 
@@ -96,6 +130,13 @@ export type RouteSegmentBreakdownRow = {
   avg_speed_kmh?: number;
   emissions_kg: number;
   monetary_cost: number;
+  time_cost?: number;
+  fuel_cost?: number;
+  toll_cost?: number;
+  carbon_cost?: number;
+  energy_kwh?: number;
+  fuel_liters?: number;
+  grade_pct?: number;
 };
 
 export type WeatherSummary = {
@@ -107,6 +148,24 @@ export type WeatherSummary = {
   incident_multiplier: number;
   weather_delay_s?: number;
   incident_rate_multiplier?: number;
+  terrain_source?: string;
+  terrain_ascent_m?: number;
+  terrain_descent_m?: number;
+  terrain_coverage_ratio?: number;
+  terrain_confidence?: number;
+  terrain_dem_version?: string;
+};
+
+export type TerrainSummary = {
+  source: 'dem_real' | 'missing' | 'unsupported_region';
+  coverage_ratio: number;
+  sample_spacing_m: number;
+  ascent_m: number;
+  descent_m: number;
+  grade_histogram: Record<string, number>;
+  confidence: number;
+  fail_closed_applied: boolean;
+  version: string;
 };
 
 export type GeoJSONLineString = {
@@ -125,11 +184,25 @@ export type RouteOption = {
   segment_breakdown?: RouteSegmentBreakdownRow[];
   counterfactuals?: Array<Record<string, string | number | boolean>>;
   uncertainty?: Record<string, number> | null;
+  uncertainty_samples_meta?: Record<string, string | number | boolean> | null;
+  legs?: Array<Record<string, string | number | boolean>> | null;
+  toll_confidence?: number | null;
+  toll_metadata?: Record<string, string | number | boolean | string[]> | null;
   incident_events?: SimulatedIncidentEvent[];
   weather_summary?: WeatherSummary | null;
+  terrain_summary?: TerrainSummary | null;
 };
 
-export type ParetoResponse = { routes: RouteOption[] };
+export type RouteResponse = {
+  selected: RouteOption;
+  candidates: RouteOption[];
+};
+
+export type ParetoResponse = {
+  routes: RouteOption[];
+  warnings?: string[];
+  diagnostics?: Record<string, string | number | boolean>;
+};
 
 export type ParetoStreamMetaEvent = {
   type: 'meta';
@@ -153,6 +226,8 @@ export type ParetoStreamErrorEvent = {
 export type ParetoStreamFatalEvent = {
   type: 'fatal';
   message: string;
+  reason_code?: string;
+  warnings?: string[];
 };
 
 export type ParetoStreamDoneEvent = {
@@ -191,7 +266,6 @@ export type ScenarioCompareResult = {
   selected: RouteOption | null;
   candidates: RouteOption[];
   warnings: string[];
-  fallback_used: boolean;
   error?: string | null;
 };
 
@@ -206,6 +280,7 @@ export type ScenarioCompareResponse = {
 export type ScenarioCompareRequest = {
   origin: LatLng;
   destination: LatLng;
+  waypoints?: Waypoint[];
   vehicle_type?: string;
   scenario_mode?: ScenarioMode | null;
   weights?: { time: number; money: number; co2: number };
@@ -216,8 +291,35 @@ export type ScenarioCompareRequest = {
   stochastic?: StochasticConfig;
   optimization_mode?: OptimizationMode;
   risk_aversion?: number;
+  emissions_context?: EmissionsContext;
+  weather?: WeatherImpactConfig;
+  incident_simulation?: IncidentSimulatorConfig;
   pareto_method?: ParetoMethod;
   epsilon?: EpsilonConstraints;
+};
+
+export type RouteRequest = {
+  origin: LatLng;
+  destination: LatLng;
+  waypoints?: Waypoint[];
+  vehicle_type?: string;
+  scenario_mode?: ScenarioMode;
+  weights?: { time: number; money: number; co2: number };
+  cost_toggles?: CostToggles;
+  terrain_profile?: TerrainProfile;
+  stochastic?: StochasticConfig;
+  optimization_mode?: OptimizationMode;
+  risk_aversion?: number;
+  emissions_context?: EmissionsContext;
+  weather?: WeatherImpactConfig;
+  incident_simulation?: IncidentSimulatorConfig;
+  departure_time_utc?: string;
+  pareto_method?: ParetoMethod;
+  epsilon?: EpsilonConstraints;
+};
+
+export type ParetoRequest = RouteRequest & {
+  max_alternatives?: number;
 };
 
 export type ExperimentBundle = {
@@ -238,6 +340,7 @@ export type ExperimentCatalogSort = 'updated_desc' | 'updated_asc' | 'name_asc' 
 export type DepartureOptimizeRequest = {
   origin: LatLng;
   destination: LatLng;
+  waypoints?: Waypoint[];
   vehicle_type?: string;
   scenario_mode?: ScenarioMode;
   weights?: { time: number; money: number; co2: number };
@@ -247,6 +350,9 @@ export type DepartureOptimizeRequest = {
   stochastic?: StochasticConfig;
   optimization_mode?: OptimizationMode;
   risk_aversion?: number;
+  emissions_context?: EmissionsContext;
+  weather?: WeatherImpactConfig;
+  incident_simulation?: IncidentSimulatorConfig;
   pareto_method?: ParetoMethod;
   epsilon?: EpsilonConstraints;
   time_window?: TimeWindowConstraints;
@@ -260,7 +366,6 @@ export type DepartureOptimizeCandidate = {
   selected: RouteOption;
   score: number;
   warning_count: number;
-  fallback_used: boolean;
 };
 
 export type DepartureOptimizeResponse = {
@@ -282,7 +387,6 @@ export type DutyChainLegResult = {
   selected: RouteOption | null;
   candidates: RouteOption[];
   warning_count: number;
-  fallback_used: boolean;
   error?: string | null;
 };
 
@@ -297,9 +401,56 @@ export type DutyChainRequest = {
   stochastic?: StochasticConfig;
   optimization_mode?: OptimizationMode;
   risk_aversion?: number;
+  emissions_context?: EmissionsContext;
+  weather?: WeatherImpactConfig;
+  incident_simulation?: IncidentSimulatorConfig;
   departure_time_utc?: string;
   pareto_method?: ParetoMethod;
   epsilon?: EpsilonConstraints;
+};
+
+export type ODPair = {
+  origin: LatLng;
+  destination: LatLng;
+};
+
+export type BatchParetoRequest = {
+  pairs: ODPair[];
+  waypoints?: Waypoint[];
+  vehicle_type?: string;
+  scenario_mode?: ScenarioMode;
+  max_alternatives?: number;
+  weights?: { time: number; money: number; co2: number };
+  cost_toggles?: CostToggles;
+  terrain_profile?: TerrainProfile;
+  stochastic?: StochasticConfig;
+  optimization_mode?: OptimizationMode;
+  risk_aversion?: number;
+  emissions_context?: EmissionsContext;
+  weather?: WeatherImpactConfig;
+  incident_simulation?: IncidentSimulatorConfig;
+  departure_time_utc?: string;
+  pareto_method?: ParetoMethod;
+  epsilon?: EpsilonConstraints;
+  seed?: number | null;
+  toggles?: Record<string, string | number | boolean>;
+  model_version?: string | null;
+};
+
+export type BatchCSVImportRequest = Omit<BatchParetoRequest, 'pairs'> & {
+  csv_text: string;
+};
+
+export type BatchParetoResult = {
+  origin: LatLng;
+  destination: LatLng;
+  routes: RouteOption[];
+  error?: string | null;
+};
+
+export type BatchParetoResponse = {
+  run_id: string;
+  results: BatchParetoResult[];
 };
 
 export type DutyChainResponse = {
@@ -351,4 +502,69 @@ export type OracleQualityDashboardResponse = {
   stale_threshold_s: number;
   sources: OracleQualitySourceSummary[];
   updated_at_utc: string;
+};
+
+export type HealthResponse = {
+  status: string;
+};
+
+export type CacheStatsResponse = {
+  hits: number;
+  misses: number;
+  entries: number;
+};
+
+export type MetricsResponse = Record<string, unknown>;
+
+export type CacheClearResponse = {
+  cleared: number;
+};
+
+export type CustomVehicleListResponse = {
+  vehicles: VehicleProfile[];
+};
+
+export type VehicleMutationResponse = {
+  vehicle: VehicleProfile;
+};
+
+export type VehicleDeleteResponse = {
+  vehicle_id: string;
+  deleted: boolean;
+};
+
+export type SignatureVerificationRequest = {
+  payload: Record<string, unknown> | unknown[] | string;
+  signature: string;
+  secret?: string | null;
+};
+
+export type SignatureVerificationResponse = {
+  valid: boolean;
+  algorithm: string;
+  signature: string;
+  expected_signature: string;
+};
+
+export type RunManifestSummary = {
+  run_id: string;
+  signature?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type RunArtifactsListResponse = {
+  run_id: string;
+  artifacts: Array<{
+    name: string;
+    endpoint: string;
+    size_bytes: number;
+  }>;
+  provenance_endpoint: string;
+};
+
+export type StrictErrorDetail = {
+  reason_code?: string;
+  message?: string;
+  warnings?: string[];
+  [key: string]: unknown;
 };

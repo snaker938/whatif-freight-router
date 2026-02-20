@@ -1,40 +1,32 @@
-# Frontend Accessibility and i18n Readiness
+# Frontend Accessibility and i18n
 
-This project now includes a lightweight i18n/accessibility layer aimed at readiness and incremental adoption.
+Last Updated: 2026-02-19  
+Applies To: `frontend/app/lib/i18n.ts`, sidebar workflow UI
 
-## Locale and formatting
+## i18n Scope
 
-- Locale dictionary lives in `frontend/app/lib/i18n.ts`.
-- Formatting helpers live in `frontend/app/lib/format.ts`.
-- Current locales:
-  - `en` (default)
-  - `es` (scaffold)
-- Selected locale is persisted in browser storage (`ui_locale_v1`).
+- Locale dictionary: `frontend/app/lib/i18n.ts`
+- Formatting helpers: `frontend/app/lib/format.ts`
+- Current locales: `en`, `es`
 
-## UI behavior
+## Accessibility Coverage
 
-- Language selector is available in the `Setup` card in the sidebar.
-- Core panel strings are pulled from the locale dictionary.
-- Date/number formatting in key panels uses locale-aware `Intl` wrappers.
+- skip link to controls
+- focus-visible styling
+- live region updates for async compute states
+- keyboard-friendly form controls in panels
 
-## Accessibility hardening
+## Validation
 
-- Skip link added: `Skip to controls panel` (keyboard users can jump to sidebar content).
-- Focus-visible styling hardened for interactive controls (`button`, `input`, `select`, `textarea`, link-style buttons).
-- Live region added for async status updates:
-  - route compute progress
-  - scenario comparison result state
-  - departure optimization result state
-  - duty-chain result state
-
-## Dev verification
+From repo root:
 
 ```powershell
 pnpm -C frontend build
 ```
 
-Manual checks:
-- Tab from page top and verify skip link appears.
-- Change locale to `Español` and verify core labels and key numeric/date formats update.
-- Trigger compute/compare/departure/duty actions and verify announcements update in the live region.
+## Related Docs
 
+- [Documentation Index](README.md)
+- [Tutorial Mode and Reporting](tutorial-and-reporting.md)
+- [Map Overlays and Tooltips](map-overlays-tooltips.md)
+- [Frontend Dev Tools Coverage](frontend-dev-tools.md)

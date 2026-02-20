@@ -1,0 +1,39 @@
+{
+  "england-and-wales": {
+    "division": "england-and-wales",
+    "events": [
+      { "title": "New Year’s Day", "date": "2025-01-01" },
+      { "title": "Good Friday", "date": "2025-04-18" },
+      { "title": "Easter Monday", "date": "2025-04-21" },
+      { "title": "Early May bank holiday", "date": "2025-05-05" },
+      { "title": "Spring bank holiday", "date": "2025-05-26" },
+      { "title": "Summer bank holiday", "date": "2025-08-25" },
+      { "title": "Christmas Day", "date": "2025-12-25" },
+      { "title": "Boxing Day", "date": "2025-12-26" },
+      { "title": "New Year’s Day", "date": "2026-01-01" },
+      { "title": "Good Friday", "date": "2026-04-03" },
+      { "title": "Easter Monday", "date": "2026-04-06" },
+      { "title": "Early May bank holiday", "date": "2026-05-04" },
+      { "title": "Spring bank holiday", "date": "2026-05-25" },
+      { "title": "Summer bank holiday", "date": "2026-08-31" },
+      { "title": "Christmas Day", "date": "2026-12-25" },
+      { "title": "Boxing Day (substitute day)", "date": "2026-12-28" },
+      { "title": "New Year’s Day", "date": "2027-01-01" },
+      { "title": "Good Friday", "date": "2027-03-26" },
+      { "title": "Easter Monday", "date": "2027-03-29" },
+      { "title": "Early May bank holiday", "date": "2027-05-03" },
+      { "title": "Spring bank holiday", "date": "2027-05-31" },
+      { "title": "Summer bank holiday", "date": "2027-08-30" },
+      { "title": "Christmas Day (substitute day)", "date": "2027-12-27" },
+      { "title": "Boxing Day (substitute day)", "date": "2027-12-28" }
+    ]
+  },
+  "scotland": {
+    "division": "scotland",
+    "events": []
+  },
+  "northern-ireland": {
+    "division": "northern-ireland",
+    "events": []
+  }
+}

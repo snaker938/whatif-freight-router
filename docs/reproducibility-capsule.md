@@ -1,9 +1,9 @@
-# Reproducibility Capsule and Scripted Demo
+# Reproducibility Capsule
 
-This project includes a deterministic demo run script that captures a benchmark
-capsule artifact.
+Last Updated: 2026-02-19  
+Applies To: deterministic benchmark and artifact workflows
 
-## One-command capsule run
+## One-Command Demo
 
 From repo root:
 
@@ -11,38 +11,24 @@ From repo root:
 .\scripts\demo_repro_run.ps1
 ```
 
-What it does:
-
-1. Runs the benchmark harness in deterministic `inprocess-fake` mode.
-2. Uses fixed inputs:
-   - `pair_count=100`
-   - `seed=20260212`
-   - `max_alternatives=3`
-3. Writes output to `backend/out/capsule/repro_capsule_<timestamp>.json`.
-
-## Manual equivalent
+## Manual Equivalent
 
 From `backend/`:
 
 ```powershell
-uv run python scripts/benchmark_batch_pareto.py --mode inprocess-fake --pair-count 100 --seed 20260212 --max-alternatives 3 --output out/capsule/repro_capsule_manual.json
+uv run python scripts/benchmark_batch_pareto.py --mode inprocess-fake --pair-count 100 --seed 20260212
 ```
 
-## Capsule contents
+## Reproducibility Controls
 
-The capsule file is a benchmark JSON log containing:
+- fixed seed
+- fixed OD corpus
+- fixed model assets manifest version
+- unchanged settings and code revision
 
-- run metadata (`timestamp`, `mode`, `pair_count`)
-- performance (`duration_ms`, `peak_memory_bytes`)
-- quality indicators (`error_count`, `run_id`)
+## Related Docs
 
-## Recommended reproducibility practice
-
-- Keep the same seed and pair count for before/after comparisons.
-- Keep benchmark mode unchanged when comparing commits.
-- Attach capsule logs to report milestones.
-
-## Assumptions and limitations
-
-- Capsule currently reflects deterministic fake-mode behavior.
-- Live OSRM conditions are expected to vary due environment and network state.
+- [Documentation Index](README.md)
+- [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+- [Sample Manifest and Outputs](sample-manifest.md)
+- [ETA Concept Drift Checks](eta-concept-drift.md)

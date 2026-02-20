@@ -9,6 +9,9 @@ type Props = {
   loading: boolean;
   error: string | null;
   locale: Locale;
+  onInspectScenarioManifest?: (runId: string) => void;
+  onInspectScenarioSignature?: (runId: string) => void;
+  onOpenRunInspector?: (runId: string) => void;
 };
 
 function fmtDelta(value: number | undefined, locale: Locale): string {
@@ -24,7 +27,15 @@ function scenarioLabel(mode: string): string {
   return mode;
 }
 
-export default function ScenarioComparison({ data, loading, error, locale }: Props) {
+export default function ScenarioComparison({
+  data,
+  loading,
+  error,
+  locale,
+  onInspectScenarioManifest,
+  onInspectScenarioSignature,
+  onOpenRunInspector,
+}: Props) {
   if (loading) {
     return <div className="helper">Comparing Scenarios...</div>;
   }
@@ -95,6 +106,32 @@ export default function ScenarioComparison({ data, loading, error, locale }: Pro
       ) : null}
       <div className="tiny" style={{ marginTop: 8 }}>
         Manifest: {data.scenario_manifest_endpoint}
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => onInspectScenarioManifest?.(data.run_id)}
+          disabled={!onInspectScenarioManifest}
+        >
+          Inspect Scenario Manifest
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => onInspectScenarioSignature?.(data.run_id)}
+          disabled={!onInspectScenarioSignature}
+        >
+          Inspect Scenario Signature
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => onOpenRunInspector?.(data.run_id)}
+          disabled={!onOpenRunInspector}
+        >
+          Open Run Inspector
+        </button>
       </div>
     </div>
   );

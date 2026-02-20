@@ -6,7 +6,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import app, osrm_client
+from app.routing_graph import GraphCandidateDiagnostics
 from app.routing_osrm import OSRMError
 
 
@@ -92,8 +94,42 @@ def fake_osrm() -> FakeOSRM:
 
 
 @pytest.fixture
-def client(fake_osrm: FakeOSRM):
+def client(fake_osrm: FakeOSRM, monkeypatch: pytest.MonkeyPatch):
+    def _fake_graph_candidate_routes(
+        *,
+        origin_lat: float,
+        origin_lon: float,
+        destination_lat: float,
+        destination_lon: float,
+        max_paths: int | None = None,
+    ) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
+        _ = (origin_lat, origin_lon, destination_lat, destination_lon, max_paths)
+        return (
+            [
+                _make_route(
+                    point_count=1800,
+                    duration_s=900.0,
+                    distance_m=120_000.0,
+                    lon_offset=-1.9,
+                ),
+                _make_route(
+                    point_count=1600,
+                    duration_s=1050.0,
+                    distance_m=126_000.0,
+                    lon_offset=-1.7,
+                ),
+            ],
+            GraphCandidateDiagnostics(
+                explored_states=320,
+                generated_paths=28,
+                emitted_paths=2,
+                candidate_budget=24,
+            ),
+        )
+
     app.dependency_overrides[osrm_client] = lambda: fake_osrm
+    monkeypatch.setattr(main_module, "route_graph_status", lambda: (True, "ok"))
+    monkeypatch.setattr(main_module, "route_graph_candidate_routes", _fake_graph_candidate_routes)
     try:
         with TestClient(app) as c:
             yield c
@@ -122,8 +158,11 @@ def test_pareto_computes_all_candidates_and_downsamples_geometry(
     routes = data["routes"]
     assert len(routes) >= 1
 
-    # alternatives + 4 excludes + 4 via points
-    assert len(fake_osrm.calls) == 9
+    diagnostics = data.get("diagnostics", {})
+    assert int(diagnostics.get("candidate_count_raw", 0)) >= 1
+    assert "graph_explored_states" in diagnostics
+    assert "graph_generated_paths" in diagnostics
+    assert "graph_emitted_paths" in diagnostics
 
     for route in routes:
         assert len(route["geometry"]["coordinates"]) <= 1200
@@ -139,18 +178,17 @@ def test_pareto_stream_emits_progress_events_and_final_sorted_routes(
     events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
     assert events
     assert events[0]["type"] == "meta"
-    assert events[0]["total"] == 9
+    total_candidates = events[0]["total"]
+    assert total_candidates >= 1
     assert events[-1]["type"] == "done"
-    assert events[-1]["done"] == 9
-    assert events[-1]["total"] == 9
+    assert events[-1]["done"] == len(events[-1]["routes"])
+    assert events[-1]["total"] == len(events[-1]["routes"])
 
-    error_events = [event for event in events if event["type"] == "error"]
     route_events = [event for event in events if event["type"] == "route"]
-    assert len(error_events) >= 1
     assert len(route_events) >= 1
 
     for event in route_events:
-        assert 0 < event["done"] <= event["total"]
+        assert 0 < event["done"] <= len(events[-1]["routes"])
         assert len(event["route"]["geometry"]["coordinates"]) <= 1200
 
     done_event = events[-1]
@@ -159,4 +197,5 @@ def test_pareto_stream_emits_progress_events_and_final_sorted_routes(
     durations = [route["metrics"]["duration_s"] for route in done_event["routes"]]
     assert durations == sorted(durations)
 
-    assert len(fake_osrm.calls) == 9
+    # Strict graph-native path should emit routable candidates.
+    assert len(done_event["routes"]) >= 1

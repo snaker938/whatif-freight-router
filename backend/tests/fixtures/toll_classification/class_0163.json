@@ -1,0 +1,8 @@
+{
+  "fixture_id": "class_0163",
+  "route_fixture": "southampton_london_mixed.json",
+  "expected_has_toll": true,
+  "expected_reason": "step_class_signal",
+  "weight": 1.0811,
+  "as_of_utc": "2026-02-20T12:07:46Z"
+}

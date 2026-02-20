@@ -8,6 +8,29 @@ function extractErrorMessage(text: string): string {
     if (parsed && typeof parsed === 'object') {
       const detail = (parsed as Record<string, unknown>).detail;
       if (typeof detail === 'string' && detail.trim()) return detail.trim();
+      if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+        const detailObj = detail as Record<string, unknown>;
+        const detailMessage =
+          typeof detailObj.message === 'string' ? detailObj.message.trim() : '';
+        const reasonCode =
+          typeof detailObj.reason_code === 'string' ? detailObj.reason_code.trim() : '';
+        const warningSummary = Array.isArray(detailObj.warnings)
+          ? detailObj.warnings
+              .map((warning) => (typeof warning === 'string' ? warning.trim() : ''))
+              .filter(Boolean)
+              .slice(0, 2)
+              .join('; ')
+          : '';
+        if (detailMessage && warningSummary) {
+          return reasonCode
+            ? `${detailMessage} (${reasonCode}) ${warningSummary}`
+            : `${detailMessage} ${warningSummary}`;
+        }
+        if (detailMessage) {
+          return reasonCode ? `${detailMessage} (${reasonCode})` : detailMessage;
+        }
+        if (reasonCode) return reasonCode;
+      }
       if (Array.isArray(detail) && detail.length) {
         const joined = detail
           .map((entry) => {
@@ -44,6 +67,14 @@ async function readJSON<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+async function readText(res: Response): Promise<string> {
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(extractErrorMessage(text));
+  }
+  return text;
+}
+
 export async function postJSON<T>(
   path: string,
   body: unknown,
@@ -58,6 +89,64 @@ export async function postJSON<T>(
     signal,
   });
 
+  return readJSON<T>(res);
+}
+
+export async function getJSON<T>(
+  path: string,
+  signal?: AbortSignal,
+  headers?: HeadersInit,
+): Promise<T> {
+  const res = await fetch(path, {
+    method: 'GET',
+    headers: { ...(headers ?? {}) },
+    cache: 'no-store',
+    signal,
+  });
+  return readJSON<T>(res);
+}
+
+export async function getText(
+  path: string,
+  signal?: AbortSignal,
+  headers?: HeadersInit,
+): Promise<string> {
+  const res = await fetch(path, {
+    method: 'GET',
+    headers: { ...(headers ?? {}) },
+    cache: 'no-store',
+    signal,
+  });
+  return readText(res);
+}
+
+export async function putJSON<T>(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+  headers?: HeadersInit,
+): Promise<T> {
+  const res = await fetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(headers ?? {}) },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+    signal,
+  });
+  return readJSON<T>(res);
+}
+
+export async function deleteJSON<T>(
+  path: string,
+  signal?: AbortSignal,
+  headers?: HeadersInit,
+): Promise<T> {
+  const res = await fetch(path, {
+    method: 'DELETE',
+    headers: { ...(headers ?? {}) },
+    cache: 'no-store',
+    signal,
+  });
   return readJSON<T>(res);
 }
 

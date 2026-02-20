@@ -14,7 +14,6 @@ def _route(*, distance_m: float, duration_s: float) -> dict[str, Any]:
     return {
         "distance": distance_m,
         "duration": duration_s,
-        "contains_toll": True,
         "geometry": {"type": "LineString", "coordinates": coords},
         "legs": [
             {
@@ -60,4 +59,3 @@ def test_segment_breakdown_payload_shape_and_total_consistency() -> None:
     assert math.isclose(total_duration, option.metrics.duration_s, rel_tol=0.0, abs_tol=0.1)
     assert math.isclose(total_cost, option.metrics.monetary_cost, rel_tol=0.0, abs_tol=0.1)
     assert math.isclose(total_emissions, option.metrics.emissions_kg, rel_tol=0.0, abs_tol=0.05)
-

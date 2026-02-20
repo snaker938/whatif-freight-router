@@ -1,4 +1,4 @@
-# Carbon-Aware Multi-Objective Freight Router (Starter v0)
+# Carbon-Aware Multi-Objective Freight Router
 
 This repo runs:
 - OSRM in Docker (routing engine)
@@ -131,34 +131,16 @@ Use this for full containerized verification. Do not run this at the same time a
 
 ## Documentation
 
-- `docs/sample-manifest.md`
-  - sample batch request/response payloads and manifest retrieval flow
-- `docs/dissertation-math-overview.md`
-  - concise report-ready overview of Pareto, scoring, and objective formulas
-- `docs/math-appendix.md`
-  - expanded notation, derivations, complexity, and assumptions
-- `docs/appendix-graph-theory-notes.md`
-  - graph-theory framing of current candidate-based approach and future MOSP direction
-- `docs/co2e-validation.md`
-  - reference examples validating the current CO2e formula assumptions
-- `docs/performance-profiling-notes.md`
-  - benchmark usage, profiling workflow, and optimization notes
-- `docs/reproducibility-capsule.md`
-  - deterministic demo run and capsule artifact workflow
+- `docs/README.md`
+  - central docs index and source-of-truth navigation
 - `docs/backend-api-tools.md`
-  - cost toggles, vehicle CRUD, cache, signatures, provenance, import/export, and analysis tools
-- `docs/eta-concept-drift.md`
-  - ETA drift-check input schema, metrics, thresholds, and output artifacts
-- `docs/jupyter-cookbook.md`
-  - notebook setup and guided API/artifact/drift workflows
-- `docs/tutorial-and-reporting.md`
-  - strict chaptered tutorial flow (resume/restart, spotlight guidance) and PDF report artifact usage
-- `docs/frontend-accessibility-i18n.md`
-  - language selector behavior, locale formatting helpers, and keyboard/screen-reader support
-- `docs/map-overlays-tooltips.md`
-  - map-level stop/incident overlays, adaptive segment tooltips, and performance limits
-- `docs/synthetic-incidents-weather.md`
-  - weather multiplier behavior, synthetic incident generation, determinism, and API usage
+  - backend endpoint inventory, strict contract shape, and tooling commands
+- `docs/api-cookbook.md`
+  - reproducible CLI/API examples (notebook-free)
+- `docs/strict-errors-reference.md`
+  - reason-code catalog and stream/non-stream failure shape
+- `docs/quality-gates-and-benchmarks.md`
+  - quality and performance gate workflow
 
 ## API Quick Commands
 

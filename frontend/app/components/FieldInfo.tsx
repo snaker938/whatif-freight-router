@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 type Props = {
   text: string;
@@ -11,7 +11,10 @@ export default function FieldInfo({ text, id }: Props) {
   const autoId = useId();
   const tooltipId = id ?? `field-info-${autoId.replace(/[:]/g, '-')}`;
   const [open, setOpen] = useState(false);
+  const [tooltipSide, setTooltipSide] = useState<'right' | 'left'>('right');
+  const [tooltipMaxWidth, setTooltipMaxWidth] = useState<number | null>(null);
   const rootRef = useRef<HTMLSpanElement | null>(null);
+  const tooltipRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -25,8 +28,51 @@ export default function FieldInfo({ text, id }: Props) {
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    const root = rootRef.current;
+    const tooltip = tooltipRef.current;
+    if (!root || !tooltip) return;
+
+    const updatePlacement = () => {
+      const margin = 12;
+      const gap = 22;
+      const rootRect = root.getBoundingClientRect();
+      const tooltipRect = tooltip.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+
+      const availableRight = Math.max(120, viewportWidth - (rootRect.right + gap + margin));
+      const availableLeft = Math.max(120, rootRect.left - gap - margin);
+      const preferredMax = 260;
+
+      const fitsRight = rootRect.right + gap + tooltipRect.width <= viewportWidth - margin;
+      const fitsLeft = rootRect.left - gap - tooltipRect.width >= margin;
+
+      if (!fitsRight && (fitsLeft || availableLeft > availableRight)) {
+        setTooltipSide('left');
+        setTooltipMaxWidth(Math.min(preferredMax, Math.round(availableLeft)));
+      } else {
+        setTooltipSide('right');
+        setTooltipMaxWidth(Math.min(preferredMax, Math.round(availableRight)));
+      }
+    };
+
+    updatePlacement();
+    window.addEventListener('resize', updatePlacement);
+    window.addEventListener('scroll', updatePlacement, true);
+    return () => {
+      window.removeEventListener('resize', updatePlacement);
+      window.removeEventListener('scroll', updatePlacement, true);
+    };
+  }, [open]);
+
   return (
-    <span ref={rootRef} className="fieldInfoWrap" data-open={open ? 'true' : 'false'}>
+    <span
+      ref={rootRef}
+      className="fieldInfoWrap"
+      data-open={open ? 'true' : 'false'}
+      data-side={tooltipSide}
+    >
       <button
         type="button"
         className="fieldInfo"
@@ -57,7 +103,14 @@ export default function FieldInfo({ text, id }: Props) {
       >
         <span aria-hidden="true">i</span>
       </button>
-      <span id={tooltipId} className="fieldInfo__tooltip" role="note" aria-hidden={!open}>
+      <span
+        ref={tooltipRef}
+        id={tooltipId}
+        className="fieldInfo__tooltip"
+        role="note"
+        aria-hidden={!open}
+        style={tooltipMaxWidth ? { maxWidth: `${tooltipMaxWidth}px` } : undefined}
+      >
         {text}
       </span>
     </span>

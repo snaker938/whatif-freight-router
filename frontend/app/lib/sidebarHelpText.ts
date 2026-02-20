@@ -10,6 +10,7 @@ export const SIDEBAR_SECTION_HINTS = {
   oracleQualityDashboard: 'Track feed validation, freshness, and reliability signals.',
   experiments: 'Save, filter, reload, and replay scenario bundles.',
   scenarioTimeLapse: 'Animate progress along the selected route.',
+  devTools: 'Backend endpoint coverage controls and diagnostics.',
 } as const;
 
 export const SIDEBAR_FIELD_HELP = {
@@ -32,6 +33,22 @@ export const SIDEBAR_FIELD_HELP = {
   fuelPriceMultiplier: 'Scales fuel-cost contribution up or down.',
   carbonPrice: 'Adds emissions-linked carbon cost to the money objective.',
   tollCostPerKm: 'Per-kilometer toll amount when tolls are enabled.',
+  maxAlternatives: 'Sets route candidate breadth before strict Pareto filtering.',
+  fuelType: 'Fuel basis used by emissions and energy calculations.',
+  euroClass: 'Vehicle emissions compliance class for context adjustments.',
+  ambientTempC: 'Ambient temperature used in fuel/energy context.',
+  weatherEnabled: 'Enables weather-aware travel-time and incident adjustments.',
+  weatherProfile: 'Selects weather regime profile used by backend calibration.',
+  weatherIntensity: 'Scales weather severity from 0 (none) to 2 (severe).',
+  incidentSimulationEnabled: 'Enables synthetic incident simulation in backend.',
+  incidentSeed: 'Optional deterministic seed for incident generation.',
+  incidentDwellRate: 'Expected dwell events per 100km.',
+  incidentAccidentRate: 'Expected accident events per 100km.',
+  incidentClosureRate: 'Expected closure events per 100km.',
+  incidentDwellDelay: 'Per-event dwell delay in seconds.',
+  incidentAccidentDelay: 'Per-event accident delay in seconds.',
+  incidentClosureDelay: 'Per-event closure delay in seconds.',
+  incidentMaxEvents: 'Maximum simulated incidents allowed per route.',
   windowStartEnd: 'Defines the departure search interval in UTC.',
   stepMinutes: 'Sampling interval between evaluated departures.',
   earliestLatestArrival: 'Optional arrival feasibility constraints.',
@@ -50,6 +67,7 @@ export const SIDEBAR_FIELD_HELP = {
   experimentName: 'Short title for the saved bundle.',
   experimentDescription: 'Optional context for future recall.',
   playbackSpeed: 'Choose how quickly the route animation progresses.',
+  computeMode: 'Choose stream Pareto, JSON Pareto, or single-route endpoint.',
 } as const;
 
 export const SIDEBAR_DROPDOWN_OPTIONS_HELP = {

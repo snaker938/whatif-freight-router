@@ -69,17 +69,17 @@ export default function DutyChainPlanner({
       />
 
       <div className="tiny">
-        Lines: {nonEmptyLines.length} (One-Stop Mode Supports Up To 3 Lines: Start, Stop, End)
+        Lines: {nonEmptyLines.length} (Supports Up To 50 Stops Including Start/End)
       </div>
-      {nonEmptyLines.length > 3 ? (
-        <div className="error">Too Many Stops For One-Stop Mode. Remove Extra Lines Before Running.</div>
+      {nonEmptyLines.length > 50 ? (
+        <div className="error">Too Many Stops. Use 50 Or Fewer Rows.</div>
       ) : null}
 
       <div className="actionGrid actionGrid--single" style={{ marginTop: 12 }}>
         <button type="button"
           className="secondary"
           onClick={onRun}
-          disabled={disabled || loading || nonEmptyLines.length > 3}
+          disabled={disabled || loading || nonEmptyLines.length > 50}
           data-tutorial-action="duty.run_click"
         >
           {loading ? 'Running...' : 'Run Duty Chain'}

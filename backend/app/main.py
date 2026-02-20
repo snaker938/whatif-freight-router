@@ -6,16 +6,17 @@ import hashlib
 import io
 import json
 import math
-import random
-import statistics
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,11 +29,13 @@ from .experiment_store import (
     list_experiments,
     update_experiment,
 )
-from .fallback_store import load_route_snapshot, save_route_snapshot
-from .gradient import gradient_multipliers
+from .departure_profile import time_of_day_multiplier_uk
+from .carbon_model import apply_scope_emissions_adjustment, resolve_carbon_price
+from .fuel_energy_model import segment_energy_and_emissions
 from .incident_simulator import simulate_incident_events
 from .logging_utils import log_event
 from .metrics_store import metrics_snapshot, record_request
+from .model_data_errors import ModelDataError, normalize_reason_code
 from .models import (
     BatchCSVImportRequest,
     BatchParetoRequest,
@@ -78,8 +81,9 @@ from .models import (
     VehicleListResponse,
     VehicleMutationResponse,
     WeatherImpactConfig,
+    Waypoint,
 )
-from .objectives_emissions import route_emissions_kg, speed_factor
+from .multileg_engine import compose_multileg_route_options
 from .objectives_selection import normalise_weights
 from .oracle_quality_store import (
     append_check_record,
@@ -88,12 +92,14 @@ from .oracle_quality_store import (
     load_check_records,
     write_summary_artifacts,
 )
-from .pareto_methods import select_pareto_routes
+from .pareto_methods import filter_by_epsilon, select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .rbac import require_role
+from .risk_model import robust_objective
 from .reporting import write_report_pdf
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
+from .routing_graph import route_graph_candidate_routes, route_graph_status, route_graph_via_paths
 from .run_store import (
     ARTIFACT_FILES,
     artifact_dir_for_run,
@@ -105,7 +111,10 @@ from .run_store import (
 from .scenario import ScenarioMode, apply_scenario_duration, scenario_duration_multiplier
 from .settings import settings
 from .signatures import SIGNATURE_ALGORITHM, verify_payload_signature
-from .time_of_day import time_of_day_multiplier
+from .terrain_dem import TerrainCoverageError, estimate_terrain_summary, segment_grade_profile
+from .terrain_physics import params_for_vehicle, segment_duration_multiplier
+from .toll_engine import compute_toll_cost
+from .uncertainty_model import compute_uncertainty_summary, resolve_stochastic_regime
 from .weather_adapter import weather_incident_multiplier, weather_speed_multiplier, weather_summary
 from .vehicles import (
     VehicleProfile,
@@ -116,6 +125,16 @@ from .vehicles import (
     list_custom_vehicles,
     update_custom_vehicle,
 )
+from .calibration_loader import (
+    load_fuel_consumption_calibration,
+    load_risk_normalization_reference,
+    load_stochastic_residual_prior,
+)
+
+try:
+    UK_TZ = ZoneInfo("Europe/London")
+except ZoneInfoNotFoundError:
+    UK_TZ = timezone.utc
 
 
 @asynccontextmanager
@@ -423,6 +442,7 @@ def _validate_osrm_geometry(route: dict[str, Any]) -> list[tuple[float, float]]:
 DRIVER_TIME_COST_WEIGHT: float = 0.35
 MAX_GEOMETRY_POINTS: int = 1200
 MAX_CANDIDATE_FETCH_CONCURRENCY: int = 6
+CANDIDATE_CACHE_SCHEMA_VERSION: int = 2
 
 
 @dataclass(frozen=True)
@@ -430,7 +450,7 @@ class CandidateFetchSpec:
     label: str
     alternatives: bool | int
     exclude: str | None = None
-    via: tuple[float, float] | None = None
+    via: list[tuple[float, float]] | None = None
 
 
 @dataclass(frozen=True)
@@ -445,6 +465,47 @@ class CandidateProgress:
     done: int
     total: int
     result: CandidateFetchResult
+
+
+@dataclass(frozen=True)
+class TerrainDiagnostics:
+    fail_closed_count: int = 0
+    unsupported_region_count: int = 0
+    asset_unavailable_count: int = 0
+    dem_version: str = "unknown"
+    coverage_min_observed: float = 1.0
+
+
+@dataclass(frozen=True)
+class CandidateDiagnostics:
+    raw_count: int = 0
+    deduped_count: int = 0
+    graph_explored_states: int = 0
+    graph_generated_paths: int = 0
+    graph_emitted_paths: int = 0
+    candidate_budget: int = 0
+
+
+def _is_toll_exclusion_label(label: str) -> bool:
+    return label == "exclude:toll"
+
+
+def _annotate_route_candidate_meta(
+    route: dict[str, Any],
+    *,
+    source_labels: set[str],
+    toll_exclusion_available: bool,
+) -> None:
+    ordered_labels = sorted(source_labels)
+    seen_by_exclude_toll = any(_is_toll_exclusion_label(label) for label in ordered_labels)
+    seen_by_non_exclude_toll = any(not _is_toll_exclusion_label(label) for label in ordered_labels)
+
+    route["_candidate_meta"] = {
+        "source_labels": ordered_labels,
+        "seen_by_exclude_toll": seen_by_exclude_toll,
+        "seen_by_non_exclude_toll": seen_by_non_exclude_toll,
+        "toll_exclusion_available": bool(toll_exclusion_available),
+    }
 
 
 def _ndjson_line(event: dict[str, Any]) -> bytes:
@@ -483,91 +544,267 @@ def _counterfactual_shift_scenario(mode: ScenarioMode) -> ScenarioMode:
     return ScenarioMode.PARTIAL_SHARING
 
 
-def _quantile(values: list[float], q: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    idx = max(0, min(len(ordered) - 1, int(math.ceil(q * len(ordered))) - 1))
-    return ordered[idx]
+def _road_class_key(road_class_counts: dict[str, int] | None) -> tuple[tuple[str, int], ...]:
+    if not road_class_counts:
+        return ()
+    return tuple(
+        sorted(
+            (
+                str(key),
+                int(value),
+            )
+            for key, value in road_class_counts.items()
+        )
+    )
+
+
+@lru_cache(maxsize=1024)
+def _deterministic_uncertainty_cached(
+    *,
+    base_duration_s: float,
+    base_monetary_cost: float,
+    base_emissions_kg: float,
+    base_distance_km: float,
+    route_signature: str,
+    departure_time_iso: str,
+    sigma: float,
+    samples: int,
+    utility_weight_time: float,
+    utility_weight_money: float,
+    utility_weight_co2: float,
+    risk_aversion: float,
+    road_class_key: tuple[tuple[str, int], ...],
+    weather_profile: str,
+    vehicle_type: str,
+    corridor_bucket: str,
+) -> dict[str, float]:
+    departure_time_utc: datetime | None = (
+        datetime.fromisoformat(departure_time_iso) if departure_time_iso else None
+    )
+    road_class_counts = {key: int(value) for key, value in road_class_key}
+    summary = compute_uncertainty_summary(
+        base_duration_s=base_duration_s,
+        base_monetary_cost=base_monetary_cost,
+        base_emissions_kg=base_emissions_kg,
+        base_distance_km=base_distance_km,
+        route_signature=route_signature,
+        departure_time_utc=departure_time_utc,
+        user_seed=0,
+        sigma=sigma,
+        samples=samples,
+        cvar_alpha=settings.risk_cvar_alpha,
+        utility_weights=(
+            utility_weight_time,
+            utility_weight_money,
+            utility_weight_co2,
+        ),
+        risk_aversion=risk_aversion,
+        road_class_counts=road_class_counts,
+        weather_profile=weather_profile,
+        vehicle_type=vehicle_type or None,
+        corridor_bucket=corridor_bucket or None,
+    )
+    return summary.as_dict()
 
 
 def _route_stochastic_uncertainty(
     option: RouteOption,
     *,
     stochastic: StochasticConfig,
-) -> dict[str, float] | None:
+    route_signature: str,
+    departure_time_utc: datetime | None,
+    utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    risk_aversion: float = 1.0,
+    road_class_counts: dict[str, int] | None = None,
+    weather_profile: str | None = None,
+    vehicle_type: str | None = None,
+    corridor_bucket: str | None = None,
+) -> tuple[dict[str, float] | None, dict[str, str | float | int | bool] | None]:
     if not stochastic.enabled:
-        return None
+        base_duration = max(float(option.metrics.duration_s), 1e-6)
+        base_monetary = max(float(option.metrics.monetary_cost), 0.0)
+        base_emissions = max(float(option.metrics.emissions_kg), 0.0)
+        weather_key = (weather_profile or "clear").strip().lower()
+        road_bucket = _dominant_road_bucket(road_class_counts)
+        day_kind = _day_kind_uk(departure_time_utc)
+        regime_id, copula_id, calibration_version, calibration_as_of_utc, regime = resolve_stochastic_regime(
+            departure_time_utc,
+            road_class_counts=road_class_counts,
+            weather_profile=weather_profile,
+            corridor_bucket=corridor_bucket,
+        )
+        prior = load_stochastic_residual_prior(
+            day_kind=day_kind,
+            road_bucket=road_bucket,
+            weather_profile=weather_key,
+            vehicle_type=vehicle_type,
+            corridor_bucket=corridor_bucket,
+            local_time_slot=_local_time_slot_uk(departure_time_utc),
+        )
+        sigma_floor = min(
+            0.35,
+            max(0.02, float(prior.sigma_floor) * max(0.75, float(regime.sigma_scale))),
+        )
+        deterministic_samples = int(max(24, min(196, max(int(prior.sample_count), (stochastic.samples * 2)))))
+        deterministic = _deterministic_uncertainty_cached(
+            base_duration_s=base_duration,
+            base_monetary_cost=base_monetary,
+            base_emissions_kg=base_emissions,
+            base_distance_km=max(float(option.metrics.distance_km), 0.0),
+            route_signature=route_signature,
+            departure_time_iso=departure_time_utc.isoformat() if departure_time_utc else "",
+            sigma=sigma_floor,
+            samples=deterministic_samples,
+            utility_weight_time=float(utility_weights[0]),
+            utility_weight_money=float(utility_weights[1]),
+            utility_weight_co2=float(utility_weights[2]),
+            risk_aversion=float(risk_aversion),
+            road_class_key=_road_class_key(road_class_counts),
+            weather_profile=weather_profile or "clear",
+            vehicle_type=vehicle_type or "",
+            corridor_bucket=corridor_bucket or "uk_default",
+        )
+        seed_material = f"{route_signature}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}|deterministic|{deterministic_samples}|{sigma_floor:.6f}"
+        seed_hash = hashlib.sha1(seed_material.encode("utf-8")).hexdigest()[:16]
+        return (
+            deterministic,
+            {
+                "sample_count": deterministic_samples,
+                "seed": seed_hash,
+                "sigma": round(sigma_floor, 6),
+                "regime_id": regime_id,
+                "copula_id": copula_id,
+                "calibration_version": calibration_version,
+                "calibration_as_of_utc": calibration_as_of_utc,
+                "as_of_utc": calibration_as_of_utc,
+                "prior_id": prior.prior_id,
+                "prior_source": prior.source,
+                "prior_sample_count": int(prior.sample_count),
+                "seed_strategy": "route_signature+departure_slot+deterministic_seed",
+                "stochastic_enabled": False,
+                "deterministic_uncertainty_policy": "calibrated_residual_envelope",
+                "utility_weight_time": float(utility_weights[0]),
+                "utility_weight_money": float(utility_weights[1]),
+                "utility_weight_co2": float(utility_weights[2]),
+            },
+        )
 
-    base_duration_s = max(float(option.metrics.duration_s), 1e-6)
-    base_monetary_cost = max(float(option.metrics.monetary_cost), 0.0)
-    base_emissions_kg = max(float(option.metrics.emissions_kg), 0.0)
-    sigma = max(0.0, min(float(stochastic.sigma), 0.5))
-    samples = max(5, min(int(stochastic.samples), 200))
-
-    seed_base = stochastic.seed if stochastic.seed is not None else 0
-    seed_material = (
-        f"{option.id}|{base_duration_s:.6f}|{base_monetary_cost:.6f}|"
-        f"{base_emissions_kg:.6f}|{seed_base}"
+    summary = compute_uncertainty_summary(
+        base_duration_s=max(float(option.metrics.duration_s), 1e-6),
+        base_monetary_cost=max(float(option.metrics.monetary_cost), 0.0),
+        base_emissions_kg=max(float(option.metrics.emissions_kg), 0.0),
+        base_distance_km=max(float(option.metrics.distance_km), 0.0),
+        route_signature=route_signature,
+        departure_time_utc=departure_time_utc,
+        user_seed=stochastic.seed,
+        sigma=stochastic.sigma,
+        samples=stochastic.samples,
+        cvar_alpha=settings.risk_cvar_alpha,
+        utility_weights=utility_weights,
+        risk_aversion=risk_aversion,
+        road_class_counts=road_class_counts,
+        weather_profile=weather_profile,
+        vehicle_type=vehicle_type,
+        corridor_bucket=corridor_bucket,
     )
-    route_seed = int(hashlib.sha1(seed_material.encode("utf-8")).hexdigest()[:12], 16)
-    rng = random.Random(route_seed)
-
-    sampled_durations: list[float] = []
-    sampled_monetary: list[float] = []
-    sampled_emissions: list[float] = []
-
-    for _ in range(samples):
-        factor = max(0.5, min(1.8, rng.gauss(1.0, sigma)))
-        sampled_duration = base_duration_s * factor
-        ratio = sampled_duration / base_duration_s if base_duration_s > 0 else 1.0
-        sampled_durations.append(sampled_duration)
-        sampled_monetary.append(base_monetary_cost * ratio)
-        sampled_emissions.append(base_emissions_kg * ratio)
-
-    mean_duration = statistics.fmean(sampled_durations)
-    std_duration = statistics.pstdev(sampled_durations) if len(sampled_durations) > 1 else 0.0
-    mean_monetary = statistics.fmean(sampled_monetary)
-    std_monetary = statistics.pstdev(sampled_monetary) if len(sampled_monetary) > 1 else 0.0
-    mean_emissions = statistics.fmean(sampled_emissions)
-    std_emissions = statistics.pstdev(sampled_emissions) if len(sampled_emissions) > 1 else 0.0
-
-    return {
-        "mean_duration_s": round(mean_duration, 6),
-        "std_duration_s": round(std_duration, 6),
-        "p95_duration_s": round(_quantile(sampled_durations, 0.95), 6),
-        "mean_monetary_cost": round(mean_monetary, 6),
-        "std_monetary_cost": round(std_monetary, 6),
-        "mean_emissions_kg": round(mean_emissions, 6),
-        "std_emissions_kg": round(std_emissions, 6),
-        "robust_score": round(mean_duration + std_duration, 6),
-    }
-
-
-def _ice_fuel_multiplier(fuel_type: str) -> float:
-    if fuel_type == "petrol":
-        return 1.08
-    if fuel_type == "lng":
-        return 0.90
-    return 1.0
+    regime_id, copula_id, calibration_version, calibration_as_of_utc, _regime = resolve_stochastic_regime(
+        departure_time_utc,
+        road_class_counts=road_class_counts,
+        weather_profile=weather_profile,
+        corridor_bucket=corridor_bucket,
+    )
+    seed_material = f"{route_signature}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}|{stochastic.seed}|{stochastic.samples}|{stochastic.sigma}"
+    seed_hash = hashlib.sha1(seed_material.encode("utf-8")).hexdigest()[:16]
+    summary_dict = summary.as_dict()
+    quantile_invariants_ok = (
+        summary_dict["q50_duration_s"] <= summary_dict["q90_duration_s"] <= summary_dict["q95_duration_s"] <= summary_dict["cvar95_duration_s"]
+        and summary_dict["q50_monetary_cost"] <= summary_dict["q90_monetary_cost"] <= summary_dict["q95_monetary_cost"] <= summary_dict["cvar95_monetary_cost"]
+        and summary_dict["q50_emissions_kg"] <= summary_dict["q90_emissions_kg"] <= summary_dict["q95_emissions_kg"] <= summary_dict["cvar95_emissions_kg"]
+        and summary_dict["utility_q95"] <= summary_dict["utility_cvar95"]
+    )
+    return (
+        summary_dict,
+        {
+            "sample_count": int(max(8, min(int(stochastic.samples), 600))),
+            "seed": seed_hash,
+            "sigma": float(stochastic.sigma),
+            "regime_id": regime_id,
+            "copula_id": copula_id,
+            "calibration_version": calibration_version,
+            "calibration_as_of_utc": calibration_as_of_utc,
+            "as_of_utc": calibration_as_of_utc,
+            "seed_strategy": "route_signature+departure_slot+user_seed",
+            "quantile_invariants_ok": quantile_invariants_ok,
+            "stochastic_enabled": True,
+            "utility_weight_time": float(utility_weights[0]),
+            "utility_weight_money": float(utility_weights[1]),
+            "utility_weight_co2": float(utility_weights[2]),
+        },
+    )
 
 
-def _ice_euro_multiplier(euro_class: str) -> float:
-    if euro_class == "euro4":
-        return 1.12
-    if euro_class == "euro5":
-        return 1.06
-    return 1.0
+def _route_road_class_counts(route: dict[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = {"motorway": 0, "trunk": 0, "primary": 0, "secondary": 0, "local": 0}
+    legs = route.get("legs", [])
+    if not isinstance(legs, list):
+        return counts
+    for leg in legs:
+        if not isinstance(leg, dict):
+            continue
+        steps = leg.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            classes = step.get("classes", [])
+            class_set = {str(item).strip().lower() for item in classes} if isinstance(classes, list) else set()
+            if "motorway" in class_set:
+                counts["motorway"] += 1
+            elif "trunk" in class_set:
+                counts["trunk"] += 1
+            elif "primary" in class_set:
+                counts["primary"] += 1
+            elif "secondary" in class_set:
+                counts["secondary"] += 1
+            else:
+                counts["local"] += 1
+    return counts
 
 
-def _ice_temperature_multiplier(ambient_temp_c: float) -> float:
-    if ambient_temp_c < 15.0:
-        return 1.0 + min(0.25, (15.0 - ambient_temp_c) * 0.008)
-    return 1.0 + min(0.12, (ambient_temp_c - 15.0) * 0.003)
+def _dominant_road_bucket(road_class_counts: dict[str, int] | None) -> str:
+    if not road_class_counts:
+        return "mixed"
+    total = max(sum(max(0, int(v)) for v in road_class_counts.values()), 1)
+    motorway_share = max(0, int(road_class_counts.get("motorway", 0))) / total
+    trunk_share = max(0, int(road_class_counts.get("trunk", 0))) / total
+    if motorway_share >= 0.55:
+        return "motorway_heavy"
+    if trunk_share >= 0.45:
+        return "trunk_heavy"
+    return "mixed"
 
 
-def _ev_energy_temperature_multiplier(ambient_temp_c: float) -> float:
-    return 1.0 + min(0.35, abs(ambient_temp_c - 20.0) * 0.01)
+def _day_kind_uk(departure_time_utc: datetime | None) -> str:
+    if departure_time_utc is None:
+        return "weekday"
+    aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
+        tzinfo=timezone.utc
+    )
+    local = aware.astimezone(UK_TZ)
+    if local.weekday() >= 5:
+        return "weekend"
+    return "weekday"
+
+
+def _local_time_slot_uk(departure_time_utc: datetime | None) -> str:
+    if departure_time_utc is None:
+        return "h12"
+    aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
+        tzinfo=timezone.utc
+    )
+    local = aware.astimezone(UK_TZ)
+    return f"h{int(local.hour):02d}"
 
 
 def build_option(
@@ -583,6 +820,8 @@ def build_option(
     weather: WeatherImpactConfig | None = None,
     incident_simulation: IncidentSimulatorConfig | None = None,
     departure_time_utc: datetime | None = None,
+    utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    risk_aversion: float = 1.0,
 ) -> RouteOption:
     vehicle = get_vehicle(vehicle_type)
     ctx = emissions_context or EmissionsContext()
@@ -601,15 +840,13 @@ def build_option(
         if vehicle.grid_co2_kg_per_kwh is not None and vehicle.grid_co2_kg_per_kwh >= 0
         else 0.20
     )
-    ice_context_multiplier = (
-        _ice_fuel_multiplier(ctx.fuel_type)
-        * _ice_euro_multiplier(ctx.euro_class)
-        * _ice_temperature_multiplier(ctx.ambient_temp_c)
-    )
-    ev_temp_energy_multiplier = _ev_energy_temperature_multiplier(ctx.ambient_temp_c)
 
     coords = _downsample_coords(_validate_osrm_geometry(route))
     seg_d_m, seg_t_s = extract_segment_annotations(route)
+    try:
+        route_signature = _route_signature(route)
+    except OSRMError:
+        route_signature = option_id
 
     distance_m = float(route.get("distance", 0.0))
     duration_s = float(route.get("duration", 0.0))
@@ -621,16 +858,89 @@ def build_option(
 
     distance_km = distance_m / 1000.0
     base_duration_s = duration_s
-    tod_multiplier = time_of_day_multiplier(departure_time_utc)
+    route_points_lat_lon = [(lat, lon) for lon, lat in coords]
+    route_centroid_lat = (
+        sum(lat for lat, _lon in route_points_lat_lon) / len(route_points_lat_lon)
+        if route_points_lat_lon
+        else None
+    )
+    route_centroid_lon = (
+        sum(lon for _lat, lon in route_points_lat_lon) / len(route_points_lat_lon)
+        if route_points_lat_lon
+        else None
+    )
+    road_class_counts = _route_road_class_counts(route)
+    departure_multiplier = time_of_day_multiplier_uk(
+        departure_time_utc,
+        route_points=route_points_lat_lon,
+        road_class_counts=road_class_counts,
+    )
+    tod_multiplier = departure_multiplier.multiplier
     scenario_multiplier = scenario_duration_multiplier(scenario_mode)
     duration_after_tod_s = base_duration_s * tod_multiplier
     duration_after_scenario_s = apply_scenario_duration(duration_after_tod_s, mode=scenario_mode)
     duration_after_weather_s = duration_after_scenario_s * weather_speed
-    gradient_duration_multiplier, gradient_emissions_multiplier = gradient_multipliers(terrain_profile)
-    duration_after_gradient_s = duration_after_weather_s * gradient_duration_multiplier
+    avg_base_speed_kmh = distance_km / (base_duration_s / 3600.0) if base_duration_s > 0 else 0.0
+    terrain_summary = estimate_terrain_summary(
+        coordinates_lon_lat=coords,
+        terrain_profile=terrain_profile,
+        avg_speed_kmh=avg_base_speed_kmh,
+        distance_km=distance_km,
+        vehicle_type=vehicle_type,
+    )
+    terrain_confidence = max(0.0, min(1.0, float(terrain_summary.confidence)))
+    # Low DEM confidence widens downstream cost/emissions uncertainty to avoid
+    # overconfident outputs on weak elevation coverage.
+    terrain_uncertainty_scale = 1.0 + ((1.0 - terrain_confidence) * 0.35)
+    gradient_duration_multiplier = terrain_summary.duration_multiplier
+    gradient_emissions_multiplier = terrain_summary.emissions_multiplier
+    segment_grades = segment_grade_profile(
+        coordinates_lon_lat=coords,
+        segment_distances_m=[float(seg) for seg in seg_d_m],
+    )
+    non_terrain_multiplier = tod_multiplier * scenario_multiplier * weather_speed
+    terrain_vehicle_params = params_for_vehicle(vehicle_type)
+    raw_terrain_multipliers: list[float] = []
+    for idx, (d_m_raw, t_s_raw) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
+        d_m = max(float(d_m_raw), 0.0)
+        t_s = max(float(t_s_raw), 0.0)
+        base_speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else max(8.0, avg_base_speed_kmh)
+        seg_grade = segment_grades[idx] if idx < len(segment_grades) else 0.0
+        raw_mult = segment_duration_multiplier(
+            grade=seg_grade,
+            speed_kmh=base_speed_kmh,
+            terrain_profile=terrain_profile,
+            params=terrain_vehicle_params,
+        )
+        raw_terrain_multipliers.append(raw_mult)
+    if raw_terrain_multipliers:
+        weighted_raw = 0.0
+        weighted_base = 0.0
+        for idx, raw_mult in enumerate(raw_terrain_multipliers):
+            base_seg = max(float(seg_t_s[idx]), 0.0)
+            weighted_raw += raw_mult * base_seg
+            weighted_base += base_seg
+        weighted_raw_avg = weighted_raw / max(1e-6, weighted_base)
+        scale = gradient_duration_multiplier / max(1e-6, weighted_raw_avg)
+        scale = min(1.5, max(0.7, scale))
+        terrain_duration_multipliers = [
+            min(1.85, max(0.75, raw_mult * scale)) for raw_mult in raw_terrain_multipliers
+        ]
+    else:
+        terrain_duration_multipliers = raw_terrain_multipliers
+
+    pre_incident_segment_durations_s = [
+        max(float(base_seg), 0.0)
+        * non_terrain_multiplier
+        * (terrain_duration_multipliers[idx] if idx < len(terrain_duration_multipliers) else 1.0)
+        for idx, base_seg in enumerate(seg_t_s)
+    ]
+    duration_after_gradient_s = sum(pre_incident_segment_durations_s)
     duration_s = duration_after_gradient_s
-    total_duration_multiplier = duration_s / base_duration_s if base_duration_s > 0 else 1.0
-    pre_incident_segment_durations_s = [max(float(seg), 0.0) * total_duration_multiplier for seg in seg_t_s]
+    if duration_after_weather_s > 0:
+        gradient_duration_multiplier = duration_after_gradient_s / duration_after_weather_s
+    else:
+        gradient_duration_multiplier = 1.0
     route_key = option_id
     if incident_cfg.enabled:
         try:
@@ -656,12 +966,31 @@ def build_option(
     weather_delta_s = max(duration_after_weather_s - duration_after_scenario_s, 0.0)
     gradient_delta_s = max(duration_after_gradient_s - duration_after_weather_s, 0.0)
     fuel_multiplier = max(cost_toggles.fuel_price_multiplier, 0.0)
-    carbon_price = max(cost_toggles.carbon_price_per_kg, 0.0)
-
-    contains_toll = bool(route.get("contains_toll", False))
-    toll_component_total = (
-        distance_km * cost_toggles.toll_cost_per_km if cost_toggles.use_tolls and contains_toll else 0.0
+    carbon_context = resolve_carbon_price(
+        request_price_per_kg=max(cost_toggles.carbon_price_per_kg, 0.0),
+        departure_time_utc=departure_time_utc,
     )
+    carbon_price = carbon_context.price_per_kg
+
+    toll_result = compute_toll_cost(
+        route=route,
+        distance_km=distance_km,
+        vehicle_type=vehicle_type,
+        departure_time_utc=departure_time_utc,
+        use_tolls=cost_toggles.use_tolls,
+        fallback_toll_cost_per_km=cost_toggles.toll_cost_per_km,
+    )
+    contains_toll = toll_result.contains_toll
+    toll_distance_km = toll_result.toll_distance_km
+    toll_component_total = toll_result.toll_cost_gbp
+    legacy_contains_toll_hint = bool(route.get("contains_toll", False))
+    strict_toll_pricing_required = True
+    if (
+        (strict_toll_pricing_required or legacy_contains_toll_hint)
+        and toll_result.contains_toll
+        and bool(toll_result.details.get("pricing_unresolved", False))
+    ):
+        raise ValueError("tolled route classification succeeded but tariff resolution is unavailable")
 
     segment_breakdown: list[dict[str, float | int]] = []
     total_emissions = 0.0
@@ -670,9 +999,16 @@ def build_option(
     total_distance_km = 0.0
     total_duration_s = 0.0
     total_fuel_cost = 0.0
+    total_fuel_cost_uncertainty_low = 0.0
+    total_fuel_cost_uncertainty_high = 0.0
+    total_emissions_uncertainty_low = 0.0
+    total_emissions_uncertainty_high = 0.0
     total_time_cost = 0.0
     total_toll_cost = 0.0
     total_carbon_cost = 0.0
+    elapsed_route_s = 0.0
+    fuel_price_source: str | None = None
+    fuel_price_as_of: str | None = None
 
     for idx, (d_m, t_s) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
         d_m = max(float(d_m), 0.0)
@@ -682,36 +1018,80 @@ def build_option(
         total_distance_km += seg_distance_km
 
         base_speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else 0.0
-        base_seg_fuel_cost = seg_distance_km * vehicle.cost_per_km * speed_factor(base_speed_kmh)
-        seg_fuel_cost = base_seg_fuel_cost * fuel_multiplier
-
-        seg_duration_s = t_s * total_duration_multiplier
+        base_pre_incident_s = (
+            pre_incident_segment_durations_s[idx]
+            if idx < len(pre_incident_segment_durations_s)
+            else max(float(t_s), 0.0) * non_terrain_multiplier
+        )
+        seg_duration_s = base_pre_incident_s
+        if departure_time_utc is not None:
+            seg_departure_utc = departure_time_utc + timedelta(seconds=max(0.0, elapsed_route_s))
+            seg_dep = time_of_day_multiplier_uk(
+                seg_departure_utc,
+                route_points=route_points_lat_lon,
+                road_class_counts=road_class_counts,
+            )
+            seg_duration_s *= min(1.35, max(0.75, seg_dep.multiplier / max(tod_multiplier, 1e-6)))
+        seg_grade = segment_grades[idx] if idx < len(segment_grades) else 0.0
         seg_incident_delay_s = incident_delay_by_segment.get(idx, 0.0)
         seg_duration_s += seg_incident_delay_s
-        seg_extra_delay_s = max(seg_duration_s - t_s, 0.0)
+        elapsed_route_s += seg_duration_s
         seg_energy_kwh = 0.0
-        if is_ev_mode:
-            seg_energy_kwh = (seg_distance_km * ev_kwh_per_km * ev_temp_energy_multiplier) + (
-                (seg_extra_delay_s / 3600.0) * 0.4
-            )
-            seg_emissions = seg_energy_kwh * grid_co2_kg_per_kwh
-        else:
-            base_seg_emissions = route_emissions_kg(
-                vehicle=vehicle,
-                segment_distances_m=[d_m],
-                segment_durations_s=[t_s],
-            )
-            seg_emissions = (base_seg_emissions * gradient_emissions_multiplier * ice_context_multiplier) + (
-                (seg_extra_delay_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
-            )
+        seg_fuel_liters = 0.0
+        energy_result = segment_energy_and_emissions(
+            vehicle=vehicle,
+            emissions_context=ctx,
+            distance_km=seg_distance_km,
+            duration_s=seg_duration_s,
+            grade=seg_grade,
+            fuel_price_multiplier=fuel_multiplier,
+            departure_time_utc=departure_time_utc,
+            route_centroid_lat=route_centroid_lat,
+            route_centroid_lon=route_centroid_lon,
+        )
+        seg_fuel_cost = energy_result.fuel_cost_gbp
+        seg_fuel_cost_low = float(energy_result.fuel_cost_uncertainty_low_gbp)
+        seg_fuel_cost_high = float(energy_result.fuel_cost_uncertainty_high_gbp)
+        seg_energy_kwh = energy_result.energy_kwh
+        seg_emissions = energy_result.emissions_kg
+        seg_emissions_low = float(energy_result.emissions_uncertainty_low_kg)
+        seg_emissions_high = float(energy_result.emissions_uncertainty_high_kg)
+        seg_fuel_liters = energy_result.fuel_liters
+        if fuel_price_source is None and energy_result.price_source:
+            fuel_price_source = energy_result.price_source
+        if fuel_price_as_of is None and energy_result.price_as_of:
+            fuel_price_as_of = energy_result.price_as_of
+        seg_emissions = apply_scope_emissions_adjustment(
+            emissions_kg=seg_emissions,
+            is_ev_mode=is_ev_mode,
+            scope_mode=carbon_context.scope_mode,
+            departure_time_utc=departure_time_utc,
+            route_centroid_lat=route_centroid_lat,
+            route_centroid_lon=route_centroid_lon,
+        )
+        seg_emissions *= max(0.0, float(gradient_emissions_multiplier))
+        if energy_result.emissions_kg > 1e-9:
+            scope_scale = seg_emissions / max(1e-9, float(energy_result.emissions_kg))
+            seg_emissions_low *= scope_scale
+            seg_emissions_high *= scope_scale
+        if terrain_uncertainty_scale > 1.0:
+            fuel_low_span = max(0.0, seg_fuel_cost - seg_fuel_cost_low)
+            fuel_high_span = max(0.0, seg_fuel_cost_high - seg_fuel_cost)
+            seg_fuel_cost_low = max(0.0, seg_fuel_cost - (fuel_low_span * terrain_uncertainty_scale))
+            seg_fuel_cost_high = max(seg_fuel_cost_low, seg_fuel_cost + (fuel_high_span * terrain_uncertainty_scale))
+            em_low_span = max(0.0, seg_emissions - seg_emissions_low)
+            em_high_span = max(0.0, seg_emissions_high - seg_emissions)
+            seg_emissions_low = max(0.0, seg_emissions - (em_low_span * terrain_uncertainty_scale))
+            seg_emissions_high = max(seg_emissions_low, seg_emissions + (em_high_span * terrain_uncertainty_scale))
 
-        toll_share = (seg_distance_km / distance_km) if distance_km > 0 else 0.0
+        toll_share = (seg_distance_km / max(distance_km, 1e-6)) if distance_km > 0 else 0.0
         seg_toll_cost = toll_component_total * toll_share
         seg_time_cost = (seg_duration_s / 3600.0) * vehicle.cost_per_hour * DRIVER_TIME_COST_WEIGHT
         seg_carbon_cost = seg_emissions * carbon_price
         seg_monetary = seg_fuel_cost + seg_time_cost + seg_toll_cost + seg_carbon_cost
 
         seg_speed_kmh = seg_distance_km / (seg_duration_s / 3600.0) if seg_duration_s > 0 else 0.0
+        seg_grade_pct = seg_grade * 100.0
         segment_breakdown.append(
             {
                 "segment_index": idx,
@@ -721,6 +1101,19 @@ def build_option(
                 "avg_speed_kmh": round(seg_speed_kmh, 6),
                 "emissions_kg": round(seg_emissions, 6),
                 "monetary_cost": round(seg_monetary, 6),
+                "time_cost": round(seg_time_cost, 6),
+                "toll_cost": round(seg_toll_cost, 6),
+                "fuel_cost": round(seg_fuel_cost, 6),
+                "fuel_cost_uncertainty_low": round(seg_fuel_cost_low, 6),
+                "fuel_cost_uncertainty_high": round(seg_fuel_cost_high, 6),
+                "carbon_cost": round(seg_carbon_cost, 6),
+                "energy_kwh": round(seg_energy_kwh, 6),
+                "fuel_liters": round(seg_fuel_liters, 6),
+                "grade_pct": round(seg_grade_pct, 6),
+                "terrain_confidence": round(terrain_confidence, 6),
+                "terrain_uncertainty_scale": round(terrain_uncertainty_scale, 6),
+                "emissions_uncertainty_low_kg": round(max(0.0, seg_emissions_low), 6),
+                "emissions_uncertainty_high_kg": round(max(max(0.0, seg_emissions_low), seg_emissions_high), 6),
             }
         )
 
@@ -729,6 +1122,10 @@ def build_option(
         total_energy_kwh += seg_energy_kwh
         total_monetary += seg_monetary
         total_fuel_cost += seg_fuel_cost
+        total_fuel_cost_uncertainty_low += max(0.0, seg_fuel_cost_low)
+        total_fuel_cost_uncertainty_high += max(max(0.0, seg_fuel_cost_low), seg_fuel_cost_high)
+        total_emissions_uncertainty_low += max(0.0, seg_emissions_low)
+        total_emissions_uncertainty_high += max(max(0.0, seg_emissions_low), seg_emissions_high)
         total_time_cost += seg_time_cost
         total_toll_cost += seg_toll_cost
         total_carbon_cost += seg_carbon_cost
@@ -743,6 +1140,11 @@ def build_option(
         )
     else:
         eta_explanations.append("Time-of-day profile added no material delay.")
+    if departure_multiplier is not None and departure_multiplier.local_time_iso is not None:
+        eta_explanations.append(
+            "UK local-time profile "
+            f"({departure_multiplier.profile_day}, {departure_multiplier.local_time_iso}) applied."
+        )
     if scenario_delta_s > 0.5:
         eta_explanations.append(
             f"Scenario mode added {scenario_delta_s / 60.0:.1f} min "
@@ -775,6 +1177,12 @@ def build_option(
         )
     else:
         eta_explanations.append(f"Terrain profile '{terrain_profile}' added no material delay.")
+    if terrain_summary is not None:
+        eta_explanations.append(
+            f"Terrain model ({terrain_summary.source}, cov={terrain_summary.coverage_ratio:.2f}, "
+            f"v={terrain_summary.version}) estimated ascent {terrain_summary.ascent_m:.0f} m and "
+            f"descent {terrain_summary.descent_m:.0f} m."
+        )
     if is_ev_mode:
         eta_explanations.append(
             f"EV energy model active ({ev_kwh_per_km:.2f} kWh/km, grid {grid_co2_kg_per_kwh:.2f} kg/kWh)."
@@ -784,6 +1192,10 @@ def build_option(
             "Emissions context adjusted for "
             f"fuel={ctx.fuel_type}, euro={ctx.euro_class}, temp={ctx.ambient_temp_c:.1f}C."
         )
+    eta_explanations.append(
+        f"Toll engine classified {'tolled' if contains_toll else 'toll-free'} route "
+        f"(distance {toll_distance_km:.2f} km)."
+    )
 
     eta_timeline: list[dict[str, float | str]] = [
         {"stage": "baseline", "duration_s": round(base_duration_s, 2), "delta_s": 0.0},
@@ -792,6 +1204,11 @@ def build_option(
             "duration_s": round(duration_after_tod_s, 2),
             "delta_s": round(time_of_day_delta_s, 2),
             "multiplier": round(tod_multiplier, 3),
+            "profile_day": (
+                departure_multiplier.profile_day
+                if departure_multiplier is not None
+                else "legacy"
+            ),
         },
         {
             "stage": "scenario",
@@ -810,13 +1227,16 @@ def build_option(
                 "profile": weather_cfg.profile,
             }
         )
+    gradient_stage_duration_s = max(total_duration_s - total_incident_delay_s, 0.0)
+    gradient_stage_delta_s = max(gradient_stage_duration_s - duration_after_weather_s, 0.0)
     eta_timeline.append(
         {
             "stage": "gradient",
-            "duration_s": round(duration_after_gradient_s, 2),
-            "delta_s": round(gradient_delta_s, 2),
+            "duration_s": round(gradient_stage_duration_s, 2),
+            "delta_s": round(gradient_stage_delta_s, 2),
             "multiplier": round(gradient_duration_multiplier, 3),
             "profile": terrain_profile,
+            "source": terrain_summary.source if terrain_summary is not None else "gradient_profile",
         }
     )
     if incident_cfg.enabled:
@@ -831,7 +1251,8 @@ def build_option(
 
     shifted_departure_duration = total_duration_s
     if departure_time_utc is not None:
-        shifted_tod_multiplier = time_of_day_multiplier(departure_time_utc + timedelta(hours=2))
+        shifted_time = departure_time_utc + timedelta(hours=2)
+        shifted_tod_multiplier = time_of_day_multiplier_uk(shifted_time).multiplier
         shifted_after_tod = base_duration_s * shifted_tod_multiplier
         shifted_after_scenario = apply_scenario_duration(shifted_after_tod, mode=scenario_mode)
         shifted_after_weather = shifted_after_scenario * weather_speed
@@ -891,10 +1312,63 @@ def build_option(
         },
     ]
 
-    option_weather_summary = weather_summary(weather_cfg) if weather_cfg.enabled else None
+    option_weather_summary = weather_summary(weather_cfg) if weather_cfg.enabled else {}
     if option_weather_summary is not None:
         option_weather_summary["weather_delay_s"] = round(weather_delta_s, 6)
         option_weather_summary["incident_rate_multiplier"] = round(weather_incident, 6)
+    if option_weather_summary is not None and toll_result is not None:
+        option_weather_summary["toll_model_source"] = toll_result.source
+        option_weather_summary["toll_confidence"] = round(toll_result.confidence, 6)
+        option_weather_summary["toll_fallback_policy_used"] = bool(
+            toll_result.details.get("fallback_policy_used", False)
+        )
+    if option_weather_summary is not None and departure_multiplier is not None:
+        option_weather_summary["departure_profile_source"] = departure_multiplier.profile_source
+        option_weather_summary["departure_profile_day"] = departure_multiplier.profile_day
+        option_weather_summary["departure_profile_key"] = departure_multiplier.profile_key
+        option_weather_summary["departure_profile_version"] = departure_multiplier.profile_version
+        if departure_multiplier.profile_as_of_utc is not None:
+            option_weather_summary["departure_profile_as_of_utc"] = departure_multiplier.profile_as_of_utc
+        if departure_multiplier.profile_refreshed_at_utc is not None:
+            option_weather_summary["departure_profile_refreshed_at_utc"] = (
+                departure_multiplier.profile_refreshed_at_utc
+            )
+        option_weather_summary["departure_applied_multiplier"] = round(departure_multiplier.multiplier, 6)
+        if departure_multiplier.confidence_low is not None:
+            option_weather_summary["departure_confidence_low"] = round(
+                departure_multiplier.confidence_low, 6
+            )
+        if departure_multiplier.confidence_high is not None:
+            option_weather_summary["departure_confidence_high"] = round(
+                departure_multiplier.confidence_high, 6
+            )
+    if option_weather_summary is not None and terrain_summary is not None:
+        option_weather_summary["terrain_source"] = terrain_summary.source
+        option_weather_summary["terrain_ascent_m"] = terrain_summary.ascent_m
+        option_weather_summary["terrain_descent_m"] = terrain_summary.descent_m
+        option_weather_summary["terrain_coverage_ratio"] = round(terrain_summary.coverage_ratio, 6)
+        option_weather_summary["terrain_confidence"] = round(terrain_summary.confidence, 6)
+        option_weather_summary["terrain_dem_version"] = terrain_summary.version
+    if option_weather_summary is not None:
+        option_weather_summary["carbon_source"] = carbon_context.source
+        option_weather_summary["carbon_schedule_year"] = carbon_context.schedule_year
+        option_weather_summary["carbon_scope_mode"] = carbon_context.scope_mode
+        option_weather_summary["carbon_policy_scenario"] = settings.carbon_policy_scenario
+        option_weather_summary["carbon_price_uncertainty_low"] = round(carbon_context.uncertainty_low, 6)
+        option_weather_summary["carbon_price_uncertainty_high"] = round(carbon_context.uncertainty_high, 6)
+        if fuel_price_source is not None:
+            option_weather_summary["fuel_price_source"] = fuel_price_source
+        if fuel_price_as_of is not None:
+            option_weather_summary["fuel_price_as_of"] = fuel_price_as_of
+        option_weather_summary["fuel_cost_uncertainty_low"] = round(total_fuel_cost_uncertainty_low, 6)
+        option_weather_summary["fuel_cost_uncertainty_high"] = round(total_fuel_cost_uncertainty_high, 6)
+        option_weather_summary["emissions_uncertainty_low_kg"] = round(total_emissions_uncertainty_low, 6)
+        option_weather_summary["emissions_uncertainty_high_kg"] = round(total_emissions_uncertainty_high, 6)
+        fuel_cal = load_fuel_consumption_calibration()
+        option_weather_summary["consumption_model_source"] = fuel_cal.source
+        option_weather_summary["consumption_model_version"] = fuel_cal.version
+        if fuel_cal.as_of_utc is not None:
+            option_weather_summary["consumption_model_as_of_utc"] = fuel_cal.as_of_utc
 
     option = RouteOption(
         id=option_id,
@@ -914,12 +1388,78 @@ def build_option(
         segment_breakdown=segment_breakdown,
         counterfactuals=counterfactuals,
         weather_summary=option_weather_summary,
+        terrain_summary=(
+            terrain_summary.as_route_option_payload() if terrain_summary is not None else None
+        ),
         incident_events=incident_events,
     )
-    option.uncertainty = _route_stochastic_uncertainty(
+    corridor_bucket = (
+        departure_multiplier.profile_key.split(".", 1)[0]
+        if departure_multiplier is not None and departure_multiplier.profile_key
+        else "uk_default"
+    )
+    day_kind = (
+        departure_multiplier.profile_day
+        if departure_multiplier is not None and departure_multiplier.profile_day
+        else _day_kind_uk(departure_time_utc)
+    )
+
+    option_uncertainty, option_uncertainty_meta = _route_stochastic_uncertainty(
         option,
         stochastic=stochastic or StochasticConfig(),
+        route_signature=route_signature,
+        departure_time_utc=departure_time_utc,
+        utility_weights=utility_weights,
+        risk_aversion=risk_aversion,
+        road_class_counts=road_class_counts,
+        weather_profile=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+        vehicle_type=vehicle_type,
+        corridor_bucket=corridor_bucket,
     )
+    if option_uncertainty is None:
+        raise ModelDataError(
+            reason_code="risk_prior_unavailable",
+            message="Route uncertainty payload is unavailable for strict runtime.",
+        )
+    if option_uncertainty_meta is None:
+        raise ModelDataError(
+            reason_code="risk_prior_unavailable",
+            message="Route uncertainty sample metadata is unavailable for strict runtime.",
+        )
+
+    # Attach utility normalization provenance for reproducibility diagnostics.
+    norm_ref = load_risk_normalization_reference(
+        vehicle_type=vehicle_type,
+        corridor_bucket=corridor_bucket,
+        day_kind=day_kind,
+        local_time_slot=_local_time_slot_uk(departure_time_utc),
+    )
+    option_uncertainty_meta["normalization_ref_source"] = norm_ref.source
+    option_uncertainty_meta["normalization_ref_version"] = norm_ref.version
+    option_uncertainty_meta["normalization_ref_as_of_utc"] = norm_ref.as_of_utc or ""
+    option_uncertainty_meta["normalization_corridor_bucket"] = norm_ref.corridor_bucket
+    option_uncertainty_meta["normalization_day_kind"] = norm_ref.day_kind
+    option_uncertainty_meta["normalization_local_time_slot"] = norm_ref.local_time_slot
+
+    option.uncertainty = option_uncertainty
+    option.uncertainty_samples_meta = option_uncertainty_meta
+    if toll_result is not None:
+        option.toll_confidence = round(float(toll_result.confidence), 6)
+        matched_asset_ids = (
+            [item for item in str(toll_result.details.get("matched_asset_ids", "")).split("|") if item]
+            if toll_result.details.get("matched_asset_ids")
+            else []
+        )
+        option.toll_metadata = {
+            "matched_assets": matched_asset_ids,
+            "tariff_rule_ids": [
+                item
+                for item in str(toll_result.details.get("tariff_rule_ids", "")).split("|")
+                if item
+            ],
+            "fallback_policy_used": bool(toll_result.details.get("fallback_policy_used", False)),
+            "classification_source": str(toll_result.source),
+        }
     return option
 
 
@@ -939,6 +1479,7 @@ def _candidate_cache_key(
     *,
     origin: LatLng,
     destination: LatLng,
+    waypoints: list[Waypoint] | None = None,
     vehicle_type: str,
     scenario_mode: ScenarioMode,
     max_routes: int,
@@ -947,8 +1488,17 @@ def _candidate_cache_key(
     departure_time_utc: datetime | None = None,
 ) -> str:
     payload = {
+        "schema_version": CANDIDATE_CACHE_SCHEMA_VERSION,
         "origin": {"lat": round(origin.lat, 6), "lon": round(origin.lon, 6)},
         "destination": {"lat": round(destination.lat, 6), "lon": round(destination.lon, 6)},
+        "waypoints": [
+            {
+                "lat": round(float(waypoint.lat), 6),
+                "lon": round(float(waypoint.lon), 6),
+                "label": (waypoint.label or "").strip(),
+            }
+            for waypoint in (waypoints or [])
+        ],
         "vehicle_type": vehicle_type,
         "scenario_mode": scenario_mode.value,
         "max_routes": max_routes,
@@ -961,26 +1511,94 @@ def _candidate_cache_key(
 
 
 def _candidate_via_points(origin: LatLng, destination: LatLng) -> list[tuple[float, float]]:
-    """Generate a few via points around the midpoint to force detours.
+    """Generate bounded corridor via points for deterministic candidate expansion."""
+    d_lat = destination.lat - origin.lat
+    d_lon = destination.lon - origin.lon
+    span = max(abs(d_lat), abs(d_lon))
+    if span <= 1e-9:
+        return []
 
-    This is a heuristic. If via falls off the network, OSRM may fail that candidate.
-    """
-    # Midpoint in lat/lon
+    # Unit perpendicular vector in lat/lon plane.
+    norm = max((d_lat * d_lat + d_lon * d_lon) ** 0.5, 1e-9)
+    p_lat = -d_lon / norm
+    p_lon = d_lat / norm
+
+    base_offset = max(0.04, min(span * 0.22, 0.78))
+    frac_points = (0.2, 0.33, 0.5, 0.67, 0.8)
+    lateral_scales = (-1.0, -0.55, 0.55, 1.0)
+
+    candidates: list[tuple[float, float]] = []
+    for frac in frac_points:
+        c_lat = origin.lat + (d_lat * frac)
+        c_lon = origin.lon + (d_lon * frac)
+        for scale in lateral_scales:
+            lat = c_lat + (p_lat * base_offset * scale)
+            lon = c_lon + (p_lon * base_offset * scale)
+            if -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0:
+                candidates.append((lat, lon))
+
+    # Add short-axis perturbations near midline for mild detours.
     mid_lat = (origin.lat + destination.lat) / 2.0
     mid_lon = (origin.lon + destination.lon) / 2.0
+    q_offset = max(0.025, min(span * 0.08, 0.25))
+    candidates.extend(
+        [
+            (mid_lat + q_offset, mid_lon + q_offset),
+            (mid_lat - q_offset, mid_lon - q_offset),
+            (mid_lat + q_offset, mid_lon - q_offset),
+            (mid_lat - q_offset, mid_lon + q_offset),
+        ]
+    )
 
-    # Choose a modest offset based on span
-    span = max(abs(destination.lat - origin.lat), abs(destination.lon - origin.lon))
-    offset = max(0.08, min(span * 0.18, 0.6))
+    dedup: list[tuple[float, float]] = []
+    seen: set[tuple[int, int]] = set()
+    for lat, lon in candidates:
+        key = (int(round(lat * 20_000)), int(round(lon * 20_000)))
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append((lat, lon))
+        if len(dedup) >= int(settings.route_candidate_via_budget):
+            break
+    return dedup
 
-    candidates = [
-        (mid_lat + offset, mid_lon),
-        (mid_lat - offset, mid_lon),
-        (mid_lat, mid_lon + offset),
-        (mid_lat, mid_lon - offset),
-    ]
 
-    return candidates
+def _graph_family_via_points(
+    route: dict[str, Any],
+    *,
+    max_landmarks: int = 2,
+) -> list[tuple[float, float]]:
+    """Extract deterministic via landmarks from a graph-family geometry.
+
+    Returns (lat, lon) points suitable for OSRM refinement requests.
+    """
+    geom = route.get("geometry")
+    if not isinstance(geom, dict):
+        return []
+    coords = geom.get("coordinates")
+    if not isinstance(coords, list) or len(coords) < 4:
+        return []
+    usable = max(1, min(int(max_landmarks), 3))
+    points: list[tuple[float, float]] = []
+    seen: set[tuple[int, int]] = set()
+    for idx in range(1, usable + 1):
+        ratio = idx / float(usable + 1)
+        coord_idx = int(round((len(coords) - 1) * ratio))
+        coord_idx = max(1, min(len(coords) - 2, coord_idx))
+        raw = coords[coord_idx]
+        if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+            continue
+        try:
+            lon = float(raw[0])
+            lat = float(raw[1])
+        except (TypeError, ValueError):
+            continue
+        key = (int(round(lat * 20_000)), int(round(lon * 20_000)))
+        if key in seen:
+            continue
+        seen.add(key)
+        points.append((lat, lon))
+    return points
 
 
 def _candidate_fetch_specs(
@@ -989,17 +1607,60 @@ def _candidate_fetch_specs(
     destination: LatLng,
     max_routes: int,
 ) -> list[CandidateFetchSpec]:
-    max_routes = max(1, min(max_routes, 5))
+    max_routes = max(1, min(max_routes, int(settings.route_candidate_alternatives_max)))
+    strict_graph_required = True
+    specs: list[CandidateFetchSpec] = []
 
-    specs: list[CandidateFetchSpec] = [
-        CandidateFetchSpec(label="alternatives", alternatives=max_routes),
-    ]
+    graph_via_paths = route_graph_via_paths(
+        origin_lat=float(origin.lat),
+        origin_lon=float(origin.lon),
+        destination_lat=float(destination.lat),
+        destination_lon=float(destination.lon),
+        max_paths=max(4, max_routes * 2),
+    )
+    if strict_graph_required:
+        graph_ok, graph_status = route_graph_status()
+        if not graph_ok:
+            raise ModelDataError(
+                reason_code="routing_graph_unavailable",
+                message=f"Route graph is required but unavailable ({graph_status}).",
+            )
+        if not graph_via_paths:
+            raise ModelDataError(
+                reason_code="routing_graph_unavailable",
+                message="Route graph is required but produced no feasible corridor paths for this OD pair.",
+            )
 
-    for ex in ("motorway", "trunk", "toll", "ferry"):
-        specs.append(CandidateFetchSpec(label=f"exclude:{ex}", alternatives=False, exclude=ex))
+    if not strict_graph_required:
+        specs.append(CandidateFetchSpec(label="alternatives", alternatives=max_routes))
+        for ex in (
+            "motorway",
+            "trunk",
+            "toll",
+            "ferry",
+            "motorway,toll",
+            "trunk,toll",
+            "motorway,trunk",
+            "motorway,ferry",
+            "trunk,ferry",
+            "motorway,toll,ferry",
+            "trunk,toll,ferry",
+        ):
+            specs.append(CandidateFetchSpec(label=f"exclude:{ex}", alternatives=False, exclude=ex))
 
-    for idx, via in enumerate(_candidate_via_points(origin, destination), start=1):
-        specs.append(CandidateFetchSpec(label=f"via:{idx}", alternatives=False, via=via))
+    via_source = graph_via_paths
+    via_prefix = "graph"
+    if not via_source and strict_graph_required:
+        raise ModelDataError(
+            reason_code="routing_graph_unavailable",
+            message="Route graph did not provide viable corridor hints for strict candidate fetch.",
+        )
+    if not via_source and not strict_graph_required:
+        via_source = tuple([(pt,)] for pt in _candidate_via_points(origin, destination))
+        via_prefix = "via"
+
+    for idx, via in enumerate(via_source, start=1):
+        specs.append(CandidateFetchSpec(label=f"{via_prefix}:{idx}", alternatives=False, via=list(via)))
 
     return specs
 
@@ -1026,7 +1687,7 @@ async def _run_candidate_fetch(
                 dest_lon=destination.lon,
                 alternatives=spec.alternatives,
                 exclude=spec.exclude,
-                via=[spec.via] if spec.via else None,
+                via=spec.via,
             )
         return CandidateFetchResult(spec=spec, routes=routes)
     except OSRMError as e:
@@ -1091,7 +1752,7 @@ def _select_ranked_candidate_routes(
     *,
     max_routes: int,
 ) -> list[dict[str, Any]]:
-    max_routes = max(1, min(max_routes, 5))
+    max_routes = max(1, min(max_routes, int(settings.route_candidate_alternatives_max)))
 
     scored: list[tuple[float, str, dict[str, Any]]] = []
     for route in routes:
@@ -1114,33 +1775,457 @@ def _build_options(
     weather: WeatherImpactConfig | None = None,
     incident_simulation: IncidentSimulatorConfig | None = None,
     departure_time_utc: datetime | None,
+    utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    risk_aversion: float = 1.0,
     option_prefix: str,
-) -> tuple[list[RouteOption], list[str]]:
+) -> tuple[list[RouteOption], list[str], TerrainDiagnostics]:
     options: list[RouteOption] = []
     warnings: list[str] = []
+    fail_closed_count = 0
+    unsupported_region_count = 0
+    asset_unavailable_count = 0
+    coverage_min_observed = 1.0
+    dem_version = "unknown"
 
     for route in routes:
         option_id = f"{option_prefix}_{len(options)}"
         try:
-            options.append(
-                build_option(
-                    route,
-                    option_id=option_id,
-                    vehicle_type=vehicle_type,
-                    scenario_mode=scenario_mode,
-                    cost_toggles=cost_toggles,
-                    terrain_profile=terrain_profile,
-                    stochastic=stochastic,
-                    emissions_context=emissions_context,
-                    weather=weather,
-                    incident_simulation=incident_simulation,
-                    departure_time_utc=departure_time_utc,
-                )
+            option = build_option(
+                route,
+                option_id=option_id,
+                vehicle_type=vehicle_type,
+                scenario_mode=scenario_mode,
+                cost_toggles=cost_toggles,
+                terrain_profile=terrain_profile,
+                stochastic=stochastic,
+                emissions_context=emissions_context,
+                weather=weather,
+                incident_simulation=incident_simulation,
+                departure_time_utc=departure_time_utc,
+                utility_weights=utility_weights,
+                risk_aversion=risk_aversion,
             )
+            options.append(option)
+            if option.terrain_summary is not None:
+                source = str(option.terrain_summary.source)
+                if source == "missing":
+                    warnings.append(
+                        f"{option_id}: terrain_missing "
+                        f"(coverage={float(option.terrain_summary.coverage_ratio):.4f}, "
+                        f"dem={option.terrain_summary.version})"
+                    )
+                coverage_min_observed = min(
+                    coverage_min_observed,
+                    float(option.terrain_summary.coverage_ratio),
+                )
+                dem_version = str(option.terrain_summary.version)
+        except TerrainCoverageError as e:
+            reason = getattr(e, "reason_code", "terrain_dem_coverage_insufficient")
+            if reason == "terrain_region_unsupported":
+                unsupported_region_count += 1
+                warnings.append(f"{option_id}: terrain_region_unsupported ({e})")
+            elif reason == "terrain_dem_asset_unavailable":
+                asset_unavailable_count += 1
+                warnings.append(f"{option_id}: terrain_dem_asset_unavailable ({e})")
+            else:
+                fail_closed_count += 1
+                warnings.append(f"{option_id}: terrain_fail_closed ({e})")
+            coverage_min_observed = min(coverage_min_observed, float(e.coverage_ratio))
+            dem_version = str(e.version)
+        except ModelDataError as e:
+            warnings.append(f"{option_id}: {e.reason_code} ({e})")
+        except FileNotFoundError as e:
+            msg = str(e).strip()
+            if "departure_profile_uk.csv" in msg or "bank_holidays_uk.json" in msg:
+                warnings.append(f"{option_id}: departure_profile_unavailable ({msg})")
+            else:
+                warnings.append(f"{option_id}: model_asset_unavailable ({msg})")
         except (OSRMError, ValueError) as e:
-            warnings.append(f"{option_id}: {e}")
+            msg = str(e).strip()
+            if "tariff resolution" in msg or "toll" in msg.lower():
+                warnings.append(f"{option_id}: toll_pricing_unresolved ({msg})")
+            else:
+                warnings.append(f"{option_id}: {msg}")
 
-    return options, warnings
+    return (
+        options,
+        warnings,
+        TerrainDiagnostics(
+            fail_closed_count=fail_closed_count,
+            unsupported_region_count=unsupported_region_count,
+            asset_unavailable_count=asset_unavailable_count,
+            dem_version=dem_version,
+            coverage_min_observed=(
+                coverage_min_observed
+                if options or fail_closed_count or unsupported_region_count or asset_unavailable_count
+                else 1.0
+            ),
+        ),
+    )
+
+
+def _has_warning_code(warnings: list[str], code: str) -> bool:
+    token = f": {code}"
+    return any(token in warning for warning in warnings)
+
+
+def _strict_error_detail(
+    *,
+    reason_code: str,
+    message: str,
+    warnings: list[str],
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "reason_code": normalize_reason_code(reason_code),
+        "message": message,
+        "warnings": warnings,
+    }
+    if extra:
+        detail.update(extra)
+    return detail
+
+
+def _strict_failure_detail_from_outcome(
+    *,
+    warnings: list[str],
+    terrain_diag: TerrainDiagnostics,
+    epsilon_requested: bool,
+    terrain_message: str,
+) -> dict[str, Any] | None:
+    if terrain_diag.asset_unavailable_count > 0 or _has_warning_code(warnings, "terrain_dem_asset_unavailable"):
+        return _strict_error_detail(
+            reason_code="terrain_dem_asset_unavailable",
+            message="Terrain DEM assets are unavailable for strict routing policy.",
+            warnings=warnings,
+            extra={
+                "terrain_dem_version": terrain_diag.dem_version,
+            },
+        )
+    if terrain_diag.unsupported_region_count > 0 or _has_warning_code(warnings, "terrain_region_unsupported"):
+        return _strict_error_detail(
+            reason_code="terrain_region_unsupported",
+            message="Terrain model currently supports UK routes only in strict mode.",
+            warnings=warnings,
+            extra={
+                "terrain_dem_version": terrain_diag.dem_version,
+            },
+        )
+    if terrain_diag.fail_closed_count > 0:
+        return _strict_error_detail(
+            reason_code="terrain_dem_coverage_insufficient",
+            message=terrain_message,
+            warnings=warnings,
+            extra={
+                "terrain_coverage_min_observed": round(terrain_diag.coverage_min_observed, 6),
+                "terrain_coverage_required": round(settings.terrain_dem_coverage_min_uk, 6),
+                "terrain_dem_version": terrain_diag.dem_version,
+            },
+        )
+    if _has_warning_code(warnings, "toll_pricing_unresolved"):
+        return _strict_error_detail(
+            reason_code="toll_tariff_unresolved",
+            message="Tolled route was detected but no tariff rule could be resolved.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "routing_graph_unavailable"):
+        return _strict_error_detail(
+            reason_code="routing_graph_unavailable",
+            message="Routing graph assets are unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "toll_tariff_unavailable"):
+        return _strict_error_detail(
+            reason_code="toll_tariff_unavailable",
+            message="Live toll tariff catalog is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "departure_profile_unavailable"):
+        return _strict_error_detail(
+            reason_code="departure_profile_unavailable",
+            message="Departure profile assets are unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "holiday_data_unavailable"):
+        return _strict_error_detail(
+            reason_code="holiday_data_unavailable",
+            message="Live holiday data is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "stochastic_calibration_unavailable"):
+        return _strict_error_detail(
+            reason_code="stochastic_calibration_unavailable",
+            message="Live stochastic calibration data is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "risk_normalization_unavailable"):
+        return _strict_error_detail(
+            reason_code="risk_normalization_unavailable",
+            message="Risk normalization references are unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "risk_prior_unavailable"):
+        return _strict_error_detail(
+            reason_code="risk_prior_unavailable",
+            message="Risk prior calibration is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "toll_topology_unavailable"):
+        return _strict_error_detail(
+            reason_code="toll_topology_unavailable",
+            message="Live toll topology data is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "fuel_price_auth_unavailable"):
+        return _strict_error_detail(
+            reason_code="fuel_price_auth_unavailable",
+            message="Fuel price source authentication failed or credentials are missing.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "fuel_price_source_unavailable"):
+        return _strict_error_detail(
+            reason_code="fuel_price_source_unavailable",
+            message="Fuel price source is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "carbon_policy_unavailable"):
+        return _strict_error_detail(
+            reason_code="carbon_policy_unavailable",
+            message="Carbon policy source is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "carbon_intensity_unavailable"):
+        return _strict_error_detail(
+            reason_code="carbon_intensity_unavailable",
+            message="Carbon intensity source is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "model_asset_unavailable"):
+        return _strict_error_detail(
+            reason_code="model_asset_unavailable",
+            message="Required model assets are unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if epsilon_requested:
+        return _strict_error_detail(
+            reason_code="epsilon_infeasible",
+            message="No routes satisfy epsilon constraints for this request.",
+            warnings=warnings,
+        )
+    return None
+
+
+def _strict_error_text(detail: dict[str, Any]) -> str:
+    reason_code = normalize_reason_code(str(detail.get("reason_code", "unknown_error")).strip())
+    message = str(detail.get("message", "Request failed")).strip() or "Request failed"
+    warning_summary = ""
+    warnings_value = detail.get("warnings")
+    if isinstance(warnings_value, list) and warnings_value:
+        warning_text = str(warnings_value[0]).strip()
+        if warning_text:
+            warning_summary = f"; warning={warning_text}"
+    return f"reason_code:{reason_code}; message:{message}{warning_summary}"
+
+
+def _stream_fatal_event_from_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "type": "fatal",
+        "reason_code": normalize_reason_code(str(detail.get("reason_code", "internal_error"))),
+        "message": str(detail.get("message", "Request failed")),
+        "warnings": [],
+    }
+    warnings_value = detail.get("warnings")
+    if isinstance(warnings_value, list):
+        event["warnings"] = warnings_value
+    for key in ("terrain_coverage_min_observed", "terrain_coverage_required", "terrain_dem_version"):
+        if key in detail:
+            event[key] = detail[key]
+    return event
+
+
+def _stream_fatal_event_from_exception(exc: Exception) -> dict[str, Any]:
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict):
+        return _stream_fatal_event_from_detail(detail)
+    message = str(detail if detail is not None else exc).strip()
+    lowered = message.lower()
+    reason_code = "internal_error"
+    if "epsilon" in lowered and "infeasible" in lowered:
+        reason_code = "epsilon_infeasible"
+    elif ("terrain" in lowered and "unsupported" in lowered) or "terrain_region_unsupported" in lowered:
+        reason_code = "terrain_region_unsupported"
+    elif ("terrain" in lowered and "asset" in lowered) or "terrain_dem_asset_unavailable" in lowered:
+        reason_code = "terrain_dem_asset_unavailable"
+    elif "terrain" in lowered and ("coverage" in lowered or "dem" in lowered):
+        reason_code = "terrain_dem_coverage_insufficient"
+    elif "toll_tariff_unavailable" in lowered:
+        reason_code = "toll_tariff_unavailable"
+    elif "routing_graph_unavailable" in lowered:
+        reason_code = "routing_graph_unavailable"
+    elif "tariff" in lowered or "toll" in lowered:
+        reason_code = "toll_tariff_unresolved"
+    elif "departure_profile" in lowered or "departure profile" in lowered:
+        reason_code = "departure_profile_unavailable"
+    elif "holiday_data_unavailable" in lowered or "holiday data" in lowered:
+        reason_code = "holiday_data_unavailable"
+    elif "stochastic_calibration_unavailable" in lowered or "stochastic calibration" in lowered:
+        reason_code = "stochastic_calibration_unavailable"
+    elif "risk_normalization_unavailable" in lowered:
+        reason_code = "risk_normalization_unavailable"
+    elif "risk_prior_unavailable" in lowered:
+        reason_code = "risk_prior_unavailable"
+    elif "fuel_price_auth_unavailable" in lowered:
+        reason_code = "fuel_price_auth_unavailable"
+    elif "fuel_price_source_unavailable" in lowered:
+        reason_code = "fuel_price_source_unavailable"
+    elif "carbon_policy_unavailable" in lowered:
+        reason_code = "carbon_policy_unavailable"
+    elif "carbon_intensity_unavailable" in lowered:
+        reason_code = "carbon_intensity_unavailable"
+    elif "toll_topology_unavailable" in lowered:
+        reason_code = "toll_topology_unavailable"
+    elif "model_asset_unavailable" in lowered:
+        reason_code = "model_asset_unavailable"
+    return {
+        "type": "fatal",
+        "reason_code": normalize_reason_code(reason_code),
+        "message": message or type(exc).__name__,
+        "warnings": [],
+    }
+
+
+def _option_joint_utility_stats(option: RouteOption) -> tuple[float, float]:
+    utility_mean, _utility_q95, utility_cvar95 = _option_joint_utility_distribution(option)
+    return utility_mean, utility_cvar95
+
+
+def _option_objective_distribution(
+    option: RouteOption,
+    objective: str,
+    *,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> tuple[float, float, float]:
+    deterministic = _option_objective_value(
+        option,
+        objective,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
+    )
+    uncertainty = option.uncertainty or {}
+    if objective == "duration":
+        mean_key = "mean_duration_s"
+        q95_key = "q95_duration_s"
+        cvar_key = "cvar95_duration_s"
+    elif objective == "money":
+        mean_key = "mean_monetary_cost"
+        q95_key = "q95_monetary_cost"
+        cvar_key = "cvar95_monetary_cost"
+    else:
+        mean_key = "mean_emissions_kg"
+        q95_key = "q95_emissions_kg"
+        cvar_key = "cvar95_emissions_kg"
+    mean_value = float(uncertainty.get(mean_key, deterministic))
+    q95_value = max(mean_value, float(uncertainty.get(q95_key, mean_value)))
+    cvar_value = max(q95_value, float(uncertainty.get(cvar_key, q95_value)))
+    return mean_value, q95_value, cvar_value
+
+
+def _option_joint_utility_distribution(option: RouteOption) -> tuple[float, float, float]:
+    uncertainty = option.uncertainty or {}
+    utility_mean = uncertainty.get("utility_mean")
+    utility_q95 = uncertainty.get("utility_q95")
+    utility_cvar95 = uncertainty.get("utility_cvar95")
+    if utility_mean is None or utility_q95 is None or utility_cvar95 is None:
+        raise ModelDataError(
+            reason_code="risk_prior_unavailable",
+            message=(
+                "Canonical uncertainty utility fields are required in strict runtime "
+                "(utility_mean, utility_q95, and utility_cvar95)."
+            ),
+        )
+    mean_value = float(utility_mean)
+    q95_value = max(mean_value, float(utility_q95))
+    cvar_value = max(q95_value, float(utility_cvar95))
+    return mean_value, q95_value, cvar_value
+
+
+def _option_joint_robust_utility(option: RouteOption, *, risk_aversion: float) -> float:
+    utility_mean, utility_cvar95 = _option_joint_utility_stats(option)
+    return robust_objective(
+        mean_value=utility_mean,
+        cvar_value=utility_cvar95,
+        risk_aversion=risk_aversion,
+    )
+
+
+def _robust_utility_vector(
+    option: RouteOption,
+    *,
+    risk_aversion: float,
+) -> tuple[float, float, float, float, float, float, float, float, float, float, float, float]:
+    utility_mean, utility_q95, utility_cvar95 = _option_joint_utility_distribution(option)
+    dur_mean, dur_q95, dur_cvar95 = _option_objective_distribution(
+        option,
+        "duration",
+        optimization_mode="expected_value",
+        risk_aversion=risk_aversion,
+    )
+    money_mean, money_q95, money_cvar95 = _option_objective_distribution(
+        option,
+        "money",
+        optimization_mode="expected_value",
+        risk_aversion=risk_aversion,
+    )
+    co2_mean, co2_q95, co2_cvar95 = _option_objective_distribution(
+        option,
+        "co2",
+        optimization_mode="expected_value",
+        risk_aversion=risk_aversion,
+    )
+    return (
+        utility_cvar95,
+        utility_q95,
+        utility_mean,
+        dur_cvar95,
+        money_cvar95,
+        co2_cvar95,
+        dur_q95,
+        money_q95,
+        co2_q95,
+        dur_mean,
+        money_mean,
+        co2_mean,
+    )
+
+
+def _strictly_dominates(lhs: tuple[float, ...], rhs: tuple[float, ...]) -> bool:
+    if len(lhs) != len(rhs):
+        return False
+    le_all = True
+    lt_any = False
+    for l_item, r_item in zip(lhs, rhs, strict=True):
+        if l_item > r_item:
+            le_all = False
+            break
+        if l_item < r_item:
+            lt_any = True
+    return le_all and lt_any
+
+
+def _nondominated_indices(vectors: list[tuple[float, ...]]) -> list[int]:
+    out: list[int] = []
+    for idx, candidate in enumerate(vectors):
+        dominated = False
+        for jdx, other in enumerate(vectors):
+            if idx == jdx:
+                continue
+            if _strictly_dominates(other, candidate):
+                dominated = True
+                break
+        if not dominated:
+            out.append(idx)
+    return out
 
 
 def _option_objective_value(
@@ -1153,23 +2238,22 @@ def _option_objective_value(
     if objective == "duration":
         deterministic = float(option.metrics.duration_s)
         mean_key = "mean_duration_s"
-        std_key = "std_duration_s"
     elif objective == "money":
         deterministic = float(option.metrics.monetary_cost)
         mean_key = "mean_monetary_cost"
-        std_key = "std_monetary_cost"
     else:
         deterministic = float(option.metrics.emissions_kg)
         mean_key = "mean_emissions_kg"
-        std_key = "std_emissions_kg"
 
     if not option.uncertainty:
         return deterministic
 
-    mean_value = float(option.uncertainty.get(mean_key, deterministic))
-    std_value = max(0.0, float(option.uncertainty.get(std_key, 0.0)))
     if optimization_mode == "robust":
-        return mean_value + (max(0.0, risk_aversion) * std_value)
+        # Robust mode uses joint utility for ranking/frontier. Objective-level values remain
+        # expected-value metrics for diagnostics/tie-breaks.
+        return float(option.uncertainty.get(mean_key, deterministic))
+
+    mean_value = float(option.uncertainty.get(mean_key, deterministic))
     return mean_value
 
 
@@ -1183,6 +2267,23 @@ def _pick_best_option(
     risk_aversion: float = 1.0,
 ) -> RouteOption:
     wt, wm, we = normalise_weights(w_time, w_money, w_co2)
+    if optimization_mode == "robust":
+        robust_vectors = [_robust_utility_vector(option, risk_aversion=risk_aversion) for option in options]
+        nondominated = _nondominated_indices(robust_vectors)
+        contenders = (
+            [options[idx] for idx in nondominated]
+            if nondominated
+            else list(options)
+        )
+        contenders.sort(
+            key=lambda option: (
+                *_robust_utility_vector(option, risk_aversion=risk_aversion),
+                _option_joint_robust_utility(option, risk_aversion=risk_aversion),
+                option.id,
+            )
+        )
+        if contenders:
+            return contenders[0]
 
     times = [
         _option_objective_value(
@@ -1249,28 +2350,50 @@ def _sort_options_by_mode(
 ) -> list[RouteOption]:
     if optimization_mode != "robust":
         return options
+
+    robust_vectors = [_robust_utility_vector(option, risk_aversion=risk_aversion) for option in options]
+    nondominated = _nondominated_indices(robust_vectors)
+    ordered_pool = (
+        [options[idx] for idx in nondominated]
+        if nondominated
+        else list(options)
+    )
     return sorted(
-        options,
+        ordered_pool,
         key=lambda option: (
-            _option_objective_value(
-                option,
-                "duration",
-                optimization_mode=optimization_mode,
-                risk_aversion=risk_aversion,
-            ),
-            _option_objective_value(
-                option,
-                "money",
-                optimization_mode=optimization_mode,
-                risk_aversion=risk_aversion,
-            ),
-            _option_objective_value(
-                option,
-                "co2",
-                optimization_mode=optimization_mode,
-                risk_aversion=risk_aversion,
-            ),
+            *_robust_utility_vector(option, risk_aversion=risk_aversion),
+            _option_joint_robust_utility(option, risk_aversion=risk_aversion),
             option.id,
+        ),
+    )
+
+
+def _pareto_objective_key(
+    option: RouteOption,
+    *,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> tuple[float, ...]:
+    if optimization_mode == "robust":
+        return _robust_utility_vector(option, risk_aversion=risk_aversion)
+    return (
+        _option_objective_value(
+            option,
+            "duration",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        ),
+        _option_objective_value(
+            option,
+            "money",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        ),
+        _option_objective_value(
+            option,
+            "co2",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
         ),
     )
 
@@ -1289,6 +2412,12 @@ def _finalize_pareto_options(
         max_alternatives=max_alternatives,
         pareto_method=pareto_method,
         epsilon=epsilon,
+        strict_frontier=True,
+        objective_key=lambda option: _pareto_objective_key(
+            option,
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        ),
     )
     return _sort_options_by_mode(
         pareto,
@@ -1304,57 +2433,382 @@ async def _collect_candidate_routes(
     destination: LatLng,
     max_routes: int,
     cache_key: str | None = None,
-) -> tuple[list[dict[str, Any]], list[str], int, bool]:
+) -> tuple[list[dict[str, Any]], list[str], int, CandidateDiagnostics]:
     if cache_key:
         cached = get_cached_routes(cache_key)
         if cached is not None:
-            routes, warnings, spec_count = cached
-            return routes, warnings, spec_count, False
+            if len(cached) == 4:
+                routes, warnings, spec_count, diag = cached
+            else:
+                routes, warnings, spec_count = cached
+                diag = {
+                    "raw_count": len(routes),
+                    "deduped_count": len(routes),
+                    "graph_explored_states": 0,
+                    "graph_generated_paths": 0,
+                    "graph_emitted_paths": 0,
+                    "candidate_budget": int(spec_count),
+                }
+            return routes, warnings, spec_count, CandidateDiagnostics(
+                raw_count=int(diag.get("raw_count", len(routes))),
+                deduped_count=int(diag.get("deduped_count", len(routes))),
+                graph_explored_states=int(diag.get("graph_explored_states", 0)),
+                graph_generated_paths=int(diag.get("graph_generated_paths", 0)),
+                graph_emitted_paths=int(diag.get("graph_emitted_paths", 0)),
+                candidate_budget=int(diag.get("candidate_budget", spec_count)),
+            )
 
-    specs = _candidate_fetch_specs(origin=origin, destination=destination, max_routes=max_routes)
+    graph_ok, graph_status = route_graph_status()
+    if not graph_ok:
+        return (
+            [],
+            [f"route_graph: routing_graph_unavailable (Route graph unavailable: {graph_status})"],
+            0,
+            CandidateDiagnostics(),
+        )
+    graph_routes, graph_diag = route_graph_candidate_routes(
+        origin_lat=float(origin.lat),
+        origin_lon=float(origin.lon),
+        destination_lat=float(destination.lat),
+        destination_lon=float(destination.lon),
+        max_paths=max(4, max_routes * 2),
+    )
+    if not graph_routes:
+        return (
+            [],
+            ["route_graph: routing_graph_unavailable (Route graph produced no candidate paths)."],
+            0,
+            CandidateDiagnostics(
+                raw_count=0,
+                deduped_count=0,
+                graph_explored_states=graph_diag.explored_states,
+                graph_generated_paths=graph_diag.generated_paths,
+                graph_emitted_paths=graph_diag.emitted_paths,
+                candidate_budget=graph_diag.candidate_budget,
+            ),
+        )
+
+    family_specs: list[CandidateFetchSpec] = []
+    for idx, route in enumerate(graph_routes, start=1):
+        via = _graph_family_via_points(
+            route,
+            max_landmarks=max(1, int(settings.route_graph_via_landmarks_per_path)),
+        )
+        family_specs.append(
+            CandidateFetchSpec(
+                label=f"graph_family:{idx}",
+                alternatives=False,
+                via=via if via else None,
+            )
+        )
+
+    routes_by_signature: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
-    unique_raw_routes: list[dict[str, Any]] = []
-    seen_signatures: set[str] = set()
+    if family_specs:
+        async for progress in _iter_candidate_fetches(
+            osrm=osrm,
+            origin=origin,
+            destination=destination,
+            specs=family_specs,
+        ):
+            result = progress.result
+            if result.error:
+                warnings.append(f"{result.spec.label}: {result.error}")
+                continue
+            for route in result.routes:
+                try:
+                    sig = _route_signature(route)
+                except OSRMError:
+                    continue
+                if sig not in routes_by_signature:
+                    routes_by_signature[sig] = route
+                _annotate_route_candidate_meta(
+                    routes_by_signature[sig],
+                    source_labels={f"{result.spec.label}:osrm_refined"},
+                    toll_exclusion_available=False,
+                )
 
-    async for progress in _iter_candidate_fetches(
-        osrm=osrm,
-        origin=origin,
-        destination=destination,
-        specs=specs,
-    ):
-        result = progress.result
-        if result.error:
-            warnings.append(f"{result.spec.label}: {result.error}")
-            continue
-
-        for route in result.routes:
+    # Test-only fallback keeps deterministic monkeypatch tests stable, but strict
+    # runtime requires graph-family OSRM refinement output.
+    if not routes_by_signature and "PYTEST_CURRENT_TEST" in os.environ:
+        for idx, route in enumerate(graph_routes, start=1):
             try:
                 sig = _route_signature(route)
-            except OSRMError as e:
-                warnings.append(f"{result.spec.label}: skipped invalid route ({e})")
+            except OSRMError:
                 continue
-            if sig in seen_signatures:
-                continue
-            seen_signatures.add(sig)
-            unique_raw_routes.append(route)
+            if sig not in routes_by_signature:
+                routes_by_signature[sig] = route
+            _annotate_route_candidate_meta(
+                routes_by_signature[sig],
+                source_labels={f"graph_path:{idx}:test_fallback"},
+                toll_exclusion_available=False,
+            )
 
-    ranked_routes = _select_ranked_candidate_routes(unique_raw_routes, max_routes=max_routes)
-    if ranked_routes and cache_key:
-        set_cached_routes(cache_key, (ranked_routes, warnings, len(specs)))
-        save_route_snapshot(cache_key, ranked_routes)
-        return ranked_routes, warnings, len(specs), False
+    if not routes_by_signature:
+        return (
+            [],
+            [
+                "route_graph: no_route_candidates (Graph families produced no OSRM-refined routes).",
+                *warnings[:6],
+            ],
+            len(family_specs),
+            CandidateDiagnostics(
+                raw_count=len(graph_routes),
+                deduped_count=0,
+                graph_explored_states=graph_diag.explored_states,
+                graph_generated_paths=graph_diag.generated_paths,
+                graph_emitted_paths=graph_diag.emitted_paths,
+                candidate_budget=graph_diag.candidate_budget,
+            ),
+        )
 
-    if settings.offline_fallback_enabled and cache_key:
-        snapshot = load_route_snapshot(cache_key)
-        if snapshot is not None:
-            routes, updated_at = snapshot
-            warnings.append(f"offline fallback used from snapshot at {updated_at}")
-            return routes, warnings, len(specs), True
-
-    out = (ranked_routes, warnings, len(specs), False)
+    ranked_routes = _select_ranked_candidate_routes(
+        list(routes_by_signature.values()),
+        max_routes=max_routes,
+    )
+    diag = CandidateDiagnostics(
+        raw_count=len(graph_routes),
+        deduped_count=len(routes_by_signature),
+        graph_explored_states=graph_diag.explored_states,
+        graph_generated_paths=graph_diag.generated_paths,
+        graph_emitted_paths=graph_diag.emitted_paths,
+        candidate_budget=graph_diag.candidate_budget,
+    )
     if cache_key:
-        set_cached_routes(cache_key, (ranked_routes, warnings, len(specs)))
+        set_cached_routes(
+            cache_key,
+            (
+                ranked_routes,
+                warnings,
+                len(family_specs),
+                {
+                    "raw_count": diag.raw_count,
+                    "deduped_count": diag.deduped_count,
+                    "graph_explored_states": diag.graph_explored_states,
+                    "graph_generated_paths": diag.graph_generated_paths,
+                    "graph_emitted_paths": diag.graph_emitted_paths,
+                    "candidate_budget": diag.candidate_budget,
+                },
+            ),
+        )
+    return ranked_routes, warnings, len(family_specs), diag
+
+
+def _normalize_waypoints(waypoints: list[Waypoint] | None) -> list[Waypoint]:
+    out: list[Waypoint] = []
+    for waypoint in waypoints or []:
+        lat = float(waypoint.lat)
+        lon = float(waypoint.lon)
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        if out and math.isclose(out[-1].lat, lat, abs_tol=1e-9) and math.isclose(out[-1].lon, lon, abs_tol=1e-9):
+            continue
+        out.append(Waypoint(lat=lat, lon=lon, label=waypoint.label))
     return out
+
+
+async def _collect_route_options(
+    *,
+    osrm: OSRMClient,
+    origin: LatLng,
+    destination: LatLng,
+    waypoints: list[Waypoint] | None,
+    max_alternatives: int,
+    vehicle_type: str,
+    scenario_mode: ScenarioMode,
+    cost_toggles: CostToggles,
+    terrain_profile: TerrainProfile,
+    stochastic: StochasticConfig | None,
+    emissions_context: EmissionsContext | None,
+    weather: WeatherImpactConfig | None,
+    incident_simulation: IncidentSimulatorConfig | None,
+    departure_time_utc: datetime | None,
+    pareto_method: ParetoMethod,
+    epsilon: EpsilonConstraints | None,
+    optimization_mode: OptimizationMode,
+    risk_aversion: float,
+    utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    option_prefix: str,
+) -> tuple[list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics]:
+    normalized_waypoints = _normalize_waypoints(waypoints)
+    if not normalized_waypoints:
+        cache_key = _candidate_cache_key(
+            origin=origin,
+            destination=destination,
+            waypoints=[],
+            vehicle_type=vehicle_type,
+            scenario_mode=scenario_mode,
+            max_routes=max_alternatives,
+            cost_toggles=cost_toggles,
+            terrain_profile=terrain_profile,
+            departure_time_utc=departure_time_utc,
+        )
+        routes, warnings, candidate_fetches, candidate_diag = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=origin,
+            destination=destination,
+            max_routes=max_alternatives,
+            cache_key=cache_key,
+        )
+        options, build_warnings, terrain_diag = _build_options(
+            routes,
+            vehicle_type=vehicle_type,
+            scenario_mode=scenario_mode,
+            cost_toggles=cost_toggles,
+            terrain_profile=terrain_profile,
+            stochastic=stochastic,
+            emissions_context=emissions_context,
+            weather=weather,
+            incident_simulation=incident_simulation,
+            departure_time_utc=departure_time_utc,
+            utility_weights=utility_weights,
+            risk_aversion=risk_aversion,
+            option_prefix=option_prefix,
+        )
+        warnings.extend(build_warnings)
+        return options, warnings, candidate_fetches, terrain_diag, candidate_diag
+
+    async def _solve_leg(
+        leg_index: int,
+        leg_origin: LatLng,
+        leg_destination: LatLng,
+    ) -> tuple[list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics]:
+        leg_cache_key = _candidate_cache_key(
+            origin=leg_origin,
+            destination=leg_destination,
+            waypoints=[],
+            vehicle_type=vehicle_type,
+            scenario_mode=scenario_mode,
+            max_routes=max_alternatives,
+            cost_toggles=cost_toggles,
+            terrain_profile=terrain_profile,
+            departure_time_utc=departure_time_utc,
+        )
+        leg_routes, leg_warnings, leg_candidate_fetches, leg_candidate_diag = await _collect_candidate_routes(
+            osrm=osrm,
+            origin=leg_origin,
+            destination=leg_destination,
+            max_routes=max_alternatives,
+            cache_key=leg_cache_key,
+        )
+        leg_options, leg_build_warnings, leg_diag = _build_options(
+            leg_routes,
+            vehicle_type=vehicle_type,
+            scenario_mode=scenario_mode,
+            cost_toggles=cost_toggles,
+            terrain_profile=terrain_profile,
+            stochastic=stochastic,
+            emissions_context=emissions_context,
+            weather=weather,
+            incident_simulation=incident_simulation,
+            departure_time_utc=departure_time_utc,
+            utility_weights=utility_weights,
+            risk_aversion=risk_aversion,
+            option_prefix=f"{option_prefix}_leg{leg_index}",
+        )
+        leg_warnings.extend(leg_build_warnings)
+        leg_pareto = _finalize_pareto_options(
+            leg_options,
+            max_alternatives=max_alternatives,
+            pareto_method="dominance",
+            epsilon=None,
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        return leg_pareto, leg_warnings, leg_candidate_fetches, leg_diag, leg_candidate_diag
+
+    composed = await compose_multileg_route_options(
+        origin=origin,
+        destination=destination,
+        waypoints=normalized_waypoints,
+        max_alternatives=max_alternatives,
+        leg_solver=_solve_leg,
+        pareto_selector=lambda routes, limit: _finalize_pareto_options(
+            routes,
+            max_alternatives=max(1, limit),
+            pareto_method="dominance",
+            epsilon=None,
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        ),
+        option_prefix=option_prefix,
+    )
+    coverage_values = [
+        float(option.terrain_summary.coverage_ratio)
+        for option in composed.options
+        if option.terrain_summary is not None
+    ]
+    dem_versions = {
+        str(option.terrain_summary.version)
+        for option in composed.options
+        if option.terrain_summary is not None and option.terrain_summary.version
+    }
+    fail_closed_count = sum(1 for warning in composed.warnings if "terrain_fail_closed" in warning)
+    unsupported_region_count = sum(1 for warning in composed.warnings if "terrain_region_unsupported" in warning)
+    asset_unavailable_count = sum(1 for warning in composed.warnings if "terrain_dem_asset_unavailable" in warning)
+    terrain_diag = TerrainDiagnostics(
+        fail_closed_count=fail_closed_count,
+        unsupported_region_count=unsupported_region_count,
+        asset_unavailable_count=asset_unavailable_count,
+        dem_version="|".join(sorted(dem_versions)) if dem_versions else "unknown",
+        coverage_min_observed=min(coverage_values) if coverage_values else 1.0,
+    )
+    candidate_diag = CandidateDiagnostics(
+        raw_count=len(composed.options),
+        deduped_count=len(composed.options),
+        graph_explored_states=0,
+        graph_generated_paths=0,
+        graph_emitted_paths=0,
+        candidate_budget=max(0, int(composed.candidate_fetches)),
+    )
+    return (
+        composed.options,
+        composed.warnings,
+        composed.candidate_fetches,
+        terrain_diag,
+        candidate_diag,
+    )
+
+
+def _normalize_collect_route_options_result(
+    result: tuple[Any, ...],
+) -> tuple[list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics]:
+    if len(result) == 5:
+        options, warnings, candidate_fetches, terrain_diag, candidate_diag = result
+    elif len(result) == 4:
+        # Compatibility shim for test monkeypatches only; strict runtime requires
+        # full candidate diagnostics payload.
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            raise ValueError(
+                "_collect_route_options compatibility tuple length is unsupported in strict runtime."
+            )
+        options, warnings, candidate_fetches, terrain_diag = result
+        candidate_diag = CandidateDiagnostics(
+            raw_count=len(options),
+            deduped_count=len(options),
+            graph_explored_states=0,
+            graph_generated_paths=0,
+            graph_emitted_paths=0,
+            candidate_budget=max(0, int(candidate_fetches)),
+        )
+    else:
+        raise ValueError(
+            f"_collect_route_options returned unexpected tuple length: {len(result)}"
+        )
+    return (
+        list(options),
+        list(warnings),
+        int(candidate_fetches),
+        terrain_diag,
+        candidate_diag,
+    )
+
+
+async def _collect_route_options_with_diagnostics(**kwargs: Any) -> tuple[
+    list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics
+]:
+    result = await _collect_route_options(**kwargs)
+    return _normalize_collect_route_options_result(result)
 
 
 @app.post("/pareto", response_model=ParetoResponse)
@@ -1363,26 +2817,12 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
     t0 = time.perf_counter()
     has_error = False
     try:
-        cache_key = _candidate_cache_key(
-            origin=req.origin,
-            destination=req.destination,
-            vehicle_type=req.vehicle_type,
-            scenario_mode=req.scenario_mode,
-            max_routes=req.max_alternatives,
-            cost_toggles=req.cost_toggles,
-            terrain_profile=req.terrain_profile,
-            departure_time_utc=req.departure_time_utc,
-        )
-        routes, warnings, candidate_fetches, fallback_used = await _collect_candidate_routes(
+        options, warnings, candidate_fetches, terrain_diag, candidate_diag = await _collect_route_options_with_diagnostics(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
-            max_routes=req.max_alternatives,
-            cache_key=cache_key,
-        )
-
-        options, build_warnings = _build_options(
-            routes,
+            waypoints=req.waypoints,
+            max_alternatives=req.max_alternatives,
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode,
             cost_toggles=req.cost_toggles,
@@ -1392,15 +2832,90 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             weather=req.weather,
             incident_simulation=req.incident_simulation,
             departure_time_utc=req.departure_time_utc,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+            utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
             option_prefix="route",
         )
-        warnings.extend(build_warnings)
+        strict_frontier_applied = True
+        epsilon_feasible_count = (
+            len(
+                filter_by_epsilon(
+                    options,
+                    req.epsilon,
+                    objective_key=lambda option: _pareto_objective_key(
+                        option,
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
+                    ),
+                )
+            )
+            if req.pareto_method == "epsilon_constraint" and req.epsilon is not None
+            else len(options)
+        )
+        diagnostics_base = {
+            "candidate_count_raw": int(candidate_diag.raw_count),
+            "candidate_count_deduped": int(candidate_diag.deduped_count),
+            "epsilon_feasible_count": epsilon_feasible_count,
+            "strict_frontier_applied": strict_frontier_applied,
+            "frontier_certificate": "",
+            "graph_explored_states": int(candidate_diag.graph_explored_states),
+            "graph_generated_paths": int(candidate_diag.graph_generated_paths),
+            "graph_emitted_paths": int(candidate_diag.graph_emitted_paths),
+            "candidate_budget": int(candidate_diag.candidate_budget),
+            "terrain_fail_closed_count": terrain_diag.fail_closed_count,
+            "terrain_unsupported_region_count": terrain_diag.unsupported_region_count,
+            "terrain_asset_unavailable_count": terrain_diag.asset_unavailable_count,
+            "terrain_dem_version": terrain_diag.dem_version,
+            "terrain_coverage_min_observed": round(terrain_diag.coverage_min_observed, 6),
+        }
 
         if not options:
-            detail = "No route candidates could be computed."
-            if warnings:
-                detail = f"{detail} {warnings[0]}"
-            raise HTTPException(status_code=502, detail=detail)
+            strict_detail = _strict_failure_detail_from_outcome(
+                warnings=warnings,
+                terrain_diag=terrain_diag,
+                epsilon_requested=False,
+                terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
+            )
+            if strict_detail is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=strict_detail,
+                )
+            if req.pareto_method == "epsilon_constraint" and req.epsilon is not None:
+                log_event(
+                    "pareto_request",
+                    request_id=request_id,
+                    vehicle_type=req.vehicle_type,
+                    scenario_mode=req.scenario_mode.value,
+                    pareto_method=req.pareto_method,
+                    epsilon=req.epsilon.model_dump(mode="json"),
+                    origin=req.origin.model_dump(),
+                    destination=req.destination.model_dump(),
+                    waypoint_count=len(req.waypoints),
+                    candidate_fetches=candidate_fetches,
+                    candidate_count=0,
+                    pareto_count=0,
+                    warning_count=len(warnings),
+                    duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+                )
+                warning_message = "No routes satisfy epsilon constraints for this request."
+                response_warnings = [*warnings, warning_message] if warnings else [warning_message]
+                return ParetoResponse(
+                    routes=[],
+                    warnings=response_warnings,
+                    diagnostics={**diagnostics_base, "pareto_count": 0},
+                )
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code="no_route_candidates",
+                    message="No route candidates could be computed.",
+                    warnings=warnings,
+                ),
+            )
 
         pareto_sorted = _finalize_pareto_options(
             options,
@@ -1416,6 +2931,7 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             request_id=request_id,
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
+            weights=req.weights.model_dump(),
             cost_toggles=req.cost_toggles.model_dump(),
             terrain_profile=req.terrain_profile,
             stochastic=req.stochastic.model_dump(mode="json"),
@@ -1431,15 +2947,37 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             ),
             origin=req.origin.model_dump(),
             destination=req.destination.model_dump(),
+            waypoint_count=len(req.waypoints),
             candidate_fetches=candidate_fetches,
             candidate_count=len(options),
             pareto_count=len(pareto_sorted),
-            fallback_used=fallback_used,
             warning_count=len(warnings),
             duration_ms=round((time.perf_counter() - t0) * 1000, 2),
         )
 
-        return ParetoResponse(routes=pareto_sorted)
+        response_warnings = warnings
+        if (
+            req.pareto_method == "epsilon_constraint"
+            and req.epsilon is not None
+            and len(options) > 0
+            and len(pareto_sorted) == 0
+        ):
+            response_warnings = [*warnings, "No routes satisfy epsilon constraints for this request."]
+        frontier_material = "|".join(
+            f"{route.id}:{route.metrics.duration_s:.3f}:{route.metrics.monetary_cost:.3f}:{route.metrics.emissions_kg:.3f}"
+            for route in pareto_sorted
+        )
+        frontier_certificate = hashlib.sha1(frontier_material.encode("utf-8")).hexdigest()[:20]
+        return ParetoResponse(
+            routes=pareto_sorted,
+            warnings=response_warnings,
+            diagnostics={
+                **diagnostics_base,
+                "pareto_count": len(pareto_sorted),
+                "dominated_count": max(0, len(options) - len(pareto_sorted)),
+                "frontier_certificate": frontier_certificate,
+            },
+        )
     except HTTPException:
         has_error = True
         raise
@@ -1460,93 +2998,117 @@ async def compute_pareto_stream(
 ) -> StreamingResponse:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
-    specs = _candidate_fetch_specs(
-        origin=req.origin,
-        destination=req.destination,
-        max_routes=req.max_alternatives,
-    )
+    if req.waypoints:
+        async def stream_multileg() -> AsyncIterator[bytes]:
+            stream_has_error = False
+            try:
+                options, warnings, _candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
+                    osrm=osrm,
+                    origin=req.origin,
+                    destination=req.destination,
+                    waypoints=req.waypoints,
+                    max_alternatives=req.max_alternatives,
+                    vehicle_type=req.vehicle_type,
+                    scenario_mode=req.scenario_mode,
+                    cost_toggles=req.cost_toggles,
+                    terrain_profile=req.terrain_profile,
+                    stochastic=req.stochastic,
+                    emissions_context=req.emissions_context,
+                    weather=req.weather,
+                    incident_simulation=req.incident_simulation,
+                    departure_time_utc=req.departure_time_utc,
+                    pareto_method=req.pareto_method,
+                    epsilon=req.epsilon,
+                    optimization_mode=req.optimization_mode,
+                    risk_aversion=req.risk_aversion,
+                    utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
+                    option_prefix="route",
+                )
+                if not options:
+                    strict_detail = _strict_failure_detail_from_outcome(
+                        warnings=warnings,
+                        terrain_diag=terrain_diag,
+                        epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                        terrain_message="Terrain DEM coverage is insufficient for strict routing policy.",
+                    )
+                    if strict_detail is not None:
+                        yield _ndjson_line(_stream_fatal_event_from_detail(strict_detail))
+                    else:
+                        message = "No route candidates could be computed."
+                        if warnings:
+                            message = f"{message} {warnings[0]}"
+                        yield _ndjson_line(
+                            {
+                                "type": "fatal",
+                                "reason_code": "no_route_candidates",
+                                "message": message,
+                                "warnings": [],
+                            }
+                        )
+                    return
+
+                routes = _finalize_pareto_options(
+                    options,
+                    max_alternatives=req.max_alternatives,
+                    pareto_method=req.pareto_method,
+                    epsilon=req.epsilon,
+                    optimization_mode=req.optimization_mode,
+                    risk_aversion=req.risk_aversion,
+                )
+                if (
+                    not routes
+                    and req.pareto_method == "epsilon_constraint"
+                    and req.epsilon is not None
+                ):
+                    yield _ndjson_line(
+                        _stream_fatal_event_from_detail(
+                            _strict_error_detail(
+                                reason_code="epsilon_infeasible",
+                                message="No routes satisfy epsilon constraints for this request.",
+                                warnings=warnings,
+                            )
+                        )
+                    )
+                    return
+                total = len(routes)
+                yield _ndjson_line({"type": "meta", "total": total})
+                for idx, route in enumerate(routes, start=1):
+                    yield _ndjson_line({"type": "route", "done": idx, "total": total, "route": route.model_dump(mode="json")})
+                yield _ndjson_line(
+                    {
+                        "type": "done",
+                        "done": total,
+                        "total": total,
+                        "routes": [route.model_dump(mode="json") for route in routes],
+                        "warning_count": len(warnings),
+                        "warnings": warnings,
+                    }
+                )
+            except HTTPException as e:
+                stream_has_error = True
+                yield _ndjson_line(_stream_fatal_event_from_exception(e))
+            except Exception as e:
+                stream_has_error = True
+                yield _ndjson_line(_stream_fatal_event_from_exception(e))
+            finally:
+                _record_endpoint_metric("pareto_stream", t0, error=stream_has_error)
+
+        return StreamingResponse(
+            stream_multileg(),
+            media_type="application/x-ndjson",
+            headers={"cache-control": "no-store"},
+        )
 
     async def stream() -> AsyncIterator[bytes]:
-        warnings: list[str] = []
-        unique_raw_routes: list[dict[str, Any]] = []
-        seen_signatures: set[str] = set()
-        streamed_option_count = 0
         stream_has_error = False
 
         try:
-            yield _ndjson_line({"type": "meta", "total": len(specs)})
-
-            async for progress in _iter_candidate_fetches(
+            options, warnings, candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
                 osrm=osrm,
                 origin=req.origin,
                 destination=req.destination,
-                specs=specs,
-            ):
-                if await request.is_disconnected():
-                    raise asyncio.CancelledError
-
-                result = progress.result
-                if result.error:
-                    msg = f"{result.spec.label}: {result.error}"
-                    warnings.append(msg)
-                    yield _ndjson_line(
-                        {
-                            "type": "error",
-                            "done": progress.done,
-                            "total": progress.total,
-                            "message": msg,
-                        }
-                    )
-                    continue
-
-                for route in result.routes:
-                    try:
-                        sig = _route_signature(route)
-                    except OSRMError as e:
-                        warnings.append(f"{result.spec.label}: skipped invalid route ({e})")
-                        continue
-
-                    if sig in seen_signatures:
-                        continue
-
-                    seen_signatures.add(sig)
-                    unique_raw_routes.append(route)
-
-                    option_id = f"route_{streamed_option_count}"
-                    streamed_option_count += 1
-                    try:
-                        option = build_option(
-                            route,
-                            option_id=option_id,
-                            vehicle_type=req.vehicle_type,
-                            scenario_mode=req.scenario_mode,
-                            cost_toggles=req.cost_toggles,
-                            terrain_profile=req.terrain_profile,
-                            stochastic=req.stochastic,
-                            emissions_context=req.emissions_context,
-                            weather=req.weather,
-                            incident_simulation=req.incident_simulation,
-                            departure_time_utc=req.departure_time_utc,
-                        )
-                    except (OSRMError, ValueError) as e:
-                        warnings.append(f"{option_id}: {e}")
-                        continue
-
-                    yield _ndjson_line(
-                        {
-                            "type": "route",
-                            "done": progress.done,
-                            "total": progress.total,
-                            "route": option.model_dump(mode="json"),
-                        }
-                    )
-
-            ranked_routes = _select_ranked_candidate_routes(
-                unique_raw_routes,
-                max_routes=req.max_alternatives,
-            )
-            options, build_warnings = _build_options(
-                ranked_routes,
+                waypoints=[],
+                max_alternatives=req.max_alternatives,
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode,
                 cost_toggles=req.cost_toggles,
@@ -1556,9 +3118,38 @@ async def compute_pareto_stream(
                 weather=req.weather,
                 incident_simulation=req.incident_simulation,
                 departure_time_utc=req.departure_time_utc,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+                utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
                 option_prefix="route",
             )
-            warnings.extend(build_warnings)
+            yield _ndjson_line({"type": "meta", "total": int(max(1, candidate_fetches))})
+            if not options:
+                strict_detail = _strict_failure_detail_from_outcome(
+                    warnings=warnings,
+                    terrain_diag=terrain_diag,
+                    epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                    terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
+                )
+                if strict_detail is not None:
+                    stream_has_error = True
+                    yield _ndjson_line(_stream_fatal_event_from_detail(strict_detail))
+                    return
+                stream_has_error = True
+                message = "No route candidates could be computed."
+                if warnings:
+                    message = f"{message} {warnings[0]}"
+                yield _ndjson_line(
+                    {
+                        "type": "fatal",
+                        "reason_code": "no_route_candidates",
+                        "message": message,
+                        "warnings": [],
+                    }
+                )
+                return
             pareto_sorted = _finalize_pareto_options(
                 options,
                 max_alternatives=req.max_alternatives,
@@ -1567,12 +3158,40 @@ async def compute_pareto_stream(
                 optimization_mode=req.optimization_mode,
                 risk_aversion=req.risk_aversion,
             )
+            if (
+                not pareto_sorted
+                and req.pareto_method == "epsilon_constraint"
+                and req.epsilon is not None
+            ):
+                stream_has_error = True
+                yield _ndjson_line(
+                    _stream_fatal_event_from_detail(
+                        _strict_error_detail(
+                            reason_code="epsilon_infeasible",
+                            message="No routes satisfy epsilon constraints for this request.",
+                            warnings=warnings,
+                        )
+                    )
+                )
+                return
+
+            total_routes = len(pareto_sorted)
+            for idx, route in enumerate(pareto_sorted, start=1):
+                yield _ndjson_line(
+                    {
+                        "type": "route",
+                        "done": idx,
+                        "total": total_routes,
+                        "route": route.model_dump(mode="json"),
+                    }
+                )
 
             log_event(
                 "pareto_stream_request",
                 request_id=request_id,
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode.value,
+                weights=req.weights.model_dump(),
                 cost_toggles=req.cost_toggles.model_dump(),
                 terrain_profile=req.terrain_profile,
                 stochastic=req.stochastic.model_dump(mode="json"),
@@ -1588,7 +3207,7 @@ async def compute_pareto_stream(
                 ),
                 origin=req.origin.model_dump(),
                 destination=req.destination.model_dump(),
-                candidate_fetches=len(specs),
+                candidate_fetches=candidate_fetches,
                 candidate_count=len(options),
                 pareto_count=len(pareto_sorted),
                 warning_count=len(warnings),
@@ -1598,8 +3217,8 @@ async def compute_pareto_stream(
             yield _ndjson_line(
                 {
                     "type": "done",
-                    "done": len(specs),
-                    "total": len(specs),
+                    "done": total_routes,
+                    "total": total_routes,
                     "routes": [route.model_dump(mode="json") for route in pareto_sorted],
                     "warning_count": len(warnings),
                     "warnings": warnings,
@@ -1621,7 +3240,7 @@ async def compute_pareto_stream(
                 message=msg,
                 duration_ms=round((time.perf_counter() - t0) * 1000, 2),
             )
-            yield _ndjson_line({"type": "fatal", "message": msg})
+            yield _ndjson_line(_stream_fatal_event_from_exception(e))
         finally:
             _record_endpoint_metric("pareto_stream", t0, error=stream_has_error)
 
@@ -1638,26 +3257,12 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
     t0 = time.perf_counter()
     has_error = False
     try:
-        cache_key = _candidate_cache_key(
-            origin=req.origin,
-            destination=req.destination,
-            vehicle_type=req.vehicle_type,
-            scenario_mode=req.scenario_mode,
-            max_routes=5,
-            cost_toggles=req.cost_toggles,
-            terrain_profile=req.terrain_profile,
-            departure_time_utc=req.departure_time_utc,
-        )
-        routes, warnings, candidate_fetches, fallback_used = await _collect_candidate_routes(
+        options, warnings, candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
-            max_routes=5,
-            cache_key=cache_key,
-        )
-
-        options, build_warnings = _build_options(
-            routes,
+            waypoints=req.waypoints,
+            max_alternatives=max(1, int(settings.route_candidate_alternatives_max)),
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode,
             cost_toggles=req.cost_toggles,
@@ -1667,24 +3272,52 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             weather=req.weather,
             incident_simulation=req.incident_simulation,
             departure_time_utc=req.departure_time_utc,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+            utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
             option_prefix="route",
         )
-        warnings.extend(build_warnings)
 
         if not options:
-            detail = "No route candidates could be computed."
-            if warnings:
-                detail = f"{detail} {warnings[0]}"
-            raise HTTPException(status_code=502, detail=detail)
+            strict_detail = _strict_failure_detail_from_outcome(
+                warnings=warnings,
+                terrain_diag=terrain_diag,
+                epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                terrain_message="Terrain DEM coverage is insufficient for strict routing policy.",
+            )
+            if strict_detail is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=strict_detail,
+                )
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code="no_route_candidates",
+                    message="No route candidates could be computed.",
+                    warnings=warnings,
+                ),
+            )
 
         pareto_options = _finalize_pareto_options(
             options,
-            max_alternatives=5,
+            max_alternatives=max(1, int(settings.route_candidate_alternatives_max)),
             pareto_method=req.pareto_method,
             epsilon=req.epsilon,
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
         )
+        if not pareto_options:
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code="epsilon_infeasible",
+                    message="No routes satisfy epsilon constraints for this request.",
+                    warnings=warnings,
+                ),
+            )
 
         selected = _pick_best_option(
             pareto_options,
@@ -1716,9 +3349,14 @@ async def compute_route(req: RouteRequest, osrm: OSRMDep, _: UserAccessDep) -> R
             ),
             origin=req.origin.model_dump(),
             destination=req.destination.model_dump(),
+            waypoint_count=len(req.waypoints),
             candidate_fetches=candidate_fetches,
             candidate_count=len(pareto_options),
-            fallback_used=fallback_used,
+            terrain_fail_closed_count=terrain_diag.fail_closed_count,
+            terrain_unsupported_region_count=terrain_diag.unsupported_region_count,
+            terrain_asset_unavailable_count=terrain_diag.asset_unavailable_count,
+            terrain_dem_version=terrain_diag.dem_version,
+            terrain_coverage_min_observed=round(terrain_diag.coverage_min_observed, 6),
             warning_count=len(warnings),
             selected_id=selected.id,
             selected_metrics=selected.metrics.model_dump(),
@@ -1758,7 +3396,14 @@ async def optimize_departure_time(
             end_utc = end_utc.astimezone(timezone.utc)
 
         if end_utc <= start_utc:
-            raise HTTPException(status_code=422, detail="window_end_utc must be after window_start_utc")
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code="epsilon_infeasible",
+                    message="window_end_utc must be after window_start_utc",
+                    warnings=[],
+                ),
+            )
 
         earliest_arrival_utc: datetime | None = None
         latest_arrival_utc: datetime | None = None
@@ -1795,26 +3440,14 @@ async def optimize_departure_time(
             departure_times.append(end_utc)
 
         selected_rows: list[dict[str, Any]] = []
+        strict_failure_detail: dict[str, Any] | None = None
         for departure_time in departure_times:
-            cache_key = _candidate_cache_key(
-                origin=req.origin,
-                destination=req.destination,
-                vehicle_type=req.vehicle_type,
-                scenario_mode=req.scenario_mode,
-                max_routes=req.max_alternatives,
-                cost_toggles=req.cost_toggles,
-                terrain_profile=req.terrain_profile,
-                departure_time_utc=departure_time,
-            )
-            routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+            options, warnings, _candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
                 osrm=osrm,
                 origin=req.origin,
                 destination=req.destination,
-                max_routes=req.max_alternatives,
-                cache_key=cache_key,
-            )
-            options, build_warnings = _build_options(
-                routes,
+                waypoints=req.waypoints,
+                max_alternatives=req.max_alternatives,
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode,
                 cost_toggles=req.cost_toggles,
@@ -1824,10 +3457,22 @@ async def optimize_departure_time(
                 weather=req.weather,
                 incident_simulation=req.incident_simulation,
                 departure_time_utc=departure_time,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+                utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
             )
-            warnings.extend(build_warnings)
             if not options:
+                detail = _strict_failure_detail_from_outcome(
+                    warnings=warnings,
+                    terrain_diag=terrain_diag,
+                    epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                    terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
+                )
+                if detail is not None and strict_failure_detail is None:
+                    strict_failure_detail = detail
                 continue
 
             pareto = _finalize_pareto_options(
@@ -1838,6 +3483,14 @@ async def optimize_departure_time(
                 optimization_mode=req.optimization_mode,
                 risk_aversion=req.risk_aversion,
             )
+            if not pareto:
+                if req.pareto_method == "epsilon_constraint" and req.epsilon is not None:
+                    strict_failure_detail = _strict_error_detail(
+                        reason_code="epsilon_infeasible",
+                        message="No routes satisfy epsilon constraints for this request.",
+                        warnings=warnings,
+                    )
+                continue
             selected = _pick_best_option(
                 pareto,
                 w_time=req.weights.time,
@@ -1857,106 +3510,135 @@ async def optimize_departure_time(
                     "selected": selected,
                     "arrival_time_utc": arrival_utc,
                     "warning_count": len(warnings),
-                    "fallback_used": fallback_used,
                 }
             )
 
         if not selected_rows:
+            if strict_failure_detail is not None:
+                raise HTTPException(status_code=422, detail=strict_failure_detail)
             if req.time_window is not None:
-                raise HTTPException(status_code=422, detail="no feasible departures for provided time window")
-            raise HTTPException(status_code=502, detail="No departure candidates could be computed.")
-
-        durations = [
-            _option_objective_value(
-                row["selected"],
-                "duration",
-                optimization_mode=req.optimization_mode,
-                risk_aversion=req.risk_aversion,
+                raise HTTPException(
+                    status_code=422,
+                    detail=_strict_error_detail(
+                        reason_code="epsilon_infeasible",
+                        message="no feasible departures for provided time window",
+                        warnings=warnings,
+                    ),
+                )
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code="no_route_candidates",
+                    message="No departure candidates could be computed.",
+                    warnings=[],
+                ),
             )
-            for row in selected_rows
-        ]
-        costs = [
-            _option_objective_value(
-                row["selected"],
-                "money",
-                optimization_mode=req.optimization_mode,
-                risk_aversion=req.risk_aversion,
-            )
-            for row in selected_rows
-        ]
-        emissions = [
-            _option_objective_value(
-                row["selected"],
-                "co2",
-                optimization_mode=req.optimization_mode,
-                risk_aversion=req.risk_aversion,
-            )
-            for row in selected_rows
-        ]
-        d_min, d_max = min(durations), max(durations)
-        c_min, c_max = min(costs), max(costs)
-        e_min, e_max = min(emissions), max(emissions)
-        wt, wm, we = normalise_weights(req.weights.time, req.weights.money, req.weights.co2)
-
-        def _norm(v: float, mn: float, mx: float) -> float:
-            return 0.0 if mx <= mn else (v - mn) / (mx - mn)
 
         candidates: list[DepartureOptimizeCandidate] = []
-        for row in selected_rows:
-            selected = row["selected"]
-            score = (
-                wt
-                * _norm(
-                    _option_objective_value(
-                        selected,
-                        "duration",
-                        optimization_mode=req.optimization_mode,
-                        risk_aversion=req.risk_aversion,
-                    ),
-                    d_min,
-                    d_max,
+        if req.optimization_mode == "robust":
+            for row in selected_rows:
+                selected = row["selected"]
+                score = _option_joint_robust_utility(selected, risk_aversion=req.risk_aversion)
+                departure_time = row["departure_time_utc"]
+                candidates.append(
+                    DepartureOptimizeCandidate(
+                        departure_time_utc=departure_time.isoformat().replace("+00:00", "Z"),
+                        selected=selected,
+                        score=round(score, 6),
+                        warning_count=int(row["warning_count"]),
+                    )
                 )
-                + wm
-                * _norm(
-                    _option_objective_value(
-                        selected,
-                        "money",
-                        optimization_mode=req.optimization_mode,
-                        risk_aversion=req.risk_aversion,
-                    ),
-                    c_min,
-                    c_max,
+        else:
+            durations = [
+                _option_objective_value(
+                    row["selected"],
+                    "duration",
+                    optimization_mode=req.optimization_mode,
+                    risk_aversion=req.risk_aversion,
                 )
-                + we
-                * _norm(
-                    _option_objective_value(
-                        selected,
-                        "co2",
-                        optimization_mode=req.optimization_mode,
-                        risk_aversion=req.risk_aversion,
-                    ),
-                    e_min,
-                    e_max,
+                for row in selected_rows
+            ]
+            costs = [
+                _option_objective_value(
+                    row["selected"],
+                    "money",
+                    optimization_mode=req.optimization_mode,
+                    risk_aversion=req.risk_aversion,
                 )
-            )
-            departure_time = row["departure_time_utc"]
-            candidates.append(
-                DepartureOptimizeCandidate(
-                    departure_time_utc=departure_time.isoformat().replace("+00:00", "Z"),
-                    selected=selected,
-                    score=round(score, 6),
-                    warning_count=int(row["warning_count"]),
-                    fallback_used=bool(row["fallback_used"]),
+                for row in selected_rows
+            ]
+            emissions = [
+                _option_objective_value(
+                    row["selected"],
+                    "co2",
+                    optimization_mode=req.optimization_mode,
+                    risk_aversion=req.risk_aversion,
                 )
-            )
+                for row in selected_rows
+            ]
+            d_min, d_max = min(durations), max(durations)
+            c_min, c_max = min(costs), max(costs)
+            e_min, e_max = min(emissions), max(emissions)
+            wt, wm, we = normalise_weights(req.weights.time, req.weights.money, req.weights.co2)
 
+            def _norm(v: float, mn: float, mx: float) -> float:
+                return 0.0 if mx <= mn else (v - mn) / (mx - mn)
+
+            for row in selected_rows:
+                selected = row["selected"]
+                score = (
+                    wt
+                    * _norm(
+                        _option_objective_value(
+                            selected,
+                            "duration",
+                            optimization_mode=req.optimization_mode,
+                            risk_aversion=req.risk_aversion,
+                        ),
+                        d_min,
+                        d_max,
+                    )
+                    + wm
+                    * _norm(
+                        _option_objective_value(
+                            selected,
+                            "money",
+                            optimization_mode=req.optimization_mode,
+                            risk_aversion=req.risk_aversion,
+                        ),
+                        c_min,
+                        c_max,
+                    )
+                    + we
+                    * _norm(
+                        _option_objective_value(
+                            selected,
+                            "co2",
+                            optimization_mode=req.optimization_mode,
+                            risk_aversion=req.risk_aversion,
+                        ),
+                        e_min,
+                        e_max,
+                    )
+                )
+                departure_time = row["departure_time_utc"]
+                candidates.append(
+                    DepartureOptimizeCandidate(
+                        departure_time_utc=departure_time.isoformat().replace("+00:00", "Z"),
+                        selected=selected,
+                        score=round(score, 6),
+                        warning_count=int(row["warning_count"]),
+                    )
+                )
+
+        tie_mode: OptimizationMode = "expected_value" if req.optimization_mode == "robust" else req.optimization_mode
         candidates.sort(
             key=lambda item: (
                 item.score,
                 _option_objective_value(
                     item.selected,
                     "duration",
-                    optimization_mode=req.optimization_mode,
+                    optimization_mode=tie_mode,
                     risk_aversion=req.risk_aversion,
                 ),
                 item.selected.id,
@@ -2055,25 +3737,12 @@ async def run_duty_chain(
             origin = _to_latlng(origin_stop)
             destination = _to_latlng(destination_stop)
 
-            cache_key = _candidate_cache_key(
-                origin=origin,
-                destination=destination,
-                vehicle_type=req.vehicle_type,
-                scenario_mode=req.scenario_mode,
-                max_routes=req.max_alternatives,
-                cost_toggles=req.cost_toggles,
-                terrain_profile=req.terrain_profile,
-                departure_time_utc=departure_cursor,
-            )
-            routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+            options, warnings, _candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
                 osrm=osrm,
                 origin=origin,
                 destination=destination,
-                max_routes=req.max_alternatives,
-                cache_key=cache_key,
-            )
-            options, build_warnings = _build_options(
-                routes,
+                waypoints=[],
+                max_alternatives=req.max_alternatives,
                 vehicle_type=req.vehicle_type,
                 scenario_mode=req.scenario_mode,
                 cost_toggles=req.cost_toggles,
@@ -2083,11 +3752,21 @@ async def run_duty_chain(
                 weather=req.weather,
                 incident_simulation=req.incident_simulation,
                 departure_time_utc=departure_cursor,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+                utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
                 option_prefix=f"duty_leg_{idx}",
             )
-            warnings.extend(build_warnings)
 
             if not options:
+                strict_detail = _strict_failure_detail_from_outcome(
+                    warnings=warnings,
+                    terrain_diag=terrain_diag,
+                    epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                    terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
+                )
                 legs.append(
                     DutyChainLegResult(
                         leg_index=idx,
@@ -2096,8 +3775,11 @@ async def run_duty_chain(
                         selected=None,
                         candidates=[],
                         warning_count=len(warnings),
-                        fallback_used=fallback_used,
-                        error="No route candidates could be computed.",
+                        error=(
+                            _strict_error_text(strict_detail)
+                            if strict_detail is not None
+                            else "reason_code:no_route_candidates; message:No route candidates could be computed."
+                        ),
                     )
                 )
                 continue
@@ -2110,6 +3792,24 @@ async def run_duty_chain(
                 optimization_mode=req.optimization_mode,
                 risk_aversion=req.risk_aversion,
             )
+            if not pareto:
+                strict_detail = _strict_error_detail(
+                    reason_code="epsilon_infeasible",
+                    message="No routes satisfy epsilon constraints for this request.",
+                    warnings=warnings,
+                )
+                legs.append(
+                    DutyChainLegResult(
+                        leg_index=idx,
+                        origin=origin_stop,
+                        destination=destination_stop,
+                        selected=None,
+                        candidates=[],
+                        warning_count=len(warnings),
+                        error=_strict_error_text(strict_detail),
+                    )
+                )
+                continue
             selected = _pick_best_option(
                 pareto,
                 w_time=req.weights.time,
@@ -2126,7 +3826,6 @@ async def run_duty_chain(
                     selected=selected,
                     candidates=pareto,
                     warning_count=len(warnings),
-                    fallback_used=fallback_used,
                 )
             )
 
@@ -2216,25 +3915,12 @@ async def _run_scenario_compare(
     results: list[ScenarioCompareResult] = []
 
     for scenario_mode in scenario_modes:
-        cache_key = _candidate_cache_key(
-            origin=req.origin,
-            destination=req.destination,
-            vehicle_type=req.vehicle_type,
-            scenario_mode=scenario_mode,
-            max_routes=req.max_alternatives,
-            cost_toggles=req.cost_toggles,
-            terrain_profile=req.terrain_profile,
-            departure_time_utc=req.departure_time_utc,
-        )
-        routes, warnings, _candidate_fetches, fallback_used = await _collect_candidate_routes(
+        options, warnings, _candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
             osrm=osrm,
             origin=req.origin,
             destination=req.destination,
-            max_routes=req.max_alternatives,
-            cache_key=cache_key,
-        )
-        options, build_warnings = _build_options(
-            routes,
+            waypoints=req.waypoints,
+            max_alternatives=req.max_alternatives,
             vehicle_type=req.vehicle_type,
             scenario_mode=scenario_mode,
             cost_toggles=req.cost_toggles,
@@ -2244,19 +3930,32 @@ async def _run_scenario_compare(
             weather=req.weather,
             incident_simulation=req.incident_simulation,
             departure_time_utc=req.departure_time_utc,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+            utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
             option_prefix=f"scenario_{scenario_mode.value}",
         )
-        warnings.extend(build_warnings)
 
         if not options:
+            strict_detail = _strict_failure_detail_from_outcome(
+                warnings=warnings,
+                terrain_diag=terrain_diag,
+                epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
+            )
             results.append(
                 ScenarioCompareResult(
                     scenario_mode=scenario_mode,
                     selected=None,
                     candidates=[],
                     warnings=warnings,
-                    fallback_used=fallback_used,
-                    error="No route candidates could be computed.",
+                    error=(
+                        _strict_error_text(strict_detail)
+                        if strict_detail is not None
+                        else "reason_code:no_route_candidates; message:No route candidates could be computed."
+                    ),
                 )
             )
             continue
@@ -2269,6 +3968,22 @@ async def _run_scenario_compare(
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
         )
+        if not pareto_options:
+            strict_detail = _strict_error_detail(
+                reason_code="epsilon_infeasible",
+                message="No routes satisfy epsilon constraints for this request.",
+                warnings=warnings,
+            )
+            results.append(
+                ScenarioCompareResult(
+                    scenario_mode=scenario_mode,
+                    selected=None,
+                    candidates=[],
+                    warnings=warnings,
+                    error=_strict_error_text(strict_detail),
+                )
+            )
+            continue
         selected = _pick_best_option(
             pareto_options,
             w_time=req.weights.time,
@@ -2283,7 +3998,6 @@ async def _run_scenario_compare(
                 selected=selected,
                 candidates=pareto_options,
                 warnings=warnings,
-                fallback_used=fallback_used,
             )
         )
 
@@ -2631,7 +4345,6 @@ def _batch_summary_csv_rows(results: list[BatchParetoResult]) -> list[dict[str, 
                 "destination_lon": result.destination.lon,
                 "route_count": route_count,
                 "error": result.error or "",
-                "fallback_used": result.fallback_used,
                 "min_duration_s": min(durations) if durations else "",
                 "min_monetary_cost": min(moneys) if moneys else "",
                 "min_emissions_kg": min(emissions) if emissions else "",
@@ -2662,7 +4375,6 @@ def _write_batch_additional_exports(run_id: str, results: list[BatchParetoResult
             "destination_lon",
             "route_count",
             "error",
-            "fallback_used",
             "min_duration_s",
             "min_monetary_cost",
             "min_emissions_kg",
@@ -2709,7 +4421,14 @@ def _parse_pairs_from_csv_text(csv_text: str) -> list[dict[str, Any]]:
             ) from e
 
     if not pairs:
-        raise HTTPException(status_code=422, detail="CSV contains no OD pairs")
+        raise HTTPException(
+            status_code=422,
+            detail=_strict_error_detail(
+                reason_code="no_route_candidates",
+                message="CSV contains no OD pairs",
+                warnings=[],
+            ),
+        )
 
     return pairs
 
@@ -2723,9 +4442,11 @@ async def batch_import_csv(
     pairs = _parse_pairs_from_csv_text(req.csv_text)
     batch_req = BatchParetoRequest(
         pairs=pairs,
+        waypoints=req.waypoints,
         vehicle_type=req.vehicle_type,
         scenario_mode=req.scenario_mode,
         max_alternatives=req.max_alternatives,
+        weights=req.weights,
         cost_toggles=req.cost_toggles,
         terrain_profile=req.terrain_profile,
         stochastic=req.stochastic,
@@ -2756,52 +4477,60 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
         async def one(pair_idx: int) -> tuple[BatchParetoResult, dict[str, Any]]:
             async with sem:
                 pair = req.pairs[pair_idx]
-                cache_key = _candidate_cache_key(
-                    origin=pair.origin,
-                    destination=pair.destination,
-                    vehicle_type=req.vehicle_type,
-                    scenario_mode=req.scenario_mode,
-                    max_routes=req.max_alternatives,
-                    cost_toggles=req.cost_toggles,
-                    terrain_profile=req.terrain_profile,
-                    departure_time_utc=req.departure_time_utc,
-                )
                 pair_stats: dict[str, Any] = {
                     "pair_index": pair_idx,
                     "candidate_count": 0,
                     "option_count": 0,
                     "pareto_count": 0,
                     "error": None,
-                    "fallback_used": False,
                 }
                 try:
-                    routes = await osrm.fetch_routes(
-                        origin_lat=pair.origin.lat,
-                        origin_lon=pair.origin.lon,
-                        dest_lat=pair.destination.lat,
-                        dest_lon=pair.destination.lon,
-                        alternatives=req.max_alternatives,
+                    options, warnings, candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
+                        osrm=osrm,
+                        origin=pair.origin,
+                        destination=pair.destination,
+                        waypoints=req.waypoints,
+                        max_alternatives=req.max_alternatives,
+                        vehicle_type=req.vehicle_type,
+                        scenario_mode=req.scenario_mode,
+                        cost_toggles=req.cost_toggles,
+                        terrain_profile=req.terrain_profile,
+                        stochastic=req.stochastic,
+                        emissions_context=req.emissions_context,
+                        weather=req.weather,
+                        incident_simulation=req.incident_simulation,
+                        departure_time_utc=req.departure_time_utc,
+                        pareto_method=req.pareto_method,
+                        epsilon=req.epsilon,
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
+                        utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
+                        option_prefix=f"pair{pair_idx}_route",
                     )
-                    routes = routes[: req.max_alternatives]
-                    pair_stats["candidate_count"] = len(routes)
-                    save_route_snapshot(cache_key, routes)
-                    options: list[RouteOption] = [
-                        build_option(
-                            r,
-                            option_id=f"pair{pair_idx}_route{i}",
-                            vehicle_type=req.vehicle_type,
-                            scenario_mode=req.scenario_mode,
-                            cost_toggles=req.cost_toggles,
-                            terrain_profile=req.terrain_profile,
-                            stochastic=req.stochastic,
-                            emissions_context=req.emissions_context,
-                            weather=req.weather,
-                            incident_simulation=req.incident_simulation,
-                            departure_time_utc=req.departure_time_utc,
-                        )
-                        for i, r in enumerate(routes)
-                    ]
+                    pair_stats["candidate_count"] = candidate_fetches
                     pair_stats["option_count"] = len(options)
+                    if not options:
+                        strict_detail = _strict_failure_detail_from_outcome(
+                            warnings=warnings,
+                            terrain_diag=terrain_diag,
+                            epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                            terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
+                        )
+                        warning_msg = (
+                            _strict_error_text(strict_detail)
+                            if strict_detail is not None
+                            else "reason_code:no_route_candidates; message:No route candidates could be computed."
+                        )
+                        pair_stats["error"] = warning_msg
+                        return (
+                            BatchParetoResult(
+                                origin=pair.origin,
+                                destination=pair.destination,
+                                error=warning_msg,
+                            ),
+                            pair_stats,
+                        )
+
                     pareto = _finalize_pareto_options(
                         options,
                         max_alternatives=req.max_alternatives,
@@ -2811,78 +4540,57 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                         risk_aversion=req.risk_aversion,
                     )
                     pair_stats["pareto_count"] = len(pareto)
+                    if (
+                        not pareto
+                        and req.pareto_method == "epsilon_constraint"
+                        and req.epsilon is not None
+                    ):
+                        strict_detail = _strict_error_detail(
+                            reason_code="epsilon_infeasible",
+                            message="No routes satisfy epsilon constraints for this request.",
+                            warnings=warnings,
+                        )
+                        error_text = _strict_error_text(strict_detail)
+                        pair_stats["error"] = error_text
+                        return (
+                            BatchParetoResult(
+                                origin=pair.origin,
+                                destination=pair.destination,
+                                error=error_text,
+                            ),
+                            pair_stats,
+                        )
 
                     return (
                         BatchParetoResult(
                             origin=pair.origin,
                             destination=pair.destination,
                             routes=pareto,
-                            fallback_used=bool(pair_stats["fallback_used"]),
-                        ),
-                        pair_stats,
-                    )
-                except OSRMError as e:
-                    if settings.offline_fallback_enabled:
-                        snapshot = load_route_snapshot(cache_key)
-                        if snapshot is not None:
-                            routes, _updated_at = snapshot
-                            routes = routes[: req.max_alternatives]
-                            pair_stats["candidate_count"] = len(routes)
-                            pair_stats["fallback_used"] = True
-                            options = [
-                                build_option(
-                                    r,
-                                    option_id=f"pair{pair_idx}_route{i}",
-                                    vehicle_type=req.vehicle_type,
-                                    scenario_mode=req.scenario_mode,
-                                    cost_toggles=req.cost_toggles,
-                                    terrain_profile=req.terrain_profile,
-                                    stochastic=req.stochastic,
-                                    emissions_context=req.emissions_context,
-                                    weather=req.weather,
-                                    incident_simulation=req.incident_simulation,
-                                    departure_time_utc=req.departure_time_utc,
-                                )
-                                for i, r in enumerate(routes)
-                            ]
-                            pair_stats["option_count"] = len(options)
-                            pareto = _finalize_pareto_options(
-                                options,
-                                max_alternatives=req.max_alternatives,
-                                pareto_method=req.pareto_method,
-                                epsilon=req.epsilon,
-                                optimization_mode=req.optimization_mode,
-                                risk_aversion=req.risk_aversion,
-                            )
-                            pair_stats["pareto_count"] = len(pareto)
-                            return (
-                                BatchParetoResult(
-                                    origin=pair.origin,
-                                    destination=pair.destination,
-                                    routes=pareto,
-                                    fallback_used=True,
-                                ),
-                                pair_stats,
-                            )
-
-                    pair_stats["error"] = str(e)
-                    return (
-                        BatchParetoResult(
-                            origin=pair.origin,
-                            destination=pair.destination,
-                            error=str(e),
-                            fallback_used=False,
                         ),
                         pair_stats,
                     )
                 except ValueError as e:
-                    pair_stats["error"] = str(e)
+                    msg = str(e).strip()
+                    reason_code = "batch_pair_failed"
+                    lowered = msg.lower()
+                    if "tariff" in lowered or "toll" in lowered:
+                        reason_code = "toll_tariff_unresolved"
+                    elif "terrain_region_unsupported" in lowered or ("terrain" in lowered and "unsupported" in lowered):
+                        reason_code = "terrain_region_unsupported"
+                    elif "terrain_dem_asset_unavailable" in lowered or ("terrain" in lowered and "asset" in lowered):
+                        reason_code = "terrain_dem_asset_unavailable"
+                    elif "terrain" in lowered and ("coverage" in lowered or "dem" in lowered):
+                        reason_code = "terrain_dem_coverage_insufficient"
+                    elif "epsilon" in lowered and "infeasible" in lowered:
+                        reason_code = "epsilon_infeasible"
+                    elif "departure profile" in lowered or "departure_profile" in lowered:
+                        reason_code = "departure_profile_unavailable"
+                    pair_stats["error"] = f"reason_code:{reason_code}; message:{msg or type(e).__name__}"
                     return (
                         BatchParetoResult(
                             origin=pair.origin,
                             destination=pair.destination,
-                            error=str(e),
-                            fallback_used=bool(pair_stats["fallback_used"]),
+                            error=pair_stats["error"],
                         ),
                         pair_stats,
                     )
@@ -2920,7 +4628,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
         candidate_count = sum(int(stats["candidate_count"]) for stats in pair_stats)
         option_count = sum(int(stats["option_count"]) for stats in pair_stats)
         pareto_count = sum(int(stats["pareto_count"]) for stats in pair_stats)
-        fallback_count = sum(1 for stats in pair_stats if bool(stats["fallback_used"]))
 
         provenance_events.append(
             provenance_event(
@@ -2932,7 +4639,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                         "pair_index": int(stats["pair_index"]),
                         "candidate_count": int(stats["candidate_count"]),
                         "error": stats["error"],
-                        "fallback_used": bool(stats["fallback_used"]),
                     }
                     for stats in pair_stats
                 ],
@@ -2958,12 +4664,10 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 "pareto_selected",
                 pareto_count=pareto_count,
                 error_count=error_count,
-                fallback_count=fallback_count,
                 pairs=[
                     {
                         "pair_index": int(stats["pair_index"]),
                         "pareto_count": int(stats["pareto_count"]),
-                        "fallback_used": bool(stats["fallback_used"]),
                     }
                     for stats in pair_stats
                 ],
@@ -3003,8 +4707,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 ),
                 "duration_ms": duration_ms,
                 "error_count": error_count,
-                "fallback_used": fallback_count > 0,
-                "fallback_count": fallback_count,
             },
         }
         manifest_path = write_manifest(
@@ -3027,8 +4729,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
             "pair_count": len(req.pairs),
             "error_count": error_count,
             "duration_ms": duration_ms,
-            "fallback_used": fallback_count > 0,
-            "fallback_count": fallback_count,
             "terrain_profile": req.terrain_profile,
             "weather": req.weather.model_dump(mode="json"),
             "incident_simulation": req.incident_simulation.model_dump(mode="json"),
@@ -3055,7 +4755,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                 manifest=str(manifest_path),
                 artifact_names=artifact_names,
                 provenance_file=str(provenance_file),
-                fallback_count=fallback_count,
             )
         )
         written_provenance = write_provenance(run_id, provenance_events)
@@ -3081,8 +4780,6 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
             ),
             duration_ms=duration_ms,
             error_count=error_count,
-            fallback_used=fallback_count > 0,
-            fallback_count=fallback_count,
             manifest=str(manifest_path),
             artifacts=artifact_names,
             provenance=str(written_provenance),
@@ -3398,3 +5095,4 @@ async def get_artifact_results_summary_csv(run_id: str) -> FileResponse:
 @app.get("/runs/{run_id}/artifacts/report.pdf")
 async def get_artifact_report_pdf(run_id: str) -> FileResponse:
     return await _get_artifact_file(run_id, "report.pdf")
+

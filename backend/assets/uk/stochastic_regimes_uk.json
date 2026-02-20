@@ -1,0 +1,69 @@
+{
+  "copula_id": "gaussian_5x5_uk_v2",
+  "calibration_version": "v2-uk-2026.02",
+  "regimes": {
+    "weekday_peak": {
+      "sigma_scale": 1.18,
+      "traffic_scale": 1.25,
+      "incident_scale": 1.2,
+      "weather_scale": 1.05,
+      "price_scale": 1.0,
+      "eco_scale": 1.0,
+      "corr": [
+        [1.0, 0.52, 0.40, 0.24, 0.17],
+        [0.52, 1.0, 0.31, 0.33, 0.22],
+        [0.40, 0.31, 1.0, 0.30, 0.35],
+        [0.24, 0.33, 0.30, 1.0, 0.19],
+        [0.17, 0.22, 0.35, 0.19, 1.0]
+      ]
+    },
+    "weekday_offpeak": {
+      "sigma_scale": 0.92,
+      "traffic_scale": 0.9,
+      "incident_scale": 0.95,
+      "weather_scale": 1.0,
+      "price_scale": 1.0,
+      "eco_scale": 1.0
+    },
+    "weekend": {
+      "sigma_scale": 0.86,
+      "traffic_scale": 0.82,
+      "incident_scale": 0.9,
+      "weather_scale": 0.98,
+      "price_scale": 1.0,
+      "eco_scale": 1.0
+    },
+    "holiday": {
+      "sigma_scale": 0.94,
+      "traffic_scale": 0.88,
+      "incident_scale": 0.95,
+      "weather_scale": 1.02,
+      "price_scale": 1.0,
+      "eco_scale": 1.0
+    },
+    "weekday_peak_motorway_heavy": {
+      "sigma_scale": 1.1,
+      "traffic_scale": 1.08,
+      "incident_scale": 1.15,
+      "weather_scale": 1.0,
+      "price_scale": 1.0,
+      "eco_scale": 1.0
+    },
+    "weekday_peak_mixed_rain": {
+      "sigma_scale": 1.25,
+      "traffic_scale": 1.28,
+      "incident_scale": 1.25,
+      "weather_scale": 1.22,
+      "price_scale": 1.0,
+      "eco_scale": 1.0
+    },
+    "weekday_offpeak_mixed_clear": {
+      "sigma_scale": 0.88,
+      "traffic_scale": 0.86,
+      "incident_scale": 0.9,
+      "weather_scale": 0.95,
+      "price_scale": 1.0,
+      "eco_scale": 1.0
+    }
+  }
+}

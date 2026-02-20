@@ -1,0 +1,43 @@
+{
+  "version": "uk_fuel_curves_v1",
+  "as_of_utc": "2026-02-19T00:00:00Z",
+  "source": "calibrated_table_baseline",
+  "curves": {
+    "default": {
+      "baseline_l_per_100km": 27.5,
+      "idle_l_per_hour": 2.0,
+      "stop_go_gain": 0.0045,
+      "grade_up_gain": 5.1,
+      "grade_down_relief": 0.46,
+      "temp_cold_gain": 0.009,
+      "speed_quadratic_gain": 0.00055
+    },
+    "van": {
+      "baseline_l_per_100km": 11.5,
+      "idle_l_per_hour": 1.2,
+      "stop_go_gain": 0.0035,
+      "grade_up_gain": 4.2,
+      "grade_down_relief": 0.5,
+      "temp_cold_gain": 0.007,
+      "speed_quadratic_gain": 0.00048
+    },
+    "rigid_hgv": {
+      "baseline_l_per_100km": 27.5,
+      "idle_l_per_hour": 2.0,
+      "stop_go_gain": 0.0045,
+      "grade_up_gain": 5.1,
+      "grade_down_relief": 0.46,
+      "temp_cold_gain": 0.009,
+      "speed_quadratic_gain": 0.00055
+    },
+    "artic_hgv": {
+      "baseline_l_per_100km": 34.0,
+      "idle_l_per_hour": 2.6,
+      "stop_go_gain": 0.0052,
+      "grade_up_gain": 5.8,
+      "grade_down_relief": 0.42,
+      "temp_cold_gain": 0.01,
+      "speed_quadratic_gain": 0.00062
+    }
+  }
+}

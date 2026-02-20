@@ -23,6 +23,11 @@ type Props = {
   onRefresh: () => void;
   onSave: (name: string, description: string) => Promise<void> | void;
   onLoad: (bundle: ExperimentBundle) => void;
+  onOpen: (experimentId: string) => Promise<void> | void;
+  onUpdateMetadata: (
+    bundle: ExperimentBundle,
+    next: { name: string; description?: string | null },
+  ) => Promise<void> | void;
   onDelete: (experimentId: string) => Promise<void> | void;
   onReplay: (experimentId: string) => Promise<void> | void;
   catalogQuery: string;
@@ -69,6 +74,8 @@ export default function ExperimentManager({
   onRefresh,
   onSave,
   onLoad,
+  onOpen,
+  onUpdateMetadata,
   onDelete,
   onReplay,
   catalogQuery,
@@ -306,6 +313,34 @@ export default function ExperimentManager({
                 data-tutorial-action="exp.load_click"
               >
                 Load
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => onOpen(bundle.id)}
+                disabled={disabled || loading}
+              >
+                Open (GET)
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={async () => {
+                  const nextName = window.prompt('Experiment name', bundle.name);
+                  if (nextName === null) return;
+                  const nextDescription = window.prompt(
+                    'Experiment description (optional)',
+                    bundle.description ?? '',
+                  );
+                  if (nextDescription === null) return;
+                  await onUpdateMetadata(bundle, {
+                    name: nextName.trim() || bundle.name,
+                    description: nextDescription.trim() || null,
+                  });
+                }}
+                disabled={disabled || loading}
+              >
+                Edit Meta (PUT)
               </button>
                 <button type="button"
                   className="secondary"

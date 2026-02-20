@@ -271,7 +271,7 @@ export default function PinManager({
           title={!canAddStop ? 'Set Both Start And End To Add A Stop.' : 'Add Midpoint Stop'}
           data-tutorial-action="pins.add_stop"
         >
-          {hasStop ? 'Replace Stop' : 'Add Stop'}
+          Add Stop
         </button>
         <button
           type="button"
@@ -308,7 +308,7 @@ export default function PinManager({
           type="button"
           className="secondary"
           disabled
-          title="Unavailable In One-Stop Mode"
+          title="Reorder From Duty Chain Text"
           aria-disabled="true"
         >
           Move Stop Up
@@ -317,13 +317,13 @@ export default function PinManager({
           type="button"
           className="secondary"
           disabled
-          title="Unavailable In One-Stop Mode"
+          title="Reorder From Duty Chain Text"
           aria-disabled="true"
         >
           Move Stop Down
         </button>
       </div>
-      <div className="tiny">Reorder Is Disabled In One-Stop Mode. Enable When Multi-Stop Support Is Added.</div>
+      <div className="tiny">Tip: Use Duty Chain Text To Add Ordered Multi-Stop Waypoints For Compute.</div>
       <div className="tiny">Tip: Click Into Stop #1 Name To Rename, Then Drag The Stop Marker On The Map.</div>
       {strictStepActionMode ? (
         <div className="tiny">

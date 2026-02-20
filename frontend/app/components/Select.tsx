@@ -248,7 +248,11 @@ export default function Select<T extends string>({
         disabled={isDisabled}
         onClick={() => !isDisabled && setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
-        {...(tutorialActionPrefix ? { 'data-tutorial-action': `${tutorialActionPrefix}:open` } : {})}
+        {...(tutorialActionPrefix
+          ? { 'data-tutorial-action': `${tutorialActionPrefix}:open` }
+          : tutorialAction
+            ? { 'data-tutorial-action': `${tutorialAction}:open` }
+            : {})}
       >
         <span className="select__value">
           {selected?.label ?? placeholder ?? (options.length ? 'Select…' : 'No Options')}

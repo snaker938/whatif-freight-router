@@ -80,12 +80,9 @@ def _summarise_batch(batch: dict[str, Any]) -> dict[str, float]:
     durations: list[float] = []
     moneys: list[float] = []
     emissions: list[float] = []
-    fallback_count = 0
     error_count = 0
 
     for item in results:
-        if item.get("fallback_used"):
-            fallback_count += 1
         if item.get("error"):
             error_count += 1
             continue
@@ -103,7 +100,6 @@ def _summarise_batch(batch: dict[str, Any]) -> dict[str, float]:
         "avg_monetary_cost": round(statistics.fmean(moneys), 6) if moneys else 0.0,
         "avg_emissions_kg": round(statistics.fmean(emissions), 6) if emissions else 0.0,
         "error_count": float(error_count),
-        "fallback_count": float(fallback_count),
     }
 
 
@@ -224,7 +220,6 @@ def _write_outputs(
                 "delta_monetary_cost",
                 "delta_emissions_kg",
                 "error_count",
-                "fallback_count",
                 "cost_toggles",
             ],
         )
@@ -271,7 +266,6 @@ def run_sensitivity(args: argparse.Namespace) -> dict[str, Any]:
             - baseline_metrics["avg_monetary_cost"],
             "delta_emissions_kg": metrics["avg_emissions_kg"] - baseline_metrics["avg_emissions_kg"],
             "error_count": int(metrics["error_count"]),
-            "fallback_count": int(metrics["fallback_count"]),
             "cost_toggles": case["cost_toggles"],
         }
         rows.append(row)

@@ -3,8 +3,6 @@ import type { TutorialPrefillId } from './types';
 
 export const TUTORIAL_PROGRESS_KEY = 'tutorial_v3_progress';
 export const TUTORIAL_COMPLETED_KEY = 'tutorial_v3_completed';
-export const LEGACY_TUTORIAL_PROGRESS_KEYS = ['tutorial_v2_progress'] as const;
-export const LEGACY_TUTORIAL_COMPLETED_KEYS = ['tutorial_v2_completed'] as const;
 
 export const TUTORIAL_CANONICAL_ORIGIN: LatLng = {
   lat: 52.4862,

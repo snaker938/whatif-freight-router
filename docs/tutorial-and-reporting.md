@@ -1,78 +1,53 @@
-# Tutorial Mode and PDF Reporting
+# Tutorial Mode and Reporting
 
-## Interactive Tutorial Mode (v2)
+Last Updated: 2026-02-19  
+Applies To: `frontend/app/components/TutorialOverlay.tsx`, run artifacts APIs
 
-The frontend now uses a strict, chaptered guided tutorial that walks through all major frontend workflows.
+## Tutorial Mode
 
-- Tutorial style:
-  - strict progression (required checklist actions must be completed)
-  - chaptered flow with detailed "what changed" and "how results changed" guidance
-  - spotlight + directional callout with auto-scroll to the active control
-- Scope:
-  - map pin lifecycle and popup actions
-  - setup, advanced parameters, preferences, routes, selected-route explainability
-  - scenario compare, departure optimization, timeline playback
-  - duty chain, oracle quality, and experiments lifecycle
-- Optional fields:
-  - each optional step requires either interaction or explicit "use default" confirmation
-- Desktop guard:
-  - full guided mode is desktop-only in this wave (`>=1100px` viewport)
+The frontend tutorial is chaptered and stateful (`tutorial_v3_*` keys). It walks through:
 
-### Progress Persistence
+- setup and map interaction
+- route/pareto compute
+- scenario compare and departure optimization
+- duty chain and experiments
+- run artifact inspection
 
-Tutorial state is persisted in browser local storage:
+Tutorial behavior is desktop-first and designed to keep users inside core workflows.
 
-- `tutorial_v2_progress`
-  - stores `stepIndex`, completed actions, optional decisions, and update timestamp
-- `tutorial_v2_completed`
-  - `"1"` when the tutorial is completed
+## Reporting and Run Artifacts
 
-Behavior:
+Successful compute flows can produce run artifacts retrievable from backend:
 
-1. If unfinished progress exists, opening tutorial shows Resume/Restart.
-2. Close keeps progress.
-3. Finish marks completion and clears saved progress.
-4. Setup card still includes a manual restart entry point.
+- `GET /runs/{run_id}/artifacts`
+- `GET /runs/{run_id}/artifacts/report.pdf`
+- `GET /runs/{run_id}/manifest`
+- `GET /runs/{run_id}/provenance`
 
-## PDF Run Report Artifact
+## Practical Flow
 
-Every successful `POST /batch/pareto` run generates:
+1. Execute compute from the sidebar.
+2. Capture returned `run_id`.
+3. Inspect provenance/signature.
+4. Download `report.pdf` and result files.
 
-- `results.json`
-- `results.csv`
-- `metadata.json`
-- `routes.geojson`
-- `results_summary.csv`
-- `report.pdf`
+## Commands
 
-Retrieve artifacts via:
-
-- `GET /runs/{run_id}/artifacts` (lists available artifacts)
-- `GET /runs/{run_id}/artifacts/report.pdf` (download PDF directly)
-
-`report.pdf` includes run metadata, summary metrics, top route rows, and manifest/signature references.
-
-## Regenerate a Report from Existing Artifacts
-
-From `backend/`:
+From repo root:
 
 ```powershell
-uv run python scripts/generate_run_report.py --run-id <run_id> --out-dir out
+pnpm -C frontend dev
 ```
 
-Optional overrides:
+From `backend/` (optional validation):
 
-- `--manifest <path>`
-- `--results <path>`
-- `--metadata <path>`
-- `--output <path>`
+```powershell
+uv run python scripts/run_headless_scenario.py --input-json ../docs/examples/sample_batch_request.json
+```
 
-## QA Checklist (Tutorial)
+## Related Docs
 
-1. Start tutorial from Setup.
-2. Confirm chapter/step counters render.
-3. Verify Next is disabled until required actions are complete.
-4. Close tutorial, reopen, and verify Resume works.
-5. Restart and verify state resets to chapter 1.
-6. Verify spotlight + callout follows active control.
-7. Confirm desktop-only notice appears on narrow viewports.
+- [Documentation Index](README.md)
+- [Frontend Dev Tools Coverage](frontend-dev-tools.md)
+- [Sample Manifest and Outputs](sample-manifest.md)
+- [API Cookbook](api-cookbook.md)

@@ -13,6 +13,7 @@ const PREVIEW_ROW_COUNT = 40;
 
 export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
   const segments = Array.isArray(route?.segment_breakdown) ? route?.segment_breakdown : [];
+  const terrainSummary = route?.terrain_summary ?? null;
   const [expanded, setExpanded] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -76,6 +77,12 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
           {expanded ? 'Collapse' : 'Expand'}
         </button>
       </div>
+      {terrainSummary ? (
+        <div className="segmentBreakdown__collapsedHint">
+          Terrain {terrainSummary.source} | Coverage {(terrainSummary.coverage_ratio * 100).toFixed(1)}% |
+          Ascent {terrainSummary.ascent_m.toFixed(0)}m | Descent {terrainSummary.descent_m.toFixed(0)}m
+        </div>
+      ) : null}
       {!expanded ? (
         <div className="segmentBreakdown__collapsedHint">
           Expand To View A Scrollable Segment Preview (Not All Rows By Default).

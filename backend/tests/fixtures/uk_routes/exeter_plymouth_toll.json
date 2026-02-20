@@ -1,0 +1,21 @@
+{
+  "distance": 72000.0,
+  "duration": 4500.0,
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [[-3.5339,50.7184],[-4.0,50.58],[-4.1427,50.3755]]
+  },
+  "legs": [
+    {
+      "annotation": {
+        "distance": [24000.0, 24000.0, 24000.0],
+        "duration": [1500.0, 1450.0, 1550.0]
+      },
+      "steps": [
+        {"distance": 24000.0, "classes": ["trunk"]},
+        {"distance": 24000.0, "classes": ["bridge", "toll"]},
+        {"distance": 24000.0, "classes": ["primary"]}
+      ]
+    }
+  ]
+}

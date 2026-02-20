@@ -20,6 +20,10 @@ const DICTIONARY = {
     clear_results: 'Clear Results',
     compare_scenarios: 'Compare Scenarios',
     comparing_scenarios: 'Comparing Scenarios...',
+    compute_mode_label: 'Compute Mode',
+    compute_mode_pareto_stream: 'Pareto Stream',
+    compute_mode_pareto_json: 'Pareto JSON',
+    compute_mode_route_single: 'Single Route',
     route_hint_start: 'Click The Map To Set Start.',
     route_hint_destination: 'Now Click The Map To Set End.',
     route_hint_default:
@@ -56,6 +60,10 @@ const DICTIONARY = {
     clear_results: 'Limpiar Resultados',
     compare_scenarios: 'Comparar Escenarios',
     comparing_scenarios: 'Comparando Escenarios...',
+    compute_mode_label: 'Modo De Cómputo',
+    compute_mode_pareto_stream: 'Pareto En Flujo',
+    compute_mode_pareto_json: 'Pareto JSON',
+    compute_mode_route_single: 'Ruta Única',
     route_hint_start: 'Haz clic en el mapa para definir el inicio.',
     route_hint_destination: 'Ahora haz clic para definir el fin.',
     route_hint_default:

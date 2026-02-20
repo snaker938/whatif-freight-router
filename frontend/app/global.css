@@ -628,8 +628,8 @@ a {
     left: 22px;
     top: 50%;
     transform: translateY(-50%) translateX(-4px);
-    min-width: 180px;
-    max-width: 260px;
+    min-width: min(180px, calc(100vw - 48px));
+    max-width: min(260px, calc(100vw - 48px));
     z-index: 70;
     opacity: 0;
     pointer-events: none;
@@ -648,6 +648,18 @@ a {
   .fieldInfoWrap[data-open="true"] .fieldInfo__tooltip,
   .fieldInfo:focus-visible + .fieldInfo__tooltip {
     opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+
+  .fieldInfoWrap[data-side='left'] .fieldInfo__tooltip {
+    left: auto;
+    right: 22px;
+    transform: translateY(-50%) translateX(4px);
+  }
+
+  .fieldInfoWrap[data-side='left']:hover .fieldInfo__tooltip,
+  .fieldInfoWrap[data-side='left'][data-open='true'] .fieldInfo__tooltip,
+  .fieldInfoWrap[data-side='left'] .fieldInfo:focus-visible + .fieldInfo__tooltip {
     transform: translateY(-50%) translateX(0);
   }
 
@@ -1549,6 +1561,52 @@ a {
     letter-spacing: -0.02em;
   }
 
+  .terrainBadgeRow {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .terrainBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(226, 232, 240, 0.98);
+  }
+
+  .terrainBadge.isDemReal {
+    border-color: rgba(45, 212, 191, 0.5);
+    background: rgba(45, 212, 191, 0.14);
+    color: rgba(153, 246, 228, 0.98);
+  }
+
+  .terrainBadge.isFallback {
+    border-color: rgba(251, 191, 36, 0.55);
+    background: rgba(251, 191, 36, 0.16);
+    color: rgba(254, 240, 138, 0.98);
+  }
+
+  .terrainBadge.isMissing {
+    border-color: rgba(248, 113, 113, 0.55);
+    background: rgba(248, 113, 113, 0.16);
+    color: rgba(254, 202, 202, 0.98);
+  }
+
+  .terrainBadgeMeta {
+    font-size: 11px;
+    color: rgba(203, 213, 225, 0.9);
+  }
+
   /* ---------- Chart ---------- */
 
   .chartWrap {
@@ -1653,6 +1711,14 @@ a {
     font-size: 11.5px;
     line-height: 1.3;
     color: rgba(255, 226, 170, 0.9);
+  }
+
+  .warningPanel__item--terrainFailClosed {
+    color: rgba(254, 202, 202, 0.98);
+  }
+
+  .warningPanel__item--terrainFallback {
+    color: rgba(254, 240, 138, 0.98);
   }
 
   .routeList {
@@ -3102,6 +3168,66 @@ a {
     background: rgba(16, 185, 129, 0.08);
   }
 
+  .devCard {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .devCard__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .devCard__title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 650;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .devGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .devPre {
+    margin: 6px 0 0;
+    max-height: 220px;
+    overflow: auto;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.28);
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .devTextarea {
+    min-height: 120px;
+    margin-top: 6px;
+    resize: vertical;
+  }
+
+  button.danger {
+    border-color: rgba(239, 68, 68, 0.38);
+    color: rgba(254, 202, 202, 0.94);
+    background: rgba(127, 29, 29, 0.28);
+  }
+
+  button.danger:hover {
+    border-color: rgba(248, 113, 113, 0.48);
+    background: rgba(153, 27, 27, 0.35);
+  }
+
   .segmentBreakdown__footerActions {
     display: inline-flex;
     align-items: center;
@@ -3170,6 +3296,10 @@ a {
 
   @media (max-width: 560px) {
     .actionGrid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .devGrid {
       grid-template-columns: minmax(0, 1fr);
     }
   }

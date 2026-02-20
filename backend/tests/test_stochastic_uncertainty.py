@@ -51,6 +51,8 @@ def test_stochastic_uncertainty_is_deterministic_for_same_seed() -> None:
     assert first.uncertainty is not None
     assert second.uncertainty is not None
     assert first.uncertainty == second.uncertainty
+    assert "q50_duration_s" in first.uncertainty
+    assert "cvar95_duration_s" in first.uncertainty
 
 
 def test_stochastic_uncertainty_changes_for_different_seed() -> None:
@@ -70,3 +72,20 @@ def test_stochastic_uncertainty_changes_for_different_seed() -> None:
     assert first.uncertainty is not None
     assert second.uncertainty is not None
     assert first.uncertainty["p95_duration_s"] != second.uncertainty["p95_duration_s"]
+
+
+def test_stochastic_uncertainty_quantiles_ordered() -> None:
+    route = _route(distance_m=42_000.0, duration_s=2_700.0)
+    option = build_option(
+        route,
+        option_id="ordered_quantiles",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.NO_SHARING,
+        cost_toggles=CostToggles(),
+        stochastic=StochasticConfig(enabled=True, seed=999, sigma=0.12, samples=48),
+        departure_time_utc=datetime(2026, 2, 12, 7, 45, tzinfo=UTC),
+    )
+    assert option.uncertainty is not None
+    assert option.uncertainty["q50_duration_s"] <= option.uncertainty["q90_duration_s"]
+    assert option.uncertainty["q90_duration_s"] <= option.uncertainty["q95_duration_s"]
+    assert option.uncertainty["q95_duration_s"] <= option.uncertainty["cvar95_duration_s"]

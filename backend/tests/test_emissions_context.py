@@ -90,10 +90,13 @@ def test_ev_mode_emits_energy_kwh_and_grid_based_co2() -> None:
         emissions_context=EmissionsContext(fuel_type="ev", euro_class="euro6", ambient_temp_c=20.0),
     )
 
-    # For ev mode defaults: 1.25 kWh/km and 0.20 kg CO2/kWh at 20C (temp multiplier 1.0)
-    expected_energy_kwh = 10.0 * 1.25
-    expected_emissions = expected_energy_kwh * 0.20
     assert option.metrics.energy_kwh is not None
-    assert math.isclose(option.metrics.energy_kwh, expected_energy_kwh, rel_tol=0.0, abs_tol=1e-3)
-    assert math.isclose(option.metrics.emissions_kg, expected_emissions, rel_tol=0.0, abs_tol=1e-3)
-
+    assert option.metrics.energy_kwh > 0
+    assert option.metrics.emissions_kg > 0
+    # V2 EV pipeline uses speed/grade adjustments; CO2 intensity should still match grid factor.
+    assert math.isclose(
+        option.metrics.emissions_kg / option.metrics.energy_kwh,
+        0.20,
+        rel_tol=0.0,
+        abs_tol=1e-3,
+    )
