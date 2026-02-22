@@ -4,9 +4,17 @@ from bisect import bisect_left
 import math
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any
 
 from .settings import settings
-from .terrain_dem_index import load_terrain_manifest, sample_elevation_m, terrain_runtime_status
+from .terrain_dem_index import (
+    load_terrain_manifest,
+    sample_elevation_m,
+    terrain_live_begin_route_run as _terrain_live_begin_route_run,
+    terrain_live_diagnostics_snapshot as _terrain_live_diagnostics_snapshot,
+    terrain_live_route_token,
+    terrain_runtime_status,
+)
 from .terrain_physics import (
     params_for_vehicle,
     route_emissions_multiplier,
@@ -21,6 +29,14 @@ UK_BBOX = {
     "lon_min": -8.75,
     "lon_max": 2.25,
 }
+
+
+def terrain_begin_route_run() -> None:
+    _terrain_live_begin_route_run()
+
+
+def terrain_live_diagnostics() -> dict[str, Any]:
+    return _terrain_live_diagnostics_snapshot()
 
 
 def _configured_uk_bbox() -> dict[str, float]:
@@ -442,6 +458,7 @@ def _cached_profile(
     signature: tuple[tuple[float, float], ...],
     spacing_m: float,
     max_samples: int,
+    route_token: int,
 ) -> tuple[list[_SampledPoint], float, str]:
     coords = [(lon, lat) for lon, lat in signature]
     profile, coverage, version = _sampled_route_profile(
@@ -473,6 +490,7 @@ def segment_grade_profile(
         signature,
         spacing_m,
         max_samples,
+        terrain_live_route_token(),
     )
     if len(profile) < 2:
         return [0.0 for _ in segment_distances_m]
@@ -535,6 +553,7 @@ def estimate_terrain_summary(
     avg_speed_kmh: float,
     distance_km: float,
     vehicle_type: str = "rigid_hgv",
+    vehicle_profile: object | None = None,
 ) -> TerrainSummary:
     if len(coordinates_lon_lat) < 2:
         d_mult, e_mult = _terrain_profile_floor(terrain_profile)
@@ -570,6 +589,7 @@ def estimate_terrain_summary(
         signature,
         spacing_m,
         max_samples,
+        terrain_live_route_token(),
     )
 
     required = max(0.0, min(1.0, float(settings.terrain_dem_coverage_min_uk)))
@@ -606,7 +626,7 @@ def estimate_terrain_summary(
     downhill_distance_km = 0.0
     weighted_duration_mult_sum = 0.0
     weighted_distance_m = 0.0
-    vehicle_params = params_for_vehicle(vehicle_type)
+    vehicle_params = params_for_vehicle(vehicle_profile or vehicle_type)
 
     for idx in range(1, len(profile)):
         prev = profile[idx - 1]

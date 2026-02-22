@@ -1,0 +1,136 @@
+{
+  "version": "vehicle_profiles_uk_v2",
+  "as_of_utc": "2026-02-20T00:00:00Z",
+  "source": "backend/assets/uk/vehicle_profiles_uk.json",
+  "profiles": [
+    {
+      "id": "artic_hgv",
+      "label": "Articulated HGV",
+      "mass_tonnes": 20.0,
+      "emission_factor_kg_per_tkm": 0.08,
+      "cost_per_km": 0.75,
+      "cost_per_hour": 32.0,
+      "idle_emissions_kg_per_hour": 4.5,
+      "powertrain": "ice",
+      "ev_kwh_per_km": null,
+      "grid_co2_kg_per_kwh": null,
+      "schema_version": 2,
+      "vehicle_class": "artic_hgv",
+      "toll_vehicle_class": "artic_hgv",
+      "toll_axle_class": "5plus",
+      "fuel_surface_class": "artic_hgv",
+      "risk_bucket": "artic_hgv",
+      "stochastic_bucket": "artic_hgv",
+      "terrain_params": {
+        "mass_kg": 38000.0,
+        "c_rr": 0.0075,
+        "drag_area_m2": 8.2,
+        "drivetrain_efficiency": 0.86,
+        "regen_efficiency": 0.12
+      },
+      "aliases": [
+        "artic",
+        "tractor_trailer"
+      ],
+      "profile_source": "bootstrap_defaults",
+      "profile_as_of_utc": null
+    },
+    {
+      "id": "ev_hgv",
+      "label": "EV HGV",
+      "mass_tonnes": 18.0,
+      "emission_factor_kg_per_tkm": 0.04,
+      "cost_per_km": 0.55,
+      "cost_per_hour": 29.0,
+      "idle_emissions_kg_per_hour": 0.2,
+      "powertrain": "ev",
+      "ev_kwh_per_km": 1.2,
+      "grid_co2_kg_per_kwh": 0.2,
+      "schema_version": 2,
+      "vehicle_class": "ev",
+      "toll_vehicle_class": "rigid_hgv",
+      "toll_axle_class": "3to4",
+      "fuel_surface_class": "ev",
+      "risk_bucket": "ev",
+      "stochastic_bucket": "ev",
+      "terrain_params": {
+        "mass_kg": 18000.0,
+        "c_rr": 0.0085,
+        "drag_area_m2": 6.7,
+        "drivetrain_efficiency": 0.91,
+        "regen_efficiency": 0.4
+      },
+      "aliases": [
+        "ev",
+        "electric_hgv"
+      ],
+      "profile_source": "bootstrap_defaults",
+      "profile_as_of_utc": null
+    },
+    {
+      "id": "rigid_hgv",
+      "label": "Rigid HGV",
+      "mass_tonnes": 12.0,
+      "emission_factor_kg_per_tkm": 0.1,
+      "cost_per_km": 0.65,
+      "cost_per_hour": 28.0,
+      "idle_emissions_kg_per_hour": 3.5,
+      "powertrain": "ice",
+      "ev_kwh_per_km": null,
+      "grid_co2_kg_per_kwh": null,
+      "schema_version": 2,
+      "vehicle_class": "rigid_hgv",
+      "toll_vehicle_class": "rigid_hgv",
+      "toll_axle_class": "3to4",
+      "fuel_surface_class": "rigid_hgv",
+      "risk_bucket": "rigid_hgv",
+      "stochastic_bucket": "rigid_hgv",
+      "terrain_params": {
+        "mass_kg": 26000.0,
+        "c_rr": 0.0082,
+        "drag_area_m2": 7.3,
+        "drivetrain_efficiency": 0.88,
+        "regen_efficiency": 0.14
+      },
+      "aliases": [
+        "rigid",
+        "hgv_rigid"
+      ],
+      "profile_source": "bootstrap_defaults",
+      "profile_as_of_utc": null
+    },
+    {
+      "id": "van",
+      "label": "Delivery van",
+      "mass_tonnes": 2.0,
+      "emission_factor_kg_per_tkm": 0.18,
+      "cost_per_km": 0.35,
+      "cost_per_hour": 18.0,
+      "idle_emissions_kg_per_hour": 1.2,
+      "powertrain": "ice",
+      "ev_kwh_per_km": null,
+      "grid_co2_kg_per_kwh": null,
+      "schema_version": 2,
+      "vehicle_class": "van",
+      "toll_vehicle_class": "van",
+      "toll_axle_class": "2",
+      "fuel_surface_class": "van",
+      "risk_bucket": "van",
+      "stochastic_bucket": "van",
+      "terrain_params": {
+        "mass_kg": 3500.0,
+        "c_rr": 0.0095,
+        "drag_area_m2": 3.9,
+        "drivetrain_efficiency": 0.89,
+        "regen_efficiency": 0.18
+      },
+      "aliases": [
+        "lgv",
+        "delivery_van"
+      ],
+      "profile_source": "bootstrap_defaults",
+      "profile_as_of_utc": null
+    }
+  ],
+  "signature": "8b4cfe9f942260cbc9e36722756dadf68e186d9c2ac7a27ed6292361648cb8ee"
+}

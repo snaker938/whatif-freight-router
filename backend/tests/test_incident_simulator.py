@@ -85,7 +85,7 @@ def test_incident_simulator_changes_with_seed_and_respects_bounds() -> None:
     assert all(0 <= item.segment_index < len(distances) for item in first)
 
 
-def test_build_option_includes_incident_stage_and_metrics() -> None:
+def test_build_option_disables_synthetic_incident_stage_in_strict_runtime() -> None:
     option = build_option(
         _route(distance_m=42_000.0, duration_s=2_700.0),
         option_id="incident",
@@ -96,8 +96,6 @@ def test_build_option_includes_incident_stage_and_metrics() -> None:
         departure_time_utc=datetime(2026, 2, 12, 8, 30, tzinfo=UTC),
     )
     stages = [str(item["stage"]) for item in option.eta_timeline]
-    assert "incidents" in stages
-    assert option.metrics.incident_delay_s >= 0.0
-    assert option.incident_events
-    assert all(event.source == "synthetic" for event in option.incident_events)
-
+    assert "incidents" not in stages
+    assert option.metrics.incident_delay_s == 0.0
+    assert option.incident_events == []

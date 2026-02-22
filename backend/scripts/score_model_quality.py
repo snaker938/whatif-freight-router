@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import statistics
 import sys
@@ -14,15 +15,19 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.calibration_loader import load_fuel_price_snapshot, load_scenario_profiles, load_stochastic_regimes
 from app.main import _finalize_pareto_options, _option_objective_value, build_option
+from app.fuel_energy_model import segment_energy_and_emissions
 from app.models import CostToggles, EmissionsContext, RouteOption, StochasticConfig
 from app.routing_graph import load_route_graph, route_graph_candidate_routes
 from app.scenario import ScenarioMode
 from app.settings import settings
+from app.vehicles import VehicleProfile, all_vehicles, get_vehicle
 
 QUALITY_THRESHOLDS = {
     "risk_aversion": 95,
     "dominance": 95,
+    "scenario_profile": 95,
     "departure_time": 95,
     "stochastic_sampling": 95,
     "terrain_profile": 95,
@@ -31,6 +36,53 @@ QUALITY_THRESHOLDS = {
     "carbon_price": 95,
     "toll_cost": 95,
 }
+
+
+def _strict_raw_evidence_requirements() -> dict[str, list[Path]]:
+    raw_root = ROOT / "data" / "raw" / "uk"
+    return {
+        "scenario_profile": [raw_root / "scenario_live_observed.jsonl"],
+        "stochastic_sampling": [raw_root / "stochastic_residuals_raw.csv"],
+        "departure_time": [raw_root / "dft_counts_raw.csv"],
+        "fuel_price": [raw_root / "fuel_prices_raw.json"],
+        "carbon_price": [raw_root / "carbon_intensity_hourly_raw.json"],
+        "toll_classification": [raw_root / "toll_classification", raw_root / "toll_tariffs_operator_truth.json"],
+        "toll_cost": [raw_root / "toll_pricing", raw_root / "toll_tariffs_operator_truth.json"],
+    }
+
+
+def _raw_path_has_evidence(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.is_file():
+        return path.stat().st_size > 0
+    # Directory evidence: require at least one plausible structured-data file.
+    for pattern in ("*.json", "*.jsonl", "*.csv", "*.yaml", "*.yml"):
+        if any(path.glob(pattern)):
+            return True
+    return False
+
+
+def _strict_missing_raw_evidence(*, subsystem: str | None) -> list[str]:
+    if not bool(settings.strict_live_data_required):
+        return []
+    requirements = _strict_raw_evidence_requirements()
+    required_paths: list[Path] = []
+    if subsystem and subsystem in requirements:
+        required_paths.extend(requirements[subsystem])
+    else:
+        for rows in requirements.values():
+            required_paths.extend(rows)
+    seen: set[str] = set()
+    missing: list[str] = []
+    for path in required_paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not _raw_path_has_evidence(path):
+            missing.append(key)
+    return missing
 
 
 def _load_fixture_routes(fixtures_dir: Path) -> list[dict[str, Any]]:
@@ -147,6 +199,7 @@ def _provenance_summary(model_assets_dir: Path) -> dict[str, Any]:
 def _synthetic_manifest_violations(model_assets_dir: Path) -> list[str]:
     violations: list[str] = []
     checks: list[tuple[str, str]] = [
+        ("scenario_profiles_uk.json", "scenario profiles"),
         ("departure_profiles_uk.json", "departure profiles"),
         ("stochastic_regimes_uk.json", "stochastic calibration"),
         ("terrain/terrain_manifest.json", "terrain manifest"),
@@ -206,6 +259,22 @@ def _safe_mean(values: list[float], fallback: float = 0.0) -> float:
     if not values:
         return fallback
     return float(statistics.fmean(values))
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if value is None:
+        return {}
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        try:
+            payload = dump(mode="json")
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+    return {}
 
 
 def _relative_error_score(actual: float, expected: float, *, tolerance: float) -> float:
@@ -564,6 +633,533 @@ def _score_departure_time(routes: list[dict[str, Any]]) -> tuple[int, dict[str, 
     }
 
 
+def _score_scenario_profiles(routes: list[dict[str, Any]]) -> tuple[int, dict[str, float]]:
+    if not routes:
+        return 0, {
+            "monotonic_duration": 0.0,
+            "monotonic_monetary": 0.0,
+            "monotonic_emissions": 0.0,
+            "mode_separability": 0.0,
+            "metadata_completeness": 0.0,
+            "stochastic_metadata": 0.0,
+            "context_coverage": 0.0,
+            "hour_slot_coverage": 0.0,
+            "corridor_coverage": 0.0,
+            "holdout_quality": 0.0,
+            "asset_integrity": 0.0,
+            "split_strategy_quality": 0.0,
+        }
+
+    monotonic_duration: list[float] = []
+    monotonic_monetary: list[float] = []
+    monotonic_emissions: list[float] = []
+    mode_separability: list[float] = []
+    metadata: list[float] = []
+    stochastic_meta: list[float] = []
+
+    def _build_for_mode(route: dict[str, Any], *, mode: ScenarioMode, idx: int) -> RouteOption:
+        return build_option(
+            route,
+            option_id=f"scenario_{mode.value}_{idx}",
+            vehicle_type="rigid_hgv",
+            scenario_mode=mode,
+            cost_toggles=CostToggles(
+                use_tolls=False,
+                fuel_price_multiplier=1.0,
+                carbon_price_per_kg=0.10,
+                toll_cost_per_km=0.2,
+            ),
+            terrain_profile="hilly",  # type: ignore[arg-type]
+            stochastic=StochasticConfig(enabled=True, seed=71, sigma=0.08, samples=32),
+            emissions_context=EmissionsContext(fuel_type="diesel", euro_class="euro6", ambient_temp_c=10),
+            departure_time_utc=datetime(2026, 2, 18, 8, 30, tzinfo=UTC),
+            utility_weights=(1.0, 1.0, 1.0),
+            risk_aversion=1.0,
+        )
+
+    for idx, route in enumerate(routes[: min(12, len(routes))]):
+        no_share = _build_for_mode(route, mode=ScenarioMode.NO_SHARING, idx=idx)
+        partial = _build_for_mode(route, mode=ScenarioMode.PARTIAL_SHARING, idx=idx)
+        full = _build_for_mode(route, mode=ScenarioMode.FULL_SHARING, idx=idx)
+
+        monotonic_duration.append(
+            1.0
+            if (
+                no_share.metrics.duration_s >= partial.metrics.duration_s
+                and partial.metrics.duration_s >= full.metrics.duration_s
+            )
+            else 0.0
+        )
+        monotonic_monetary.append(
+            1.0
+            if (
+                no_share.metrics.monetary_cost >= partial.metrics.monetary_cost
+                and partial.metrics.monetary_cost >= full.metrics.monetary_cost
+            )
+            else 0.0
+        )
+        monotonic_emissions.append(
+            1.0
+            if (
+                no_share.metrics.emissions_kg >= partial.metrics.emissions_kg
+                and partial.metrics.emissions_kg >= full.metrics.emissions_kg
+            )
+            else 0.0
+        )
+        duration_sep = abs(no_share.metrics.duration_s - full.metrics.duration_s) / max(
+            1e-6, abs(no_share.metrics.duration_s)
+        )
+        monetary_sep = abs(no_share.metrics.monetary_cost - full.metrics.monetary_cost) / max(
+            1e-6, abs(no_share.metrics.monetary_cost)
+        )
+        emissions_sep = abs(no_share.metrics.emissions_kg - full.metrics.emissions_kg) / max(
+            1e-6, abs(no_share.metrics.emissions_kg)
+        )
+        mode_separability.append(
+            _safe_mean(
+                [
+                    _ratio_to_target(duration_sep, 0.02),
+                    _ratio_to_target(monetary_sep, 0.02),
+                    _ratio_to_target(emissions_sep, 0.02),
+                ]
+            )
+        )
+        no_summary = _as_dict(no_share.scenario_summary)
+        partial_summary = _as_dict(partial.scenario_summary)
+        full_summary = _as_dict(full.scenario_summary)
+        metadata.append(
+            1.0
+            if (
+                no_summary.get("mode") == "no_sharing"
+                and partial_summary.get("mode") == "partial_sharing"
+                and full_summary.get("mode") == "full_sharing"
+                and all("version" in row for row in (no_summary, partial_summary, full_summary))
+                and all("context_key" in row for row in (no_summary, partial_summary, full_summary))
+            )
+            else 0.0
+        )
+        no_meta = no_share.uncertainty_samples_meta or {}
+        stochastic_meta.append(
+            1.0
+            if (
+                no_meta.get("scenario_mode") == "no_sharing"
+                and "scenario_profile_version" in no_meta
+                and "scenario_sigma_multiplier" in no_meta
+                and "scenario_context_key" in no_meta
+            )
+            else 0.0
+        )
+
+    def _mape_score(value: float, threshold: float) -> float:
+        if value <= threshold:
+            return 1.0
+        return max(0.0, 1.0 - ((value - threshold) / max(threshold, 1e-9)))
+
+    def _independent_raw_holdout_quality() -> tuple[float, dict[str, float]]:
+        raw_path = ROOT / "data" / "raw" / "uk" / "scenario_live_observed.jsonl"
+        if not raw_path.exists():
+            return 0.0, {"raw_holdout_rows": 0.0, "raw_holdout_coverage": 0.0}
+
+        def _context_key_from_payload(payload: dict[str, Any]) -> str:
+            corridor = (
+                str(payload.get("corridor_geohash5", payload.get("corridor_bucket", "uk000"))).strip().lower()
+                or "uk000"
+            )
+            hour_slot = int(max(0, min(23, int(float(payload.get("hour_slot_local", 12) or 12)))))
+            day_kind = str(payload.get("day_kind", "weekday")).strip().lower() or "weekday"
+            road_mix = str(payload.get("road_mix_bucket", "mixed")).strip().lower() or "mixed"
+            vehicle_class = str(payload.get("vehicle_class", "rigid_hgv")).strip().lower() or "rigid_hgv"
+            weather = str(payload.get("weather_regime", payload.get("weather_bucket", "clear"))).strip().lower() or "clear"
+            return f"{corridor}|h{hour_slot:02d}|{day_kind}|{road_mix}|{vehicle_class}|{weather}"
+
+        observed_rows: list[tuple[str, str, dict[str, float], str]] = []
+        max_rows = 40_000
+        with raw_path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for idx, line in enumerate(handle):
+                if idx >= max_rows:
+                    break
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                context_key = _context_key_from_payload(payload)
+                as_of_utc = str(payload.get("as_of_utc", "")).strip()
+                modes_raw = payload.get("modes")
+                if isinstance(modes_raw, dict):
+                    for mode_name, row in modes_raw.items():
+                        if mode_name not in {"no_sharing", "partial_sharing", "full_sharing"} or not isinstance(row, dict):
+                            continue
+                        factors = {
+                            "duration_multiplier": float(row.get("duration_multiplier", 1.0)),
+                            "fuel_consumption_multiplier": float(row.get("fuel_consumption_multiplier", 1.0)),
+                            "emissions_multiplier": float(row.get("emissions_multiplier", 1.0)),
+                        }
+                        observed_rows.append((context_key, str(mode_name), factors, as_of_utc))
+                else:
+                    mode_name = str(payload.get("mode", "")).strip().lower()
+                    if mode_name not in {"no_sharing", "partial_sharing", "full_sharing"}:
+                        continue
+                    factors = {
+                        "duration_multiplier": float(payload.get("duration_multiplier", 1.0)),
+                        "fuel_consumption_multiplier": float(payload.get("fuel_consumption_multiplier", 1.0)),
+                        "emissions_multiplier": float(payload.get("emissions_multiplier", 1.0)),
+                    }
+                    observed_rows.append((context_key, mode_name, factors, as_of_utc))
+
+        if not observed_rows:
+            return 0.0, {"raw_holdout_rows": 0.0, "raw_holdout_coverage": 0.0}
+
+        scenario_profiles = load_scenario_profiles()
+        contexts = scenario_profiles.contexts or {}
+        globals_map = scenario_profiles.profiles or {}
+        holdout_start_raw = ""
+        if isinstance(scenario_profiles.holdout_window, dict):
+            holdout_start_raw = str(scenario_profiles.holdout_window.get("start_utc", "")).strip()
+        holdout_start_dt: datetime | None = None
+        if holdout_start_raw:
+            try:
+                holdout_start_dt = datetime.fromisoformat(holdout_start_raw.replace("Z", "+00:00"))
+            except ValueError:
+                holdout_start_dt = None
+
+        def _is_holdout(context_key: str, as_of_utc: str) -> bool:
+            if holdout_start_dt is not None and as_of_utc:
+                try:
+                    as_of_dt = datetime.fromisoformat(as_of_utc.replace("Z", "+00:00"))
+                    if as_of_dt >= holdout_start_dt:
+                        return True
+                except ValueError:
+                    pass
+            return False
+
+        duration_errs: list[float] = []
+        fuel_errs: list[float] = []
+        emissions_errs: list[float] = []
+        covered = 0
+        total = 0
+        observed_by_context: dict[str, dict[str, dict[str, list[float]]]] = {}
+        predicted_by_context: dict[str, dict[str, dict[str, float]]] = {}
+
+        for context_key, mode, factors, as_of_utc in observed_rows:
+            if not _is_holdout(context_key, as_of_utc):
+                continue
+            total += 1
+            ctx = contexts.get(context_key)
+            profile = None
+            if ctx is not None:
+                profile = ctx.profiles.get(mode)
+            if profile is None:
+                profile = globals_map.get(mode)
+            if profile is None:
+                continue
+            covered += 1
+            predicted_by_context.setdefault(context_key, {}).setdefault(mode, {})
+            observed_by_context.setdefault(context_key, {}).setdefault(mode, {"duration_multiplier": [], "fuel_consumption_multiplier": [], "emissions_multiplier": []})
+            for field, bucket in (
+                ("duration_multiplier", duration_errs),
+                ("fuel_consumption_multiplier", fuel_errs),
+                ("emissions_multiplier", emissions_errs),
+            ):
+                observed_value = float(factors.get(field, 1.0))
+                predicted_value = float(getattr(profile, field))
+                rel_err = abs(predicted_value - observed_value) / max(1e-6, abs(observed_value))
+                bucket.append(rel_err)
+                observed_by_context[context_key][mode][field].append(observed_value)
+                predicted_by_context[context_key][mode][field] = predicted_value
+
+        coverage = float(covered) / max(1.0, float(total))
+        if covered <= 0:
+            return 0.0, {"raw_holdout_rows": float(total), "raw_holdout_coverage": round(coverage, 6)}
+
+        duration_mape = float(statistics.fmean(duration_errs)) if duration_errs else 1.0
+        fuel_mape = float(statistics.fmean(fuel_errs)) if fuel_errs else 1.0
+        emissions_mape = float(statistics.fmean(emissions_errs)) if emissions_errs else 1.0
+
+        separability_errors: list[float] = []
+        for context_key, mode_map in observed_by_context.items():
+            if not all(mode in mode_map for mode in ("no_sharing", "partial_sharing", "full_sharing")):
+                continue
+            pred_map = predicted_by_context.get(context_key, {})
+            if not all(mode in pred_map for mode in ("no_sharing", "partial_sharing", "full_sharing")):
+                continue
+            for field in ("duration_multiplier", "fuel_consumption_multiplier", "emissions_multiplier"):
+                obs_no = statistics.fmean(mode_map["no_sharing"][field])
+                obs_full = statistics.fmean(mode_map["full_sharing"][field])
+                pred_no = float(pred_map["no_sharing"][field])
+                pred_full = float(pred_map["full_sharing"][field])
+                obs_sep = abs(obs_no - obs_full) / max(1e-6, abs(obs_no))
+                pred_sep = abs(pred_no - pred_full) / max(1e-6, abs(pred_no))
+                separability_errors.append(abs(pred_sep - obs_sep) / max(0.02, obs_sep))
+        separability_score = (
+            max(0.0, 1.0 - min(1.0, float(statistics.fmean(separability_errors))))
+            if separability_errors
+            else 0.0
+        )
+        raw_quality = _safe_mean(
+            [
+                _mape_score(duration_mape, 0.08),
+                _mape_score(fuel_mape, 0.08),
+                _mape_score(emissions_mape, 0.08),
+                _ratio_to_target(coverage, 0.90),
+                separability_score,
+            ]
+        )
+        return raw_quality, {
+            "raw_holdout_rows": float(total),
+            "raw_holdout_coverage": round(coverage, 6),
+            "raw_duration_mape": round(duration_mape, 6),
+            "raw_fuel_mape": round(fuel_mape, 6),
+            "raw_emissions_mape": round(emissions_mape, 6),
+            "raw_separability_quality": round(separability_score, 6),
+        }
+
+    try:
+        scenario_profiles = load_scenario_profiles()
+        no_p = scenario_profiles.profiles.get("no_sharing")
+        partial_p = scenario_profiles.profiles.get("partial_sharing")
+        full_p = scenario_profiles.profiles.get("full_sharing")
+        asset_integrity = (
+            1.0
+            if (
+                no_p is not None
+                and partial_p is not None
+                and full_p is not None
+                and no_p.duration_multiplier >= partial_p.duration_multiplier >= full_p.duration_multiplier
+                and no_p.fuel_consumption_multiplier >= partial_p.fuel_consumption_multiplier >= full_p.fuel_consumption_multiplier
+                and no_p.emissions_multiplier >= partial_p.emissions_multiplier >= full_p.emissions_multiplier
+            )
+            else 0.0
+        )
+        context_rows = list((scenario_profiles.contexts or {}).values())
+        context_count = len(context_rows)
+        context_coverage = _ratio_to_target(float(context_count), 12.0)
+        holdout_metrics = scenario_profiles.holdout_metrics or {}
+        mode_sep = float(holdout_metrics.get("mode_separation_mean", 0.0))
+        duration_mape = float(holdout_metrics.get("duration_mape", 1.0))
+        monetary_mape = float(holdout_metrics.get("monetary_mape", 1.0))
+        emissions_mape = float(holdout_metrics.get("emissions_mape", 1.0))
+        coverage = float(holdout_metrics.get("coverage", 0.0))
+        hour_slot_coverage_reported = float(holdout_metrics.get("hour_slot_coverage", 0.0))
+        corridor_coverage_reported = float(holdout_metrics.get("corridor_coverage", 0.0))
+        full_identity_share = float(holdout_metrics.get("full_identity_share", float("nan")))
+        projection_share_reported = float(
+            holdout_metrics.get("projection_dominant_context_share", float("nan"))
+        )
+        observed_mode_row_share_reported = float(
+            holdout_metrics.get("observed_mode_row_share", float("nan"))
+        )
+        actual_hours = len(
+            {
+                int(getattr(ctx, "hour_slot_local", -1))
+                for ctx in context_rows
+                if isinstance(getattr(ctx, "hour_slot_local", None), int)
+            }
+        )
+        actual_corridors = len(
+            {
+                str(getattr(ctx, "corridor_geohash5", "")).strip().lower()
+                for ctx in context_rows
+                if str(getattr(ctx, "corridor_geohash5", "")).strip()
+            }
+        )
+        hour_slot_coverage = min(hour_slot_coverage_reported, float(actual_hours))
+        corridor_coverage = min(corridor_coverage_reported, float(actual_corridors))
+        actual_projection_count = 0
+        observed_row_share_proxy_acc = 0.0
+        observed_row_share_proxy_n = 0
+        for ctx in context_rows:
+            projected_ratio = getattr(ctx, "mode_projection_ratio", None)
+            projected_source = str(getattr(ctx, "mode_observation_source", "") or "").strip().lower()
+            projected = False
+            ratio_value: float | None = None
+            if projected_ratio is not None:
+                try:
+                    ratio_value = float(projected_ratio)
+                    projected = ratio_value >= 0.80
+                except (TypeError, ValueError):
+                    projected = False
+                    ratio_value = None
+            if not projected and projected_source:
+                projected = ("project" in projected_source) or ("synthesized" in projected_source)
+            if projected:
+                actual_projection_count += 1
+            if ratio_value is not None:
+                observed_row_share_proxy_acc += max(0.0, min(1.0, 1.0 - ratio_value))
+                observed_row_share_proxy_n += 1
+        actual_projection_share = (
+            float(actual_projection_count) / float(context_count)
+            if context_count > 0
+            else float("nan")
+        )
+        actual_observed_mode_row_share = (
+            float(observed_row_share_proxy_acc) / float(observed_row_share_proxy_n)
+            if observed_row_share_proxy_n > 0
+            else float("nan")
+        )
+        projection_share_candidates = [
+            value
+            for value in (projection_share_reported, actual_projection_share)
+            if value == value
+        ]
+        projection_share = (
+            max(projection_share_candidates)
+            if projection_share_candidates
+            else float("nan")
+        )
+        observed_mode_row_share_candidates = [
+            value
+            for value in (observed_mode_row_share_reported, actual_observed_mode_row_share)
+            if value == value
+        ]
+        observed_mode_row_share = (
+            min(observed_mode_row_share_candidates)
+            if observed_mode_row_share_candidates
+            else float("nan")
+        )
+        split_strategy = str(getattr(scenario_profiles, "split_strategy", "") or "").strip().lower()
+        if full_identity_share == full_identity_share:
+            full_identity_quality = max(0.0, 1.0 - min(1.0, full_identity_share / 0.70))
+        else:
+            full_identity_quality = 0.0
+        if projection_share == projection_share:
+            projection_evidence_quality = max(0.0, 1.0 - min(1.0, projection_share / 0.80))
+        else:
+            projection_evidence_quality = 0.0
+        if observed_mode_row_share == observed_mode_row_share:
+            observed_mode_row_quality = _ratio_to_target(
+                observed_mode_row_share,
+                float(settings.scenario_min_observed_mode_row_share),
+            )
+        else:
+            observed_mode_row_quality = 0.0
+
+        holdout_quality = _safe_mean(
+            [
+                _ratio_to_target(mode_sep, 0.03),
+                _mape_score(duration_mape, 0.08),
+                _mape_score(monetary_mape, 0.08),
+                _mape_score(emissions_mape, 0.08),
+                _ratio_to_target(coverage, 0.90),
+                full_identity_quality,
+                projection_evidence_quality,
+                observed_mode_row_quality,
+            ]
+        )
+        split_strategy_quality = (
+            1.0
+            if split_strategy in {"temporal_forward_plus_corridor_block"}
+            else 0.0
+        )
+        raw_holdout_quality, raw_holdout_metrics = _independent_raw_holdout_quality()
+    except Exception:
+        asset_integrity = 0.0
+        context_coverage = 0.0
+        holdout_quality = 0.0
+        hour_slot_coverage = 0.0
+        corridor_coverage = 0.0
+        split_strategy_quality = 0.0
+        full_identity_share = float("nan")
+        full_identity_quality = 0.0
+        projection_share = float("nan")
+        projection_evidence_quality = 0.0
+        observed_mode_row_share = float("nan")
+        observed_mode_row_quality = 0.0
+        raw_holdout_quality = 0.0
+        raw_holdout_metrics = {"raw_holdout_rows": 0.0, "raw_holdout_coverage": 0.0}
+
+    monotonic_duration_score = _safe_mean(monotonic_duration, fallback=0.0)
+    monotonic_monetary_score = _safe_mean(monotonic_monetary, fallback=0.0)
+    monotonic_emissions_score = _safe_mean(monotonic_emissions, fallback=0.0)
+    mode_separability_score = _safe_mean(mode_separability, fallback=0.0)
+    metadata_score = _safe_mean(metadata, fallback=0.0)
+    stochastic_metadata_score = _safe_mean(stochastic_meta, fallback=0.0)
+    hour_coverage_score = _ratio_to_target(hour_slot_coverage, 6.0)
+    corridor_coverage_score = _ratio_to_target(corridor_coverage, 8.0)
+    ordering_score = _safe_mean(
+        [
+            monotonic_duration_score,
+            monotonic_monetary_score,
+            monotonic_emissions_score,
+            mode_separability_score,
+        ]
+    )
+    metadata_contract_score = _safe_mean(
+        [
+            metadata_score,
+            stochastic_metadata_score,
+            asset_integrity,
+            context_coverage,
+            hour_coverage_score,
+            corridor_coverage_score,
+            split_strategy_quality,
+        ]
+    )
+    independent_truth_score = _safe_mean([holdout_quality, raw_holdout_quality], fallback=0.0)
+    runtime_ordering_score = ordering_score
+    score = _clamp_score(
+        (70.0 * independent_truth_score)
+        + (20.0 * runtime_ordering_score)
+        + (10.0 * metadata_contract_score)
+    )
+    # Strict realism guard: independent truth metrics must exist and be non-trivial.
+    raw_holdout_rows = float(raw_holdout_metrics.get("raw_holdout_rows", 0.0))
+    if independent_truth_score <= 0.0:
+        score = min(score, 74)
+    if settings.strict_live_data_required and raw_holdout_rows < 500:
+        score = min(score, 69)
+    if full_identity_share == full_identity_share and full_identity_share > 0.70:
+        score = min(score, 69)
+    if projection_share == projection_share and projection_share >= 0.95:
+        score = min(score, 72)
+    if (
+        observed_mode_row_share == observed_mode_row_share
+        and observed_mode_row_share < float(settings.scenario_min_observed_mode_row_share)
+    ):
+        score = min(score, 69)
+    return score, {
+        "monotonic_duration": round(monotonic_duration_score, 4),
+        "monotonic_monetary": round(monotonic_monetary_score, 4),
+        "monotonic_emissions": round(monotonic_emissions_score, 4),
+        "mode_separability": round(mode_separability_score, 4),
+        "metadata_completeness": round(metadata_score, 4),
+        "stochastic_metadata": round(stochastic_metadata_score, 4),
+        "context_coverage": round(context_coverage, 4),
+        "hour_slot_coverage": round(hour_coverage_score, 4),
+        "corridor_coverage": round(corridor_coverage_score, 4),
+        "holdout_quality": round(holdout_quality, 4),
+        "raw_holdout_quality": round(raw_holdout_quality, 4),
+        "independent_truth_quality": round(independent_truth_score, 4),
+        "runtime_ordering_quality": round(runtime_ordering_score, 4),
+        "asset_integrity": round(asset_integrity, 4),
+        "split_strategy_quality": round(split_strategy_quality, 4),
+        "full_identity_share": (
+            round(full_identity_share, 4)
+            if full_identity_share == full_identity_share
+            else None
+        ),
+        "full_identity_quality": round(full_identity_quality, 4),
+        "projection_dominant_context_share": (
+            round(projection_share, 4)
+            if projection_share == projection_share
+            else None
+        ),
+        "projection_evidence_quality": round(projection_evidence_quality, 4),
+        "observed_mode_row_share": (
+            round(observed_mode_row_share, 4)
+            if observed_mode_row_share == observed_mode_row_share
+            else None
+        ),
+        "observed_mode_row_quality": round(observed_mode_row_quality, 4),
+        "raw_holdout_rows": round(float(raw_holdout_metrics.get("raw_holdout_rows", 0.0)), 4),
+        "raw_holdout_coverage": round(float(raw_holdout_metrics.get("raw_holdout_coverage", 0.0)), 4),
+    }
+
+
 def _score_stochastic_sampling(routes: list[dict[str, Any]]) -> tuple[int, dict[str, float]]:
     if not routes:
         return 0, {
@@ -571,12 +1167,17 @@ def _score_stochastic_sampling(routes: list[dict[str, Any]]) -> tuple[int, dict[
             "metadata": 0.0,
             "deterministic_seed": 0.0,
             "seed_sensitivity": 0.0,
+            "clip_quality": 0.0,
+            "posterior_quality": 0.0,
             "empirical_depth": 0.0,
         }
     invariants: list[float] = []
     metadata: list[float] = []
     deterministic_seed: list[float] = []
     seed_sensitivity: list[float] = []
+    sample_clip_penalties: list[float] = []
+    sigma_clip_penalties: list[float] = []
+    factor_clip_penalties: list[float] = []
 
     for idx, route in enumerate(routes[: min(10, len(routes))]):
         a = _build_option(
@@ -636,25 +1237,122 @@ def _score_stochastic_sampling(routes: list[dict[str, Any]]) -> tuple[int, dict[
         )
         deterministic_seed.append(1.0 if ua == ub else 0.0)
         seed_sensitivity.append(1.0 if float(ua.get("q95_duration_s", 0.0)) != float(uc.get("q95_duration_s", 0.0)) else 0.0)
+        sample_clip_penalties.append(float(ua.get("sample_count_clip_ratio", 0.0)))
+        sigma_clip_penalties.append(float(ua.get("sigma_clip_ratio", 0.0)))
+        factor_clip_penalties.append(float(ua.get("factor_clip_rate", 0.0)))
 
     invariants_score = _safe_mean(invariants)
     metadata_score = _safe_mean(metadata)
     deterministic_score = _safe_mean(deterministic_seed)
     sensitivity_score = _safe_mean(seed_sensitivity)
+    sample_clip_score = max(0.0, 1.0 - min(1.0, _safe_mean(sample_clip_penalties, fallback=1.0) / 0.05))
+    sigma_clip_score = max(0.0, 1.0 - min(1.0, _safe_mean(sigma_clip_penalties, fallback=1.0) / 0.05))
+    factor_clip_score = max(0.0, 1.0 - min(1.0, _safe_mean(factor_clip_penalties, fallback=1.0) / 0.15))
+    clip_quality = _safe_mean([sample_clip_score, sigma_clip_score, factor_clip_score])
+    try:
+        table = load_stochastic_regimes()
+        posterior = table.posterior_model if isinstance(table.posterior_model, dict) else {}
+        context_probs = posterior.get("context_to_regime_probs", {}) if isinstance(posterior, dict) else {}
+        posterior_coverage_score = (
+            _ratio_to_target(float(len(context_probs)), 80.0)
+            if isinstance(context_probs, dict)
+            else 0.0
+        )
+        required_factors = {"traffic", "incident", "weather", "price", "eco"}
+        transform_checks: list[float] = []
+        for regime in table.regimes.values():
+            family_ok = 1.0 if str(getattr(regime, "transform_family", "")).strip().lower() == "quantile_mapping_v1" else 0.0
+            mapping = getattr(regime, "shock_quantile_mapping", None)
+            mapping_ok = (
+                1.0
+                if isinstance(mapping, dict) and all(bool(mapping.get(name)) for name in required_factors)
+                else 0.0
+            )
+            transform_checks.append(_safe_mean([family_ok, mapping_ok], fallback=0.0))
+        transform_quality = _safe_mean(transform_checks, fallback=0.0)
+        posterior_quality = _safe_mean([posterior_coverage_score, transform_quality], fallback=0.0)
+        holdout = table.holdout_metrics if isinstance(table.holdout_metrics, dict) else {}
+        holdout_coverage = float(holdout.get("coverage", 0.0))
+        holdout_pit = float(holdout.get("pit_mean", float("nan")))
+        holdout_crps = float(holdout.get("crps_mean", float("inf")))
+        holdout_duration_mape = float(holdout.get("duration_mape", float("inf")))
+        pit_quality = 0.0
+        if holdout_pit == holdout_pit:
+            if 0.35 <= holdout_pit <= 0.65:
+                pit_quality = 1.0
+            else:
+                pit_quality = max(0.0, 1.0 - (abs(holdout_pit - 0.5) / 0.5))
+        crps_quality = max(0.0, 1.0 - min(1.0, holdout_crps / 0.55))
+        duration_mape_quality = max(0.0, 1.0 - min(1.0, holdout_duration_mape / 0.15))
+        holdout_truth_quality = _safe_mean(
+            [
+                _ratio_to_target(holdout_coverage, 0.90),
+                pit_quality,
+                crps_quality,
+                duration_mape_quality,
+            ],
+            fallback=0.0,
+        )
+    except Exception:
+        posterior_quality = 0.0
+        posterior_coverage_score = 0.0
+        transform_quality = 0.0
+        holdout_truth_quality = 0.0
+        holdout_coverage = 0.0
+        holdout_pit = float("nan")
+        holdout_crps = float("inf")
+        holdout_duration_mape = float("inf")
     residual_rows = _line_count(ROOT / "assets" / "uk" / "stochastic_residuals_empirical.csv")
     empirical_depth = _ratio_to_target(residual_rows, 5000.0)
-    score = _clamp_score(
-        (25.0 * invariants_score)
-        + (20.0 * metadata_score)
-        + (20.0 * deterministic_score)
-        + (10.0 * sensitivity_score)
-        + (25.0 * empirical_depth)
+    runtime_quality = _safe_mean(
+        [
+            invariants_score,
+            deterministic_score,
+            sensitivity_score,
+            clip_quality,
+            posterior_quality,
+        ],
+        fallback=0.0,
     )
+    metadata_contract_quality = _safe_mean([metadata_score, empirical_depth], fallback=0.0)
+    score = _clamp_score(
+        (70.0 * holdout_truth_quality)
+        + (20.0 * runtime_quality)
+        + (10.0 * metadata_contract_quality)
+    )
+    if settings.strict_live_data_required and holdout_truth_quality <= 0.0:
+        score = min(score, 69)
     return score, {
         "invariants": round(invariants_score, 4),
         "metadata": round(metadata_score, 4),
         "deterministic_seed": round(deterministic_score, 4),
         "seed_sensitivity": round(sensitivity_score, 4),
+        "clip_quality": round(clip_quality, 4),
+        "posterior_quality": round(posterior_quality, 4),
+        "posterior_coverage_score": round(posterior_coverage_score, 4),
+        "transform_quality": round(transform_quality, 4),
+        "holdout_truth_quality": round(holdout_truth_quality, 4),
+        "holdout_coverage": round(holdout_coverage, 4),
+        "holdout_pit_mean": (
+            round(holdout_pit, 4)
+            if holdout_pit == holdout_pit
+            else None
+        ),
+        "holdout_crps_mean": (
+            round(holdout_crps, 4)
+            if holdout_crps == holdout_crps and holdout_crps != float("inf")
+            else None
+        ),
+        "holdout_duration_mape": (
+            round(holdout_duration_mape, 4)
+            if holdout_duration_mape == holdout_duration_mape and holdout_duration_mape != float("inf")
+            else None
+        ),
+        "runtime_quality": round(runtime_quality, 4),
+        "metadata_contract_quality": round(metadata_contract_quality, 4),
+        "sample_clip_score": round(sample_clip_score, 4),
+        "sigma_clip_score": round(sigma_clip_score, 4),
+        "factor_clip_score": round(factor_clip_score, 4),
         "empirical_depth": round(empirical_depth, 4),
     }
 
@@ -853,13 +1551,19 @@ def _score_fuel_price(routes: list[dict[str, Any]]) -> tuple[int, dict[str, floa
     if not routes:
         return 0, {
             "multiplier_isolation": 0.0,
-            "metadata": 0.0,
-            "component_validity": 0.0,
+            "provenance": 0.0,
+            "quantile_validity": 0.0,
+            "holdout_p50_error": 1.0,
+            "holdout_p50_score": 0.0,
+            "sensitivity": 0.0,
+            "live_source_readiness": 0.0,
             "history_depth": 0.0,
         }
     isolation_scores: list[float] = []
-    metadata_scores: list[float] = []
-    component_validity: list[float] = []
+    provenance_scores: list[float] = []
+    quantile_validity: list[float] = []
+    holdout_errors: list[float] = []
+    quantile_coverage: list[float] = []
     for idx, route in enumerate(routes[: min(8, len(routes))]):
         base = _build_option(
             route,
@@ -886,28 +1590,195 @@ def _score_fuel_price(routes: list[dict[str, Any]]) -> tuple[int, dict[str, floa
         isolation_scores.append(_relative_error_score(actual_delta, expected_delta, tolerance=0.35))
 
         ws = boosted.weather_summary or {}
-        metadata_scores.append(1.0 if ("fuel_price_source" in ws and "fuel_price_as_of" in ws) else 0.0)
-        valid_rows = [
+        provenance_scores.append(
             1.0
-            if float(row.get("fuel_cost", 0.0)) >= 0.0 and float(row.get("fuel_liters", 0.0)) >= 0.0
+            if all(
+                key in ws
+                for key in (
+                    "fuel_price_source",
+                    "fuel_price_as_of",
+                    "consumption_model_source",
+                    "consumption_model_version",
+                    "consumption_model_as_of_utc",
+                )
+            )
             else 0.0
-            for row in boosted.segment_breakdown
-        ]
-        component_validity.append(_safe_mean(valid_rows, fallback=0.0))
+        )
+        row_validity: list[float] = []
+        row_coverage: list[float] = []
+        row_holdout: list[float] = []
+        for row in boosted.segment_breakdown:
+            liters = float(row.get("fuel_liters", 0.0))
+            liters_p10 = float(row.get("fuel_liters_p10", 0.0))
+            liters_p50 = float(row.get("fuel_liters_p50", 0.0))
+            liters_p90 = float(row.get("fuel_liters_p90", 0.0))
+            cost = float(row.get("fuel_cost", 0.0))
+            cost_p10 = float(row.get("fuel_cost_p10_gbp", 0.0))
+            cost_p50 = float(row.get("fuel_cost_p50_gbp", 0.0))
+            cost_p90 = float(row.get("fuel_cost_p90_gbp", 0.0))
+            ordered = 1.0 if (liters_p10 <= liters_p50 <= liters_p90 and cost_p10 <= cost_p50 <= cost_p90) else 0.0
+            row_validity.append(ordered)
+            row_coverage.append(1.0 if (liters_p10 <= liters <= liters_p90 and cost_p10 <= cost <= cost_p90) else 0.0)
+            row_holdout.append(abs(liters - liters_p50) / max(1e-6, liters_p50))
+        quantile_validity.append(_safe_mean(row_validity, fallback=0.0))
+        quantile_coverage.append(_safe_mean(row_coverage, fallback=0.0))
+        holdout_errors.append(_safe_mean(row_holdout, fallback=1.0))
+
+    # Monotonic sensitivity checks on direct segment model controls.
+    sensitivity_checks: list[float] = []
+    try:
+        base_vehicle = get_vehicle("rigid_hgv")
+        light_vehicle = VehicleProfile.model_validate(
+            {
+                **base_vehicle.model_dump(mode="python"),
+                "id": "rigid_hgv_light_probe",
+                "mass_tonnes": max(8.0, float(base_vehicle.mass_tonnes) * 0.85),
+            }
+        )
+        heavy_vehicle = VehicleProfile.model_validate(
+            {
+                **base_vehicle.model_dump(mode="python"),
+                "id": "rigid_hgv_heavy_probe",
+                "mass_tonnes": float(base_vehicle.mass_tonnes) * 1.25,
+            }
+        )
+        ctx_mild = EmissionsContext(fuel_type="diesel", euro_class="euro6", ambient_temp_c=15.0)
+        ctx_cold = EmissionsContext(fuel_type="diesel", euro_class="euro6", ambient_temp_c=0.0)
+        light = segment_energy_and_emissions(
+            vehicle=light_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=900.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        heavy = segment_energy_and_emissions(
+            vehicle=heavy_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=900.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        flat = segment_energy_and_emissions(
+            vehicle=base_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=900.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        uphill = segment_energy_and_emissions(
+            vehicle=base_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=900.0,
+            grade=0.04,
+            fuel_price_multiplier=1.0,
+        )
+        mild = segment_energy_and_emissions(
+            vehicle=base_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=900.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        cold = segment_energy_and_emissions(
+            vehicle=base_vehicle,
+            emissions_context=ctx_cold,
+            distance_km=12.0,
+            duration_s=900.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        stop_go = segment_energy_and_emissions(
+            vehicle=base_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=1600.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        freeflow = segment_energy_and_emissions(
+            vehicle=base_vehicle,
+            emissions_context=ctx_mild,
+            distance_km=12.0,
+            duration_s=800.0,
+            grade=0.0,
+            fuel_price_multiplier=1.0,
+        )
+        sensitivity_checks.extend(
+            [
+                1.0 if heavy.fuel_liters >= light.fuel_liters else 0.0,
+                1.0 if uphill.fuel_liters >= flat.fuel_liters else 0.0,
+                1.0 if cold.fuel_liters >= mild.fuel_liters else 0.0,
+                1.0 if stop_go.fuel_liters >= freeflow.fuel_liters else 0.0,
+            ]
+        )
+    except Exception:
+        sensitivity_checks.append(0.0)
+
+    live_readiness_checks: list[float] = []
+    try:
+        snap = load_fuel_price_snapshot()
+        live_readiness_checks.append(1.0 if str(snap.source).strip() else 0.0)
+        live_readiness_checks.append(1.0 if str(snap.as_of).strip() else 0.0)
+        live_readiness_checks.append(1.0 if str(snap.signature or "").strip() else 0.0)
+        policy_ok = bool(settings.live_fuel_require_signature) and bool(settings.live_fuel_allow_signed_fallback)
+        live_readiness_checks.append(1.0 if policy_ok else 0.0)
+        url_or_fallback_ok = bool(str(settings.live_fuel_price_url).strip()) or bool(settings.live_fuel_allow_signed_fallback)
+        live_readiness_checks.append(1.0 if url_or_fallback_ok else 0.0)
+    except Exception:
+        live_readiness_checks.append(0.0)
+
+    vehicle_profile_checks: list[float] = []
+    try:
+        profiles = all_vehicles()
+        for profile in profiles.values():
+            vehicle_profile_checks.append(1.0 if int(profile.schema_version) >= 2 else 0.0)
+            vehicle_profile_checks.append(1.0 if str(profile.fuel_surface_class).strip() else 0.0)
+            vehicle_profile_checks.append(1.0 if str(profile.toll_vehicle_class).strip() else 0.0)
+            vehicle_profile_checks.append(1.0 if str(profile.toll_axle_class).strip() else 0.0)
+            vehicle_profile_checks.append(1.0 if str(profile.risk_bucket).strip() else 0.0)
+            vehicle_profile_checks.append(1.0 if str(profile.stochastic_bucket).strip() else 0.0)
+    except Exception:
+        vehicle_profile_checks.append(0.0)
+
     isolation = _safe_mean(isolation_scores)
-    metadata = _safe_mean(metadata_scores)
-    validity = _safe_mean(component_validity)
+    provenance = _safe_mean(provenance_scores)
+    quantiles = _safe_mean(quantile_validity)
+    coverage = _safe_mean(quantile_coverage)
+    holdout_error = _safe_mean(holdout_errors, fallback=1.0)
+    holdout_score = 1.0 - min(1.0, holdout_error / 0.15)
+    sensitivity = _safe_mean(sensitivity_checks, fallback=0.0)
+    live_readiness = _safe_mean(live_readiness_checks, fallback=0.0)
+    vehicle_profile_schema = _safe_mean(vehicle_profile_checks, fallback=0.0)
     history_depth = _ratio_to_target(
         _json_entry_count(ROOT / "assets" / "uk" / "fuel_prices_uk.json", "history"),
         365.0,
     )
     score = _clamp_score(
-        (30.0 * isolation) + (20.0 * metadata) + (20.0 * validity) + (30.0 * history_depth)
+        (15.0 * isolation)
+        + (10.0 * provenance)
+        + (15.0 * quantiles)
+        + (10.0 * coverage)
+        + (15.0 * holdout_score)
+        + (15.0 * sensitivity)
+        + (10.0 * live_readiness)
+        + (10.0 * vehicle_profile_schema)
+        + (0.0 * history_depth)
     )
     return score, {
         "multiplier_isolation": round(isolation, 4),
-        "metadata": round(metadata, 4),
-        "component_validity": round(validity, 4),
+        "provenance": round(provenance, 4),
+        "quantile_validity": round(quantiles, 4),
+        "quantile_coverage": round(coverage, 4),
+        "holdout_p50_error": round(holdout_error, 6),
+        "holdout_p50_score": round(holdout_score, 4),
+        "sensitivity": round(sensitivity, 4),
+        "live_source_readiness": round(live_readiness, 4),
+        "vehicle_profile_schema": round(vehicle_profile_schema, 4),
         "history_depth": round(history_depth, 4),
     }
 
@@ -1101,6 +1972,48 @@ def _safe_score_eval(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Score backend model quality gates.")
+    parser.add_argument(
+        "--subsystem",
+        type=str,
+        default=None,
+        choices=sorted(list(QUALITY_THRESHOLDS.keys()) + ["overall"]),
+        help="Optional subsystem-only output view (e.g. fuel_price).",
+    )
+    args = parser.parse_args()
+    subsystem = args.subsystem
+    missing_raw_evidence = _strict_missing_raw_evidence(subsystem=subsystem)
+    if missing_raw_evidence:
+        zero_scores = {key: 0 for key in QUALITY_THRESHOLDS}
+        zero_scores["overall"] = 0.0
+        fatal = {
+            "scores": zero_scores,
+            "thresholds": {
+                key: {
+                    "score": 0,
+                    "threshold": QUALITY_THRESHOLDS[key],
+                    "passed": False,
+                }
+                for key in QUALITY_THRESHOLDS
+            },
+            "all_passed": False,
+            "fatal": "Insufficient independent raw evidence for strict live quality scoring.",
+            "missing_raw_evidence": missing_raw_evidence,
+        }
+        if subsystem and subsystem != "overall":
+            targeted = {
+                "subsystem": subsystem,
+                "score": 0,
+                "threshold": QUALITY_THRESHOLDS.get(subsystem, 0),
+                "passed": False,
+                "fatal": fatal["fatal"],
+                "missing_raw_evidence": missing_raw_evidence,
+            }
+            print(json.dumps(targeted, indent=2))
+            return
+        print(json.dumps(fatal, indent=2))
+        return
+
     fixtures_dir = ROOT / "tests" / "fixtures" / "uk_routes"
     routes = _load_fixture_routes(fixtures_dir)
     provenance = _provenance_summary(Path(settings.model_asset_dir))
@@ -1176,6 +2089,26 @@ def main() -> None:
             "provenance": provenance,
         }
         print(json.dumps(out, indent=2))
+        return
+
+    if subsystem == "fuel_price":
+        fuel_score, fuel_metrics = _safe_score_eval(lambda: _score_fuel_price(routes))
+        targeted = {
+            "subsystem": "fuel_price",
+            "score": fuel_score,
+            "threshold": QUALITY_THRESHOLDS["fuel_price"],
+            "passed": fuel_score >= QUALITY_THRESHOLDS["fuel_price"],
+            "metrics": fuel_metrics,
+            "fixture_diversity_gate": {
+                "passed": fixture_count_ok and corridor_count_ok,
+                "route_count": len(routes),
+                "min_route_count": min_routes,
+                "unique_corridor_count": len(corridor_sigs),
+                "min_unique_corridors": min_corridors,
+            },
+            "provenance": provenance,
+        }
+        print(json.dumps(targeted, indent=2))
         return
 
     options: list[RouteOption] = []
@@ -1276,6 +2209,7 @@ def main() -> None:
 
     risk_score, risk_metrics = _safe_score_eval(lambda: _score_risk_aversion(options, routes))
     dominance_score, dominance_metrics = _safe_score_eval(lambda: _score_dominance(options, routes))
+    scenario_score, scenario_metrics = _safe_score_eval(lambda: _score_scenario_profiles(routes))
     departure_score, departure_metrics = _safe_score_eval(lambda: _score_departure_time(routes))
     stochastic_score, stochastic_metrics = _safe_score_eval(lambda: _score_stochastic_sampling(routes))
     terrain_score, terrain_metrics = _safe_score_eval(lambda: _score_terrain_profile(routes))
@@ -1287,6 +2221,7 @@ def main() -> None:
     scores = {
         "risk_aversion": risk_score,
         "dominance": dominance_score,
+        "scenario_profile": scenario_score,
         "departure_time": departure_score,
         "stochastic_sampling": stochastic_score,
         "terrain_profile": terrain_score,
@@ -1333,6 +2268,7 @@ def main() -> None:
         "metrics": {
             "risk_aversion": risk_metrics,
             "dominance": dominance_metrics,
+            "scenario_profile": scenario_metrics,
             "departure_time": departure_metrics,
             "stochastic_sampling": stochastic_metrics,
             "terrain_profile": terrain_metrics,
@@ -1349,6 +2285,27 @@ def main() -> None:
         "provenance": provenance,
     }
     out["all_passed"] = bool(out["all_passed"]) and fixture_diversity_gate_passed
+    if subsystem:
+        if subsystem == "overall":
+            targeted = {
+                "subsystem": "overall",
+                "score": scores["overall"],
+                "all_passed": out["all_passed"],
+                "dropped_routes": out["dropped_routes"],
+                "dropped_route_gate": out["dropped_route_gate"],
+            }
+        else:
+            targeted = {
+                "subsystem": subsystem,
+                "score": scores[subsystem],
+                "threshold": QUALITY_THRESHOLDS[subsystem],
+                "passed": threshold_status[subsystem]["passed"],
+                "metrics": out["metrics"].get(subsystem, {}),
+                "dropped_routes": out["dropped_routes"],
+                "all_passed": out["all_passed"],
+            }
+        print(json.dumps(targeted, indent=2))
+        return
     print(json.dumps(out, indent=2))
 
 

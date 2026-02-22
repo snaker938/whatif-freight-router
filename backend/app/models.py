@@ -226,6 +226,30 @@ class TerrainSummaryPayload(BaseModel):
     version: str = "unknown"
 
 
+class ScenarioSummary(BaseModel):
+    mode: ScenarioMode
+    context_key: str = "uk_default|mixed|rigid_hgv|weekday|clear"
+    duration_multiplier: float
+    incident_rate_multiplier: float
+    incident_delay_multiplier: float
+    fuel_consumption_multiplier: float
+    emissions_multiplier: float
+    stochastic_sigma_multiplier: float
+    source: str
+    version: str
+    calibration_basis: str = "empirical"
+    as_of_utc: str | None = None
+    live_as_of_utc: str | None = None
+    live_sources: str | None = None
+    live_coverage_overall: float | None = None
+    live_traffic_pressure: float | None = None
+    live_incident_pressure: float | None = None
+    live_weather_pressure: float | None = None
+    scenario_edge_scaling_version: str | None = None
+    mode_observation_source: str | None = None
+    mode_projection_ratio: float | None = None
+
+
 class RouteOption(BaseModel):
     id: str
     geometry: GeoJSONLineString
@@ -241,6 +265,10 @@ class RouteOption(BaseModel):
     legs: list[dict[str, str | float | int | bool]] | None = None
     toll_confidence: float | None = None
     toll_metadata: dict[str, str | float | int | bool | list[str]] | None = None
+    vehicle_profile_id: str | None = None
+    vehicle_profile_version: int | None = None
+    vehicle_profile_source: str | None = None
+    scenario_summary: ScenarioSummary | None = None
     weather_summary: dict[str, float | str | bool] | None = None
     terrain_summary: TerrainSummaryPayload | None = None
     incident_events: list[SimulatedIncidentEvent] = Field(default_factory=list)
@@ -328,10 +356,29 @@ class ScenarioCompareResult(BaseModel):
     error: str | None = None
 
 
+class ScenarioCompareDelta(BaseModel):
+    duration_s_delta: float | None = None
+    monetary_cost_delta: float | None = None
+    emissions_kg_delta: float | None = None
+    duration_s_status: str = "ok"
+    monetary_cost_status: str = "ok"
+    emissions_kg_status: str = "ok"
+    duration_s_reason_code: str | None = None
+    monetary_cost_reason_code: str | None = None
+    emissions_kg_reason_code: str | None = None
+    duration_s_missing_source: str | None = None
+    monetary_cost_missing_source: str | None = None
+    emissions_kg_missing_source: str | None = None
+    duration_s_reason_source: str | None = None
+    monetary_cost_reason_source: str | None = None
+    emissions_kg_reason_source: str | None = None
+
+
 class ScenarioCompareResponse(BaseModel):
     run_id: str
     results: list[ScenarioCompareResult]
-    deltas: dict[str, dict[str, float]]
+    deltas: dict[str, ScenarioCompareDelta]
+    baseline_mode: ScenarioMode = ScenarioMode.NO_SHARING
     scenario_manifest_endpoint: str
     scenario_signature_endpoint: str
 

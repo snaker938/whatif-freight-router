@@ -168,6 +168,30 @@ export type TerrainSummary = {
   version: string;
 };
 
+export type ScenarioSummary = {
+  mode: ScenarioMode;
+  context_key?: string;
+  duration_multiplier: number;
+  incident_rate_multiplier: number;
+  incident_delay_multiplier: number;
+  fuel_consumption_multiplier: number;
+  emissions_multiplier: number;
+  stochastic_sigma_multiplier: number;
+  source: string;
+  version: string;
+  calibration_basis?: string;
+  as_of_utc?: string;
+  live_as_of_utc?: string;
+  live_sources?: string;
+  live_coverage_overall?: number;
+  live_traffic_pressure?: number;
+  live_incident_pressure?: number;
+  live_weather_pressure?: number;
+  scenario_edge_scaling_version?: string;
+  mode_observation_source?: string;
+  mode_projection_ratio?: number;
+};
+
 export type GeoJSONLineString = {
   type: 'LineString';
   coordinates: [number, number][];
@@ -188,6 +212,10 @@ export type RouteOption = {
   legs?: Array<Record<string, string | number | boolean>> | null;
   toll_confidence?: number | null;
   toll_metadata?: Record<string, string | number | boolean | string[]> | null;
+  vehicle_profile_id?: string | null;
+  vehicle_profile_version?: number | null;
+  vehicle_profile_source?: string | null;
+  scenario_summary?: ScenarioSummary | null;
   incident_events?: SimulatedIncidentEvent[];
   weather_summary?: WeatherSummary | null;
   terrain_summary?: TerrainSummary | null;
@@ -257,6 +285,23 @@ export type VehicleProfile = {
   powertrain?: 'ice' | 'ev';
   ev_kwh_per_km?: number | null;
   grid_co2_kg_per_kwh?: number | null;
+  schema_version?: number;
+  vehicle_class?: 'van' | 'rigid_hgv' | 'artic_hgv' | 'ev';
+  toll_vehicle_class?: string;
+  toll_axle_class?: string;
+  fuel_surface_class?: 'van' | 'rigid_hgv' | 'artic_hgv' | 'ev';
+  risk_bucket?: string;
+  stochastic_bucket?: string;
+  terrain_params?: {
+    mass_kg: number;
+    c_rr: number;
+    drag_area_m2: number;
+    drivetrain_efficiency: number;
+    regen_efficiency: number;
+  };
+  aliases?: string[];
+  profile_source?: string;
+  profile_as_of_utc?: string | null;
 };
 
 export type VehicleListResponse = { vehicles: VehicleProfile[] };
@@ -272,7 +317,27 @@ export type ScenarioCompareResult = {
 export type ScenarioCompareResponse = {
   run_id: string;
   results: ScenarioCompareResult[];
-  deltas: Record<string, Record<string, number>>;
+  deltas: Record<
+    string,
+    {
+      duration_s_delta?: number | null;
+      monetary_cost_delta?: number | null;
+      emissions_kg_delta?: number | null;
+      duration_s_status?: 'ok' | 'missing' | string;
+      monetary_cost_status?: 'ok' | 'missing' | string;
+      emissions_kg_status?: 'ok' | 'missing' | string;
+      duration_s_reason_code?: string | null;
+      monetary_cost_reason_code?: string | null;
+      emissions_kg_reason_code?: string | null;
+      duration_s_missing_source?: string | null;
+      monetary_cost_missing_source?: string | null;
+      emissions_kg_missing_source?: string | null;
+      duration_s_reason_source?: string | null;
+      monetary_cost_reason_source?: string | null;
+      emissions_kg_reason_source?: string | null;
+    }
+  >;
+  baseline_mode?: ScenarioMode;
   scenario_manifest_endpoint: string;
   scenario_signature_endpoint: string;
 };

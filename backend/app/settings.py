@@ -49,24 +49,203 @@ class Settings(BaseSettings):
     live_runtime_data_enabled: bool = Field(default=True, alias="LIVE_RUNTIME_DATA_ENABLED")
     strict_live_data_required: bool = Field(default=True, alias="STRICT_LIVE_DATA_REQUIRED")
     live_data_cache_ttl_s: int = Field(default=3600, ge=10, alias="LIVE_DATA_CACHE_TTL_S")
-    live_data_request_timeout_s: float = Field(default=8.0, ge=1.0, le=60.0, alias="LIVE_DATA_REQUEST_TIMEOUT_S")
+    live_data_request_timeout_s: float = Field(default=20.0, ge=1.0, le=120.0, alias="LIVE_DATA_REQUEST_TIMEOUT_S")
     live_bank_holidays_url: str = Field(
         default="https://www.gov.uk/bank-holidays.json",
         alias="LIVE_BANK_HOLIDAYS_URL",
     )
     live_departure_profile_url: str = Field(default="", alias="LIVE_DEPARTURE_PROFILE_URL")
+    live_departure_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_DEPARTURE_REQUIRE_URL_IN_STRICT",
+    )
+    live_departure_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_DEPARTURE_ALLOW_SIGNED_FALLBACK",
+    )
+    live_departure_allowed_hosts: str = Field(
+        default="",
+        alias="LIVE_DEPARTURE_ALLOWED_HOSTS",
+    )
+    # Legacy scenario profile URL is kept for compatibility, but strict runtime
+    # requires LIVE_SCENARIO_COEFFICIENT_URL.
+    live_scenario_profile_url: str = Field(default="", alias="LIVE_SCENARIO_PROFILE_URL")
+    live_scenario_coefficient_url: str = Field(default="", alias="LIVE_SCENARIO_COEFFICIENT_URL")
+    live_scenario_webtris_sites_url: str = Field(
+        default="https://webtris.nationalhighways.co.uk/api/v1.0/sites",
+        alias="LIVE_SCENARIO_WEBTRIS_SITES_URL",
+    )
+    live_scenario_webtris_daily_url: str = Field(
+        default="https://webtris.nationalhighways.co.uk/api/v1.0/reports/daily",
+        alias="LIVE_SCENARIO_WEBTRIS_DAILY_URL",
+    )
+    live_scenario_traffic_england_url: str = Field(
+        default=(
+            "https://www.trafficengland.com/api/events/getByRoad"
+            "?road={road}&events=CONGESTION,INCIDENT,ROADWORKS"
+            "&direction=All&includeUnconfirmedRoadworks=true"
+        ),
+        alias="LIVE_SCENARIO_TRAFFIC_ENGLAND_URL",
+    )
+    live_scenario_dft_counts_url: str = Field(
+        default="https://roadtraffic.dft.gov.uk/api/raw-counts",
+        alias="LIVE_SCENARIO_DFT_COUNTS_URL",
+    )
+    live_scenario_dft_max_pages: int = Field(
+        default=8,
+        ge=1,
+        le=50,
+        alias="LIVE_SCENARIO_DFT_MAX_PAGES",
+    )
+    live_scenario_webtris_nearest_sites: int = Field(
+        default=6,
+        ge=1,
+        le=20,
+        alias="LIVE_SCENARIO_WEBTRIS_NEAREST_SITES",
+    )
+    live_scenario_dft_nearest_limit: int = Field(
+        default=96,
+        ge=1,
+        le=2000,
+        alias="LIVE_SCENARIO_DFT_NEAREST_LIMIT",
+    )
+    live_scenario_dft_max_distance_km: float = Field(
+        default=120.0,
+        ge=1.0,
+        le=2000.0,
+        alias="LIVE_SCENARIO_DFT_MAX_DISTANCE_KM",
+    )
+    live_scenario_dft_min_station_count: int = Field(
+        default=5,
+        ge=1,
+        le=200,
+        alias="LIVE_SCENARIO_DFT_MIN_STATION_COUNT",
+    )
+    live_scenario_open_meteo_forecast_url: str = Field(
+        default=(
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude={lat}&longitude={lon}"
+            "&current=temperature_2m,wind_speed_10m,precipitation,weather_code"
+        ),
+        alias="LIVE_SCENARIO_OPEN_METEO_FORECAST_URL",
+    )
+    live_scenario_open_meteo_archive_url: str = Field(
+        default=(
+            "https://archive-api.open-meteo.com/v1/archive"
+            "?latitude={lat}&longitude={lon}&start_date={date}&end_date={date}"
+            "&hourly=temperature_2m,wind_speed_10m,precipitation"
+        ),
+        alias="LIVE_SCENARIO_OPEN_METEO_ARCHIVE_URL",
+    )
+    live_scenario_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_SCENARIO_REQUIRE_URL_IN_STRICT",
+    )
+    live_scenario_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK",
+    )
+    live_scenario_allowed_hosts: str = Field(
+        default=(
+            "webtris.nationalhighways.co.uk,"
+            "www.trafficengland.com,"
+            "roadtraffic.dft.gov.uk,"
+            "api.open-meteo.com,"
+            "archive-api.open-meteo.com"
+        ),
+        alias="LIVE_SCENARIO_ALLOWED_HOSTS",
+    )
+    live_scenario_cache_ttl_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=86_400,
+        alias="LIVE_SCENARIO_CACHE_TTL_SECONDS",
+    )
+    live_scenario_max_age_minutes: int = Field(
+        default=120,
+        ge=5,
+        le=10_080,
+        alias="LIVE_SCENARIO_MAX_AGE_MINUTES",
+    )
+    live_scenario_coefficient_max_age_minutes: int = Field(
+        default=120,
+        ge=5,
+        le=10_080,
+        alias="LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES",
+    )
     live_stochastic_regimes_url: str = Field(default="", alias="LIVE_STOCHASTIC_REGIMES_URL")
+    live_stochastic_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_STOCHASTIC_REQUIRE_URL_IN_STRICT",
+    )
+    live_stochastic_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_STOCHASTIC_ALLOW_SIGNED_FALLBACK",
+    )
+    live_stochastic_allowed_hosts: str = Field(
+        default="",
+        alias="LIVE_STOCHASTIC_ALLOWED_HOSTS",
+    )
     live_toll_topology_url: str = Field(default="", alias="LIVE_TOLL_TOPOLOGY_URL")
+    live_toll_topology_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_TOLL_TOPOLOGY_REQUIRE_URL_IN_STRICT",
+    )
+    live_toll_topology_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_TOLL_TOPOLOGY_ALLOW_SIGNED_FALLBACK",
+    )
     live_toll_tariffs_url: str = Field(default="", alias="LIVE_TOLL_TARIFFS_URL")
+    live_toll_tariffs_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_TOLL_TARIFFS_REQUIRE_URL_IN_STRICT",
+    )
+    live_toll_tariffs_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_TOLL_TARIFFS_ALLOW_SIGNED_FALLBACK",
+    )
+    live_toll_allowed_hosts: str = Field(
+        default="",
+        alias="LIVE_TOLL_ALLOWED_HOSTS",
+    )
     live_fuel_price_url: str = Field(default="", alias="LIVE_FUEL_PRICE_URL")
     live_fuel_auth_token: str = Field(default="", alias="LIVE_FUEL_AUTH_TOKEN")
+    live_fuel_api_key: str = Field(default="", alias="LIVE_FUEL_API_KEY")
+    live_fuel_api_key_header: str = Field(default="X-API-Key", alias="LIVE_FUEL_API_KEY_HEADER")
+    live_fuel_require_url_in_strict: bool = Field(default=True, alias="LIVE_FUEL_REQUIRE_URL_IN_STRICT")
+    live_fuel_allow_signed_fallback: bool = Field(default=False, alias="LIVE_FUEL_ALLOW_SIGNED_FALLBACK")
+    live_fuel_require_signature: bool = Field(default=True, alias="LIVE_FUEL_REQUIRE_SIGNATURE")
+    live_fuel_allowed_hosts: str = Field(default="", alias="LIVE_FUEL_ALLOWED_HOSTS")
     live_carbon_schedule_url: str = Field(default="", alias="LIVE_CARBON_SCHEDULE_URL")
+    live_carbon_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_CARBON_REQUIRE_URL_IN_STRICT",
+    )
+    live_carbon_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_CARBON_ALLOW_SIGNED_FALLBACK",
+    )
+    live_carbon_allowed_hosts: str = Field(default="", alias="LIVE_CARBON_ALLOWED_HOSTS")
     live_departure_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_DEPARTURE_MAX_AGE_DAYS")
     live_stochastic_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_STOCHASTIC_MAX_AGE_DAYS")
     live_toll_topology_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_TOLL_TOPOLOGY_MAX_AGE_DAYS")
     live_toll_tariffs_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_TOLL_TARIFFS_MAX_AGE_DAYS")
     live_fuel_max_age_days: int = Field(default=7, ge=1, le=3650, alias="LIVE_FUEL_MAX_AGE_DAYS")
     live_carbon_max_age_days: int = Field(default=180, ge=1, le=3650, alias="LIVE_CARBON_MAX_AGE_DAYS")
+    live_scenario_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_SCENARIO_MAX_AGE_DAYS")
+    scenario_require_signature: bool = Field(default=True, alias="SCENARIO_REQUIRE_SIGNATURE")
+    scenario_min_observed_mode_row_share: float = Field(
+        default=0.20,
+        ge=0.0,
+        le=1.0,
+        alias="SCENARIO_MIN_OBSERVED_MODE_ROW_SHARE",
+    )
+    scenario_max_projection_dominant_context_share: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        alias="SCENARIO_MAX_PROJECTION_DOMINANT_CONTEXT_SHARE",
+    )
     quality_max_dropped_routes: int = Field(default=0, ge=0, alias="QUALITY_MAX_DROPPED_ROUTES")
     quality_min_fixture_routes: int = Field(default=10, ge=1, alias="QUALITY_MIN_FIXTURE_ROUTES")
     quality_min_unique_corridors: int = Field(default=6, ge=1, alias="QUALITY_MIN_UNIQUE_CORRIDORS")
@@ -118,6 +297,22 @@ class Settings(BaseSettings):
         le=4,
         alias="ROUTE_GRAPH_VIA_LANDMARKS_PER_PATH",
     )
+    route_graph_scenario_jaccard_max: float = Field(
+        default=0.90,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_GRAPH_SCENARIO_JACCARD_MAX",
+    )
+    route_graph_scenario_jaccard_floor: float = Field(
+        default=0.82,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_GRAPH_SCENARIO_JACCARD_FLOOR",
+    )
+    route_graph_scenario_separability_fail: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_SCENARIO_SEPARABILITY_FAIL",
+    )
     route_graph_streaming_load_enabled: bool = Field(
         default=True,
         alias="ROUTE_GRAPH_STREAMING_LOAD_ENABLED",
@@ -163,6 +358,26 @@ class Settings(BaseSettings):
     )
 
     risk_cvar_alpha: float = Field(default=0.95, ge=0.5, le=0.999, alias="RISK_CVAR_ALPHA")
+    risk_family: str = Field(default="cvar_excess", alias="RISK_FAMILY")
+    risk_family_theta: float = Field(default=1.0, ge=0.001, le=25.0, alias="RISK_FAMILY_THETA")
+    risk_dominance_min_probability: float = Field(
+        default=0.55,
+        ge=0.50,
+        le=0.99,
+        alias="RISK_DOMINANCE_MIN_PROBABILITY",
+    )
+    risk_dominance_pair_samples: int = Field(
+        default=96,
+        ge=16,
+        le=1024,
+        alias="RISK_DOMINANCE_PAIR_SAMPLES",
+    )
+    risk_objective_sample_cap: int = Field(
+        default=160,
+        ge=16,
+        le=2048,
+        alias="RISK_OBJECTIVE_SAMPLE_CAP",
+    )
     model_asset_dir: str = Field(default_factory=_default_model_asset_dir, alias="MODEL_ASSET_DIR")
     terrain_dem_fail_closed_uk: bool = Field(default=True, alias="TERRAIN_DEM_FAIL_CLOSED_UK")
     terrain_dem_coverage_min_uk: float = Field(
@@ -182,6 +397,75 @@ class Settings(BaseSettings):
         ge=32,
         le=4096,
         alias="TERRAIN_DEM_TILE_CACHE_MAX_MB",
+    )
+    live_terrain_dem_url_template: str = Field(
+        default="https://s3.amazonaws.com/elevation-tiles-prod/geotiff/{z}/{x}/{y}.tif",
+        alias="LIVE_TERRAIN_DEM_URL_TEMPLATE",
+    )
+    live_terrain_require_url_in_strict: bool = Field(
+        default=True,
+        alias="LIVE_TERRAIN_REQUIRE_URL_IN_STRICT",
+    )
+    live_terrain_allow_signed_fallback: bool = Field(
+        default=False,
+        alias="LIVE_TERRAIN_ALLOW_SIGNED_FALLBACK",
+    )
+    live_terrain_allowed_hosts: str = Field(
+        default="s3.amazonaws.com",
+        alias="LIVE_TERRAIN_ALLOWED_HOSTS",
+    )
+    live_terrain_tile_zoom: int = Field(
+        default=8,
+        ge=0,
+        le=15,
+        alias="LIVE_TERRAIN_TILE_ZOOM",
+    )
+    live_terrain_tile_max_age_days: int = Field(
+        default=7,
+        ge=0,
+        le=3650,
+        alias="LIVE_TERRAIN_TILE_MAX_AGE_DAYS",
+    )
+    live_terrain_cache_dir: str = Field(default="", alias="LIVE_TERRAIN_CACHE_DIR")
+    live_terrain_cache_max_tiles: int = Field(
+        default=1024,
+        ge=16,
+        le=100_000,
+        alias="LIVE_TERRAIN_CACHE_MAX_TILES",
+    )
+    live_terrain_cache_max_mb: int = Field(
+        default=2048,
+        ge=64,
+        le=262_144,
+        alias="LIVE_TERRAIN_CACHE_MAX_MB",
+    )
+    live_terrain_fetch_retries: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        alias="LIVE_TERRAIN_FETCH_RETRIES",
+    )
+    live_terrain_max_remote_tiles_per_route: int = Field(
+        default=96,
+        ge=1,
+        le=4096,
+        alias="LIVE_TERRAIN_MAX_REMOTE_TILES_PER_ROUTE",
+    )
+    live_terrain_circuit_breaker_failures: int = Field(
+        default=8,
+        ge=1,
+        le=128,
+        alias="LIVE_TERRAIN_CIRCUIT_BREAKER_FAILURES",
+    )
+    live_terrain_circuit_breaker_cooldown_s: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        alias="LIVE_TERRAIN_CIRCUIT_BREAKER_COOLDOWN_S",
+    )
+    live_terrain_enable_in_tests: bool = Field(
+        default=False,
+        alias="LIVE_TERRAIN_ENABLE_IN_TESTS",
     )
     terrain_allow_synthetic_grid: bool = Field(
         default=False,
@@ -211,6 +495,28 @@ class Settings(BaseSettings):
         self.stochastic_require_empirical_calibration = True
         self.stochastic_allow_synthetic_calibration = False
         self.terrain_allow_synthetic_grid = False
+        self.live_terrain_require_url_in_strict = True
+        self.live_terrain_allow_signed_fallback = False
+        self.live_departure_require_url_in_strict = True
+        self.live_departure_allow_signed_fallback = False
+        self.live_stochastic_require_url_in_strict = True
+        self.live_stochastic_allow_signed_fallback = False
+        self.live_toll_topology_require_url_in_strict = True
+        self.live_toll_topology_allow_signed_fallback = False
+        self.live_toll_tariffs_require_url_in_strict = True
+        self.live_toll_tariffs_allow_signed_fallback = False
+        self.live_fuel_require_url_in_strict = True
+        self.live_fuel_allow_signed_fallback = False
+        self.live_fuel_require_signature = True
+        self.live_carbon_require_url_in_strict = True
+        self.live_carbon_allow_signed_fallback = False
+        self.live_scenario_require_url_in_strict = True
+        self.live_scenario_allow_signed_fallback = False
+        self.scenario_require_signature = True
+        rf = str(self.risk_family or "cvar_excess").strip().lower()
+        if rf not in {"cvar_excess", "entropic", "downside_semivariance"}:
+            rf = "cvar_excess"
+        self.risk_family = rf
         return self
 
 

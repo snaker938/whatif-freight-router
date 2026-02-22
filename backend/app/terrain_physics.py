@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 from dataclasses import dataclass
 
 
@@ -29,9 +30,18 @@ def _profile_weight(terrain_profile: str) -> float:
     return 1.0
 
 
-def params_for_vehicle(vehicle_type: str) -> VehicleTerrainParams:
-    key = vehicle_type.strip().lower()
-    if "artic" in key:
+def params_for_vehicle(vehicle: str | Any) -> VehicleTerrainParams:
+    terrain_params = getattr(vehicle, "terrain_params", None)
+    if terrain_params is not None:
+        return VehicleTerrainParams(
+            mass_kg=float(getattr(terrain_params, "mass_kg", 26_000.0)),
+            c_rr=float(getattr(terrain_params, "c_rr", 0.0082)),
+            drag_area_m2=float(getattr(terrain_params, "drag_area_m2", 7.3)),
+            drivetrain_efficiency=float(getattr(terrain_params, "drivetrain_efficiency", 0.88)),
+            regen_efficiency=float(getattr(terrain_params, "regen_efficiency", 0.14)),
+        )
+    key = str(vehicle).strip().lower()
+    if key == "artic_hgv":
         return VehicleTerrainParams(
             mass_kg=38_000.0,
             c_rr=0.0075,
@@ -39,7 +49,7 @@ def params_for_vehicle(vehicle_type: str) -> VehicleTerrainParams:
             drivetrain_efficiency=0.86,
             regen_efficiency=0.12,
         )
-    if "van" in key:
+    if key == "van":
         return VehicleTerrainParams(
             mass_kg=3_500.0,
             c_rr=0.0095,
@@ -47,7 +57,7 @@ def params_for_vehicle(vehicle_type: str) -> VehicleTerrainParams:
             drivetrain_efficiency=0.89,
             regen_efficiency=0.18,
         )
-    if "ev" in key:
+    if key in {"ev", "ev_hgv"}:
         return VehicleTerrainParams(
             mass_kg=18_000.0,
             c_rr=0.0085,

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -118,6 +119,19 @@ def _parse_datetime(row: dict[str, str]) -> datetime | None:
             parsed = parsed.astimezone(UTC)
         return parsed
     return None
+
+
+def _parse_iso_utc(raw: str) -> datetime | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _read_direct_rows(
@@ -241,12 +255,81 @@ def _read_observed_count_rows(
     return out
 
 
+def _validate_output_quality(
+    rows: list[NormalizedRow],
+    *,
+    min_rows: int,
+    min_unique_regions: int,
+    min_unique_road_buckets: int,
+    min_unique_hours: int,
+    max_age_days: int,
+) -> None:
+    if len(rows) < max(1, int(min_rows)):
+        raise RuntimeError(
+            f"Empirical departure corpus too small ({len(rows)} rows). "
+            f"At least {int(min_rows)} rows are required for strict runtime."
+        )
+    day_kinds = {row.day_kind for row in rows}
+    required_days = {"weekday", "weekend", "holiday"}
+    if not required_days.issubset(day_kinds):
+        missing = sorted(required_days - day_kinds)
+        raise RuntimeError(
+            "Empirical departure corpus missing required day_kind coverage: "
+            + ", ".join(missing)
+        )
+    unique_regions = {row.region for row in rows}
+    if len(unique_regions) < max(1, int(min_unique_regions)):
+        raise RuntimeError(
+            "Empirical departure corpus regional diversity too small "
+            f"({len(unique_regions)} < {int(min_unique_regions)})."
+        )
+    unique_road_buckets = {row.road_bucket for row in rows}
+    if len(unique_road_buckets) < max(1, int(min_unique_road_buckets)):
+        raise RuntimeError(
+            "Empirical departure corpus road-bucket diversity too small "
+            f"({len(unique_road_buckets)} < {int(min_unique_road_buckets)})."
+        )
+    unique_hours = {int(max(0, min(1439, row.minute))) // 60 for row in rows}
+    if len(unique_hours) < max(1, int(min_unique_hours)):
+        raise RuntimeError(
+            "Empirical departure corpus hour-slot diversity too small "
+            f"({len(unique_hours)} < {int(min_unique_hours)})."
+        )
+    as_of_values = [_parse_iso_utc(row.as_of_utc) for row in rows]
+    if any(item is None for item in as_of_values):
+        raise RuntimeError("Empirical departure corpus contains invalid as_of_utc timestamps.")
+    latest_as_of = max(item for item in as_of_values if item is not None)
+    now_utc = datetime.now(UTC)
+    if latest_as_of > (now_utc + timedelta(days=2)):
+        raise RuntimeError(
+            "Empirical departure corpus as_of_utc is unexpectedly far in the future "
+            f"({latest_as_of.isoformat()})."
+        )
+    if now_utc - latest_as_of > timedelta(days=max(1, int(max_age_days))):
+        raise RuntimeError(
+            "Empirical departure corpus is stale for strict policy "
+            f"({latest_as_of.isoformat()} older than {int(max_age_days)} days)."
+        )
+    for row in rows:
+        if not math.isfinite(float(row.multiplier)):
+            raise RuntimeError("Empirical departure corpus contains non-finite multipliers.")
+        if not (0.45 <= float(row.multiplier) <= 3.25):
+            raise RuntimeError(
+                "Empirical departure corpus multiplier outside strict bounds "
+                f"({row.multiplier:.6f} not in [0.45, 3.25])."
+            )
+
+
 def build(
     *,
     raw_csv: Path,
     output_csv: Path,
     as_of_utc: str | None = None,
     min_rows: int = 2000,
+    min_unique_regions: int = 8,
+    min_unique_road_buckets: int = 4,
+    min_unique_hours: int = 18,
+    max_age_days: int = 30,
 ) -> int:
     if not raw_csv.exists():
         raise FileNotFoundError(
@@ -270,11 +353,14 @@ def build(
     else:
         rows = _read_observed_count_rows(raw_rows, as_of_utc=now_iso)
 
-    if len(rows) < max(1, int(min_rows)):
-        raise RuntimeError(
-            f"Empirical departure corpus too small ({len(rows)} rows). "
-            f"At least {int(min_rows)} rows are required for strict runtime."
-        )
+    _validate_output_quality(
+        rows,
+        min_rows=max(1, int(min_rows)),
+        min_unique_regions=max(1, int(min_unique_regions)),
+        min_unique_road_buckets=max(1, int(min_unique_road_buckets)),
+        min_unique_hours=max(1, int(min_unique_hours)),
+        max_age_days=max(1, int(max_age_days)),
+    )
 
     rows.sort(key=lambda r: (r.region, r.road_bucket, r.day_kind, r.minute))
     output_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -323,12 +409,40 @@ def main() -> None:
         default=2000,
         help="Strict minimum output rows.",
     )
+    parser.add_argument(
+        "--min-unique-regions",
+        type=int,
+        default=8,
+        help="Strict minimum unique regions in output.",
+    )
+    parser.add_argument(
+        "--min-unique-road-buckets",
+        type=int,
+        default=4,
+        help="Strict minimum unique road buckets in output.",
+    )
+    parser.add_argument(
+        "--min-unique-hours",
+        type=int,
+        default=18,
+        help="Strict minimum unique hours represented in output.",
+    )
+    parser.add_argument(
+        "--max-age-days",
+        type=int,
+        default=30,
+        help="Maximum allowed age of the newest as_of_utc row.",
+    )
     args = parser.parse_args()
     rows = build(
         raw_csv=args.raw_csv,
         output_csv=args.output,
         as_of_utc=(args.as_of_utc or None),
         min_rows=max(1, int(args.min_rows)),
+        min_unique_regions=max(1, int(args.min_unique_regions)),
+        min_unique_road_buckets=max(1, int(args.min_unique_road_buckets)),
+        min_unique_hours=max(1, int(args.min_unique_hours)),
+        max_age_days=max(1, int(args.max_age_days)),
     )
     print(f"Wrote {rows} empirical departure rows to {args.output}")
 

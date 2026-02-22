@@ -85,6 +85,33 @@ async def _collect_risk_prior_failure(**_: Any) -> tuple[list[Any], list[str], i
     )
 
 
+async def _collect_fuel_source_failure(**_: Any) -> tuple[list[Any], list[str], int, TerrainDiagnostics]:
+    return (
+        [],
+        ["route_0: fuel_price_source_unavailable (mock stale live and fallback unavailable)"],
+        0,
+        TerrainDiagnostics(),
+    )
+
+
+async def _collect_vehicle_profile_failure(**_: Any) -> tuple[list[Any], list[str], int, TerrainDiagnostics]:
+    return (
+        [],
+        ["route_0: vehicle_profile_unavailable (mock unknown vehicle profile)"],
+        0,
+        TerrainDiagnostics(),
+    )
+
+
+async def _collect_scenario_profile_failure(**_: Any) -> tuple[list[Any], list[str], int, TerrainDiagnostics]:
+    return (
+        [],
+        ["route_0: scenario_profile_unavailable (mock missing scenario profile asset)"],
+        0,
+        TerrainDiagnostics(),
+    )
+
+
 def test_route_strict_error_uses_reason_code(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module, "_collect_route_options", _collect_toll_failure)
     response = client.post("/route", json=_base_od_payload())
@@ -137,6 +164,36 @@ def test_route_strict_error_uses_risk_prior_reason_code(
     assert detail["reason_code"] == "risk_prior_unavailable"
 
 
+def test_route_strict_error_uses_fuel_source_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_fuel_source_failure)
+    response = client.post("/route", json=_base_od_payload())
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["reason_code"] == "fuel_price_source_unavailable"
+
+
+def test_route_strict_error_uses_vehicle_profile_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_vehicle_profile_failure)
+    response = client.post("/route", json=_base_od_payload())
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["reason_code"] == "vehicle_profile_unavailable"
+
+
+def test_route_strict_error_uses_scenario_profile_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_scenario_profile_failure)
+    response = client.post("/route", json=_base_od_payload())
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["reason_code"] == "scenario_profile_unavailable"
+
+
 def test_pareto_stream_multileg_fatal_has_reason_code(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -161,6 +218,28 @@ def test_pareto_stream_direct_fatal_has_reason_code(
     events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
     fatal = next(event for event in events if event.get("type") == "fatal")
     assert fatal["reason_code"] == "toll_tariff_unresolved"
+
+
+def test_pareto_stream_direct_fatal_has_vehicle_profile_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_vehicle_profile_failure)
+    response = client.post("/api/pareto/stream", json=_base_od_payload())
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    fatal = next(event for event in events if event.get("type") == "fatal")
+    assert fatal["reason_code"] == "vehicle_profile_unavailable"
+
+
+def test_pareto_stream_direct_fatal_has_scenario_profile_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_scenario_profile_failure)
+    response = client.post("/api/pareto/stream", json=_base_od_payload())
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    fatal = next(event for event in events if event.get("type") == "fatal")
+    assert fatal["reason_code"] == "scenario_profile_unavailable"
 
 
 def test_departure_optimize_surfaces_strict_reason_code(
@@ -202,6 +281,19 @@ def test_scenario_compare_per_item_errors_are_reason_coded(
         assert result["error"].startswith("reason_code:toll_tariff_unresolved;")
 
 
+def test_scenario_compare_per_item_errors_are_scenario_reason_coded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_scenario_profile_failure)
+    response = client.post("/scenario/compare", json=_base_od_payload())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["results"]
+    for result in payload["results"]:
+        assert isinstance(result.get("error"), str)
+        assert result["error"].startswith("reason_code:scenario_profile_unavailable;")
+
+
 def test_duty_chain_per_leg_errors_are_reason_coded(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -219,6 +311,25 @@ def test_duty_chain_per_leg_errors_are_reason_coded(
     body = response.json()
     assert body["legs"]
     assert body["legs"][0]["error"].startswith("reason_code:toll_tariff_unresolved;")
+
+
+def test_duty_chain_per_leg_errors_are_scenario_reason_coded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_scenario_profile_failure)
+    payload = {
+        "stops": [
+            {"lat": 52.4862, "lon": -1.8904, "label": "A"},
+            {"lat": 51.5072, "lon": -0.1276, "label": "B"},
+        ],
+        "vehicle_type": "rigid_hgv",
+        "scenario_mode": "no_sharing",
+    }
+    response = client.post("/duty/chain", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["legs"]
+    assert body["legs"][0]["error"].startswith("reason_code:scenario_profile_unavailable;")
 
 
 def test_batch_pareto_per_pair_errors_are_reason_coded(
@@ -239,3 +350,23 @@ def test_batch_pareto_per_pair_errors_are_reason_coded(
     assert response.status_code == 200
     body = response.json()
     assert body["results"][0]["error"].startswith("reason_code:toll_tariff_unresolved;")
+
+
+def test_batch_pareto_per_pair_errors_are_scenario_reason_coded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_scenario_profile_failure)
+    payload = {
+        "pairs": [
+            {
+                "origin": {"lat": 52.4862, "lon": -1.8904},
+                "destination": {"lat": 51.5072, "lon": -0.1276},
+            }
+        ],
+        "vehicle_type": "rigid_hgv",
+        "scenario_mode": "no_sharing",
+    }
+    response = client.post("/batch/pareto", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"][0]["error"].startswith("reason_code:scenario_profile_unavailable;")

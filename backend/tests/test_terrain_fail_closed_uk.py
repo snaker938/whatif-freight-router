@@ -26,3 +26,18 @@ def test_uk_fail_closed_raises_when_dem_coverage_too_low(monkeypatch: pytest.Mon
             vehicle_type="rigid_hgv",
         )
     assert exc_info.value.reason_code == "terrain_dem_coverage_insufficient"
+
+
+def test_strict_live_terrain_requires_url_when_enabled_in_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "live_runtime_data_enabled", True)
+    monkeypatch.setattr(settings, "strict_live_data_required", True)
+    monkeypatch.setattr(settings, "live_terrain_enable_in_tests", True)
+    monkeypatch.setattr(settings, "live_terrain_require_url_in_strict", True)
+    monkeypatch.setattr(settings, "live_terrain_allow_signed_fallback", False)
+    monkeypatch.setattr(settings, "live_terrain_dem_url_template", "")
+
+    ok, reason = terrain_dem.terrain_runtime_status()
+    assert ok is False
+    assert reason == "terrain_dem_asset_unavailable"

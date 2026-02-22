@@ -13,6 +13,7 @@ def normalized_objective_components(
     emissions_kg: float,
     distance_km: float | None,
     vehicle_type: str | None = None,
+    vehicle_bucket: str | None = None,
     corridor_bucket: str | None = None,
     day_kind: str | None = None,
     local_time_slot: str | None = None,
@@ -21,6 +22,7 @@ def normalized_objective_components(
     dist = max(1.0, float(distance_km or 0.0))
     refs = load_risk_normalization_reference(
         vehicle_type=vehicle_type,
+        vehicle_bucket=vehicle_bucket,
         corridor_bucket=corridor_bucket,
         day_kind=day_kind,
         local_time_slot=local_time_slot,
@@ -43,6 +45,7 @@ def normalized_weighted_utility(
     distance_km: float | None,
     utility_weights: tuple[float, float, float],
     vehicle_type: str | None = None,
+    vehicle_bucket: str | None = None,
     corridor_bucket: str | None = None,
     day_kind: str | None = None,
     local_time_slot: str | None = None,
@@ -58,6 +61,7 @@ def normalized_weighted_utility(
         emissions_kg=emissions_kg,
         distance_km=distance_km,
         vehicle_type=vehicle_type,
+        vehicle_bucket=vehicle_bucket,
         corridor_bucket=corridor_bucket,
         day_kind=day_kind,
         local_time_slot=local_time_slot,
@@ -120,8 +124,21 @@ def robust_objective(
     mean_value: float,
     cvar_value: float | None,
     risk_aversion: float,
+    risk_family: str = "cvar_excess",
+    risk_theta: float = 1.0,
 ) -> float:
     if cvar_value is None:
         return float(mean_value)
     tail_excess = max(0.0, float(cvar_value) - float(mean_value))
-    return float(mean_value) + (max(0.0, float(risk_aversion)) * tail_excess)
+    risk = max(0.0, float(risk_aversion))
+    family = str(risk_family or "cvar_excess").strip().lower()
+    if family == "entropic":
+        theta = max(1e-6, float(risk_theta))
+        # Entropic-style penalty over tail excess; remains monotone in tail and risk.
+        penalty = math.log1p(risk * math.expm1(theta * tail_excess)) / theta
+        return float(mean_value) + penalty
+    if family == "downside_semivariance":
+        scale = max(1.0, abs(float(mean_value)))
+        penalty = (tail_excess * tail_excess) / scale
+        return float(mean_value) + (risk * penalty)
+    return float(mean_value) + (risk * tail_excess)

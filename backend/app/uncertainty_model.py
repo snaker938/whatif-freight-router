@@ -7,11 +7,13 @@ import statistics
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .calibration_loader import StochasticRegime, load_stochastic_regimes, load_uk_bank_holidays
 from .model_data_errors import ModelDataError
-from .risk_model import cvar, normalized_weighted_utility, quantile
+from .risk_model import cvar, normalized_weighted_utility, quantile, robust_objective
+from .settings import settings
 
 try:
     UK_TZ = ZoneInfo("Europe/London")
@@ -68,6 +70,151 @@ def _canonical_corridor_bucket(corridor_bucket: str | None) -> str:
     return key
 
 
+def _canonical_vehicle_bucket(vehicle_bucket: str | None) -> str:
+    key = (vehicle_bucket or "").strip().lower()
+    if not key:
+        return "default"
+    return key
+
+
+def _stochastic_context_key(
+    *,
+    corridor_bucket: str,
+    day_kind: str,
+    local_time_slot: str,
+    road_bucket: str,
+    weather_profile: str,
+    vehicle_bucket: str,
+) -> str:
+    return (
+        f"{(corridor_bucket or 'uk_default').strip().lower() or 'uk_default'}|"
+        f"{(day_kind or 'weekday').strip().lower() or 'weekday'}|"
+        f"{(local_time_slot or 'h12').strip().lower() or 'h12'}|"
+        f"{(road_bucket or 'mixed').strip().lower() or 'mixed'}|"
+        f"{(weather_profile or 'clear').strip().lower() or 'clear'}|"
+        f"{(vehicle_bucket or 'default').strip().lower() or 'default'}"
+    )
+
+
+def _posterior_regime_candidates(
+    *,
+    table: Any,
+    corridor_bucket: str,
+    day_kind: str,
+    local_time_slot: str,
+    road_bucket: str,
+    weather_profile: str,
+    vehicle_bucket: str,
+) -> list[str]:
+    posterior = getattr(table, "posterior_model", None)
+    if not isinstance(posterior, dict):
+        return []
+    context_probs = posterior.get("context_to_regime_probs", {})
+    if not isinstance(context_probs, dict):
+        return []
+    normalized_slot = (local_time_slot or "h12").strip().lower() or "h12"
+    normalized_vehicle = (vehicle_bucket or "default").strip().lower() or "default"
+    keys = [
+        _stochastic_context_key(
+            corridor_bucket=corridor_bucket,
+            day_kind=day_kind,
+            local_time_slot=normalized_slot,
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket=normalized_vehicle,
+        ),
+        _stochastic_context_key(
+            corridor_bucket="*",
+            day_kind=day_kind,
+            local_time_slot=normalized_slot,
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket=normalized_vehicle,
+        ),
+        _stochastic_context_key(
+            corridor_bucket=corridor_bucket,
+            day_kind=day_kind,
+            local_time_slot="h12",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket=normalized_vehicle,
+        ),
+        _stochastic_context_key(
+            corridor_bucket="*",
+            day_kind=day_kind,
+            local_time_slot="h12",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket=normalized_vehicle,
+        ),
+        _stochastic_context_key(
+            corridor_bucket=corridor_bucket,
+            day_kind=day_kind,
+            local_time_slot="*",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket=normalized_vehicle,
+        ),
+        _stochastic_context_key(
+            corridor_bucket="*",
+            day_kind=day_kind,
+            local_time_slot="*",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket=normalized_vehicle,
+        ),
+        _stochastic_context_key(
+            corridor_bucket=corridor_bucket,
+            day_kind=day_kind,
+            local_time_slot="h12",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket="default",
+        ),
+        _stochastic_context_key(
+            corridor_bucket="*",
+            day_kind=day_kind,
+            local_time_slot="h12",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket="default",
+        ),
+        _stochastic_context_key(
+            corridor_bucket=corridor_bucket,
+            day_kind=day_kind,
+            local_time_slot="*",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket="default",
+        ),
+        _stochastic_context_key(
+            corridor_bucket="*",
+            day_kind=day_kind,
+            local_time_slot="*",
+            road_bucket=road_bucket,
+            weather_profile=weather_profile,
+            vehicle_bucket="default",
+        ),
+    ]
+    out: list[str] = []
+    for key in keys:
+        row = context_probs.get(key)
+        if not isinstance(row, dict):
+            continue
+        ranked = sorted(
+            (
+                (str(regime_id), float(weight))
+                for regime_id, weight in row.items()
+                if str(regime_id).strip()
+            ),
+            key=lambda item: (-item[1], item[0]),
+        )
+        for regime_id, _weight in ranked:
+            if regime_id not in out:
+                out.append(regime_id)
+    return out
+
+
 @dataclass(frozen=True)
 class UncertaintySummary:
     mean_duration_s: float
@@ -92,8 +239,16 @@ class UncertaintySummary:
     utility_q95: float
     utility_cvar95: float
     robust_score: float
+    sample_count_requested: float
+    sample_count_used: float
+    sample_count_clip_ratio: float
+    sigma_requested: float
+    sigma_used: float
+    sigma_clip_ratio: float
+    factor_clip_rate: float
+    objective_samples: tuple[tuple[float, float, float, float], ...] = ()
 
-    def as_dict(self) -> dict[str, float]:
+    def as_dict(self) -> dict[str, Any]:
         payload = {
             "mean_duration_s": self.mean_duration_s,
             "std_duration_s": self.std_duration_s,
@@ -120,6 +275,13 @@ class UncertaintySummary:
             "utility_q95": self.utility_q95,
             "utility_cvar95": self.utility_cvar95,
             "robust_score": self.robust_score,
+            "sample_count_requested": self.sample_count_requested,
+            "sample_count_used": self.sample_count_used,
+            "sample_count_clip_ratio": self.sample_count_clip_ratio,
+            "sigma_requested": self.sigma_requested,
+            "sigma_used": self.sigma_used,
+            "sigma_clip_ratio": self.sigma_clip_ratio,
+            "factor_clip_rate": self.factor_clip_rate,
         }
         return {key: round(float(value), 6) for key, value in payload.items()}
 
@@ -163,6 +325,24 @@ def _correlated_standard_normals(
     return (out[0], out[1], out[2], out[3], out[4])
 
 
+def _interp_quantile_mapping(points: tuple[tuple[float, float], ...], z_value: float) -> tuple[float, bool]:
+    if not points:
+        return 1.0, False
+    z = float(z_value)
+    if z <= points[0][0]:
+        return float(points[0][1]), True
+    if z >= points[-1][0]:
+        return float(points[-1][1]), True
+    for idx in range(1, len(points)):
+        z0, v0 = points[idx - 1]
+        z1, v1 = points[idx]
+        if z <= z1:
+            span = max(1e-9, float(z1 - z0))
+            t = (z - float(z0)) / span
+            return float(v0) + ((float(v1) - float(v0)) * t), False
+    return float(points[-1][1]), True
+
+
 def _dominant_road_bucket(road_class_counts: dict[str, int] | None) -> str:
     if not road_class_counts:
         return "mixed"
@@ -182,10 +362,67 @@ def resolve_stochastic_regime(
     road_class_counts: dict[str, int] | None = None,
     weather_profile: str | None = None,
     corridor_bucket: str | None = None,
+    vehicle_bucket: str | None = None,
 ) -> tuple[str, str, str, str | None, StochasticRegime]:
     table = load_stochastic_regimes()
     road_bucket = _dominant_road_bucket(road_class_counts)
     weather_key = (weather_profile or "clear").strip().lower()
+    corridor_key = _canonical_corridor_bucket(corridor_bucket)
+    vehicle_key = _canonical_vehicle_bucket(vehicle_bucket)
+    local_slot = _local_time_slot(departure_time_utc)
+    local_day_kind = _local_day_kind(departure_time_utc)
+    posterior_candidates = _posterior_regime_candidates(
+        table=table,
+        corridor_bucket=corridor_key,
+        day_kind=local_day_kind,
+        local_time_slot=local_slot,
+        road_bucket=road_bucket,
+        weather_profile=weather_key,
+        vehicle_bucket=vehicle_key,
+    )
+    strict_posterior_required = bool(
+        getattr(settings, "stochastic_require_empirical_calibration", False)
+        and getattr(settings, "strict_live_data_required", False)
+    )
+    if strict_posterior_required and not isinstance(getattr(table, "posterior_model", None), dict):
+        raise ModelDataError(
+            reason_code="stochastic_calibration_unavailable",
+            message="Stochastic posterior model is required for strict runtime regime resolution.",
+        )
+    if strict_posterior_required and not posterior_candidates:
+        # Strict runtime still permits calibrated posterior backoff through the
+        # neutral corridor bucket to avoid brittle geography-key mismatches.
+        posterior_candidates = _posterior_regime_candidates(
+            table=table,
+            corridor_bucket="uk_default",
+            day_kind=local_day_kind,
+            local_time_slot=local_slot,
+            road_bucket=road_bucket,
+            weather_profile=weather_key,
+            vehicle_bucket=vehicle_key,
+        )
+    if strict_posterior_required and not posterior_candidates:
+        raise ModelDataError(
+            reason_code="stochastic_calibration_unavailable",
+            message=(
+                "No posterior stochastic regime candidate matched strict context "
+                f"(corridor={corridor_key}, day={local_day_kind}, slot={local_slot}, "
+                f"road={road_bucket}, weather={weather_key}, vehicle={vehicle_key})."
+            ),
+        )
+    for candidate in posterior_candidates:
+        picked = table.regimes.get(candidate)
+        if picked is not None:
+            return candidate, table.copula_id, table.calibration_version, table.as_of_utc, picked
+    if strict_posterior_required:
+        raise ModelDataError(
+            reason_code="stochastic_calibration_unavailable",
+            message=(
+                "Posterior stochastic regime candidates did not resolve to calibrated regimes "
+                f"(corridor={corridor_key}, day={local_day_kind}, slot={local_slot}, "
+                f"road={road_bucket}, weather={weather_key}, vehicle={vehicle_key})."
+            ),
+        )
     holiday_dates = load_uk_bank_holidays()
     if departure_time_utc is None:
         regime_id = "weekday_offpeak"
@@ -207,9 +444,13 @@ def resolve_stochastic_regime(
         else:
             regime_id = "weekday_offpeak"
     candidates = [
-        f"{_canonical_corridor_bucket(corridor_bucket)}_{regime_id}_{_local_time_slot(departure_time_utc)}_{road_bucket}_{weather_key}",
-        f"{_canonical_corridor_bucket(corridor_bucket)}_{regime_id}_{road_bucket}_{weather_key}",
-        f"{regime_id}_{_local_time_slot(departure_time_utc)}_{road_bucket}_{weather_key}",
+        f"{corridor_key}_{regime_id}_{local_slot}_{road_bucket}_{weather_key}_{vehicle_key}",
+        f"{corridor_key}_{regime_id}_{road_bucket}_{weather_key}_{vehicle_key}",
+        f"{regime_id}_{local_slot}_{road_bucket}_{weather_key}_{vehicle_key}",
+        f"{regime_id}_{road_bucket}_{weather_key}_{vehicle_key}",
+        f"{corridor_key}_{regime_id}_{local_slot}_{road_bucket}_{weather_key}",
+        f"{corridor_key}_{regime_id}_{road_bucket}_{weather_key}",
+        f"{regime_id}_{local_slot}_{road_bucket}_{weather_key}",
         f"{regime_id}_{road_bucket}_{weather_key}",
         f"{regime_id}_{road_bucket}",
         f"{regime_id}_{weather_key}",
@@ -239,51 +480,80 @@ def _factors_from_shocks(
     *,
     sigma: float,
     regime: StochasticRegime,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, int]:
     traffic_z, incident_z, weather_z, price_z, eco_z = shocks
     # Calibrated regime parameters are loaded from artifact tables.
     sigma_scaled = sigma * regime.sigma_scale
 
-    def _factor(z: float, scale: float) -> float:
+    clip_events = 0
+
+    def _factor(name: str, z: float, scale: float) -> float:
+        nonlocal clip_events
         spread = max(float(regime.spread_floor), sigma_scaled * max(0.1, scale))
         spread = min(float(regime.spread_cap), spread)
         raw = math.exp(spread * z)
+        mapping_points = None
+        if regime.shock_quantile_mapping is not None:
+            mapping_points = regime.shock_quantile_mapping.get(name)
+        if mapping_points:
+            mapped, edge_clipped = _interp_quantile_mapping(mapping_points, z)
+            mapped_scaled = 1.0 + ((float(mapped) - 1.0) * max(0.15, min(1.5, sigma_scaled)))
+            raw = max(0.05, mapped_scaled)
+            if edge_clipped:
+                clip_events += 1
         low = max(0.25, float(regime.factor_low))
         high = max(low + 0.05, float(regime.factor_high))
+        if raw < low or raw > high:
+            clip_events += 1
         return _bounded(raw, low=low, high=high)
 
-    traffic = _factor(traffic_z, regime.traffic_scale)
-    incident = _factor(incident_z, regime.incident_scale)
-    weather = _factor(weather_z, regime.weather_scale)
-    price = _factor(price_z, regime.price_scale)
-    eco = _factor(eco_z, regime.eco_scale)
+    traffic = _factor("traffic", traffic_z, regime.traffic_scale)
+    incident = _factor("incident", incident_z, regime.incident_scale)
+    weather = _factor("weather", weather_z, regime.weather_scale)
+    price = _factor("price", price_z, regime.price_scale)
+    eco = _factor("eco", eco_z, regime.eco_scale)
 
     traffic_w = max(0.1, regime.duration_mix[0] * regime.traffic_scale)
     incident_w = max(0.1, regime.duration_mix[1] * regime.incident_scale)
     weather_w = max(0.1, regime.duration_mix[2] * regime.weather_scale)
     w_sum = max(1e-9, traffic_w + incident_w + weather_w)
+    duration_low = max(0.25, float(regime.factor_low))
+    duration_high = max(float(regime.factor_high), float(regime.factor_low) + 0.05)
+    duration_raw = ((traffic * traffic_w) + (incident * incident_w) + (weather * weather_w)) / w_sum
+    if duration_raw < duration_low or duration_raw > duration_high:
+        clip_events += 1
     duration_factor = _bounded(
-        ((traffic * traffic_w) + (incident * incident_w) + (weather * weather_w)) / w_sum,
-        low=max(0.25, float(regime.factor_low)),
-        high=max(float(regime.factor_high), float(regime.factor_low) + 0.05),
+        duration_raw,
+        low=duration_low,
+        high=duration_high,
     )
     m_dw = max(0.0, regime.monetary_mix[0])
     m_pw = max(0.0, regime.monetary_mix[1])
     m_sum = max(1e-9, m_dw + m_pw)
+    monetary_low = max(0.25, float(regime.factor_low))
+    monetary_high = max(float(regime.factor_high), float(regime.factor_low) + 0.05)
+    monetary_raw = ((duration_factor * m_dw) + (price * m_pw)) / m_sum
+    if monetary_raw < monetary_low or monetary_raw > monetary_high:
+        clip_events += 1
     monetary_factor = _bounded(
-        ((duration_factor * m_dw) + (price * m_pw)) / m_sum,
-        low=max(0.25, float(regime.factor_low)),
-        high=max(float(regime.factor_high), float(regime.factor_low) + 0.05),
+        monetary_raw,
+        low=monetary_low,
+        high=monetary_high,
     )
     e_dw = max(0.0, regime.emissions_mix[0])
     e_ew = max(0.0, regime.emissions_mix[1])
     e_sum = max(1e-9, e_dw + e_ew)
+    emissions_low = max(0.25, float(regime.factor_low))
+    emissions_high = max(float(regime.factor_high), float(regime.factor_low) + 0.05)
+    emissions_raw = ((duration_factor * e_dw) + (eco * e_ew)) / e_sum
+    if emissions_raw < emissions_low or emissions_raw > emissions_high:
+        clip_events += 1
     emissions_factor = _bounded(
-        ((duration_factor * e_dw) + (eco * e_ew)) / e_sum,
-        low=max(0.25, float(regime.factor_low)),
-        high=max(float(regime.factor_high), float(regime.factor_low) + 0.05),
+        emissions_raw,
+        low=emissions_low,
+        high=emissions_high,
     )
-    return duration_factor, monetary_factor, emissions_factor
+    return duration_factor, monetary_factor, emissions_factor, clip_events
 
 
 def compute_uncertainty_summary(
@@ -303,21 +573,26 @@ def compute_uncertainty_summary(
     weather_profile: str | None = None,
     base_distance_km: float | None = None,
     vehicle_type: str | None = None,
+    vehicle_bucket: str | None = None,
     corridor_bucket: str | None = None,
 ) -> UncertaintySummary:
-    sample_count = max(8, min(int(samples), 600))
-    sigma_clamped = _bounded(float(sigma), low=0.0, high=0.6)
+    requested_samples = max(1, int(samples))
+    requested_sigma = max(0.0, float(sigma))
+    sample_count = max(8, min(requested_samples, 600))
+    sigma_clamped = _bounded(requested_sigma, low=0.0, high=0.6)
     seed = _stable_seed(
         route_signature=route_signature,
         departure_slot=_departure_slot(departure_time_utc),
         user_seed=0 if user_seed is None else int(user_seed),
     )
     rng = random.Random(seed)
+    resolved_vehicle_bucket = _canonical_vehicle_bucket(vehicle_bucket)
     _regime_id, _copula_id, _calibration_version, _as_of_utc, regime = resolve_stochastic_regime(
         departure_time_utc,
         road_class_counts=road_class_counts,
         weather_profile=weather_profile,
         corridor_bucket=corridor_bucket,
+        vehicle_bucket=resolved_vehicle_bucket,
     )
     l_factor = _cholesky_cached(regime.corr)
 
@@ -325,13 +600,17 @@ def compute_uncertainty_summary(
     duration_samples: list[float] = []
     monetary_samples: list[float] = []
     emissions_samples: list[float] = []
+    factor_clip_events = 0
+    max_factor_clip_events_per_sample = 8.0
 
     def _append_from_shocks(shocks: tuple[float, float, float, float, float]) -> None:
-        duration_factor, monetary_factor, emissions_factor = _factors_from_shocks(
+        nonlocal factor_clip_events
+        duration_factor, monetary_factor, emissions_factor, clip_count = _factors_from_shocks(
             shocks,
             sigma=sigma_clamped,
             regime=regime,
         )
+        factor_clip_events += int(max(0, clip_count))
         duration_samples.append(max(1e-6, base_duration_s * duration_factor))
         monetary_samples.append(max(0.0, base_monetary_cost * monetary_factor))
         emissions_samples.append(max(0.0, base_emissions_kg * emissions_factor))
@@ -358,6 +637,7 @@ def compute_uncertainty_summary(
                 distance_km=distance_km,
                 utility_weights=utility_weights,
                 vehicle_type=vehicle_type,
+                vehicle_bucket=resolved_vehicle_bucket,
                 corridor_bucket=corridor_bucket,
                 day_kind=day_kind,
                 local_time_slot=local_slot,
@@ -368,7 +648,13 @@ def compute_uncertainty_summary(
     alpha = _bounded(cvar_alpha, low=0.5, high=0.999)
     utility_mean = statistics.fmean(utility_samples)
     utility_cvar = cvar(utility_samples, alpha=alpha)
-    utility_robust = utility_mean + (max(0.0, float(risk_aversion)) * max(0.0, utility_cvar - utility_mean))
+    utility_robust = robust_objective(
+        mean_value=utility_mean,
+        cvar_value=utility_cvar,
+        risk_aversion=risk_aversion,
+        risk_family=settings.risk_family,
+        risk_theta=settings.risk_family_theta,
+    )
     q95_duration = q(duration_samples, 0.95)
     cvar95_duration = max(cvar(duration_samples, alpha=alpha), q95_duration)
     q95_money = q(monetary_samples, 0.95)
@@ -377,6 +663,33 @@ def compute_uncertainty_summary(
     cvar95_emissions = max(cvar(emissions_samples, alpha=alpha), q95_emissions)
     utility_q95 = q(utility_samples, 0.95)
     utility_cvar = max(utility_cvar, utility_q95)
+    sample_clip_ratio = max(0.0, min(1.0, float(sample_count != requested_samples)))
+    sigma_clip_ratio = max(0.0, min(1.0, float(abs(sigma_clamped - requested_sigma) > 1e-9)))
+    factor_clip_rate = max(
+        0.0,
+        min(
+            1.0,
+            float(factor_clip_events) / max(1.0, float(len(duration_samples)) * max_factor_clip_events_per_sample),
+        ),
+    )
+    objective_samples_full = [
+        (
+            float(dur),
+            float(mon),
+            float(emi),
+            float(util),
+        )
+        for dur, mon, emi, util in zip(duration_samples, monetary_samples, emissions_samples, utility_samples, strict=True)
+    ]
+    sample_cap = max(16, int(getattr(settings, "risk_objective_sample_cap", 160)))
+    if len(objective_samples_full) <= sample_cap:
+        objective_samples = tuple(objective_samples_full)
+    else:
+        step = max(1, len(objective_samples_full) // sample_cap)
+        sampled = objective_samples_full[::step][:sample_cap]
+        if len(sampled) < sample_cap:
+            sampled.extend(objective_samples_full[-(sample_cap - len(sampled)) :])
+        objective_samples = tuple(sampled[:sample_cap])
 
     return UncertaintySummary(
         mean_duration_s=statistics.fmean(duration_samples),
@@ -401,4 +714,12 @@ def compute_uncertainty_summary(
         utility_q95=utility_q95,
         utility_cvar95=utility_cvar,
         robust_score=utility_robust,
+        sample_count_requested=float(requested_samples),
+        sample_count_used=float(sample_count),
+        sample_count_clip_ratio=sample_clip_ratio,
+        sigma_requested=float(requested_sigma),
+        sigma_used=float(sigma_clamped),
+        sigma_clip_ratio=sigma_clip_ratio,
+        factor_clip_rate=factor_clip_rate,
+        objective_samples=objective_samples,
     )

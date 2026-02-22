@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -29,6 +30,22 @@ def _parse_day(raw: str) -> date:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return min(high, max(low, value))
+
+
+def _signature_material(payload: dict[str, Any]) -> str:
+    signed_subset = {
+        "as_of_utc": payload.get("as_of_utc", payload.get("as_of")),
+        "source": payload.get("source"),
+        "prices_gbp_per_l": payload.get("prices_gbp_per_l"),
+        "grid_price_gbp_per_kwh": payload.get("grid_price_gbp_per_kwh"),
+        "history": payload.get("history"),
+        "regional_multipliers": payload.get("regional_multipliers"),
+    }
+    return json.dumps(signed_subset, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _signature(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(_signature_material(payload).encode("utf-8")).hexdigest()
 
 
 def _load_history_payload(path: Path) -> tuple[list[FuelPoint], dict[str, float], str, str | None]:
@@ -76,6 +93,11 @@ def _load_history_payload(path: Path) -> tuple[list[FuelPoint], dict[str, float]
         regional_out["uk_default"] = 1.0
 
     source = str(payload.get("source", "")).strip() or "empirical_fuel_history_source"
+    lowered_source = source.lower()
+    if any(token in lowered_source for token in ("synthetic", "interpolated", "wobble", "simulated")):
+        raise RuntimeError(
+            "Fuel history source appears synthetic/interpolated; strict runtime requires observed records."
+        )
     as_of = str(payload.get("as_of", "")).strip() or None
     return sorted(points, key=lambda p: p.day), regional_out, source, as_of
 
@@ -96,8 +118,10 @@ def build(
     now_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     payload: dict[str, Any] = {
         "as_of": source_as_of or f"{latest.day.isoformat()}T00:00:00Z",
+        "as_of_utc": source_as_of or f"{latest.day.isoformat()}T00:00:00Z",
         "refreshed_at_utc": now_iso,
         "source": source,
+        "provider_contract_version": "fuel-live-v1",
         "prices_gbp_per_l": {
             "diesel": round(latest.diesel, 4),
             "petrol": round(latest.petrol, 4),
@@ -118,6 +142,9 @@ def build(
         ],
         "regional_multipliers": regional,
     }
+    payload["signature_algorithm"] = "sha256"
+    payload["signature"] = _signature(payload)
+    payload["signed"] = True
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return payload

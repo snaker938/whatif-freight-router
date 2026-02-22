@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .k_shortest import PathResult, yen_k_shortest_paths, yen_k_shortest_paths_with_stats
+from .k_shortest import PathResult, TransitionStateFn, yen_k_shortest_paths, yen_k_shortest_paths_with_stats
 from .settings import settings
 
 try:  # pragma: no cover - optional fast path for huge graph assets
@@ -330,7 +330,11 @@ def route_graph_status() -> tuple[bool, str]:
     return True, "ok"
 
 
-def _adjacency_cost_view(graph: RouteGraph) -> dict[str, tuple[tuple[str, float], ...]]:
+def _adjacency_cost_view(
+    graph: RouteGraph,
+    *,
+    scenario_edge_modifiers: dict[str, Any] | None = None,
+) -> dict[str, tuple[tuple[str, float], ...]]:
     road_penalty = {
         "motorway": 0.98,
         "motorway_link": 1.04,
@@ -357,22 +361,167 @@ def _adjacency_cost_view(graph: RouteGraph) -> dict[str, tuple[tuple[str, float]
         "residential": 1.8,
         "unclassified": 1.4,
     }
+    scenario_mod = scenario_edge_modifiers or {}
+    traffic_pressure = max(0.6, min(2.2, float(scenario_mod.get("traffic_pressure", 1.0))))
+    incident_pressure = max(0.6, min(2.4, float(scenario_mod.get("incident_pressure", 1.0))))
+    weather_pressure = max(0.6, min(2.1, float(scenario_mod.get("weather_pressure", 1.0))))
+    duration_multiplier = max(0.6, min(2.5, float(scenario_mod.get("duration_multiplier", 1.0))))
+    incident_rate_multiplier = max(0.5, min(2.8, float(scenario_mod.get("incident_rate_multiplier", 1.0))))
+    incident_delay_multiplier = max(0.5, min(2.8, float(scenario_mod.get("incident_delay_multiplier", 1.0))))
+    sigma_multiplier = max(0.4, min(2.8, float(scenario_mod.get("stochastic_sigma_multiplier", 1.0))))
+    weather_regime_factor = max(0.75, min(1.75, float(scenario_mod.get("weather_regime_factor", 1.0))))
+    hour_bucket_factor = max(0.75, min(1.75, float(scenario_mod.get("hour_bucket_factor", 1.0))))
+    road_class_factors_raw = scenario_mod.get("road_class_factors", {})
+    road_class_factors: dict[str, float] = {}
+    if isinstance(road_class_factors_raw, dict):
+        for key, value in road_class_factors_raw.items():
+            k = str(key).strip().lower()
+            if not k:
+                continue
+            try:
+                road_class_factors[k] = max(0.70, min(1.85, float(value)))
+            except (TypeError, ValueError):
+                continue
+    weather_regime_factor = max(0.75, min(1.75, float(scenario_mod.get("weather_regime_factor", 1.0))))
+    hour_bucket_factor = max(0.75, min(1.75, float(scenario_mod.get("hour_bucket_factor", 1.0))))
+    road_class_factors_raw = scenario_mod.get("road_class_factors", {})
+    road_class_factors: dict[str, float] = {}
+    if isinstance(road_class_factors_raw, dict):
+        for key, value in road_class_factors_raw.items():
+            k = str(key).strip().lower()
+            if not k:
+                continue
+            try:
+                road_class_factors[k] = max(0.70, min(1.85, float(value)))
+            except (TypeError, ValueError):
+                continue
+    mode = str(scenario_mod.get("mode", "no_sharing")).strip().lower()
+    mode_toll_bias = 1.0
+    if mode == "partial_sharing":
+        mode_toll_bias = 0.95
+    elif mode == "full_sharing":
+        mode_toll_bias = 0.9
+    scenario_dynamic_factor = max(
+        0.7,
+        min(
+            2.6,
+            (0.34 * duration_multiplier)
+            + (0.20 * traffic_pressure)
+            + (0.18 * incident_pressure)
+            + (0.10 * weather_pressure)
+            + (0.08 * weather_regime_factor)
+            + (0.06 * hour_bucket_factor)
+            + (0.02 * incident_rate_multiplier)
+            + (0.01 * incident_delay_multiplier)
+            + (0.01 * sigma_multiplier),
+        ),
+    )
+    road_sensitivity = {
+        "motorway": 0.75,
+        "motorway_link": 0.95,
+        "trunk": 0.85,
+        "trunk_link": 1.05,
+        "primary": 1.10,
+        "primary_link": 1.15,
+        "secondary": 1.22,
+        "secondary_link": 1.30,
+        "tertiary": 1.35,
+        "tertiary_link": 1.42,
+        "unclassified": 1.46,
+        "residential": 1.55,
+    }
     return {
         node: tuple(
             (
                 edge.to,
                 max(
                     1.0,
-                    (float(edge.cost) * road_penalty.get(edge.highway, 1.22))
+                    (
+                        float(edge.cost)
+                        * road_penalty.get(edge.highway, 1.22)
+                        * road_class_factors.get(edge.highway, 1.0)
+                        * (
+                            1.0
+                            + ((scenario_dynamic_factor - 1.0) * road_sensitivity.get(edge.highway, 1.25) * 0.40)
+                        )
+                    )
                     + turn_burden_proxy.get(edge.highway, 0.0)
                     + direction_legality_proxy.get(edge.highway, 0.0)
-                    + (toll_propensity_penalty if edge.toll else 0.0),
+                    + ((toll_propensity_penalty * mode_toll_bias) if edge.toll else 0.0),
                 ),
             )
             for edge in edges
         )
         for node, edges in graph.adjacency.items()
-    }
+}
+
+
+def _heading_bin(heading_deg: float) -> int:
+    normalized = (float(heading_deg) + 360.0) % 360.0
+    return int(((normalized + 22.5) % 360.0) // 45.0)
+
+
+def _segment_heading_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    dy = lat2 - lat1
+    dx = lon2 - lon1
+    if abs(dx) <= 1e-12 and abs(dy) <= 1e-12:
+        return 0.0
+    ang = math.degrees(math.atan2(dy, dx))
+    return (ang + 360.0) % 360.0
+
+
+def _heading_delta_deg(a: float, b: float) -> float:
+    diff = abs(float(a) - float(b)) % 360.0
+    return min(diff, 360.0 - diff)
+
+
+def _transition_state_callback(
+    graph: RouteGraph,
+    *,
+    scenario_edge_modifiers: dict[str, Any] | None = None,
+) -> TransitionStateFn:
+    scenario_mod = scenario_edge_modifiers or {}
+    traffic_pressure = max(0.6, min(2.2, float(scenario_mod.get("traffic_pressure", 1.0))))
+    incident_pressure = max(0.6, min(2.4, float(scenario_mod.get("incident_pressure", 1.0))))
+    weather_pressure = max(0.6, min(2.1, float(scenario_mod.get("weather_pressure", 1.0))))
+    state_pressure = max(0.7, min(2.8, 0.50 * traffic_pressure + 0.30 * incident_pressure + 0.20 * weather_pressure))
+
+    def _transition(prev_node: str | None, current_node: str, next_node: str) -> tuple[tuple[int, str, str], float] | None:
+        current_coords = graph.nodes.get(current_node)
+        next_coords = graph.nodes.get(next_node)
+        if current_coords is None or next_coords is None:
+            return None
+        heading = _segment_heading_deg(current_coords[0], current_coords[1], next_coords[0], next_coords[1])
+        heading_bin = _heading_bin(heading)
+        edge = graph.edge_index.get((current_node, next_node))
+        highway = str(edge.highway if edge is not None else "unclassified").strip().lower() or "unclassified"
+
+        turn_class = "start"
+        turn_penalty = 0.0
+        if prev_node is not None and prev_node in graph.nodes:
+            prev_coords = graph.nodes.get(prev_node)
+            if prev_coords is not None:
+                prev_heading = _segment_heading_deg(prev_coords[0], prev_coords[1], current_coords[0], current_coords[1])
+                delta = _heading_delta_deg(prev_heading, heading)
+                if delta >= 165.0:
+                    # U-turn transitions are treated as illegal in strict graph mode.
+                    return None
+                if delta >= 120.0:
+                    turn_class = "hard_turn"
+                    turn_penalty = 22.0
+                elif delta >= 70.0:
+                    turn_class = "medium_turn"
+                    turn_penalty = 10.0
+                elif delta >= 30.0:
+                    turn_class = "soft_turn"
+                    turn_penalty = 3.0
+                else:
+                    turn_class = "straight"
+        if highway in {"residential", "unclassified"} and turn_class in {"hard_turn", "medium_turn"}:
+            turn_penalty += 2.5
+        return (heading_bin, turn_class, highway), max(0.0, turn_penalty * state_pressure)
+
+    return _transition
 
 
 def _nearest_node_id(graph: RouteGraph, *, lat: float, lon: float) -> str | None:
@@ -472,6 +621,7 @@ def route_graph_via_paths(
         max_repeat_per_node=max(0, int(settings.route_graph_max_repeat_per_node)),
         max_detour_ratio=max(1.0, float(settings.route_graph_max_detour_ratio)),
         max_candidate_pool=max(16, int(settings.route_graph_k_paths) * 8),
+        transition_state_fn=_transition_state_callback(graph),
     )
     out: list[tuple[tuple[float, float], ...]] = []
     seen: set[tuple[tuple[int, int], ...]] = set()
@@ -553,15 +703,6 @@ def _turn_burden_penalty(graph: RouteGraph, nodes: tuple[str, ...]) -> float:
     return burden
 
 
-def _segment_heading_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    dy = lat2 - lat1
-    dx = lon2 - lon1
-    if abs(dx) <= 1e-12 and abs(dy) <= 1e-12:
-        return 0.0
-    ang = math.degrees(math.atan2(dy, dx))
-    return (ang + 360.0) % 360.0
-
-
 def route_graph_candidate_routes(
     *,
     origin_lat: float,
@@ -569,6 +710,7 @@ def route_graph_candidate_routes(
     destination_lat: float,
     destination_lon: float,
     max_paths: int | None = None,
+    scenario_edge_modifiers: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
     budget = max(1, int(max_paths or settings.route_graph_k_paths))
     graph = load_route_graph()
@@ -589,7 +731,7 @@ def route_graph_candidate_routes(
             candidate_budget=budget,
         )
     paths, stats = yen_k_shortest_paths_with_stats(
-        adjacency=_adjacency_cost_view(graph),
+        adjacency=_adjacency_cost_view(graph, scenario_edge_modifiers=scenario_edge_modifiers),
         start=start,
         goal=goal,
         k=budget,
@@ -598,8 +740,32 @@ def route_graph_candidate_routes(
         max_repeat_per_node=max(0, int(settings.route_graph_max_repeat_per_node)),
         max_detour_ratio=max(1.0, float(settings.route_graph_max_detour_ratio)),
         max_candidate_pool=max(16, int(settings.route_graph_k_paths) * 8),
+        transition_state_fn=_transition_state_callback(graph, scenario_edge_modifiers=scenario_edge_modifiers),
     )
     out: list[dict[str, Any]] = []
+    scenario_mod = scenario_edge_modifiers or {}
+    traffic_pressure = max(0.6, min(2.2, float(scenario_mod.get("traffic_pressure", 1.0))))
+    incident_pressure = max(0.6, min(2.4, float(scenario_mod.get("incident_pressure", 1.0))))
+    weather_pressure = max(0.6, min(2.1, float(scenario_mod.get("weather_pressure", 1.0))))
+    duration_multiplier = max(0.6, min(2.5, float(scenario_mod.get("duration_multiplier", 1.0))))
+    incident_rate_multiplier = max(0.5, min(2.8, float(scenario_mod.get("incident_rate_multiplier", 1.0))))
+    incident_delay_multiplier = max(0.5, min(2.8, float(scenario_mod.get("incident_delay_multiplier", 1.0))))
+    sigma_multiplier = max(0.4, min(2.8, float(scenario_mod.get("stochastic_sigma_multiplier", 1.0))))
+    scenario_edge_scaling_version = str(scenario_mod.get("scenario_edge_scaling_version", "v3_live_transform"))
+    road_sensitivity = {
+        "motorway": 0.75,
+        "motorway_link": 0.95,
+        "trunk": 0.85,
+        "trunk_link": 1.05,
+        "primary": 1.10,
+        "primary_link": 1.15,
+        "secondary": 1.22,
+        "secondary_link": 1.30,
+        "tertiary": 1.35,
+        "tertiary_link": 1.42,
+        "unclassified": 1.46,
+        "residential": 1.55,
+    }
     for idx, path in enumerate(paths, start=1):
         if len(path.nodes) < 2:
             continue
@@ -625,7 +791,27 @@ def route_graph_candidate_routes(
             )
             seg_speed_mps = _edge_speed_mps(edge)
             base_segment_distances_m.append(seg_m)
-            base_segment_durations_s.append(seg_m / max(1.0, seg_speed_mps))
+            edge_highway = edge.highway if edge is not None else "unclassified"
+            sensitivity = road_sensitivity.get(edge_highway, 1.25)
+            road_factor = road_class_factors.get(edge_highway, 1.0)
+            edge_time_scale = max(
+                0.55,
+                min(
+                    2.80,
+                    1.0
+                    + ((duration_multiplier - 1.0) * sensitivity * 0.36)
+                    + ((traffic_pressure - 1.0) * sensitivity * 0.24)
+                    + ((incident_pressure - 1.0) * sensitivity * 0.12)
+                    + ((weather_pressure - 1.0) * sensitivity * 0.08)
+                    + ((weather_regime_factor - 1.0) * sensitivity * 0.08)
+                    + ((hour_bucket_factor - 1.0) * sensitivity * 0.07)
+                    + ((incident_rate_multiplier - 1.0) * sensitivity * 0.025)
+                    + ((incident_delay_multiplier - 1.0) * sensitivity * 0.012)
+                    + ((sigma_multiplier - 1.0) * sensitivity * 0.005)
+                    + ((road_factor - 1.0) * sensitivity * 0.15),
+                ),
+            )
+            base_segment_durations_s.append((seg_m / max(1.0, seg_speed_mps)) * edge_time_scale)
             if edge is None:
                 seg_classes.append(["unclassified"])
                 continue
@@ -669,6 +855,8 @@ def route_graph_candidate_routes(
                 "toll_edges": int(toll_edges),
                 "turn_burden": round(float(turn_penalty), 6),
                 "road_mix_counts": road_mix_counts,
+                "scenario_edge_modifiers": dict(scenario_edge_modifiers or {}),
+                "scenario_edge_scaling_version": scenario_edge_scaling_version,
             },
         }
         out.append(route)

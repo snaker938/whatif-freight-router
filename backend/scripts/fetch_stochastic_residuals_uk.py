@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -110,6 +111,32 @@ def _safe_float(value: str, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_iso_utc(raw: str) -> datetime | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _quantile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(v) for v in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = max(0.0, min(1.0, float(q))) * float(len(ordered) - 1)
+    lo = int(rank)
+    hi = min(len(ordered) - 1, lo + 1)
+    frac = rank - float(lo)
+    return ordered[lo] + ((ordered[hi] - ordered[lo]) * frac)
 
 
 def _parse_rows(raw_csv: Path, *, as_of_utc: str) -> list[ResidualRow]:
@@ -230,12 +257,124 @@ def _parse_rows(raw_csv: Path, *, as_of_utc: str) -> list[ResidualRow]:
     return output
 
 
+def _validate_output_quality(
+    rows: list[ResidualRow],
+    *,
+    min_rows: int,
+    min_unique_regimes: int,
+    min_unique_road_buckets: int,
+    min_unique_weather_profiles: int,
+    min_unique_vehicle_types: int,
+    min_unique_local_slots: int,
+    min_unique_corridors: int,
+    max_age_days: int,
+) -> None:
+    if len(rows) < max(1, int(min_rows)):
+        raise RuntimeError(
+            f"Residual corpus too small ({len(rows)} rows). "
+            f"At least {int(min_rows)} rows are required for strict runtime."
+        )
+    day_kinds = {row.day_kind for row in rows}
+    required_days = {"weekday", "weekend", "holiday"}
+    if not required_days.issubset(day_kinds):
+        missing = sorted(required_days - day_kinds)
+        raise RuntimeError(
+            "Residual corpus missing required day_kind coverage: " + ", ".join(missing)
+        )
+    regimes = {row.regime_id for row in rows if row.regime_id}
+    if len(regimes) < max(1, int(min_unique_regimes)):
+        raise RuntimeError(
+            "Residual corpus regime diversity too small "
+            f"({len(regimes)} < {int(min_unique_regimes)})."
+        )
+    roads = {row.road_bucket for row in rows if row.road_bucket}
+    if len(roads) < max(1, int(min_unique_road_buckets)):
+        raise RuntimeError(
+            "Residual corpus road-bucket diversity too small "
+            f"({len(roads)} < {int(min_unique_road_buckets)})."
+        )
+    weathers = {row.weather_profile for row in rows if row.weather_profile}
+    if len(weathers) < max(1, int(min_unique_weather_profiles)):
+        raise RuntimeError(
+            "Residual corpus weather-profile diversity too small "
+            f"({len(weathers)} < {int(min_unique_weather_profiles)})."
+        )
+    vehicles = {row.vehicle_type for row in rows if row.vehicle_type}
+    if len(vehicles) < max(1, int(min_unique_vehicle_types)):
+        raise RuntimeError(
+            "Residual corpus vehicle-type diversity too small "
+            f"({len(vehicles)} < {int(min_unique_vehicle_types)})."
+        )
+    slots = {row.local_time_slot for row in rows if row.local_time_slot}
+    if len(slots) < max(1, int(min_unique_local_slots)):
+        raise RuntimeError(
+            "Residual corpus local-time-slot diversity too small "
+            f"({len(slots)} < {int(min_unique_local_slots)})."
+        )
+    corridors = {row.corridor_bucket for row in rows if row.corridor_bucket}
+    if len(corridors) < max(1, int(min_unique_corridors)):
+        raise RuntimeError(
+            "Residual corpus corridor diversity too small "
+            f"({len(corridors)} < {int(min_unique_corridors)})."
+        )
+    as_of_values = [_parse_iso_utc(row.as_of_utc) for row in rows]
+    if any(item is None for item in as_of_values):
+        raise RuntimeError("Residual corpus contains invalid as_of_utc timestamps.")
+    latest_as_of = max(item for item in as_of_values if item is not None)
+    now_utc = datetime.now(UTC)
+    if latest_as_of > (now_utc + timedelta(days=2)):
+        raise RuntimeError(
+            "Residual corpus as_of_utc is unexpectedly far in the future "
+            f"({latest_as_of.isoformat()})."
+        )
+    if now_utc - latest_as_of > timedelta(days=max(1, int(max_age_days))):
+        raise RuntimeError(
+            "Residual corpus is stale for strict policy "
+            f"({latest_as_of.isoformat()} older than {int(max_age_days)} days)."
+        )
+
+    traffic_vals = [float(row.traffic) for row in rows]
+    incident_vals = [float(row.incident) for row in rows]
+    weather_vals = [float(row.weather) for row in rows]
+    price_vals = [float(row.price) for row in rows]
+    eco_vals = [float(row.eco) for row in rows]
+    sigma_vals = [float(row.sigma) for row in rows]
+    for label, values, low, high in (
+        ("traffic", traffic_vals, 0.25, 4.5),
+        ("incident", incident_vals, 0.25, 4.5),
+        ("weather", weather_vals, 0.25, 4.5),
+        ("price", price_vals, 0.25, 4.5),
+        ("eco", eco_vals, 0.25, 4.5),
+        ("sigma", sigma_vals, 0.01, 2.5),
+    ):
+        for value in values:
+            if not math.isfinite(value):
+                raise RuntimeError(f"Residual corpus contains non-finite {label} values.")
+            if not (low <= value <= high):
+                raise RuntimeError(
+                    f"Residual corpus contains out-of-range {label} values "
+                    f"({value:.6f} not in [{low}, {high}])."
+                )
+        span = _quantile(values, 0.95) - _quantile(values, 0.05)
+        if span <= 0.01:
+            raise RuntimeError(
+                f"Residual corpus {label} distribution is nearly collapsed (p95-p05={span:.6f})."
+            )
+
+
 def build(
     *,
     raw_csv: Path,
     output_csv: Path,
     min_rows: int = 5000,
     as_of_utc: str | None = None,
+    min_unique_regimes: int = 3,
+    min_unique_road_buckets: int = 3,
+    min_unique_weather_profiles: int = 3,
+    min_unique_vehicle_types: int = 3,
+    min_unique_local_slots: int = 4,
+    min_unique_corridors: int = 1,
+    max_age_days: int = 30,
 ) -> int:
     if not raw_csv.exists():
         raise FileNotFoundError(
@@ -247,11 +386,17 @@ def build(
         else datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     )
     rows = _parse_rows(raw_csv, as_of_utc=resolved_as_of)
-    if len(rows) < max(1, int(min_rows)):
-        raise RuntimeError(
-            f"Residual corpus too small ({len(rows)} rows). "
-            f"At least {int(min_rows)} rows are required for strict runtime."
-        )
+    _validate_output_quality(
+        rows,
+        min_rows=max(1, int(min_rows)),
+        min_unique_regimes=max(1, int(min_unique_regimes)),
+        min_unique_road_buckets=max(1, int(min_unique_road_buckets)),
+        min_unique_weather_profiles=max(1, int(min_unique_weather_profiles)),
+        min_unique_vehicle_types=max(1, int(min_unique_vehicle_types)),
+        min_unique_local_slots=max(1, int(min_unique_local_slots)),
+        min_unique_corridors=max(1, int(min_unique_corridors)),
+        max_age_days=max(1, int(max_age_days)),
+    )
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     rows.sort(key=lambda r: (r.regime_id, r.day_kind, r.road_bucket, r.weather_profile, r.vehicle_type))
@@ -317,6 +462,13 @@ def main() -> None:
         default=5000,
         help="Strict minimum output rows.",
     )
+    parser.add_argument("--min-unique-regimes", type=int, default=3)
+    parser.add_argument("--min-unique-road-buckets", type=int, default=3)
+    parser.add_argument("--min-unique-weather-profiles", type=int, default=3)
+    parser.add_argument("--min-unique-vehicle-types", type=int, default=3)
+    parser.add_argument("--min-unique-local-slots", type=int, default=4)
+    parser.add_argument("--min-unique-corridors", type=int, default=1)
+    parser.add_argument("--max-age-days", type=int, default=30)
     parser.add_argument(
         "--as-of-utc",
         type=str,
@@ -329,6 +481,13 @@ def main() -> None:
         output_csv=args.output,
         min_rows=max(1, int(args.target_rows)),
         as_of_utc=(args.as_of_utc or None),
+        min_unique_regimes=max(1, int(args.min_unique_regimes)),
+        min_unique_road_buckets=max(1, int(args.min_unique_road_buckets)),
+        min_unique_weather_profiles=max(1, int(args.min_unique_weather_profiles)),
+        min_unique_vehicle_types=max(1, int(args.min_unique_vehicle_types)),
+        min_unique_local_slots=max(1, int(args.min_unique_local_slots)),
+        min_unique_corridors=max(1, int(args.min_unique_corridors)),
+        max_age_days=max(1, int(args.max_age_days)),
     )
     print(f"Wrote {rows} residual rows to {args.output}")
 

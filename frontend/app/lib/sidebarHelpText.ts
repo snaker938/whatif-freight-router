@@ -15,7 +15,8 @@ export const SIDEBAR_SECTION_HINTS = {
 
 export const SIDEBAR_FIELD_HELP = {
   vehicleType: 'Chooses profile factors used in cost and emissions.',
-  scenarioMode: 'Applies sharing policy assumptions to route outcomes.',
+  scenarioMode:
+    'Applies strict scenario policy multipliers to duration, incidents, fuel/energy, emissions, and uncertainty.',
   language: 'Controls UI language and locale formatting.',
   optimizationMode: 'Expected Value favors mean outcome; Robust penalizes variance.',
   riskAversion: 'Higher values prefer safer, lower-variance choices.',

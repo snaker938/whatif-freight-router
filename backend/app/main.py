@@ -73,6 +73,7 @@ from .models import (
     ScenarioCompareRequest,
     ScenarioCompareResponse,
     ScenarioCompareResult,
+    ScenarioSummary,
     SignatureVerificationRequest,
     SignatureVerificationResponse,
     StochasticConfig,
@@ -108,10 +109,22 @@ from .run_store import (
     write_manifest,
     write_run_artifacts,
 )
-from .scenario import ScenarioMode, apply_scenario_duration, scenario_duration_multiplier
+from .scenario import (
+    ScenarioMode,
+    ScenarioRouteContext,
+    apply_scenario_duration,
+    build_scenario_route_context,
+    resolve_scenario_profile,
+)
 from .settings import settings
 from .signatures import SIGNATURE_ALGORITHM, verify_payload_signature
-from .terrain_dem import TerrainCoverageError, estimate_terrain_summary, segment_grade_profile
+from .terrain_dem import (
+    TerrainCoverageError,
+    estimate_terrain_summary,
+    segment_grade_profile,
+    terrain_begin_route_run,
+    terrain_live_diagnostics,
+)
 from .terrain_physics import params_for_vehicle, segment_duration_multiplier
 from .toll_engine import compute_toll_cost
 from .uncertainty_model import compute_uncertainty_summary, resolve_stochastic_regime
@@ -121,14 +134,15 @@ from .vehicles import (
     all_vehicles,
     create_custom_vehicle,
     delete_custom_vehicle,
-    get_vehicle,
     list_custom_vehicles,
+    resolve_vehicle_profile,
     update_custom_vehicle,
 )
 from .calibration_loader import (
     load_fuel_consumption_calibration,
     load_risk_normalization_reference,
     load_stochastic_residual_prior,
+    refresh_live_runtime_route_caches,
 )
 
 try:
@@ -484,6 +498,12 @@ class CandidateDiagnostics:
     graph_generated_paths: int = 0
     graph_emitted_paths: int = 0
     candidate_budget: int = 0
+    scenario_candidate_family_count: int = 0
+    scenario_candidate_jaccard_vs_baseline: float = 1.0
+    scenario_candidate_jaccard_threshold: float = 1.0
+    scenario_candidate_stress_score: float = 0.0
+    scenario_candidate_gate_action: str = "not_applicable"
+    scenario_edge_scaling_version: str = "v3_live_transform"
 
 
 def _is_toll_exclusion_label(label: str) -> bool:
@@ -576,6 +596,7 @@ def _deterministic_uncertainty_cached(
     road_class_key: tuple[tuple[str, int], ...],
     weather_profile: str,
     vehicle_type: str,
+    vehicle_bucket: str,
     corridor_bucket: str,
 ) -> dict[str, float]:
     departure_time_utc: datetime | None = (
@@ -602,6 +623,7 @@ def _deterministic_uncertainty_cached(
         road_class_counts=road_class_counts,
         weather_profile=weather_profile,
         vehicle_type=vehicle_type or None,
+        vehicle_bucket=vehicle_bucket or None,
         corridor_bucket=corridor_bucket or None,
     )
     return summary.as_dict()
@@ -618,8 +640,13 @@ def _route_stochastic_uncertainty(
     road_class_counts: dict[str, int] | None = None,
     weather_profile: str | None = None,
     vehicle_type: str | None = None,
+    vehicle_profile: VehicleProfile | None = None,
     corridor_bucket: str | None = None,
+    scenario_mode: ScenarioMode | None = None,
+    scenario_profile_version: str | None = None,
+    scenario_sigma_multiplier: float = 1.0,
 ) -> tuple[dict[str, float] | None, dict[str, str | float | int | bool] | None]:
+    sigma_multiplier = min(2.0, max(0.5, float(scenario_sigma_multiplier)))
     if not stochastic.enabled:
         base_duration = max(float(option.metrics.duration_s), 1e-6)
         base_monetary = max(float(option.metrics.monetary_cost), 0.0)
@@ -632,12 +659,22 @@ def _route_stochastic_uncertainty(
             road_class_counts=road_class_counts,
             weather_profile=weather_profile,
             corridor_bucket=corridor_bucket,
+            vehicle_bucket=(
+                str(vehicle_profile.stochastic_bucket)
+                if vehicle_profile is not None
+                else vehicle_type
+            ),
         )
         prior = load_stochastic_residual_prior(
             day_kind=day_kind,
             road_bucket=road_bucket,
             weather_profile=weather_key,
             vehicle_type=vehicle_type,
+            vehicle_bucket=(
+                str(vehicle_profile.stochastic_bucket)
+                if vehicle_profile is not None
+                else vehicle_type
+            ),
             corridor_bucket=corridor_bucket,
             local_time_slot=_local_time_slot_uk(departure_time_utc),
         )
@@ -645,6 +682,7 @@ def _route_stochastic_uncertainty(
             0.35,
             max(0.02, float(prior.sigma_floor) * max(0.75, float(regime.sigma_scale))),
         )
+        effective_sigma = min(0.6, max(0.0, sigma_floor * sigma_multiplier))
         deterministic_samples = int(max(24, min(196, max(int(prior.sample_count), (stochastic.samples * 2)))))
         deterministic = _deterministic_uncertainty_cached(
             base_duration_s=base_duration,
@@ -653,7 +691,7 @@ def _route_stochastic_uncertainty(
             base_distance_km=max(float(option.metrics.distance_km), 0.0),
             route_signature=route_signature,
             departure_time_iso=departure_time_utc.isoformat() if departure_time_utc else "",
-            sigma=sigma_floor,
+            sigma=effective_sigma,
             samples=deterministic_samples,
             utility_weight_time=float(utility_weights[0]),
             utility_weight_money=float(utility_weights[1]),
@@ -662,6 +700,11 @@ def _route_stochastic_uncertainty(
             road_class_key=_road_class_key(road_class_counts),
             weather_profile=weather_profile or "clear",
             vehicle_type=vehicle_type or "",
+            vehicle_bucket=(
+                str(vehicle_profile.stochastic_bucket)
+                if vehicle_profile is not None
+                else (vehicle_type or "")
+            ),
             corridor_bucket=corridor_bucket or "uk_default",
         )
         seed_material = f"{route_signature}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}|deterministic|{deterministic_samples}|{sigma_floor:.6f}"
@@ -671,7 +714,7 @@ def _route_stochastic_uncertainty(
             {
                 "sample_count": deterministic_samples,
                 "seed": seed_hash,
-                "sigma": round(sigma_floor, 6),
+                "sigma": round(effective_sigma, 6),
                 "regime_id": regime_id,
                 "copula_id": copula_id,
                 "calibration_version": calibration_version,
@@ -683,12 +726,27 @@ def _route_stochastic_uncertainty(
                 "seed_strategy": "route_signature+departure_slot+deterministic_seed",
                 "stochastic_enabled": False,
                 "deterministic_uncertainty_policy": "calibrated_residual_envelope",
+                "scenario_mode": (
+                    scenario_mode.value if scenario_mode is not None else ScenarioMode.NO_SHARING.value
+                ),
+                "scenario_profile_version": scenario_profile_version or "unknown",
+                "scenario_sigma_multiplier": round(sigma_multiplier, 6),
                 "utility_weight_time": float(utility_weights[0]),
                 "utility_weight_money": float(utility_weights[1]),
                 "utility_weight_co2": float(utility_weights[2]),
+                "sample_count_requested": int(deterministic.get("sample_count_requested", deterministic_samples)),
+                "sample_count_used": int(deterministic.get("sample_count_used", deterministic_samples)),
+                "sample_count_clip_ratio": float(deterministic.get("sample_count_clip_ratio", 0.0)),
+                "sigma_requested": float(deterministic.get("sigma_requested", effective_sigma)),
+                "sigma_used": float(deterministic.get("sigma_used", effective_sigma)),
+                "sigma_clip_ratio": float(deterministic.get("sigma_clip_ratio", 0.0)),
+                "factor_clip_rate": float(deterministic.get("factor_clip_rate", 0.0)),
+                "risk_family": str(settings.risk_family),
+                "risk_family_theta": float(settings.risk_family_theta),
             },
         )
 
+    effective_stochastic_sigma = min(0.6, max(0.0, float(stochastic.sigma) * sigma_multiplier))
     summary = compute_uncertainty_summary(
         base_duration_s=max(float(option.metrics.duration_s), 1e-6),
         base_monetary_cost=max(float(option.metrics.monetary_cost), 0.0),
@@ -697,7 +755,7 @@ def _route_stochastic_uncertainty(
         route_signature=route_signature,
         departure_time_utc=departure_time_utc,
         user_seed=stochastic.seed,
-        sigma=stochastic.sigma,
+        sigma=effective_stochastic_sigma,
         samples=stochastic.samples,
         cvar_alpha=settings.risk_cvar_alpha,
         utility_weights=utility_weights,
@@ -705,6 +763,11 @@ def _route_stochastic_uncertainty(
         road_class_counts=road_class_counts,
         weather_profile=weather_profile,
         vehicle_type=vehicle_type,
+        vehicle_bucket=(
+            str(vehicle_profile.stochastic_bucket)
+            if vehicle_profile is not None
+            else vehicle_type
+        ),
         corridor_bucket=corridor_bucket,
     )
     regime_id, copula_id, calibration_version, calibration_as_of_utc, _regime = resolve_stochastic_regime(
@@ -712,10 +775,25 @@ def _route_stochastic_uncertainty(
         road_class_counts=road_class_counts,
         weather_profile=weather_profile,
         corridor_bucket=corridor_bucket,
+        vehicle_bucket=(
+            str(vehicle_profile.stochastic_bucket)
+            if vehicle_profile is not None
+            else vehicle_type
+        ),
     )
     seed_material = f"{route_signature}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}|{stochastic.seed}|{stochastic.samples}|{stochastic.sigma}"
     seed_hash = hashlib.sha1(seed_material.encode("utf-8")).hexdigest()[:16]
     summary_dict = summary.as_dict()
+    objective_samples_json: str | None = None
+    if summary.objective_samples:
+        objective_samples_json = json.dumps(
+            [
+                [float(dur), float(mon), float(emi), float(util)]
+                for dur, mon, emi, util in summary.objective_samples
+            ],
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
     quantile_invariants_ok = (
         summary_dict["q50_duration_s"] <= summary_dict["q90_duration_s"] <= summary_dict["q95_duration_s"] <= summary_dict["cvar95_duration_s"]
         and summary_dict["q50_monetary_cost"] <= summary_dict["q90_monetary_cost"] <= summary_dict["q95_monetary_cost"] <= summary_dict["cvar95_monetary_cost"]
@@ -727,7 +805,7 @@ def _route_stochastic_uncertainty(
         {
             "sample_count": int(max(8, min(int(stochastic.samples), 600))),
             "seed": seed_hash,
-            "sigma": float(stochastic.sigma),
+            "sigma": effective_stochastic_sigma,
             "regime_id": regime_id,
             "copula_id": copula_id,
             "calibration_version": calibration_version,
@@ -736,9 +814,24 @@ def _route_stochastic_uncertainty(
             "seed_strategy": "route_signature+departure_slot+user_seed",
             "quantile_invariants_ok": quantile_invariants_ok,
             "stochastic_enabled": True,
+            "scenario_mode": (
+                scenario_mode.value if scenario_mode is not None else ScenarioMode.NO_SHARING.value
+            ),
+            "scenario_profile_version": scenario_profile_version or "unknown",
+            "scenario_sigma_multiplier": round(sigma_multiplier, 6),
             "utility_weight_time": float(utility_weights[0]),
             "utility_weight_money": float(utility_weights[1]),
             "utility_weight_co2": float(utility_weights[2]),
+            "sample_count_requested": int(summary_dict.get("sample_count_requested", int(stochastic.samples))),
+            "sample_count_used": int(summary_dict.get("sample_count_used", max(8, min(int(stochastic.samples), 600)))),
+            "sample_count_clip_ratio": float(summary_dict.get("sample_count_clip_ratio", 0.0)),
+            "sigma_requested": float(summary_dict.get("sigma_requested", float(stochastic.sigma))),
+            "sigma_used": float(summary_dict.get("sigma_used", effective_stochastic_sigma)),
+            "sigma_clip_ratio": float(summary_dict.get("sigma_clip_ratio", 0.0)),
+            "factor_clip_rate": float(summary_dict.get("factor_clip_rate", 0.0)),
+            "risk_family": str(settings.risk_family),
+            "risk_family_theta": float(settings.risk_family_theta),
+            "objective_samples_json": objective_samples_json or "",
         },
     )
 
@@ -807,6 +900,136 @@ def _local_time_slot_uk(departure_time_utc: datetime | None) -> str:
     return f"h{int(local.hour):02d}"
 
 
+def _scenario_context_from_od(
+    *,
+    origin: LatLng,
+    destination: LatLng,
+    vehicle_class: str,
+    departure_time_utc: datetime | None,
+    weather_bucket: str,
+    road_class_counts: dict[str, int] | None = None,
+) -> ScenarioRouteContext:
+    od_road_counts = road_class_counts
+    if not od_road_counts:
+        try:
+            graph_ok, _graph_status = route_graph_status()
+            if graph_ok:
+                graph_routes, _graph_diag = route_graph_candidate_routes(
+                    origin_lat=float(origin.lat),
+                    origin_lon=float(origin.lon),
+                    destination_lat=float(destination.lat),
+                    destination_lon=float(destination.lon),
+                    max_paths=5,
+                    scenario_edge_modifiers={
+                        "mode": "full_sharing",
+                        "duration_multiplier": 1.0,
+                        "incident_rate_multiplier": 1.0,
+                        "incident_delay_multiplier": 1.0,
+                        "stochastic_sigma_multiplier": 1.0,
+                        "traffic_pressure": 1.0,
+                        "incident_pressure": 1.0,
+                        "weather_pressure": 1.0,
+                        "scenario_edge_scaling_version": "v3_live_transform",
+                    },
+                )
+                if graph_routes:
+                    aggregate_counts: dict[str, float] = {}
+                    for rank, route in enumerate(graph_routes, start=1):
+                        meta = route.get("_graph_meta", {})
+                        raw_counts = meta.get("road_mix_counts", {})
+                        if not isinstance(raw_counts, dict):
+                            continue
+                        # Weighted aggregate to avoid single-route context collapse.
+                        rank_weight = 1.0 / max(1.0, float(rank))
+                        for k, v in raw_counts.items():
+                            key = str(k).strip()
+                            if not key:
+                                continue
+                            aggregate_counts[key] = aggregate_counts.get(key, 0.0) + (max(0.0, float(v)) * rank_weight)
+                    if aggregate_counts:
+                        od_road_counts = {
+                            key: int(round(value))
+                            for key, value in aggregate_counts.items()
+                        }
+        except Exception:
+            od_road_counts = road_class_counts
+    return build_scenario_route_context(
+        route_points=[(float(origin.lat), float(origin.lon)), (float(destination.lat), float(destination.lon))],
+        road_class_counts=od_road_counts,
+        vehicle_class=vehicle_class,
+        departure_time_utc=departure_time_utc,
+        weather_bucket=weather_bucket,
+    )
+
+
+def _scenario_candidate_modifiers(
+    *,
+    scenario_mode: ScenarioMode,
+    context: ScenarioRouteContext,
+) -> dict[str, Any]:
+    policy = resolve_scenario_profile(scenario_mode, context=context)
+    weather_key = str(context.weather_regime or "clear").strip().lower()
+    weather_regime_factor = {
+        "clear": 1.00,
+        "rain": 1.08,
+        "fog": 1.06,
+        "storm": 1.15,
+        "snow": 1.18,
+    }.get(weather_key, 1.03)
+    hour = int(max(0, min(23, int(context.hour_slot_local))))
+    if 7 <= hour <= 10 or 16 <= hour <= 19:
+        hour_bucket_factor = 1.10
+    elif 0 <= hour <= 5:
+        hour_bucket_factor = 0.94
+    else:
+        hour_bucket_factor = 1.0
+    duration_excess = max(0.0, float(policy.duration_multiplier) - 1.0)
+    road_mix = context.road_mix_vector or {}
+    road_class_factors: dict[str, float] = {}
+    for road_class in (
+        "motorway",
+        "motorway_link",
+        "trunk",
+        "trunk_link",
+        "primary",
+        "primary_link",
+        "secondary",
+        "secondary_link",
+        "tertiary",
+        "tertiary_link",
+        "unclassified",
+        "residential",
+    ):
+        if road_class.startswith("motorway"):
+            share = float(road_mix.get("motorway", 0.0))
+        elif road_class.startswith("trunk"):
+            share = float(road_mix.get("trunk", 0.0))
+        elif road_class.startswith("primary"):
+            share = float(road_mix.get("primary", 0.0))
+        elif road_class.startswith("secondary") or road_class.startswith("tertiary"):
+            share = float(road_mix.get("secondary", 0.0))
+        else:
+            share = float(road_mix.get("local", 0.0))
+        road_class_factors[road_class] = max(
+            0.75,
+            min(1.55, 1.0 + (duration_excess * share * 0.42)),
+        )
+    return {
+        "mode": scenario_mode.value,
+        "duration_multiplier": float(policy.duration_multiplier),
+        "incident_rate_multiplier": float(policy.incident_rate_multiplier),
+        "incident_delay_multiplier": float(policy.incident_delay_multiplier),
+        "stochastic_sigma_multiplier": float(policy.stochastic_sigma_multiplier),
+        "traffic_pressure": float(policy.live_traffic_pressure),
+        "incident_pressure": float(policy.live_incident_pressure),
+        "weather_pressure": float(policy.live_weather_pressure),
+        "weather_regime_factor": float(weather_regime_factor),
+        "hour_bucket_factor": float(hour_bucket_factor),
+        "road_class_factors": road_class_factors,
+        "scenario_edge_scaling_version": str(policy.scenario_edge_scaling_version),
+    }
+
+
 def build_option(
     route: dict[str, Any],
     *,
@@ -823,10 +1046,14 @@ def build_option(
     utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
     risk_aversion: float = 1.0,
 ) -> RouteOption:
-    vehicle = get_vehicle(vehicle_type)
+    terrain_begin_route_run()
+    vehicle = resolve_vehicle_profile(vehicle_type)
     ctx = emissions_context or EmissionsContext()
     weather_cfg = weather or WeatherImpactConfig()
     incident_cfg = incident_simulation or IncidentSimulatorConfig()
+    if bool(settings.strict_live_data_required) and bool(incident_cfg.enabled):
+        # Strict live runtime disallows synthetic incident generation.
+        incident_cfg = incident_cfg.model_copy(update={"enabled": False})
     weather_speed = weather_speed_multiplier(weather_cfg)
     weather_incident = weather_incident_multiplier(weather_cfg)
     is_ev_mode = ctx.fuel_type == "ev" or vehicle.powertrain == "ev"
@@ -870,15 +1097,35 @@ def build_option(
         else None
     )
     road_class_counts = _route_road_class_counts(route)
+    scenario_context = build_scenario_route_context(
+        route_points=route_points_lat_lon,
+        road_class_counts=road_class_counts,
+        vehicle_class=str(vehicle.vehicle_class),
+        departure_time_utc=departure_time_utc,
+        weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+    )
+    scenario_policy = resolve_scenario_profile(
+        scenario_mode,
+        context=scenario_context,
+    )
+    scenario_multiplier = float(scenario_policy.duration_multiplier)
+    scenario_incident_rate_multiplier = float(scenario_policy.incident_rate_multiplier)
+    scenario_incident_delay_multiplier = float(scenario_policy.incident_delay_multiplier)
+    scenario_fuel_multiplier = float(scenario_policy.fuel_consumption_multiplier)
+    scenario_emissions_multiplier = float(scenario_policy.emissions_multiplier)
+    scenario_sigma_multiplier = float(scenario_policy.stochastic_sigma_multiplier)
     departure_multiplier = time_of_day_multiplier_uk(
         departure_time_utc,
         route_points=route_points_lat_lon,
         road_class_counts=road_class_counts,
     )
     tod_multiplier = departure_multiplier.multiplier
-    scenario_multiplier = scenario_duration_multiplier(scenario_mode)
     duration_after_tod_s = base_duration_s * tod_multiplier
-    duration_after_scenario_s = apply_scenario_duration(duration_after_tod_s, mode=scenario_mode)
+    duration_after_scenario_s = apply_scenario_duration(
+        duration_after_tod_s,
+        mode=scenario_mode,
+        context=scenario_context,
+    )
     duration_after_weather_s = duration_after_scenario_s * weather_speed
     avg_base_speed_kmh = distance_km / (base_duration_s / 3600.0) if base_duration_s > 0 else 0.0
     terrain_summary = estimate_terrain_summary(
@@ -887,6 +1134,7 @@ def build_option(
         avg_speed_kmh=avg_base_speed_kmh,
         distance_km=distance_km,
         vehicle_type=vehicle_type,
+        vehicle_profile=vehicle,
     )
     terrain_confidence = max(0.0, min(1.0, float(terrain_summary.confidence)))
     # Low DEM confidence widens downstream cost/emissions uncertainty to avoid
@@ -899,7 +1147,7 @@ def build_option(
         segment_distances_m=[float(seg) for seg in seg_d_m],
     )
     non_terrain_multiplier = tod_multiplier * scenario_multiplier * weather_speed
-    terrain_vehicle_params = params_for_vehicle(vehicle_type)
+    terrain_vehicle_params = params_for_vehicle(vehicle)
     raw_terrain_multipliers: list[float] = []
     for idx, (d_m_raw, t_s_raw) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
         d_m = max(float(d_m_raw), 0.0)
@@ -947,8 +1195,21 @@ def build_option(
             route_key = _route_signature(route)
         except OSRMError:
             route_key = option_id
+    incident_config = incident_cfg.model_copy(
+        update={
+            "dwell_rate_per_100km": float(incident_cfg.dwell_rate_per_100km)
+            * scenario_incident_rate_multiplier,
+            "accident_rate_per_100km": float(incident_cfg.accident_rate_per_100km)
+            * scenario_incident_rate_multiplier,
+            "closure_rate_per_100km": float(incident_cfg.closure_rate_per_100km)
+            * scenario_incident_rate_multiplier,
+            "dwell_delay_s": float(incident_cfg.dwell_delay_s) * scenario_incident_delay_multiplier,
+            "accident_delay_s": float(incident_cfg.accident_delay_s) * scenario_incident_delay_multiplier,
+            "closure_delay_s": float(incident_cfg.closure_delay_s) * scenario_incident_delay_multiplier,
+        }
+    )
     incident_events = simulate_incident_events(
-        config=incident_cfg,
+        config=incident_config,
         segment_distances_m=[float(seg) for seg in seg_d_m],
         segment_durations_s=pre_incident_segment_durations_s,
         weather_incident_multiplier=weather_incident,
@@ -976,6 +1237,7 @@ def build_option(
         route=route,
         distance_km=distance_km,
         vehicle_type=vehicle_type,
+        vehicle_profile=vehicle,
         departure_time_utc=departure_time_utc,
         use_tolls=cost_toggles.use_tolls,
         fallback_toll_cost_per_km=cost_toggles.toll_cost_per_km,
@@ -999,6 +1261,13 @@ def build_option(
     total_distance_km = 0.0
     total_duration_s = 0.0
     total_fuel_cost = 0.0
+    total_fuel_liters = 0.0
+    total_fuel_liters_p10 = 0.0
+    total_fuel_liters_p50 = 0.0
+    total_fuel_liters_p90 = 0.0
+    total_fuel_cost_p10 = 0.0
+    total_fuel_cost_p50 = 0.0
+    total_fuel_cost_p90 = 0.0
     total_fuel_cost_uncertainty_low = 0.0
     total_fuel_cost_uncertainty_high = 0.0
     total_emissions_uncertainty_low = 0.0
@@ -1049,14 +1318,20 @@ def build_option(
             route_centroid_lat=route_centroid_lat,
             route_centroid_lon=route_centroid_lon,
         )
-        seg_fuel_cost = energy_result.fuel_cost_gbp
-        seg_fuel_cost_low = float(energy_result.fuel_cost_uncertainty_low_gbp)
-        seg_fuel_cost_high = float(energy_result.fuel_cost_uncertainty_high_gbp)
-        seg_energy_kwh = energy_result.energy_kwh
-        seg_emissions = energy_result.emissions_kg
-        seg_emissions_low = float(energy_result.emissions_uncertainty_low_kg)
-        seg_emissions_high = float(energy_result.emissions_uncertainty_high_kg)
-        seg_fuel_liters = energy_result.fuel_liters
+        seg_fuel_cost = energy_result.fuel_cost_gbp * scenario_fuel_multiplier
+        seg_fuel_liters_p10 = float(energy_result.fuel_liters_p10) * scenario_fuel_multiplier
+        seg_fuel_liters_p50 = float(energy_result.fuel_liters_p50) * scenario_fuel_multiplier
+        seg_fuel_liters_p90 = float(energy_result.fuel_liters_p90) * scenario_fuel_multiplier
+        seg_fuel_cost_p10 = float(energy_result.fuel_cost_p10_gbp) * scenario_fuel_multiplier
+        seg_fuel_cost_p50 = float(energy_result.fuel_cost_p50_gbp) * scenario_fuel_multiplier
+        seg_fuel_cost_p90 = float(energy_result.fuel_cost_p90_gbp) * scenario_fuel_multiplier
+        seg_fuel_cost_low = float(energy_result.fuel_cost_uncertainty_low_gbp) * scenario_fuel_multiplier
+        seg_fuel_cost_high = float(energy_result.fuel_cost_uncertainty_high_gbp) * scenario_fuel_multiplier
+        seg_energy_kwh = energy_result.energy_kwh * scenario_fuel_multiplier
+        seg_emissions = energy_result.emissions_kg * scenario_fuel_multiplier
+        seg_emissions_low = float(energy_result.emissions_uncertainty_low_kg) * scenario_fuel_multiplier
+        seg_emissions_high = float(energy_result.emissions_uncertainty_high_kg) * scenario_fuel_multiplier
+        seg_fuel_liters = energy_result.fuel_liters * scenario_fuel_multiplier
         if fuel_price_source is None and energy_result.price_source:
             fuel_price_source = energy_result.price_source
         if fuel_price_as_of is None and energy_result.price_as_of:
@@ -1070,8 +1345,11 @@ def build_option(
             route_centroid_lon=route_centroid_lon,
         )
         seg_emissions *= max(0.0, float(gradient_emissions_multiplier))
+        seg_emissions *= scenario_emissions_multiplier
         if energy_result.emissions_kg > 1e-9:
-            scope_scale = seg_emissions / max(1e-9, float(energy_result.emissions_kg))
+            scope_scale = seg_emissions / max(
+                1e-9, float(energy_result.emissions_kg) * scenario_fuel_multiplier
+            )
             seg_emissions_low *= scope_scale
             seg_emissions_high *= scope_scale
         if terrain_uncertainty_scale > 1.0:
@@ -1104,6 +1382,12 @@ def build_option(
                 "time_cost": round(seg_time_cost, 6),
                 "toll_cost": round(seg_toll_cost, 6),
                 "fuel_cost": round(seg_fuel_cost, 6),
+                "fuel_liters_p10": round(seg_fuel_liters_p10, 6),
+                "fuel_liters_p50": round(seg_fuel_liters_p50, 6),
+                "fuel_liters_p90": round(seg_fuel_liters_p90, 6),
+                "fuel_cost_p10_gbp": round(seg_fuel_cost_p10, 6),
+                "fuel_cost_p50_gbp": round(seg_fuel_cost_p50, 6),
+                "fuel_cost_p90_gbp": round(seg_fuel_cost_p90, 6),
                 "fuel_cost_uncertainty_low": round(seg_fuel_cost_low, 6),
                 "fuel_cost_uncertainty_high": round(seg_fuel_cost_high, 6),
                 "carbon_cost": round(seg_carbon_cost, 6),
@@ -1122,6 +1406,13 @@ def build_option(
         total_energy_kwh += seg_energy_kwh
         total_monetary += seg_monetary
         total_fuel_cost += seg_fuel_cost
+        total_fuel_liters += max(0.0, seg_fuel_liters)
+        total_fuel_liters_p10 += max(0.0, seg_fuel_liters_p10)
+        total_fuel_liters_p50 += max(max(0.0, seg_fuel_liters_p10), seg_fuel_liters_p50)
+        total_fuel_liters_p90 += max(max(0.0, seg_fuel_liters_p50), seg_fuel_liters_p90)
+        total_fuel_cost_p10 += max(0.0, seg_fuel_cost_p10)
+        total_fuel_cost_p50 += max(max(0.0, seg_fuel_cost_p10), seg_fuel_cost_p50)
+        total_fuel_cost_p90 += max(max(0.0, seg_fuel_cost_p50), seg_fuel_cost_p90)
         total_fuel_cost_uncertainty_low += max(0.0, seg_fuel_cost_low)
         total_fuel_cost_uncertainty_high += max(max(0.0, seg_fuel_cost_low), seg_fuel_cost_high)
         total_emissions_uncertainty_low += max(0.0, seg_emissions_low)
@@ -1254,21 +1545,41 @@ def build_option(
         shifted_time = departure_time_utc + timedelta(hours=2)
         shifted_tod_multiplier = time_of_day_multiplier_uk(shifted_time).multiplier
         shifted_after_tod = base_duration_s * shifted_tod_multiplier
-        shifted_after_scenario = apply_scenario_duration(shifted_after_tod, mode=scenario_mode)
+        shifted_after_scenario = apply_scenario_duration(
+            shifted_after_tod,
+            mode=scenario_mode,
+            context=scenario_context,
+        )
         shifted_after_weather = shifted_after_scenario * weather_speed
         shifted_departure_duration = shifted_after_weather * gradient_duration_multiplier
 
     shifted_mode = _counterfactual_shift_scenario(scenario_mode)
+    shifted_mode_policy = resolve_scenario_profile(shifted_mode, context=scenario_context)
     shifted_mode_duration = (
-        apply_scenario_duration(duration_after_tod_s, mode=shifted_mode)
+        apply_scenario_duration(
+            duration_after_tod_s,
+            mode=shifted_mode,
+            context=scenario_context,
+        )
         * weather_speed
         * gradient_duration_multiplier
     )
     duration_ratio = shifted_mode_duration / total_duration_s if total_duration_s > 0 else 1.0
-    shifted_mode_emissions = total_emissions * duration_ratio
+    emissions_policy_ratio = (
+        (float(shifted_mode_policy.fuel_consumption_multiplier) * float(shifted_mode_policy.emissions_multiplier))
+        / max(1e-9, scenario_fuel_multiplier * scenario_emissions_multiplier)
+    )
+    shifted_mode_emissions = total_emissions * duration_ratio * emissions_policy_ratio
     shifted_mode_time_cost = total_time_cost * duration_ratio
+    fuel_policy_ratio = float(shifted_mode_policy.fuel_consumption_multiplier) / max(
+        1e-9, scenario_fuel_multiplier
+    )
+    shifted_mode_fuel_cost = total_fuel_cost * fuel_policy_ratio
     shifted_mode_monetary = (
-        total_fuel_cost + shifted_mode_time_cost + total_toll_cost + total_carbon_cost
+        shifted_mode_fuel_cost
+        + shifted_mode_time_cost
+        + total_toll_cost
+        + (shifted_mode_emissions * carbon_price)
     )
 
     counterfactuals: list[dict[str, str | float | bool]] = [
@@ -1313,9 +1624,89 @@ def build_option(
     ]
 
     option_weather_summary = weather_summary(weather_cfg) if weather_cfg.enabled else {}
+    scenario_summary = ScenarioSummary(
+        mode=scenario_mode,
+        context_key=scenario_policy.context_key,
+        duration_multiplier=round(scenario_multiplier, 6),
+        incident_rate_multiplier=round(scenario_incident_rate_multiplier, 6),
+        incident_delay_multiplier=round(scenario_incident_delay_multiplier, 6),
+        fuel_consumption_multiplier=round(scenario_fuel_multiplier, 6),
+        emissions_multiplier=round(scenario_emissions_multiplier, 6),
+        stochastic_sigma_multiplier=round(scenario_sigma_multiplier, 6),
+        source=scenario_policy.source,
+        version=scenario_policy.version,
+        calibration_basis=scenario_policy.calibration_basis,
+        as_of_utc=scenario_policy.as_of_utc,
+        live_as_of_utc=scenario_policy.live_as_of_utc,
+        live_sources=(
+            "|".join(sorted(scenario_policy.live_source_set.keys()))
+            if scenario_policy.live_source_set
+            else None
+        ),
+        live_coverage_overall=(
+            round(float(scenario_policy.live_coverage.get("overall", 0.0)), 6)
+            if scenario_policy.live_coverage
+            else None
+        ),
+        live_traffic_pressure=round(float(scenario_policy.live_traffic_pressure), 6),
+        live_incident_pressure=round(float(scenario_policy.live_incident_pressure), 6),
+        live_weather_pressure=round(float(scenario_policy.live_weather_pressure), 6),
+        scenario_edge_scaling_version=str(scenario_policy.scenario_edge_scaling_version),
+        mode_observation_source=scenario_policy.mode_observation_source,
+        mode_projection_ratio=(
+            round(float(scenario_policy.mode_projection_ratio), 6)
+            if scenario_policy.mode_projection_ratio is not None
+            else None
+        ),
+    )
     if option_weather_summary is not None:
         option_weather_summary["weather_delay_s"] = round(weather_delta_s, 6)
         option_weather_summary["incident_rate_multiplier"] = round(weather_incident, 6)
+        option_weather_summary["scenario_mode"] = scenario_mode.value
+        option_weather_summary["scenario_profile_source"] = scenario_policy.source
+        option_weather_summary["scenario_profile_version"] = scenario_policy.version
+        option_weather_summary["scenario_context_key"] = scenario_policy.context_key
+        option_weather_summary["scenario_duration_multiplier"] = round(scenario_multiplier, 6)
+        option_weather_summary["scenario_incident_rate_multiplier"] = round(
+            scenario_incident_rate_multiplier, 6
+        )
+        option_weather_summary["scenario_incident_delay_multiplier"] = round(
+            scenario_incident_delay_multiplier, 6
+        )
+        option_weather_summary["scenario_fuel_consumption_multiplier"] = round(
+            scenario_fuel_multiplier, 6
+        )
+        option_weather_summary["scenario_emissions_multiplier"] = round(
+            scenario_emissions_multiplier, 6
+        )
+        option_weather_summary["scenario_sigma_multiplier"] = round(
+            scenario_sigma_multiplier, 6
+        )
+        if scenario_policy.as_of_utc is not None:
+            option_weather_summary["scenario_profile_as_of_utc"] = scenario_policy.as_of_utc
+        if scenario_policy.live_as_of_utc is not None:
+            option_weather_summary["scenario_live_as_of_utc"] = scenario_policy.live_as_of_utc
+        option_weather_summary["scenario_live_traffic_pressure"] = round(
+            float(scenario_policy.live_traffic_pressure),
+            6,
+        )
+        option_weather_summary["scenario_live_incident_pressure"] = round(
+            float(scenario_policy.live_incident_pressure),
+            6,
+        )
+        option_weather_summary["scenario_live_weather_pressure"] = round(
+            float(scenario_policy.live_weather_pressure),
+            6,
+        )
+        if scenario_policy.mode_observation_source is not None:
+            option_weather_summary["scenario_mode_observation_source"] = str(
+                scenario_policy.mode_observation_source
+            )
+        if scenario_policy.mode_projection_ratio is not None:
+            option_weather_summary["scenario_mode_projection_ratio"] = round(
+                float(scenario_policy.mode_projection_ratio),
+                6,
+            )
     if option_weather_summary is not None and toll_result is not None:
         option_weather_summary["toll_model_source"] = toll_result.source
         option_weather_summary["toll_confidence"] = round(toll_result.confidence, 6)
@@ -1349,6 +1740,25 @@ def build_option(
         option_weather_summary["terrain_coverage_ratio"] = round(terrain_summary.coverage_ratio, 6)
         option_weather_summary["terrain_confidence"] = round(terrain_summary.confidence, 6)
         option_weather_summary["terrain_dem_version"] = terrain_summary.version
+        terrain_diag = terrain_live_diagnostics()
+        option_weather_summary["terrain_live_source"] = str(terrain_diag.get("mode", "manifest_asset"))
+        option_weather_summary["terrain_live_tile_zoom"] = float(terrain_diag.get("tile_zoom", 0.0))
+        option_weather_summary["terrain_live_cache_hit_rate"] = round(
+            float(terrain_diag.get("cache_hit_rate", 0.0)),
+            6,
+        )
+        option_weather_summary["terrain_live_fetch_failures"] = float(
+            terrain_diag.get("fetch_failures", 0.0)
+        )
+        option_weather_summary["terrain_live_stale_cache_used"] = bool(
+            terrain_diag.get("stale_cache_used", False)
+        )
+        option_weather_summary["terrain_live_remote_fetches"] = float(
+            terrain_diag.get("remote_fetches", 0.0)
+        )
+        option_weather_summary["terrain_live_circuit_breaker_open"] = bool(
+            terrain_diag.get("circuit_breaker_open", False)
+        )
     if option_weather_summary is not None:
         option_weather_summary["carbon_source"] = carbon_context.source
         option_weather_summary["carbon_schedule_year"] = carbon_context.schedule_year
@@ -1362,6 +1772,13 @@ def build_option(
             option_weather_summary["fuel_price_as_of"] = fuel_price_as_of
         option_weather_summary["fuel_cost_uncertainty_low"] = round(total_fuel_cost_uncertainty_low, 6)
         option_weather_summary["fuel_cost_uncertainty_high"] = round(total_fuel_cost_uncertainty_high, 6)
+        option_weather_summary["fuel_liters_total"] = round(total_fuel_liters, 6)
+        option_weather_summary["fuel_liters_p10"] = round(total_fuel_liters_p10, 6)
+        option_weather_summary["fuel_liters_p50"] = round(total_fuel_liters_p50, 6)
+        option_weather_summary["fuel_liters_p90"] = round(total_fuel_liters_p90, 6)
+        option_weather_summary["fuel_cost_p10_gbp"] = round(total_fuel_cost_p10, 6)
+        option_weather_summary["fuel_cost_p50_gbp"] = round(total_fuel_cost_p50, 6)
+        option_weather_summary["fuel_cost_p90_gbp"] = round(total_fuel_cost_p90, 6)
         option_weather_summary["emissions_uncertainty_low_kg"] = round(total_emissions_uncertainty_low, 6)
         option_weather_summary["emissions_uncertainty_high_kg"] = round(total_emissions_uncertainty_high, 6)
         fuel_cal = load_fuel_consumption_calibration()
@@ -1369,6 +1786,9 @@ def build_option(
         option_weather_summary["consumption_model_version"] = fuel_cal.version
         if fuel_cal.as_of_utc is not None:
             option_weather_summary["consumption_model_as_of_utc"] = fuel_cal.as_of_utc
+        option_weather_summary["vehicle_profile_id"] = vehicle.id
+        option_weather_summary["vehicle_profile_version"] = int(vehicle.schema_version)
+        option_weather_summary["vehicle_profile_source"] = vehicle.profile_source
 
     option = RouteOption(
         id=option_id,
@@ -1387,6 +1807,10 @@ def build_option(
         eta_timeline=eta_timeline,
         segment_breakdown=segment_breakdown,
         counterfactuals=counterfactuals,
+        vehicle_profile_id=vehicle.id,
+        vehicle_profile_version=int(vehicle.schema_version),
+        vehicle_profile_source=vehicle.profile_source,
+        scenario_summary=scenario_summary,
         weather_summary=option_weather_summary,
         terrain_summary=(
             terrain_summary.as_route_option_payload() if terrain_summary is not None else None
@@ -1414,7 +1838,11 @@ def build_option(
         road_class_counts=road_class_counts,
         weather_profile=(weather_cfg.profile if weather_cfg.enabled else "clear"),
         vehicle_type=vehicle_type,
+        vehicle_profile=vehicle,
         corridor_bucket=corridor_bucket,
+        scenario_mode=scenario_mode,
+        scenario_profile_version=scenario_policy.version,
+        scenario_sigma_multiplier=scenario_sigma_multiplier,
     )
     if option_uncertainty is None:
         raise ModelDataError(
@@ -1430,6 +1858,7 @@ def build_option(
     # Attach utility normalization provenance for reproducibility diagnostics.
     norm_ref = load_risk_normalization_reference(
         vehicle_type=vehicle_type,
+        vehicle_bucket=str(vehicle.risk_bucket),
         corridor_bucket=corridor_bucket,
         day_kind=day_kind,
         local_time_slot=_local_time_slot_uk(departure_time_utc),
@@ -1440,6 +1869,47 @@ def build_option(
     option_uncertainty_meta["normalization_corridor_bucket"] = norm_ref.corridor_bucket
     option_uncertainty_meta["normalization_day_kind"] = norm_ref.day_kind
     option_uncertainty_meta["normalization_local_time_slot"] = norm_ref.local_time_slot
+    option_uncertainty_meta["scenario_context_key"] = scenario_policy.context_key
+    if scenario_policy.live_as_of_utc is not None:
+        option_uncertainty_meta["scenario_live_as_of_utc"] = scenario_policy.live_as_of_utc
+    option_uncertainty_meta["scenario_live_traffic_pressure"] = round(
+        float(scenario_policy.live_traffic_pressure),
+        6,
+    )
+    option_uncertainty_meta["scenario_live_incident_pressure"] = round(
+        float(scenario_policy.live_incident_pressure),
+        6,
+    )
+    option_uncertainty_meta["scenario_live_weather_pressure"] = round(
+        float(scenario_policy.live_weather_pressure),
+        6,
+    )
+    terrain_diag_meta = terrain_live_diagnostics()
+    option_uncertainty_meta["terrain_live_source"] = str(
+        terrain_diag_meta.get("mode", "manifest_asset")
+    )
+    option_uncertainty_meta["terrain_live_tile_zoom"] = int(
+        terrain_diag_meta.get("tile_zoom", 0)
+    )
+    option_uncertainty_meta["terrain_live_cache_hit_rate"] = round(
+        float(terrain_diag_meta.get("cache_hit_rate", 0.0)),
+        6,
+    )
+    option_uncertainty_meta["terrain_live_fetch_failures"] = int(
+        terrain_diag_meta.get("fetch_failures", 0)
+    )
+    option_uncertainty_meta["terrain_live_stale_cache_used"] = bool(
+        terrain_diag_meta.get("stale_cache_used", False)
+    )
+    option_uncertainty_meta["terrain_live_remote_fetches"] = int(
+        terrain_diag_meta.get("remote_fetches", 0)
+    )
+    option_uncertainty_meta["terrain_live_circuit_breaker_open"] = bool(
+        terrain_diag_meta.get("circuit_breaker_open", False)
+    )
+    option_uncertainty_meta["vehicle_profile_id"] = vehicle.id
+    option_uncertainty_meta["vehicle_profile_version"] = int(vehicle.schema_version)
+    option_uncertainty_meta["vehicle_profile_source"] = vehicle.profile_source
 
     option.uncertainty = option_uncertainty
     option.uncertainty_samples_meta = option_uncertainty_meta
@@ -1486,6 +1956,7 @@ def _candidate_cache_key(
     cost_toggles: CostToggles,
     terrain_profile: TerrainProfile = "flat",
     departure_time_utc: datetime | None = None,
+    scenario_cache_token: str | None = None,
 ) -> str:
     payload = {
         "schema_version": CANDIDATE_CACHE_SCHEMA_VERSION,
@@ -1505,6 +1976,7 @@ def _candidate_cache_key(
         "cost_toggles": cost_toggles.model_dump(mode="json"),
         "terrain_profile": terrain_profile,
         "departure_time_utc": departure_time_utc.isoformat() if departure_time_utc else None,
+        "scenario_cache_token": scenario_cache_token or "",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
@@ -1747,6 +2219,118 @@ def _route_duration_s(route: dict[str, Any]) -> float:
     return float(sum(seg_t_s))
 
 
+def _graph_family_signature(route: dict[str, Any]) -> str:
+    geom = route.get("geometry")
+    if not isinstance(geom, dict):
+        return ""
+    coords = geom.get("coordinates")
+    if not isinstance(coords, list) or len(coords) < 2:
+        return ""
+    sample: list[str] = []
+    step = max(1, len(coords) // 24)
+    for idx in range(0, len(coords), step):
+        point = coords[idx]
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        try:
+            lon = float(point[0])
+            lat = float(point[1])
+        except (TypeError, ValueError):
+            continue
+        sample.append(f"{lon:.4f},{lat:.4f}")
+        if len(sample) >= 32:
+            break
+    if not sample:
+        return ""
+    return hashlib.sha1("|".join(sample).encode("utf-8")).hexdigest()
+
+
+def _neutral_scenario_edge_modifiers() -> dict[str, Any]:
+    return {
+        "mode": "full_sharing",
+        "duration_multiplier": 1.0,
+        "incident_rate_multiplier": 1.0,
+        "incident_delay_multiplier": 1.0,
+        "stochastic_sigma_multiplier": 1.0,
+        "traffic_pressure": 1.0,
+        "incident_pressure": 1.0,
+        "weather_pressure": 1.0,
+        "scenario_edge_scaling_version": "v3_live_transform",
+    }
+
+
+def _is_neutral_scenario_modifiers(modifiers: dict[str, float | str] | None) -> bool:
+    if not isinstance(modifiers, dict):
+        return True
+    neutral = _neutral_scenario_edge_modifiers()
+    for key, neutral_value in neutral.items():
+        value = modifiers.get(key, neutral_value)
+        if isinstance(neutral_value, str):
+            if str(value).strip().lower() != str(neutral_value).strip().lower():
+                return False
+            continue
+        if abs(float(value) - float(neutral_value)) > 1e-9:
+            return False
+    return True
+
+
+def _is_stressed_scenario_modifiers(modifiers: dict[str, float | str] | None) -> bool:
+    if not isinstance(modifiers, dict):
+        return False
+    checks = (
+        "duration_multiplier",
+        "incident_rate_multiplier",
+        "incident_delay_multiplier",
+        "traffic_pressure",
+        "incident_pressure",
+        "weather_pressure",
+    )
+    for key in checks:
+        try:
+            if abs(float(modifiers.get(key, 1.0)) - 1.0) >= 0.10:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _scenario_stress_score(modifiers: dict[str, float | str] | None) -> float:
+    if not isinstance(modifiers, dict):
+        return 0.0
+    checks = (
+        "duration_multiplier",
+        "incident_rate_multiplier",
+        "incident_delay_multiplier",
+        "traffic_pressure",
+        "incident_pressure",
+        "weather_pressure",
+        "stochastic_sigma_multiplier",
+    )
+    deviations: list[float] = []
+    for key in checks:
+        try:
+            deviations.append(abs(float(modifiers.get(key, 1.0)) - 1.0))
+        except (TypeError, ValueError):
+            continue
+    if not deviations:
+        return 0.0
+    # Blend worst-case and mean stress to avoid overreacting to a single noisy factor.
+    return float((0.6 * max(deviations)) + (0.4 * (sum(deviations) / len(deviations))))
+
+
+def _adaptive_scenario_jaccard_threshold(modifiers: dict[str, float | str] | None) -> tuple[float, float]:
+    base = max(0.0, min(1.0, float(settings.route_graph_scenario_jaccard_max)))
+    floor = max(0.0, min(base, float(settings.route_graph_scenario_jaccard_floor)))
+    stress = _scenario_stress_score(modifiers)
+    # Start adaptive tightening once stress moves beyond mild perturbation.
+    # This drops from base toward floor as stress rises.
+    stress_excess = max(0.0, stress - 0.10)
+    drop_cap = max(0.0, base - floor)
+    adaptive_drop = min(drop_cap, stress_excess * 0.50)
+    threshold = max(floor, base - adaptive_drop)
+    return threshold, stress
+
+
 def _select_ranked_candidate_routes(
     routes: list[dict[str, Any]],
     *,
@@ -1836,10 +2420,7 @@ def _build_options(
             warnings.append(f"{option_id}: {e.reason_code} ({e})")
         except FileNotFoundError as e:
             msg = str(e).strip()
-            if "departure_profile_uk.csv" in msg or "bank_holidays_uk.json" in msg:
-                warnings.append(f"{option_id}: departure_profile_unavailable ({msg})")
-            else:
-                warnings.append(f"{option_id}: model_asset_unavailable ({msg})")
+            warnings.append(f"{option_id}: model_asset_unavailable ({msg})")
         except (OSRMError, ValueError) as e:
             msg = str(e).strip()
             if "tariff resolution" in msg or "toll" in msg.lower():
@@ -1958,6 +2539,18 @@ def _strict_failure_detail_from_outcome(
             message="Live stochastic calibration data is unavailable for strict routing policy.",
             warnings=warnings,
         )
+    if _has_warning_code(warnings, "scenario_profile_unavailable"):
+        return _strict_error_detail(
+            reason_code="scenario_profile_unavailable",
+            message="Scenario profile data is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "scenario_profile_invalid"):
+        return _strict_error_detail(
+            reason_code="scenario_profile_invalid",
+            message="Scenario profile data is invalid for strict routing policy.",
+            warnings=warnings,
+        )
     if _has_warning_code(warnings, "risk_normalization_unavailable"):
         return _strict_error_detail(
             reason_code="risk_normalization_unavailable",
@@ -1968,6 +2561,18 @@ def _strict_failure_detail_from_outcome(
         return _strict_error_detail(
             reason_code="risk_prior_unavailable",
             message="Risk prior calibration is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "vehicle_profile_unavailable"):
+        return _strict_error_detail(
+            reason_code="vehicle_profile_unavailable",
+            message="Vehicle profile is unavailable for strict routing policy.",
+            warnings=warnings,
+        )
+    if _has_warning_code(warnings, "vehicle_profile_invalid"):
+        return _strict_error_detail(
+            reason_code="vehicle_profile_invalid",
+            message="Vehicle profile data is invalid for strict routing policy.",
             warnings=warnings,
         )
     if _has_warning_code(warnings, "toll_topology_unavailable"):
@@ -2070,10 +2675,18 @@ def _stream_fatal_event_from_exception(exc: Exception) -> dict[str, Any]:
         reason_code = "holiday_data_unavailable"
     elif "stochastic_calibration_unavailable" in lowered or "stochastic calibration" in lowered:
         reason_code = "stochastic_calibration_unavailable"
+    elif "scenario_profile_unavailable" in lowered or "scenario profile" in lowered and "unavailable" in lowered:
+        reason_code = "scenario_profile_unavailable"
+    elif "scenario_profile_invalid" in lowered or "scenario profile" in lowered and "invalid" in lowered:
+        reason_code = "scenario_profile_invalid"
     elif "risk_normalization_unavailable" in lowered:
         reason_code = "risk_normalization_unavailable"
     elif "risk_prior_unavailable" in lowered:
         reason_code = "risk_prior_unavailable"
+    elif "vehicle_profile_unavailable" in lowered:
+        reason_code = "vehicle_profile_unavailable"
+    elif "vehicle_profile_invalid" in lowered:
+        reason_code = "vehicle_profile_invalid"
     elif "fuel_price_auth_unavailable" in lowered:
         reason_code = "fuel_price_auth_unavailable"
     elif "fuel_price_source_unavailable" in lowered:
@@ -2156,6 +2769,8 @@ def _option_joint_robust_utility(option: RouteOption, *, risk_aversion: float) -
         mean_value=utility_mean,
         cvar_value=utility_cvar95,
         risk_aversion=risk_aversion,
+        risk_family=settings.risk_family,
+        risk_theta=settings.risk_family_theta,
     )
 
 
@@ -2228,6 +2843,166 @@ def _nondominated_indices(vectors: list[tuple[float, ...]]) -> list[int]:
     return out
 
 
+def _option_objective_samples(option: RouteOption) -> tuple[tuple[float, float, float, float], ...]:
+    raw: Any = None
+    sample_meta = option.uncertainty_samples_meta
+    if isinstance(sample_meta, dict):
+        raw_json = sample_meta.get("objective_samples_json")
+        if isinstance(raw_json, str) and raw_json.strip():
+            try:
+                parsed = json.loads(raw_json)
+                if isinstance(parsed, list):
+                    raw = parsed
+            except Exception:
+                raw = None
+    if raw is None:
+        uncertainty = option.uncertainty
+        if not isinstance(uncertainty, dict):
+            return ()
+        raw = uncertainty.get("objective_samples")
+    if not isinstance(raw, list):
+        return ()
+    out: list[tuple[float, float, float, float]] = []
+    for row in raw:
+        if not isinstance(row, list | tuple) or len(row) < 4:
+            continue
+        try:
+            out.append((float(row[0]), float(row[1]), float(row[2]), float(row[3])))
+        except (TypeError, ValueError):
+            continue
+    return tuple(out)
+
+
+def _sample_vector_dominates(lhs: tuple[float, float, float, float], rhs: tuple[float, float, float, float]) -> bool:
+    le_all = True
+    lt_any = False
+    for l_val, r_val in zip(lhs, rhs, strict=True):
+        if l_val > (r_val + 1e-9):
+            le_all = False
+            break
+        if l_val + 1e-9 < r_val:
+            lt_any = True
+    return le_all and lt_any
+
+
+def _stochastic_dominance_probability(
+    lhs_samples: tuple[tuple[float, float, float, float], ...],
+    rhs_samples: tuple[tuple[float, float, float, float], ...],
+    *,
+    pair_samples: int,
+) -> float:
+    if not lhs_samples or not rhs_samples:
+        return 0.0
+    lhs_n = len(lhs_samples)
+    rhs_n = len(rhs_samples)
+    pair_budget = max(16, min(int(pair_samples), lhs_n * rhs_n))
+    dominate_hits = 0
+    # Deterministic stratified quasi-random pairing to avoid modular-index bias.
+    golden = 0.6180339887498949
+    silver = 0.4142135623730950
+    offset_seed = ((lhs_n * 1315423911) ^ (rhs_n * 2654435761) ^ int(pair_budget * 11400714819323198485)) & 0xFFFFFFFF
+    base_offset = float(offset_seed) / float(0xFFFFFFFF)
+    for idx in range(pair_budget):
+        lhs_u = (base_offset + ((float(idx) + 0.5) / float(pair_budget)) + (golden * 0.5)) % 1.0
+        rhs_u = (base_offset + (float(idx) * silver) + (golden * 0.25)) % 1.0
+        lhs_idx = min(lhs_n - 1, max(0, int(lhs_u * float(lhs_n))))
+        rhs_idx = min(rhs_n - 1, max(0, int(rhs_u * float(rhs_n))))
+        if _sample_vector_dominates(lhs_samples[lhs_idx], rhs_samples[rhs_idx]):
+            dominate_hits += 1
+    return float(dominate_hits) / float(pair_budget)
+
+
+def _robust_pairwise_dominance_matrix(
+    options: list[RouteOption],
+    *,
+    risk_aversion: float,
+) -> tuple[list[list[float]], list[tuple[float, ...]], list[tuple[tuple[float, float, float, float], ...]]]:
+    n = len(options)
+    robust_vectors = [_robust_utility_vector(option, risk_aversion=risk_aversion) for option in options]
+    objective_samples = [_option_objective_samples(option) for option in options]
+    pair_samples = int(max(16, min(int(settings.risk_dominance_pair_samples), 2048)))
+    matrix = [[0.0 for _ in range(n)] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            lhs_samples = objective_samples[i]
+            rhs_samples = objective_samples[j]
+            if lhs_samples and rhs_samples:
+                p_ij = _stochastic_dominance_probability(lhs_samples, rhs_samples, pair_samples=pair_samples)
+                p_ji = _stochastic_dominance_probability(rhs_samples, lhs_samples, pair_samples=pair_samples)
+            else:
+                p_ij = 1.0 if _strictly_dominates(robust_vectors[i], robust_vectors[j]) else 0.0
+                p_ji = 1.0 if _strictly_dominates(robust_vectors[j], robust_vectors[i]) else 0.0
+            matrix[i][j] = p_ij
+            matrix[j][i] = p_ji
+    return matrix, robust_vectors, objective_samples
+
+
+def _is_probabilistically_dominant(
+    p_ab: float,
+    p_ba: float,
+    *,
+    threshold: float,
+) -> bool:
+    return (p_ab >= threshold) and ((p_ab - p_ba) >= 0.02)
+
+
+def _robust_nondominated_indices(
+    options: list[RouteOption],
+    *,
+    risk_aversion: float,
+) -> tuple[list[int], list[list[float]], list[tuple[float, ...]]]:
+    matrix, robust_vectors, _samples = _robust_pairwise_dominance_matrix(options, risk_aversion=risk_aversion)
+    threshold = float(max(0.50, min(0.99, settings.risk_dominance_min_probability)))
+    out: list[int] = []
+    for idx in range(len(options)):
+        dominated = False
+        for jdx in range(len(options)):
+            if idx == jdx:
+                continue
+            if _is_probabilistically_dominant(matrix[jdx][idx], matrix[idx][jdx], threshold=threshold):
+                dominated = True
+                break
+        if not dominated:
+            out.append(idx)
+    return out, matrix, robust_vectors
+
+
+def _robust_rank_key(
+    *,
+    idx: int,
+    options: list[RouteOption],
+    dominance_matrix: list[list[float]],
+    robust_vectors: list[tuple[float, ...]],
+    risk_aversion: float,
+) -> tuple[float, float, float, float, float, float, float, float, float, float, float, float, float, float, str]:
+    threshold = float(max(0.50, min(0.99, settings.risk_dominance_min_probability)))
+    n = len(options)
+    if n <= 1:
+        loss_score = 0.0
+        gain_score = 0.0
+    else:
+        loss_score = 0.0
+        gain_acc = 0.0
+        for jdx in range(n):
+            if jdx == idx:
+                continue
+            p_ij = dominance_matrix[idx][jdx]
+            p_ji = dominance_matrix[jdx][idx]
+            loss_score = max(loss_score, max(0.0, p_ji - p_ij))
+            if _is_probabilistically_dominant(p_ij, p_ji, threshold=threshold):
+                gain_acc += (p_ij - p_ji)
+        gain_score = gain_acc / max(1.0, float(n - 1))
+    vector = robust_vectors[idx]
+    option = options[idx]
+    return (
+        float(loss_score),
+        -float(gain_score),
+        *vector,
+        _option_joint_robust_utility(option, risk_aversion=risk_aversion),
+        option.id,
+    )
+
+
 def _option_objective_value(
     option: RouteOption,
     objective: str,
@@ -2268,18 +3043,23 @@ def _pick_best_option(
 ) -> RouteOption:
     wt, wm, we = normalise_weights(w_time, w_money, w_co2)
     if optimization_mode == "robust":
-        robust_vectors = [_robust_utility_vector(option, risk_aversion=risk_aversion) for option in options]
-        nondominated = _nondominated_indices(robust_vectors)
+        nondominated, dominance_matrix, robust_vectors = _robust_nondominated_indices(
+            options,
+            risk_aversion=risk_aversion,
+        )
         contenders = (
             [options[idx] for idx in nondominated]
             if nondominated
             else list(options)
         )
+        index_by_id = {option.id: idx for idx, option in enumerate(options)}
         contenders.sort(
-            key=lambda option: (
-                *_robust_utility_vector(option, risk_aversion=risk_aversion),
-                _option_joint_robust_utility(option, risk_aversion=risk_aversion),
-                option.id,
+            key=lambda option: _robust_rank_key(
+                idx=int(index_by_id.get(option.id, 0)),
+                options=options,
+                dominance_matrix=dominance_matrix,
+                robust_vectors=robust_vectors,
+                risk_aversion=risk_aversion,
             )
         )
         if contenders:
@@ -2351,19 +3131,24 @@ def _sort_options_by_mode(
     if optimization_mode != "robust":
         return options
 
-    robust_vectors = [_robust_utility_vector(option, risk_aversion=risk_aversion) for option in options]
-    nondominated = _nondominated_indices(robust_vectors)
+    nondominated, dominance_matrix, robust_vectors = _robust_nondominated_indices(
+        options,
+        risk_aversion=risk_aversion,
+    )
     ordered_pool = (
         [options[idx] for idx in nondominated]
         if nondominated
         else list(options)
     )
+    index_by_id = {option.id: idx for idx, option in enumerate(options)}
     return sorted(
         ordered_pool,
-        key=lambda option: (
-            *_robust_utility_vector(option, risk_aversion=risk_aversion),
-            _option_joint_robust_utility(option, risk_aversion=risk_aversion),
-            option.id,
+        key=lambda option: _robust_rank_key(
+            idx=int(index_by_id.get(option.id, 0)),
+            options=options,
+            dominance_matrix=dominance_matrix,
+            robust_vectors=robust_vectors,
+            risk_aversion=risk_aversion,
         ),
     )
 
@@ -2407,8 +3192,16 @@ def _finalize_pareto_options(
     optimization_mode: OptimizationMode = "expected_value",
     risk_aversion: float = 1.0,
 ) -> list[RouteOption]:
+    pareto_input = list(options)
+    if optimization_mode == "robust" and pareto_input:
+        robust_nondominated, _dom_matrix, _vectors = _robust_nondominated_indices(
+            pareto_input,
+            risk_aversion=risk_aversion,
+        )
+        if robust_nondominated:
+            pareto_input = [pareto_input[idx] for idx in robust_nondominated]
     pareto = select_pareto_routes(
-        options,
+        pareto_input,
         max_alternatives=max_alternatives,
         pareto_method=pareto_method,
         epsilon=epsilon,
@@ -2433,7 +3226,9 @@ async def _collect_candidate_routes(
     destination: LatLng,
     max_routes: int,
     cache_key: str | None = None,
+    scenario_edge_modifiers: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], int, CandidateDiagnostics]:
+    warnings: list[str] = []
     if cache_key:
         cached = get_cached_routes(cache_key)
         if cached is not None:
@@ -2456,6 +3251,20 @@ async def _collect_candidate_routes(
                 graph_generated_paths=int(diag.get("graph_generated_paths", 0)),
                 graph_emitted_paths=int(diag.get("graph_emitted_paths", 0)),
                 candidate_budget=int(diag.get("candidate_budget", spec_count)),
+                scenario_candidate_family_count=int(diag.get("scenario_candidate_family_count", 0)),
+                scenario_candidate_jaccard_vs_baseline=float(
+                    diag.get("scenario_candidate_jaccard_vs_baseline", 1.0)
+                ),
+                scenario_candidate_jaccard_threshold=float(
+                    diag.get("scenario_candidate_jaccard_threshold", 1.0)
+                ),
+                scenario_candidate_stress_score=float(
+                    diag.get("scenario_candidate_stress_score", 0.0)
+                ),
+                scenario_candidate_gate_action=str(
+                    diag.get("scenario_candidate_gate_action", "not_applicable")
+                ),
+                scenario_edge_scaling_version=str(diag.get("scenario_edge_scaling_version", "v3_live_transform")),
             )
 
     graph_ok, graph_status = route_graph_status()
@@ -2472,7 +3281,68 @@ async def _collect_candidate_routes(
         destination_lat=float(destination.lat),
         destination_lon=float(destination.lon),
         max_paths=max(4, max_routes * 2),
+        scenario_edge_modifiers=scenario_edge_modifiers,
     )
+    scenario_family_count = 0
+    scenario_jaccard = 1.0
+    scenario_jaccard_threshold = 1.0
+    scenario_stress_score = 0.0
+    scenario_gate_action = "not_applicable"
+    scenario_scaling_version = str(
+        (scenario_edge_modifiers or {}).get("scenario_edge_scaling_version", "v3_live_transform")
+    )
+    scenario_signatures = {sig for sig in (_graph_family_signature(route) for route in graph_routes) if sig}
+    scenario_family_count = len(scenario_signatures)
+    if graph_routes and not _is_neutral_scenario_modifiers(scenario_edge_modifiers):
+        baseline_routes, _baseline_diag = route_graph_candidate_routes(
+            origin_lat=float(origin.lat),
+            origin_lon=float(origin.lon),
+            destination_lat=float(destination.lat),
+            destination_lon=float(destination.lon),
+            max_paths=max(4, max_routes * 2),
+            scenario_edge_modifiers=_neutral_scenario_edge_modifiers(),
+        )
+        baseline_signatures = {sig for sig in (_graph_family_signature(route) for route in baseline_routes) if sig}
+        union = scenario_signatures | baseline_signatures
+        if union:
+            scenario_jaccard = len(scenario_signatures & baseline_signatures) / float(len(union))
+        if _is_stressed_scenario_modifiers(scenario_edge_modifiers):
+            scenario_jaccard_threshold, scenario_stress_score = _adaptive_scenario_jaccard_threshold(
+                scenario_edge_modifiers
+            )
+            if scenario_jaccard > scenario_jaccard_threshold:
+                message = (
+                    "Scenario candidate-family separability below strict threshold "
+                    f"(jaccard={scenario_jaccard:.4f} > {scenario_jaccard_threshold:.4f}, "
+                    f"stress={scenario_stress_score:.4f})."
+                )
+                if bool(settings.route_graph_scenario_separability_fail):
+                    scenario_gate_action = "failed"
+                    return (
+                        [],
+                        [f"route_graph: scenario_profile_invalid ({message})"],
+                        graph_diag.candidate_budget,
+                        CandidateDiagnostics(
+                            raw_count=len(graph_routes),
+                            deduped_count=0,
+                            graph_explored_states=graph_diag.explored_states,
+                            graph_generated_paths=graph_diag.generated_paths,
+                            graph_emitted_paths=graph_diag.emitted_paths,
+                            candidate_budget=graph_diag.candidate_budget,
+                            scenario_candidate_family_count=scenario_family_count,
+                            scenario_candidate_jaccard_vs_baseline=round(float(scenario_jaccard), 6),
+                            scenario_candidate_jaccard_threshold=round(float(scenario_jaccard_threshold), 6),
+                            scenario_candidate_stress_score=round(float(scenario_stress_score), 6),
+                            scenario_candidate_gate_action=scenario_gate_action,
+                            scenario_edge_scaling_version=scenario_scaling_version,
+                        ),
+                    )
+                scenario_gate_action = "warned"
+                warnings.append(f"route_graph: scenario_profile_invalid ({message})")
+        else:
+            scenario_jaccard_threshold = max(0.0, min(1.0, float(settings.route_graph_scenario_jaccard_max)))
+            scenario_stress_score = _scenario_stress_score(scenario_edge_modifiers)
+            scenario_gate_action = "not_stressed"
     if not graph_routes:
         return (
             [],
@@ -2485,6 +3355,12 @@ async def _collect_candidate_routes(
                 graph_generated_paths=graph_diag.generated_paths,
                 graph_emitted_paths=graph_diag.emitted_paths,
                 candidate_budget=graph_diag.candidate_budget,
+                scenario_candidate_family_count=scenario_family_count,
+                scenario_candidate_jaccard_vs_baseline=round(float(scenario_jaccard), 6),
+                scenario_candidate_jaccard_threshold=round(float(scenario_jaccard_threshold), 6),
+                scenario_candidate_stress_score=round(float(scenario_stress_score), 6),
+                scenario_candidate_gate_action=scenario_gate_action,
+                scenario_edge_scaling_version=scenario_scaling_version,
             ),
         )
 
@@ -2503,7 +3379,6 @@ async def _collect_candidate_routes(
         )
 
     routes_by_signature: dict[str, dict[str, Any]] = {}
-    warnings: list[str] = []
     if family_specs:
         async for progress in _iter_candidate_fetches(
             osrm=osrm,
@@ -2528,9 +3403,8 @@ async def _collect_candidate_routes(
                     toll_exclusion_available=False,
                 )
 
-    # Test-only fallback keeps deterministic monkeypatch tests stable, but strict
-    # runtime requires graph-family OSRM refinement output.
-    if not routes_by_signature and "PYTEST_CURRENT_TEST" in os.environ:
+    # Graph-native strict runtime: if OSRM refinement fails, emit graph families directly.
+    if not routes_by_signature:
         for idx, route in enumerate(graph_routes, start=1):
             try:
                 sig = _route_signature(route)
@@ -2540,7 +3414,7 @@ async def _collect_candidate_routes(
                 routes_by_signature[sig] = route
             _annotate_route_candidate_meta(
                 routes_by_signature[sig],
-                source_labels={f"graph_path:{idx}:test_fallback"},
+                source_labels={f"graph_path:{idx}:strict_fallback"},
                 toll_exclusion_available=False,
             )
 
@@ -2573,6 +3447,12 @@ async def _collect_candidate_routes(
         graph_generated_paths=graph_diag.generated_paths,
         graph_emitted_paths=graph_diag.emitted_paths,
         candidate_budget=graph_diag.candidate_budget,
+        scenario_candidate_family_count=scenario_family_count,
+        scenario_candidate_jaccard_vs_baseline=round(float(scenario_jaccard), 6),
+        scenario_candidate_jaccard_threshold=round(float(scenario_jaccard_threshold), 6),
+        scenario_candidate_stress_score=round(float(scenario_stress_score), 6),
+        scenario_candidate_gate_action=scenario_gate_action,
+        scenario_edge_scaling_version=scenario_scaling_version,
     )
     if cache_key:
         set_cached_routes(
@@ -2588,6 +3468,12 @@ async def _collect_candidate_routes(
                     "graph_generated_paths": diag.graph_generated_paths,
                     "graph_emitted_paths": diag.graph_emitted_paths,
                     "candidate_budget": diag.candidate_budget,
+                    "scenario_candidate_family_count": diag.scenario_candidate_family_count,
+                    "scenario_candidate_jaccard_vs_baseline": diag.scenario_candidate_jaccard_vs_baseline,
+                    "scenario_candidate_jaccard_threshold": diag.scenario_candidate_jaccard_threshold,
+                    "scenario_candidate_stress_score": diag.scenario_candidate_stress_score,
+                    "scenario_candidate_gate_action": diag.scenario_candidate_gate_action,
+                    "scenario_edge_scaling_version": diag.scenario_edge_scaling_version,
                 },
             ),
         )
@@ -2630,6 +3516,33 @@ async def _collect_route_options(
     utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
     option_prefix: str,
 ) -> tuple[list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics]:
+    refresh_live_runtime_route_caches()
+    try:
+        vehicle = resolve_vehicle_profile(vehicle_type)
+        weather_cfg = weather or WeatherImpactConfig()
+        base_candidate_context = _scenario_context_from_od(
+            origin=origin,
+            destination=destination,
+            vehicle_class=str(vehicle.vehicle_class),
+            departure_time_utc=departure_time_utc,
+            weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+        )
+        base_scenario_modifiers = _scenario_candidate_modifiers(
+            scenario_mode=scenario_mode,
+            context=base_candidate_context,
+        )
+        scenario_cache_token = hashlib.sha1(
+            json.dumps(base_scenario_modifiers, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+    except ModelDataError as exc:
+        return (
+            [],
+            [f"route_0: {normalize_reason_code(exc.reason_code)} ({exc.message})"],
+            0,
+            TerrainDiagnostics(),
+            CandidateDiagnostics(),
+        )
+
     normalized_waypoints = _normalize_waypoints(waypoints)
     if not normalized_waypoints:
         cache_key = _candidate_cache_key(
@@ -2642,6 +3555,7 @@ async def _collect_route_options(
             cost_toggles=cost_toggles,
             terrain_profile=terrain_profile,
             departure_time_utc=departure_time_utc,
+            scenario_cache_token=scenario_cache_token,
         )
         routes, warnings, candidate_fetches, candidate_diag = await _collect_candidate_routes(
             osrm=osrm,
@@ -2649,6 +3563,7 @@ async def _collect_route_options(
             destination=destination,
             max_routes=max_alternatives,
             cache_key=cache_key,
+            scenario_edge_modifiers=base_scenario_modifiers,
         )
         options, build_warnings, terrain_diag = _build_options(
             routes,
@@ -2673,6 +3588,30 @@ async def _collect_route_options(
         leg_origin: LatLng,
         leg_destination: LatLng,
     ) -> tuple[list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics]:
+        refresh_live_runtime_route_caches()
+        try:
+            leg_context = _scenario_context_from_od(
+                origin=leg_origin,
+                destination=leg_destination,
+                vehicle_class=str(vehicle.vehicle_class),
+                departure_time_utc=departure_time_utc,
+                weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+            )
+            leg_modifiers = _scenario_candidate_modifiers(
+                scenario_mode=scenario_mode,
+                context=leg_context,
+            )
+            leg_scenario_cache_token = hashlib.sha1(
+                json.dumps(leg_modifiers, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+        except ModelDataError as exc:
+            return (
+                [],
+                [f"leg_{leg_index}: {normalize_reason_code(exc.reason_code)} ({exc.message})"],
+                0,
+                TerrainDiagnostics(),
+                CandidateDiagnostics(),
+            )
         leg_cache_key = _candidate_cache_key(
             origin=leg_origin,
             destination=leg_destination,
@@ -2683,6 +3622,7 @@ async def _collect_route_options(
             cost_toggles=cost_toggles,
             terrain_profile=terrain_profile,
             departure_time_utc=departure_time_utc,
+            scenario_cache_token=leg_scenario_cache_token,
         )
         leg_routes, leg_warnings, leg_candidate_fetches, leg_candidate_diag = await _collect_candidate_routes(
             osrm=osrm,
@@ -2690,6 +3630,7 @@ async def _collect_route_options(
             destination=leg_destination,
             max_routes=max_alternatives,
             cache_key=leg_cache_key,
+            scenario_edge_modifiers=leg_modifiers,
         )
         leg_options, leg_build_warnings, leg_diag = _build_options(
             leg_routes,
@@ -2865,6 +3806,21 @@ async def compute_pareto(req: ParetoRequest, osrm: OSRMDep, _: UserAccessDep) ->
             "graph_generated_paths": int(candidate_diag.graph_generated_paths),
             "graph_emitted_paths": int(candidate_diag.graph_emitted_paths),
             "candidate_budget": int(candidate_diag.candidate_budget),
+            "scenario_candidate_family_count": int(candidate_diag.scenario_candidate_family_count),
+            "scenario_candidate_jaccard_vs_baseline": round(
+                float(candidate_diag.scenario_candidate_jaccard_vs_baseline),
+                6,
+            ),
+            "scenario_candidate_jaccard_threshold": round(
+                float(candidate_diag.scenario_candidate_jaccard_threshold),
+                6,
+            ),
+            "scenario_candidate_stress_score": round(
+                float(candidate_diag.scenario_candidate_stress_score),
+                6,
+            ),
+            "scenario_candidate_gate_action": str(candidate_diag.scenario_candidate_gate_action),
+            "scenario_edge_scaling_version": str(candidate_diag.scenario_edge_scaling_version),
             "terrain_fail_closed_count": terrain_diag.fail_closed_count,
             "terrain_unsupported_region_count": terrain_diag.unsupported_region_count,
             "terrain_asset_unavailable_count": terrain_diag.asset_unavailable_count,
@@ -3889,30 +4845,134 @@ async def run_duty_chain(
 def _scenario_metric_deltas(
     baseline: RouteOption | None,
     current: RouteOption | None,
-) -> dict[str, float]:
+    *,
+    baseline_error: str | None = None,
+    current_error: str | None = None,
+    baseline_error_detail: dict[str, Any] | None = None,
+    current_error_detail: dict[str, Any] | None = None,
+) -> dict[str, float | str | None]:
+    def _reason_and_source(
+        detail: dict[str, Any] | None,
+        *,
+        label: str,
+    ) -> tuple[str | None, str | None]:
+        if isinstance(detail, dict):
+            reason_raw = str(detail.get("reason_code", "")).strip()
+            if reason_raw:
+                # Keep historical compare provenance labels stable while using structured error payloads.
+                return normalize_reason_code(reason_raw, default="metric_unavailable"), f"{label}_error"
+        return None, None
+
+    baseline_reason, baseline_reason_source = _reason_and_source(
+        baseline_error_detail,
+        label="baseline",
+    )
+    current_reason, current_reason_source = _reason_and_source(
+        current_error_detail,
+        label="current",
+    )
+    _ = baseline_error
+    _ = current_error
+    missing_reason = current_reason or baseline_reason or "metric_unavailable"
     if baseline is None or current is None:
+        missing_source = "current" if current is None else "baseline"
         return {
-            "duration_s_delta": 0.0,
-            "monetary_cost_delta": 0.0,
-            "emissions_kg_delta": 0.0,
+            "duration_s_delta": None,
+            "monetary_cost_delta": None,
+            "emissions_kg_delta": None,
+            "duration_s_status": "missing",
+            "monetary_cost_status": "missing",
+            "emissions_kg_status": "missing",
+            "duration_s_reason_code": missing_reason,
+            "monetary_cost_reason_code": missing_reason,
+            "emissions_kg_reason_code": missing_reason,
+            "duration_s_missing_source": missing_source,
+            "monetary_cost_missing_source": missing_source,
+            "emissions_kg_missing_source": missing_source,
+            "duration_s_reason_source": (
+                current_reason_source
+                if current_reason
+                else baseline_reason_source
+                if baseline_reason
+                else "structured_missing"
+            ),
+            "monetary_cost_reason_source": (
+                current_reason_source
+                if current_reason
+                else baseline_reason_source
+                if baseline_reason
+                else "structured_missing"
+            ),
+            "emissions_kg_reason_source": (
+                current_reason_source
+                if current_reason
+                else baseline_reason_source
+                if baseline_reason
+                else "structured_missing"
+            ),
+            "missing_source": missing_source,
         }
+
+    def _metric_delta(metric_name: str) -> tuple[float | None, str, str | None, str | None, str | None]:
+        baseline_value: float | None = None
+        current_value: float | None = None
+        baseline_ok = True
+        current_ok = True
+        try:
+            baseline_value = float(getattr(baseline.metrics, metric_name))
+        except Exception:
+            baseline_ok = False
+        try:
+            current_value = float(getattr(current.metrics, metric_name))
+        except Exception:
+            current_ok = False
+        if not baseline_ok or not current_ok:
+            missing_source = "baseline" if not baseline_ok else "current"
+            reason_code = (baseline_reason if not baseline_ok else current_reason) or "metric_unavailable"
+            reason_source = (
+                baseline_reason_source
+                if (not baseline_ok and baseline_reason)
+                else current_reason_source
+                if (not current_ok and current_reason)
+                else "structured_missing"
+            )
+            return None, "missing", reason_code, missing_source, reason_source
+        return round(float(current_value) - float(baseline_value), 3), "ok", None, None, None
+
+    duration_delta, duration_status, duration_reason, duration_missing_source, duration_reason_source = _metric_delta("duration_s")
+    monetary_delta, monetary_status, monetary_reason, monetary_missing_source, monetary_reason_source = _metric_delta("monetary_cost")
+    emissions_delta, emissions_status, emissions_reason, emissions_missing_source, emissions_reason_source = _metric_delta("emissions_kg")
     return {
-        "duration_s_delta": round(current.metrics.duration_s - baseline.metrics.duration_s, 3),
-        "monetary_cost_delta": round(current.metrics.monetary_cost - baseline.metrics.monetary_cost, 3),
-        "emissions_kg_delta": round(current.metrics.emissions_kg - baseline.metrics.emissions_kg, 3),
+        "duration_s_delta": duration_delta,
+        "monetary_cost_delta": monetary_delta,
+        "emissions_kg_delta": emissions_delta,
+        "duration_s_status": duration_status,
+        "monetary_cost_status": monetary_status,
+        "emissions_kg_status": emissions_status,
+        "duration_s_reason_code": duration_reason,
+        "monetary_cost_reason_code": monetary_reason,
+        "emissions_kg_reason_code": emissions_reason,
+        "duration_s_missing_source": duration_missing_source,
+        "monetary_cost_missing_source": monetary_missing_source,
+        "emissions_kg_missing_source": emissions_missing_source,
+        "duration_s_reason_source": duration_reason_source,
+        "monetary_cost_reason_source": monetary_reason_source,
+        "emissions_kg_reason_source": emissions_reason_source,
+        "missing_source": None,
     }
 
 
 async def _run_scenario_compare(
     req: ScenarioCompareRequest,
     osrm: OSRMClient,
-) -> tuple[list[ScenarioCompareResult], dict[str, dict[str, float]]]:
+) -> tuple[list[ScenarioCompareResult], dict[str, dict[str, float | str | None]]]:
     scenario_modes = [
         ScenarioMode.NO_SHARING,
         ScenarioMode.PARTIAL_SHARING,
         ScenarioMode.FULL_SHARING,
     ]
     results: list[ScenarioCompareResult] = []
+    mode_error_details: dict[str, dict[str, Any] | None] = {}
 
     for scenario_mode in scenario_modes:
         options, warnings, _candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
@@ -3945,6 +5005,15 @@ async def _run_scenario_compare(
                 epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
                 terrain_message="All candidates were removed by terrain DEM strict coverage policy.",
             )
+            mode_error_details[scenario_mode.value] = (
+                strict_detail
+                if isinstance(strict_detail, dict)
+                else {
+                    "reason_code": "no_route_candidates",
+                    "message": "No route candidates could be computed.",
+                    "warnings": warnings,
+                }
+            )
             results.append(
                 ScenarioCompareResult(
                     scenario_mode=scenario_mode,
@@ -3974,6 +5043,7 @@ async def _run_scenario_compare(
                 message="No routes satisfy epsilon constraints for this request.",
                 warnings=warnings,
             )
+            mode_error_details[scenario_mode.value] = strict_detail
             results.append(
                 ScenarioCompareResult(
                     scenario_mode=scenario_mode,
@@ -4000,14 +5070,27 @@ async def _run_scenario_compare(
                 warnings=warnings,
             )
         )
+        mode_error_details[scenario_mode.value] = None
 
     baseline = next(
         (item.selected for item in results if item.scenario_mode == ScenarioMode.NO_SHARING),
         None,
     )
-    deltas: dict[str, dict[str, float]] = {}
+    baseline_error = next(
+        (item.error for item in results if item.scenario_mode == ScenarioMode.NO_SHARING),
+        None,
+    )
+    baseline_error_detail = mode_error_details.get(ScenarioMode.NO_SHARING.value)
+    deltas: dict[str, dict[str, Any]] = {}
     for item in results:
-        deltas[item.scenario_mode.value] = _scenario_metric_deltas(baseline, item.selected)
+        deltas[item.scenario_mode.value] = _scenario_metric_deltas(
+            baseline,
+            item.selected,
+            baseline_error=baseline_error,
+            current_error=item.error,
+            baseline_error_detail=baseline_error_detail,
+            current_error_detail=mode_error_details.get(item.scenario_mode.value),
+        )
 
     return results, deltas
 
@@ -4066,6 +5149,7 @@ async def compare_scenarios(
             run_id=run_id,
             results=results,
             deltas=deltas,
+            baseline_mode=ScenarioMode.NO_SHARING,
             scenario_manifest_endpoint=f"/runs/{run_id}/scenario-manifest",
             scenario_signature_endpoint=f"/runs/{run_id}/scenario-signature",
         )
@@ -4240,6 +5324,7 @@ async def replay_experiment_compare(
             run_id=run_id,
             results=results,
             deltas=deltas,
+            baseline_mode=ScenarioMode.NO_SHARING,
             scenario_manifest_endpoint=f"/runs/{run_id}/scenario-manifest",
             scenario_signature_endpoint=f"/runs/{run_id}/scenario-signature",
         )
@@ -4585,6 +5670,14 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
                         reason_code = "epsilon_infeasible"
                     elif "departure profile" in lowered or "departure_profile" in lowered:
                         reason_code = "departure_profile_unavailable"
+                    elif "scenario_profile_unavailable" in lowered or (
+                        "scenario profile" in lowered and "unavailable" in lowered
+                    ):
+                        reason_code = "scenario_profile_unavailable"
+                    elif "scenario_profile_invalid" in lowered or (
+                        "scenario profile" in lowered and "invalid" in lowered
+                    ):
+                        reason_code = "scenario_profile_invalid"
                     pair_stats["error"] = f"reason_code:{reason_code}; message:{msg or type(e).__name__}"
                     return (
                         BatchParetoResult(

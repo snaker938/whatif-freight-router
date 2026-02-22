@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -105,24 +106,24 @@ def _step_has_toll_class(step: dict) -> bool:
 
 def _vehicle_class(vehicle_type: str) -> str:
     key = (vehicle_type or "").strip().lower()
-    if "artic" in key:
-        return "artic_hgv"
-    if "rigid" in key:
-        return "rigid_hgv"
-    if "van" in key:
-        return "van"
-    return "default"
+    return {
+        "artic_hgv": "artic_hgv",
+        "rigid_hgv": "rigid_hgv",
+        "van": "van",
+        "ev_hgv": "rigid_hgv",
+        "ev": "rigid_hgv",
+    }.get(key, "default")
 
 
 def _vehicle_axle_class(vehicle_type: str) -> str:
     key = (vehicle_type or "").strip().lower()
-    if "artic" in key:
-        return "5plus"
-    if "rigid" in key:
-        return "3to4"
-    if "van" in key:
-        return "2"
-    return "default"
+    return {
+        "artic_hgv": "5plus",
+        "rigid_hgv": "3to4",
+        "van": "2",
+        "ev_hgv": "3to4",
+        "ev": "3to4",
+    }.get(key, "default")
 
 
 def _minute_of_day_uk(departure_time_utc: datetime | None) -> int:
@@ -433,6 +434,7 @@ def compute_toll_cost(
     route: dict,
     distance_km: float,
     vehicle_type: str,
+    vehicle_profile: Any | None = None,
     departure_time_utc: datetime | None,
     use_tolls: bool,
     fallback_toll_cost_per_km: float = 0.0,
@@ -524,8 +526,12 @@ def compute_toll_cost(
         )
 
     minute = _minute_of_day_uk(departure_time_utc)
-    vclass = _vehicle_class(vehicle_type)
-    axle_class = _vehicle_axle_class(vehicle_type)
+    vclass = str(getattr(vehicle_profile, "toll_vehicle_class", "")).strip().lower()
+    axle_class = str(getattr(vehicle_profile, "toll_axle_class", "")).strip().lower()
+    if not vclass:
+        vclass = _vehicle_class(vehicle_type)
+    if not axle_class:
+        axle_class = _vehicle_axle_class(vehicle_type)
     payment_class = "electronic"
     route_direction = _infer_route_direction_from_points(route_points)
     tariffs = load_toll_tariffs()

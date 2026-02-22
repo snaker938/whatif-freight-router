@@ -3,6 +3,7 @@ from __future__ import annotations
 import heapq
 from dataclasses import dataclass
 from math import inf
+from typing import Callable, Hashable
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,9 @@ class PathResult:
 
 class PathNotFoundError(ValueError):
     pass
+
+
+TransitionStateFn = Callable[[str | None, str, str], tuple[Hashable, float] | None]
 
 
 def _dijkstra_shortest_path(
@@ -27,18 +31,20 @@ def _dijkstra_shortest_path(
     max_state_budget: int | None = None,
     max_repeat_per_node: int = 1,
     max_cost_limit: float | None = None,
+    transition_state_fn: TransitionStateFn | None = None,
 ) -> PathResult:
     banned_nodes = banned_nodes or set()
     banned_edges = banned_edges or set()
     if start in banned_nodes or goal in banned_nodes:
         raise PathNotFoundError("start/goal blocked")
-    heap: list[tuple[float, int, str, tuple[str, ...]]] = [(0.0, 0, start, (start,))]
-    best_cost_by_node: dict[str, float] = {start: 0.0}
+    initial_state: Hashable = "start"
+    heap: list[tuple[float, int, str, tuple[str, ...], Hashable]] = [(0.0, 0, start, (start,), initial_state)]
+    best_cost_by_state: dict[tuple[str, Hashable], float] = {(start, initial_state): 0.0}
     while heap:
         if max_state_budget is not None and max_state_budget > 0 and explored_counter is not None:
             if explored_counter[0] >= max_state_budget:
                 raise PathNotFoundError("state budget exceeded")
-        cost, hops, node, path = heapq.heappop(heap)
+        cost, hops, node, path, state_key = heapq.heappop(heap)
         if explored_counter is not None:
             explored_counter[0] += 1
         if node == goal:
@@ -54,14 +60,23 @@ def _dijkstra_shortest_path(
                 continue
             if max_repeat_per_node > 1 and path.count(nxt) >= max_repeat_per_node:
                 continue
-            new_cost = cost + max(0.001, float(edge_cost))
+            next_state_key = state_key
+            transition_penalty = 0.0
+            if transition_state_fn is not None:
+                prev_node = path[-2] if len(path) > 1 else None
+                transition = transition_state_fn(prev_node, node, nxt)
+                if transition is None:
+                    continue
+                next_state_key, transition_penalty = transition
+            new_cost = cost + max(0.001, float(edge_cost)) + max(0.0, float(transition_penalty))
             if max_cost_limit is not None and new_cost > max_cost_limit:
                 continue
-            prev_best = best_cost_by_node.get(nxt)
+            best_key = (nxt, next_state_key)
+            prev_best = best_cost_by_state.get(best_key)
             if prev_best is not None and new_cost >= prev_best:
                 continue
-            best_cost_by_node[nxt] = new_cost
-            heapq.heappush(heap, (new_cost, hops + 1, nxt, (*path, nxt)))
+            best_cost_by_state[best_key] = new_cost
+            heapq.heappush(heap, (new_cost, hops + 1, nxt, (*path, nxt), next_state_key))
     raise PathNotFoundError("no path")
 
 
@@ -76,6 +91,7 @@ def yen_k_shortest_paths_with_stats(
     max_repeat_per_node: int = 1,
     max_detour_ratio: float | None = None,
     max_candidate_pool: int | None = None,
+    transition_state_fn: TransitionStateFn | None = None,
 ) -> tuple[tuple[PathResult, ...], dict[str, int]]:
     if k <= 0:
         return (), {"explored_states": 0, "generated_candidates": 0, "pruned_constraints": 0}
@@ -93,6 +109,7 @@ def yen_k_shortest_paths_with_stats(
             explored_counter=explored_counter,
             max_state_budget=max_state_budget,
             max_repeat_per_node=max_repeat_per_node,
+            transition_state_fn=transition_state_fn,
         )
     except PathNotFoundError:
         return (), {
@@ -136,8 +153,12 @@ def yen_k_shortest_paths_with_stats(
                     explored_counter=explored_counter,
                     max_state_budget=max_state_budget,
                     max_repeat_per_node=max_repeat_per_node,
+                    transition_state_fn=transition_state_fn,
                     max_cost_limit=(
                         None
+                        if transition_state_fn is not None
+                        else (
+                            None
                         if detour_cap == inf
                         else max(0.0, detour_cap - sum(
                             next(
@@ -146,6 +167,7 @@ def yen_k_shortest_paths_with_stats(
                             )
                             for idx in range(1, len(root_path))
                         ))
+                        )
                     ),
                 )
             except PathNotFoundError:
@@ -196,6 +218,7 @@ def yen_k_shortest_paths(
     max_repeat_per_node: int = 1,
     max_detour_ratio: float | None = None,
     max_candidate_pool: int | None = None,
+    transition_state_fn: TransitionStateFn | None = None,
 ) -> tuple[PathResult, ...]:
     paths, _stats = yen_k_shortest_paths_with_stats(
         adjacency=adjacency,
@@ -207,5 +230,6 @@ def yen_k_shortest_paths(
         max_repeat_per_node=max_repeat_per_node,
         max_detour_ratio=max_detour_ratio,
         max_candidate_pool=max_candidate_pool,
+        transition_state_fn=transition_state_fn,
     )
     return paths

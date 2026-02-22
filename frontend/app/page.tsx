@@ -5237,8 +5237,8 @@ export default function Page() {
 
                 {scenarioMode !== 'no_sharing' ? (
                   <div className="contextNote">
-                    Sharing Mode Is Active. Current Scenario Logic Applies Policy-Based Delay And
-                    Idle Emissions As A Lightweight Simulation Stub.
+                    Sharing Mode Is Active. Scenario Profiles Now Apply Strict Policy Multipliers
+                    Across ETA, Incidents, Fuel/Energy, Emissions, And Uncertainty.
                   </div>
                 ) : null}
 

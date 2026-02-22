@@ -95,13 +95,12 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
                     "scenario",
                     "weather",
                     "gradient",
-                    "incidents",
                 ]
                 assert len(route["eta_explanations"]) >= 2
                 assert len(route["segment_breakdown"]) >= 1
                 assert route["metrics"]["weather_delay_s"] >= 0.0
-                assert route["metrics"]["incident_delay_s"] >= 0.0
-                assert isinstance(route["incident_events"], list)
+                assert route["metrics"]["incident_delay_s"] == 0.0
+                assert route["incident_events"] == []
 
             # Backward compatibility: old request shape without new additive fields still works.
             old_route_payload = {

@@ -11,6 +11,8 @@ try:
 except ZoneInfoNotFoundError:
     UK_TZ = timezone.utc
 
+_GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
+
 
 @dataclass(frozen=True)
 class DepartureMultiplier:
@@ -33,6 +35,9 @@ def _region_bucket_from_route(route_points: list[tuple[float, float]] | None) ->
     lons = [lon for _lat, lon in route_points]
     lat = sum(lats) / len(lats)
     lon = sum(lons) / len(lons)
+    geohash5 = _geohash5(lat, lon)
+    if geohash5:
+        return geohash5
     if lat >= 57.2:
         return "scotland_far_north"
     if lat >= 56.0:
@@ -56,6 +61,41 @@ def _region_bucket_from_route(route_points: list[tuple[float, float]] | None) ->
     if lat >= 52.0:
         return "midlands_west"
     return "south_england"
+
+
+def _geohash5(lat: float, lon: float) -> str | None:
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    lat_min, lat_max = -90.0, 90.0
+    lon_min, lon_max = -180.0, 180.0
+    out: list[str] = []
+    bit = 0
+    ch = 0
+    even = True
+    bits = (16, 8, 4, 2, 1)
+    while len(out) < 5:
+        if even:
+            mid = (lon_min + lon_max) / 2.0
+            if lon >= mid:
+                ch |= bits[bit]
+                lon_min = mid
+            else:
+                lon_max = mid
+        else:
+            mid = (lat_min + lat_max) / 2.0
+            if lat >= mid:
+                ch |= bits[bit]
+                lat_min = mid
+            else:
+                lat_max = mid
+        even = not even
+        if bit < 4:
+            bit += 1
+        else:
+            out.append(_GEOHASH_BASE32[ch])
+            bit = 0
+            ch = 0
+    return "".join(out)
 
 
 def _road_bucket(road_class_counts: dict[str, int] | None) -> str:

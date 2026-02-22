@@ -67,7 +67,7 @@ def test_custom_vehicle_collision_and_validation(tmp_path: Path, monkeypatch) ->
 
         bad_id_payload = _vehicle_payload("BAD-ID")
         bad_id_resp = client.post("/vehicles/custom", json=bad_id_payload)
-        assert bad_id_resp.status_code == 400
+        assert bad_id_resp.status_code == 422
 
         create_resp = client.post("/vehicles/custom", json=_vehicle_payload("custom_a"))
         assert create_resp.status_code == 200
