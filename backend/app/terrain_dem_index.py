@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
-import hashlib
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -425,8 +426,17 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
 
 
 def _coerce_grid(payload: dict[str, object], *, tile_id: str, path: str) -> TerrainGridTile | None:
-    rows = int(payload.get("rows", 0))
-    cols = int(payload.get("cols", 0))
+    rows_raw = payload.get("rows", 0)
+    cols_raw = payload.get("cols", 0)
+    if not isinstance(rows_raw, (int, float, str)):
+        return None
+    if not isinstance(cols_raw, (int, float, str)):
+        return None
+    try:
+        rows = int(rows_raw)
+        cols = int(cols_raw)
+    except (TypeError, ValueError):
+        return None
     values_raw = payload.get("values", [])
     if rows <= 1 or cols <= 1 or not isinstance(values_raw, list) or len(values_raw) != rows:
         return None
@@ -434,17 +444,42 @@ def _coerce_grid(payload: dict[str, object], *, tile_id: str, path: str) -> Terr
     for row in values_raw:
         if not isinstance(row, list) or len(row) != cols:
             return None
-        rows_out.append(tuple(float(v) for v in row))
-    lat_step = float(payload.get("lat_step", 0.0))
-    lon_step = float(payload.get("lon_step", 0.0))
+        converted: list[float] = []
+        for value in row:
+            if not isinstance(value, (int, float, str)):
+                return None
+            try:
+                converted.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        rows_out.append(tuple(converted))
+    lat_step_raw = payload.get("lat_step", 0.0)
+    lon_step_raw = payload.get("lon_step", 0.0)
+    lat_min_raw = payload.get("lat_min", 0.0)
+    lon_min_raw = payload.get("lon_min", 0.0)
+    if not isinstance(lat_step_raw, (int, float, str)):
+        return None
+    if not isinstance(lon_step_raw, (int, float, str)):
+        return None
+    if not isinstance(lat_min_raw, (int, float, str)):
+        return None
+    if not isinstance(lon_min_raw, (int, float, str)):
+        return None
+    try:
+        lat_step = float(lat_step_raw)
+        lon_step = float(lon_step_raw)
+        lat_min = float(lat_min_raw)
+        lon_min = float(lon_min_raw)
+    except (TypeError, ValueError):
+        return None
     if lat_step <= 0 or lon_step <= 0:
         return None
     return TerrainGridTile(
         tile_id=tile_id,
         path=path,
-        lat_min=float(payload.get("lat_min", 0.0)),
+        lat_min=lat_min,
         lat_step=lat_step,
-        lon_min=float(payload.get("lon_min", 0.0)),
+        lon_min=lon_min,
         lon_step=lon_step,
         rows=rows,
         cols=cols,

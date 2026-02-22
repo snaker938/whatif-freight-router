@@ -8,7 +8,6 @@ from typing import Any
 
 from .settings import settings
 
-
 SIGNATURE_ALGORITHM = "HMAC-SHA256"
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,7 +17,7 @@ from app.settings import settings
 
 
 @pytest.fixture(autouse=True)
-def _scenario_require_url_relaxed(monkeypatch: pytest.MonkeyPatch) -> None:
+def _scenario_require_url_relaxed(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("STRICT_RUNTIME_TEST_BYPASS", "1")
     monkeypatch.setattr(settings, "strict_live_data_required", False)
     monkeypatch.setattr(settings, "live_runtime_data_enabled", False)

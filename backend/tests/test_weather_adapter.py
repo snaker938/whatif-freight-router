@@ -6,7 +6,11 @@ from typing import Any
 from app.main import build_option
 from app.models import CostToggles, WeatherImpactConfig
 from app.scenario import ScenarioMode
-from app.weather_adapter import weather_incident_multiplier, weather_speed_multiplier, weather_summary
+from app.weather_adapter import (
+    weather_incident_multiplier,
+    weather_speed_multiplier,
+    weather_summary,
+)
 
 
 def _route(*, distance_m: float, duration_s: float) -> dict[str, Any]:

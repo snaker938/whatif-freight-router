@@ -483,7 +483,7 @@ class Settings(BaseSettings):
     carbon_policy_scenario: str = Field(default="central", alias="CARBON_POLICY_SCENARIO")
 
     @model_validator(mode="after")
-    def _enforce_strict_runtime_defaults(self) -> "Settings":
+    def _enforce_strict_runtime_defaults(self) -> Settings:
         # Hard-strict runtime policy: production paths are always strict and
         # synthetic generation is disallowed outside explicit test tooling.
         self.live_runtime_data_enabled = True

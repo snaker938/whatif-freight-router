@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -33,7 +33,7 @@ def _route(*, distance_m: float, duration_s: float) -> dict[str, Any]:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:
@@ -41,7 +41,8 @@ def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:
     transform["fit_strategy"] = "empirical_temporal_forward"
     transform["scenario_edge_scaling_version"] = "v4_live_empirical"
     transform["context_similarity"]["max_distance"] = 10.0
-    q = lambda v: {"p10": v * 0.97, "p50": v, "p90": v * 1.03}
+    def q(v: float) -> dict[str, float]:
+        return {"p10": v * 0.97, "p50": v, "p90": v * 1.03}
     base_profiles = {
         "no_sharing": {
             "duration_multiplier": q(1.10),
@@ -349,15 +350,22 @@ def test_ev_mode_emits_energy_kwh_and_grid_based_co2() -> None:
 
 def test_fuel_surface_interpolation_is_deterministic_and_quantiles_ordered() -> None:
     route = _route(distance_m=28_000.0, duration_s=1_900.0)
-    kwargs = dict(
+    first = build_option(
+        route,
         option_id="fuel_surface_det",
         vehicle_type="rigid_hgv",
         scenario_mode=ScenarioMode.FULL_SHARING,
         cost_toggles=CostToggles(fuel_price_multiplier=1.15),
         emissions_context=EmissionsContext(fuel_type="diesel", euro_class="euro6", ambient_temp_c=7.0),
     )
-    first = build_option(route, **kwargs)
-    second = build_option(route, **kwargs)
+    second = build_option(
+        route,
+        option_id="fuel_surface_det",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.FULL_SHARING,
+        cost_toggles=CostToggles(fuel_price_multiplier=1.15),
+        emissions_context=EmissionsContext(fuel_type="diesel", euro_class="euro6", ambient_temp_c=7.0),
+    )
     assert first.segment_breakdown
     assert second.segment_breakdown
     row_a = first.segment_breakdown[0]

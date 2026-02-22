@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import time
 import math
 import re
+import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -52,7 +52,7 @@ def _strict_or_none(
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_as_of(raw: Any) -> datetime | None:
@@ -64,14 +64,14 @@ def _parse_as_of(raw: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _iso_utc(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _fuel_live_error(
@@ -280,8 +280,12 @@ def _fetch_json_with_ttl(
     except Exception as exc:
         if cached is not None:
             status_code: int | None = None
-            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
-                status_code = int(exc.response.status_code)
+            response_status = getattr(getattr(exc, "response", None), "status_code", None)
+            if isinstance(response_status, (int, float, str)):
+                try:
+                    status_code = int(response_status)
+                except (TypeError, ValueError):
+                    status_code = None
             return _annotate(
                 cached.payload,
                 cache_hit=True,
@@ -302,7 +306,7 @@ def _fetch_json_with_ttl(
 
 
 def _to_iso_utc(value: datetime) -> str:
-    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _normalize_weather_bucket(*, weather_code: int | None, precip_mm: float, wind_kph: float) -> str:
@@ -380,6 +384,8 @@ def _nearest_webtris_sites(
         if coords is None:
             continue
         site_id = raw.get("Id", raw.get("id", raw.get("SiteId", raw.get("site_id"))))
+        if not isinstance(site_id, (int, float, str)):
+            continue
         try:
             sid = int(site_id)
         except (TypeError, ValueError):
@@ -674,9 +680,12 @@ def _normalize_fuel_payload(
     grid_value = payload.get("grid_price_gbp_per_kwh")
     if grid_value is None and latest_row is not None:
         grid_value = latest_row.get("grid_price_gbp_per_kwh")
-    try:
-        grid_price = max(0.0, float(grid_value))
-    except (TypeError, ValueError):
+    if isinstance(grid_value, (int, float, str)):
+        try:
+            grid_price = max(0.0, float(grid_value))
+        except (TypeError, ValueError):
+            grid_price = -1.0
+    else:
         grid_price = -1.0
 
     as_of_dt = (
@@ -1373,9 +1382,12 @@ def live_scenario_context(
     temp_c = _safe_float(current.get("temperature_2m"), 10.0)
     weather_code_raw = current.get("weather_code")
     weather_code: int | None
-    try:
-        weather_code = int(float(weather_code_raw))
-    except (TypeError, ValueError):
+    if isinstance(weather_code_raw, (int, float, str)):
+        try:
+            weather_code = int(float(weather_code_raw))
+        except (TypeError, ValueError):
+            weather_code = None
+    else:
         weather_code = None
     weather_bucket = _normalize_weather_bucket(
         weather_code=weather_code,
@@ -1582,11 +1594,11 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
     token = settings.live_fuel_auth_token.strip()
     api_key = settings.live_fuel_api_key.strip()
     dt = (
-        as_of_utc.astimezone(timezone.utc)
+        as_of_utc.astimezone(UTC)
         if as_of_utc is not None and as_of_utc.tzinfo is not None
-        else as_of_utc.replace(tzinfo=timezone.utc)
+        else as_of_utc.replace(tzinfo=UTC)
         if as_of_utc is not None
-        else datetime.now(timezone.utc)
+        else datetime.now(UTC)
     )
     yyyymm = dt.strftime("%Y-%m")
     sep = "&" if "?" in settings.live_fuel_price_url else "?"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .live_data_sources import live_carbon_schedule
@@ -12,7 +12,7 @@ from .settings import settings
 try:
     UK_TZ = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
-    UK_TZ = timezone.utc
+    UK_TZ = UTC
 
 
 @dataclass(frozen=True)
@@ -82,9 +82,9 @@ def _payload_as_of(payload: dict[str, object]) -> datetime | None:
         except ValueError:
             continue
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
         else:
-            parsed = parsed.astimezone(timezone.utc)
+            parsed = parsed.astimezone(UTC)
         return parsed
     return None
 
@@ -163,7 +163,7 @@ def _load_schedule_from_asset() -> tuple[dict[int, float], str]:
                 live_as_of = _payload_as_of(live_payload)
                 live_fresh = (
                     live_as_of is not None
-                    and (datetime.now(timezone.utc) - live_as_of).days <= int(settings.live_carbon_max_age_days)
+                    and (datetime.now(UTC) - live_as_of).days <= int(settings.live_carbon_max_age_days)
                 )
                 if not schedule:
                     live_failure = ModelDataError(
@@ -208,10 +208,19 @@ def _uncertainty_band_from_distribution(
     row = dist_raw.get(str(int(year)))
     if not isinstance(row, dict):
         return None
+    p10_raw = row.get("p10")
+    p50_raw = row.get("p50")
+    p90_raw = row.get("p90")
+    if not isinstance(p10_raw, (int, float, str)):
+        return None
+    if not isinstance(p50_raw, (int, float, str)):
+        return None
+    if not isinstance(p90_raw, (int, float, str)):
+        return None
     try:
-        p10 = float(row.get("p10"))
-        p50 = float(row.get("p50"))
-        p90 = float(row.get("p90"))
+        p10 = float(p10_raw)
+        p50 = float(p50_raw)
+        p90 = float(p90_raw)
     except (TypeError, ValueError):
         return None
     if p50 <= 0:
@@ -252,7 +261,7 @@ def _load_ev_grid_intensity_from_asset() -> tuple[dict[str, list[float]], str]:
                 live_as_of = _payload_as_of(live_payload)
                 live_fresh = (
                     live_as_of is not None
-                    and (datetime.now(timezone.utc) - live_as_of).days <= int(settings.live_carbon_max_age_days)
+                    and (datetime.now(UTC) - live_as_of).days <= int(settings.live_carbon_max_age_days)
                 )
                 if not parsed:
                     live_failure = ModelDataError(
@@ -301,7 +310,7 @@ def _load_non_ev_scope_factors() -> tuple[dict[str, dict[int, float]], str]:
                 live_as_of = _payload_as_of(live_payload)
                 live_fresh = (
                     live_as_of is not None
-                    and (datetime.now(timezone.utc) - live_as_of).days <= int(settings.live_carbon_max_age_days)
+                    and (datetime.now(UTC) - live_as_of).days <= int(settings.live_carbon_max_age_days)
                 )
                 if not live_fresh:
                     live_failure = ModelDataError(
@@ -417,9 +426,9 @@ def resolve_carbon_price(
         scope_mode = "ttw"
     if request_price_per_kg > 0:
         year = (
-            departure_time_utc.astimezone(timezone.utc).year
+            departure_time_utc.astimezone(UTC).year
             if departure_time_utc is not None
-            else datetime.now(timezone.utc).year
+            else datetime.now(UTC).year
         )
         base_price = max(0.0, float(request_price_per_kg))
         _schedule, source = _load_schedule_from_asset()
@@ -447,9 +456,9 @@ def resolve_carbon_price(
         )
     schedule, source = _load_schedule_from_asset()
     year = (
-        departure_time_utc.astimezone(timezone.utc).year
+        departure_time_utc.astimezone(UTC).year
         if departure_time_utc is not None
-        else datetime.now(timezone.utc).year
+        else datetime.now(UTC).year
     )
     schedule_year, schedule_price = _interpolate_schedule_price(schedule, year)
     payload = _load_carbon_payload_for_source(source)
@@ -495,10 +504,10 @@ def apply_scope_emissions_adjustment(
                 message="No EV regional intensity profile matched route context in strict runtime.",
             )
         if departure_time_utc is None:
-            hour = datetime.now(timezone.utc).astimezone(UK_TZ).hour
+            hour = datetime.now(UTC).astimezone(UK_TZ).hour
         else:
             aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-                tzinfo=timezone.utc
+                tzinfo=UTC
             )
             hour = aware.astimezone(UK_TZ).hour
         grid_intensity = profile[int(hour) % 24]
@@ -513,9 +522,9 @@ def apply_scope_emissions_adjustment(
         factors, _source = _load_non_ev_scope_factors()
         scope_rows = factors.get(scope) or {}
         year = (
-            departure_time_utc.astimezone(timezone.utc).year
+            departure_time_utc.astimezone(UTC).year
             if departure_time_utc is not None
-            else datetime.now(timezone.utc).year
+            else datetime.now(UTC).year
         )
         if not scope_rows:
             raise ModelDataError(

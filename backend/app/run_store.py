@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .signatures import build_signature_metadata
 from .settings import settings
+from .signatures import build_signature_metadata
 
 
 def _write_signed_manifest(run_id: str, manifest: dict[str, Any], *, out_dir: Path) -> Path:

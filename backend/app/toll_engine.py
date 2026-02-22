@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import math
-from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .calibration_loader import (
@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover - optional runtime fallback
 try:
     UK_TZ = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
-    UK_TZ = timezone.utc
+    UK_TZ = UTC
 EARTH_RADIUS_M = 6_371_000.0
 _TO_WEB_M = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True) if Transformer else None
 
@@ -130,7 +130,7 @@ def _minute_of_day_uk(departure_time_utc: datetime | None) -> int:
     if departure_time_utc is None:
         return 0
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     return (local.hour * 60) + local.minute
@@ -345,7 +345,9 @@ def _segment_overlap_km(seed: TollSegmentSeed, route_points: list[tuple[float, f
             seed_line = LineString([_TO_WEB_M.transform(x, y) for x, y in seed_line_wgs.coords])
             # Buffer route corridor to capture near-parallel map-matched overlap.
             corridor_m = max(40.0, min(140.0, 60.0 + (0.15 * float(settings.route_candidate_via_budget))))
-            overlap_geom = seed_line.intersection(route_line.buffer(corridor_m, cap_style=2, join_style=2))
+            overlap_geom = seed_line.intersection(
+                route_line.buffer(corridor_m, cap_style="flat", join_style="mitre")
+            )
             overlap_m = float(overlap_geom.length) if not overlap_geom.is_empty else 0.0
             if overlap_m <= 0.0:
                 return 0.0

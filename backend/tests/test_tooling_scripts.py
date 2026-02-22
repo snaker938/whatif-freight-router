@@ -218,7 +218,7 @@ def test_compute_drift_metrics_empty_rows() -> None:
     except ValueError:
         assert True
     else:
-        assert False
+        raise AssertionError("compute_drift_metrics([]) should raise ValueError")
 
 
 def test_generate_run_report_script_writes_pdf(tmp_path: Path) -> None:

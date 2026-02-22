@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import heapq
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from math import inf
-from typing import Callable, Hashable
 
 
 @dataclass(frozen=True)

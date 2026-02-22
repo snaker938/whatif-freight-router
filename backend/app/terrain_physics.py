@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import math
-from typing import Any
 from dataclasses import dataclass
-
+from typing import Any
 
 G_MPS2 = 9.80665
 AIR_DENSITY_KG_M3 = 1.225

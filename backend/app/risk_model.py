@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable
+from collections.abc import Iterable
 
 from .calibration_loader import load_risk_normalization_reference
 
@@ -108,7 +108,7 @@ def cvar(values: Iterable[float], *, alpha: float = 0.95) -> float:
     knots = sorted(set(knots))
 
     tail_integral = 0.0
-    for start, end in zip(knots, knots[1:]):
+    for start, end in zip(knots, knots[1:], strict=False):
         q_start = quantile(ordered, start)
         q_end = quantile(ordered, end)
         tail_integral += 0.5 * (q_start + q_end) * (end - start)

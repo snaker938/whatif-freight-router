@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .model_data_errors import ModelDataError
 from .settings import settings
 
-
 VehicleClass = Literal["van", "rigid_hgv", "artic_hgv", "ev"]
 Powertrain = Literal["ice", "ev"]
 DEFAULT_VEHICLE_ID = "rigid_hgv"
@@ -97,7 +96,7 @@ class VehicleProfile(BaseModel):
         return out
 
     @model_validator(mode="after")
-    def _validate_v2(self) -> "VehicleProfile":
+    def _validate_v2(self) -> VehicleProfile:
         if self.schema_version < 2:
             raise ValueError("schema_version must be >=2")
         if self.id in self.aliases:

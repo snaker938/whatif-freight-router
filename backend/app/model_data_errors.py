@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 FROZEN_REASON_CODES: frozenset[str] = frozenset(
     {
         "routing_graph_unavailable",

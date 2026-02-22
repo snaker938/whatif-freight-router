@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -10,11 +10,10 @@ from pydantic import BaseModel, Field
 
 from .model_data_errors import ModelDataError
 
-
 try:
     UK_TZ = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
-    UK_TZ = timezone.utc
+    UK_TZ = UTC
 
 
 class ScenarioMode(str, Enum):
@@ -166,7 +165,7 @@ def _day_kind_uk(departure_time_utc: datetime | None) -> str:
     if departure_time_utc is None:
         return "weekday"
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     if local.weekday() >= 5:
@@ -178,7 +177,7 @@ def _hour_slot_local(departure_time_utc: datetime | None) -> int:
     if departure_time_utc is None:
         return 12
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     return int(aware.astimezone(UK_TZ).hour)
 

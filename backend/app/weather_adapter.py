@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from .models import WeatherImpactConfig
 
-
 _PROFILE_SPEED_MULTIPLIER: dict[str, float] = {
     "clear": 1.00,
     "rain": 1.08,

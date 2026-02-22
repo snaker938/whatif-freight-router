@@ -5,7 +5,7 @@ import math
 import random
 import statistics
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -18,7 +18,7 @@ from .settings import settings
 try:
     UK_TZ = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
-    UK_TZ = timezone.utc
+    UK_TZ = UTC
 
 
 def _stable_seed(*, route_signature: str, departure_slot: str, user_seed: int) -> int:
@@ -30,7 +30,7 @@ def _departure_slot(departure_time_utc: datetime | None) -> str:
     if departure_time_utc is None:
         return "slot:none"
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     # 15-minute deterministic slot for stable replay behavior.
@@ -42,7 +42,7 @@ def _local_time_slot(departure_time_utc: datetime | None) -> str:
     if departure_time_utc is None:
         return "h12"
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     return f"h{int(local.hour):02d}"
@@ -52,7 +52,7 @@ def _local_day_kind(departure_time_utc: datetime | None) -> str:
     if departure_time_utc is None:
         return "weekday"
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     holiday_dates = load_uk_bank_holidays()
@@ -428,7 +428,7 @@ def resolve_stochastic_regime(
         regime_id = "weekday_offpeak"
     else:
         aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
         local = aware.astimezone(UK_TZ)
         minute = (local.hour * 60) + local.minute
@@ -618,7 +618,7 @@ def compute_uncertainty_summary(
     for _ in range(half):
         z = _correlated_standard_normals(rng, l_factor=l_factor)
         _append_from_shocks(z)
-        antithetic = tuple(-v for v in z)
+        antithetic = (-z[0], -z[1], -z[2], -z[3], -z[4])
         _append_from_shocks(antithetic)
 
     while len(duration_samples) < sample_count:
@@ -644,7 +644,9 @@ def compute_uncertainty_summary(
             )
         )
 
-    q = lambda arr, p: quantile(arr, p)
+    def q(arr: list[float], p: float) -> float:
+        return quantile(arr, p)
+
     alpha = _bounded(cvar_alpha, low=0.5, high=0.999)
     utility_mean = statistics.fmean(utility_samples)
     utility_cvar = cvar(utility_samples, alpha=alpha)

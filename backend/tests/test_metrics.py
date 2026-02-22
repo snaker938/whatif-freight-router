@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-import app.main as main_module
 import app.calibration_loader as calibration_loader
 import app.carbon_model as carbon_model
+import app.main as main_module
 from app.calibration_loader import (
     load_fuel_price_snapshot,
     load_live_scenario_context,
@@ -24,7 +23,7 @@ from app.settings import settings
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:
@@ -32,7 +31,8 @@ def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:
     transform["fit_strategy"] = "empirical_temporal_forward"
     transform["scenario_edge_scaling_version"] = "v4_live_empirical"
     transform["context_similarity"]["max_distance"] = 10.0
-    q = lambda v: {"p10": v * 0.97, "p50": v, "p90": v * 1.03}
+    def q(v: float) -> dict[str, float]:
+        return {"p10": v * 0.97, "p50": v, "p90": v * 1.03}
     base_profiles = {
         "no_sharing": {
             "duration_multiplier": q(1.10),

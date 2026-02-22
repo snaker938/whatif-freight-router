@@ -12,7 +12,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
@@ -22,6 +22,14 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
+from .calibration_loader import (
+    load_fuel_consumption_calibration,
+    load_risk_normalization_reference,
+    load_stochastic_residual_prior,
+    refresh_live_runtime_route_caches,
+)
+from .carbon_model import apply_scope_emissions_adjustment, resolve_carbon_price
+from .departure_profile import time_of_day_multiplier_uk
 from .experiment_store import (
     create_experiment,
     delete_experiment,
@@ -29,8 +37,6 @@ from .experiment_store import (
     list_experiments,
     update_experiment,
 )
-from .departure_profile import time_of_day_multiplier_uk
-from .carbon_model import apply_scope_emissions_adjustment, resolve_carbon_price
 from .fuel_energy_model import segment_energy_and_emissions
 from .incident_simulator import simulate_incident_events
 from .logging_utils import log_event
@@ -59,6 +65,7 @@ from .models import (
     GeoJSONLineString,
     IncidentSimulatorConfig,
     LatLng,
+    ODPair,
     OptimizationMode,
     OracleFeedCheckInput,
     OracleFeedCheckRecord,
@@ -70,6 +77,7 @@ from .models import (
     RouteOption,
     RouteRequest,
     RouteResponse,
+    ScenarioCompareDelta,
     ScenarioCompareRequest,
     ScenarioCompareResponse,
     ScenarioCompareResult,
@@ -78,11 +86,12 @@ from .models import (
     SignatureVerificationResponse,
     StochasticConfig,
     TerrainProfile,
+    TerrainSummaryPayload,
     VehicleDeleteResponse,
     VehicleListResponse,
     VehicleMutationResponse,
-    WeatherImpactConfig,
     Waypoint,
+    WeatherImpactConfig,
 )
 from .multileg_engine import compose_multileg_route_options
 from .objectives_selection import normalise_weights
@@ -96,18 +105,18 @@ from .oracle_quality_store import (
 from .pareto_methods import filter_by_epsilon, select_pareto_routes
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .rbac import require_role
-from .risk_model import robust_objective
 from .reporting import write_report_pdf
+from .risk_model import robust_objective
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
-from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .routing_graph import route_graph_candidate_routes, route_graph_status, route_graph_via_paths
+from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import (
     ARTIFACT_FILES,
     artifact_dir_for_run,
     artifact_paths_for_run,
-    write_scenario_manifest,
     write_manifest,
     write_run_artifacts,
+    write_scenario_manifest,
 )
 from .scenario import (
     ScenarioMode,
@@ -128,7 +137,6 @@ from .terrain_dem import (
 from .terrain_physics import params_for_vehicle, segment_duration_multiplier
 from .toll_engine import compute_toll_cost
 from .uncertainty_model import compute_uncertainty_summary, resolve_stochastic_regime
-from .weather_adapter import weather_incident_multiplier, weather_speed_multiplier, weather_summary
 from .vehicles import (
     VehicleProfile,
     all_vehicles,
@@ -138,17 +146,12 @@ from .vehicles import (
     resolve_vehicle_profile,
     update_custom_vehicle,
 )
-from .calibration_loader import (
-    load_fuel_consumption_calibration,
-    load_risk_normalization_reference,
-    load_stochastic_residual_prior,
-    refresh_live_runtime_route_caches,
-)
+from .weather_adapter import weather_incident_multiplier, weather_speed_multiplier, weather_summary
 
 try:
     UK_TZ = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
-    UK_TZ = timezone.utc
+    UK_TZ = UTC
 
 
 @asynccontextmanager
@@ -318,9 +321,9 @@ def _datetime_to_utc_iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     else:
-        value = value.astimezone(timezone.utc)
+        value = value.astimezone(UTC)
     return value.isoformat()
 
 
@@ -338,7 +341,7 @@ def _to_oracle_check_record(payload: OracleFeedCheckInput) -> OracleFeedCheckRec
         observed_at_utc=_datetime_to_utc_iso(payload.observed_at_utc),
         error=payload.error.strip() if payload.error else None,
         passed=passed,
-        ingested_at_utc=datetime.now(timezone.utc).isoformat(),
+        ingested_at_utc=datetime.now(UTC).isoformat(),
     )
 
 
@@ -406,7 +409,7 @@ async def get_oracle_quality_dashboard_csv(_: UserAccessDep) -> FileResponse:
     try:
         records = load_check_records()
         dashboard = compute_dashboard_payload(records)
-        _, csv_path = write_summary_artifacts(dashboard)
+        _summary_path, csv_path = write_summary_artifacts(dashboard)
         if not csv_path.exists():
             raise HTTPException(status_code=404, detail="oracle quality dashboard CSV not found")
         return FileResponse(str(csv_path), media_type="text/csv", filename="oracle_quality_dashboard.csv")
@@ -665,6 +668,7 @@ def _route_stochastic_uncertainty(
                 else vehicle_type
             ),
         )
+        calibration_as_of = calibration_as_of_utc or "unknown"
         prior = load_stochastic_residual_prior(
             day_kind=day_kind,
             road_bucket=road_bucket,
@@ -718,8 +722,8 @@ def _route_stochastic_uncertainty(
                 "regime_id": regime_id,
                 "copula_id": copula_id,
                 "calibration_version": calibration_version,
-                "calibration_as_of_utc": calibration_as_of_utc,
-                "as_of_utc": calibration_as_of_utc,
+                "calibration_as_of_utc": calibration_as_of,
+                "as_of_utc": calibration_as_of,
                 "prior_id": prior.prior_id,
                 "prior_source": prior.source,
                 "prior_sample_count": int(prior.sample_count),
@@ -781,9 +785,11 @@ def _route_stochastic_uncertainty(
             else vehicle_type
         ),
     )
+    calibration_as_of = calibration_as_of_utc or "unknown"
     seed_material = f"{route_signature}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}|{stochastic.seed}|{stochastic.samples}|{stochastic.sigma}"
     seed_hash = hashlib.sha1(seed_material.encode("utf-8")).hexdigest()[:16]
-    summary_dict = summary.as_dict()
+    summary_dict_raw = summary.as_dict()
+    summary_dict: dict[str, float] = {key: float(value) for key, value in summary_dict_raw.items()}
     objective_samples_json: str | None = None
     if summary.objective_samples:
         objective_samples_json = json.dumps(
@@ -809,8 +815,8 @@ def _route_stochastic_uncertainty(
             "regime_id": regime_id,
             "copula_id": copula_id,
             "calibration_version": calibration_version,
-            "calibration_as_of_utc": calibration_as_of_utc,
-            "as_of_utc": calibration_as_of_utc,
+            "calibration_as_of_utc": calibration_as_of,
+            "as_of_utc": calibration_as_of,
             "seed_strategy": "route_signature+departure_slot+user_seed",
             "quantile_invariants_ok": quantile_invariants_ok,
             "stochastic_enabled": True,
@@ -882,7 +888,7 @@ def _day_kind_uk(departure_time_utc: datetime | None) -> str:
     if departure_time_utc is None:
         return "weekday"
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     if local.weekday() >= 5:
@@ -894,7 +900,7 @@ def _local_time_slot_uk(departure_time_utc: datetime | None) -> str:
     if departure_time_utc is None:
         return "h12"
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     return f"h{int(local.hour):02d}"
@@ -1813,7 +1819,9 @@ def build_option(
         scenario_summary=scenario_summary,
         weather_summary=option_weather_summary,
         terrain_summary=(
-            terrain_summary.as_route_option_payload() if terrain_summary is not None else None
+            TerrainSummaryPayload.model_validate(terrain_summary.as_route_option_payload())
+            if terrain_summary is not None
+            else None
         ),
         incident_events=incident_events,
     )
@@ -2120,7 +2128,7 @@ def _candidate_fetch_specs(
         ):
             specs.append(CandidateFetchSpec(label=f"exclude:{ex}", alternatives=False, exclude=ex))
 
-    via_source = graph_via_paths
+    via_source: tuple[tuple[tuple[float, float], ...], ...] = graph_via_paths
     via_prefix = "graph"
     if not via_source and strict_graph_required:
         raise ModelDataError(
@@ -2128,11 +2136,12 @@ def _candidate_fetch_specs(
             message="Route graph did not provide viable corridor hints for strict candidate fetch.",
         )
     if not via_source and not strict_graph_required:
-        via_source = tuple([(pt,)] for pt in _candidate_via_points(origin, destination))
+        via_source = tuple((pt,) for pt in _candidate_via_points(origin, destination))
         via_prefix = "via"
 
-    for idx, via in enumerate(via_source, start=1):
-        specs.append(CandidateFetchSpec(label=f"{via_prefix}:{idx}", alternatives=False, via=list(via)))
+    for idx, via_path in enumerate(via_source, start=1):
+        via_points = [(float(lat), float(lon)) for lat, lon in via_path]
+        specs.append(CandidateFetchSpec(label=f"{via_prefix}:{idx}", alternatives=False, via=via_points))
 
     return specs
 
@@ -2245,7 +2254,7 @@ def _graph_family_signature(route: dict[str, Any]) -> str:
     return hashlib.sha1("|".join(sample).encode("utf-8")).hexdigest()
 
 
-def _neutral_scenario_edge_modifiers() -> dict[str, Any]:
+def _neutral_scenario_edge_modifiers() -> dict[str, float | str]:
     return {
         "mode": "full_sharing",
         "duration_multiplier": 1.0,
@@ -2269,7 +2278,13 @@ def _is_neutral_scenario_modifiers(modifiers: dict[str, float | str] | None) -> 
             if str(value).strip().lower() != str(neutral_value).strip().lower():
                 return False
             continue
-        if abs(float(value) - float(neutral_value)) > 1e-9:
+        if not isinstance(value, (int, float, str)):
+            return False
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return False
+        if abs(numeric_value - float(neutral_value)) > 1e-9:
             return False
     return True
 
@@ -2974,7 +2989,7 @@ def _robust_rank_key(
     dominance_matrix: list[list[float]],
     robust_vectors: list[tuple[float, ...]],
     risk_aversion: float,
-) -> tuple[float, float, float, float, float, float, float, float, float, float, float, float, float, float, str]:
+) -> tuple[float | str, ...]:
     threshold = float(max(0.50, min(0.99, settings.risk_dominance_min_probability)))
     n = len(options)
     if n <= 1:
@@ -4343,13 +4358,13 @@ async def optimize_departure_time(
         start_utc = req.window_start_utc
         end_utc = req.window_end_utc
         if start_utc.tzinfo is None:
-            start_utc = start_utc.replace(tzinfo=timezone.utc)
+            start_utc = start_utc.replace(tzinfo=UTC)
         else:
-            start_utc = start_utc.astimezone(timezone.utc)
+            start_utc = start_utc.astimezone(UTC)
         if end_utc.tzinfo is None:
-            end_utc = end_utc.replace(tzinfo=timezone.utc)
+            end_utc = end_utc.replace(tzinfo=UTC)
         else:
-            end_utc = end_utc.astimezone(timezone.utc)
+            end_utc = end_utc.astimezone(UTC)
 
         if end_utc <= start_utc:
             raise HTTPException(
@@ -4368,14 +4383,14 @@ async def optimize_departure_time(
             latest_arrival_utc = req.time_window.latest_arrival_utc
             if earliest_arrival_utc is not None:
                 if earliest_arrival_utc.tzinfo is None:
-                    earliest_arrival_utc = earliest_arrival_utc.replace(tzinfo=timezone.utc)
+                    earliest_arrival_utc = earliest_arrival_utc.replace(tzinfo=UTC)
                 else:
-                    earliest_arrival_utc = earliest_arrival_utc.astimezone(timezone.utc)
+                    earliest_arrival_utc = earliest_arrival_utc.astimezone(UTC)
             if latest_arrival_utc is not None:
                 if latest_arrival_utc.tzinfo is None:
-                    latest_arrival_utc = latest_arrival_utc.replace(tzinfo=timezone.utc)
+                    latest_arrival_utc = latest_arrival_utc.replace(tzinfo=UTC)
                 else:
-                    latest_arrival_utc = latest_arrival_utc.astimezone(timezone.utc)
+                    latest_arrival_utc = latest_arrival_utc.astimezone(UTC)
             if (
                 earliest_arrival_utc is not None
                 and latest_arrival_utc is not None
@@ -4396,6 +4411,7 @@ async def optimize_departure_time(
             departure_times.append(end_utc)
 
         selected_rows: list[dict[str, Any]] = []
+        latest_warnings: list[str] = []
         strict_failure_detail: dict[str, Any] | None = None
         for departure_time in departure_times:
             options, warnings, _candidate_fetches, terrain_diag, _candidate_diag = await _collect_route_options_with_diagnostics(
@@ -4420,6 +4436,7 @@ async def optimize_departure_time(
                 utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
             )
+            latest_warnings = warnings
             if not options:
                 detail = _strict_failure_detail_from_outcome(
                     warnings=warnings,
@@ -4478,7 +4495,7 @@ async def optimize_departure_time(
                     detail=_strict_error_detail(
                         reason_code="epsilon_infeasible",
                         message="no feasible departures for provided time window",
-                        warnings=warnings,
+                        warnings=latest_warnings,
                     ),
                 )
             raise HTTPException(
@@ -4660,9 +4677,9 @@ def _next_departure(
         return departure_time_utc
     cursor = departure_time_utc
     if cursor.tzinfo is None:
-        cursor = cursor.replace(tzinfo=timezone.utc)
+        cursor = cursor.replace(tzinfo=UTC)
     else:
-        cursor = cursor.astimezone(timezone.utc)
+        cursor = cursor.astimezone(UTC)
     return cursor + timedelta(seconds=float(selected.metrics.duration_s))
 
 
@@ -4926,18 +4943,23 @@ def _scenario_metric_deltas(
             current_value = float(getattr(current.metrics, metric_name))
         except Exception:
             current_ok = False
-        if not baseline_ok or not current_ok:
-            missing_source = "baseline" if not baseline_ok else "current"
-            reason_code = (baseline_reason if not baseline_ok else current_reason) or "metric_unavailable"
+        baseline_missing = (not baseline_ok) or (baseline_value is None)
+        current_missing = (not current_ok) or (current_value is None)
+        if baseline_missing or current_missing:
+            missing_source = "baseline" if baseline_missing else "current"
+            reason_code = (baseline_reason if baseline_missing else current_reason) or "metric_unavailable"
             reason_source = (
                 baseline_reason_source
-                if (not baseline_ok and baseline_reason)
+                if (baseline_missing and baseline_reason)
                 else current_reason_source
-                if (not current_ok and current_reason)
+                if (current_missing and current_reason)
                 else "structured_missing"
             )
             return None, "missing", reason_code, missing_source, reason_source
-        return round(float(current_value) - float(baseline_value), 3), "ok", None, None, None
+        if baseline_value is None or current_value is None:
+            return None, "missing", "metric_unavailable", "unknown", "structured_missing"
+        delta = round(current_value - baseline_value, 3)
+        return delta, "ok", None, None, None
 
     duration_delta, duration_status, duration_reason, duration_missing_source, duration_reason_source = _metric_delta("duration_s")
     monetary_delta, monetary_status, monetary_reason, monetary_missing_source, monetary_reason_source = _metric_delta("monetary_cost")
@@ -4965,7 +4987,7 @@ def _scenario_metric_deltas(
 async def _run_scenario_compare(
     req: ScenarioCompareRequest,
     osrm: OSRMClient,
-) -> tuple[list[ScenarioCompareResult], dict[str, dict[str, float | str | None]]]:
+) -> tuple[list[ScenarioCompareResult], dict[str, ScenarioCompareDelta]]:
     scenario_modes = [
         ScenarioMode.NO_SHARING,
         ScenarioMode.PARTIAL_SHARING,
@@ -5081,15 +5103,17 @@ async def _run_scenario_compare(
         None,
     )
     baseline_error_detail = mode_error_details.get(ScenarioMode.NO_SHARING.value)
-    deltas: dict[str, dict[str, Any]] = {}
+    deltas: dict[str, ScenarioCompareDelta] = {}
     for item in results:
-        deltas[item.scenario_mode.value] = _scenario_metric_deltas(
-            baseline,
-            item.selected,
-            baseline_error=baseline_error,
-            current_error=item.error,
-            baseline_error_detail=baseline_error_detail,
-            current_error_detail=mode_error_details.get(item.scenario_mode.value),
+        deltas[item.scenario_mode.value] = ScenarioCompareDelta.model_validate(
+            _scenario_metric_deltas(
+                baseline,
+                item.selected,
+                baseline_error=baseline_error,
+                current_error=item.error,
+                baseline_error_detail=baseline_error_detail,
+                current_error_detail=mode_error_details.get(item.scenario_mode.value),
+            )
         )
 
     return results, deltas
@@ -5165,10 +5189,10 @@ async def compare_scenarios(
 
 @app.get("/experiments", response_model=ExperimentListResponse)
 async def get_experiments(
-    q: str | None = Query(default=None),
-    vehicle_type: str | None = Query(default=None),
-    scenario_mode: ScenarioMode | None = Query(default=None),
-    sort: str = Query(default="updated_desc"),
+    q: Annotated[str | None, Query()] = None,
+    vehicle_type: Annotated[str | None, Query()] = None,
+    scenario_mode: Annotated[ScenarioMode | None, Query()] = None,
+    sort: Annotated[str, Query()] = "updated_desc",
 ) -> ExperimentListResponse:
     t0 = time.perf_counter()
     has_error = False
@@ -5473,7 +5497,7 @@ def _write_batch_additional_exports(run_id: str, results: list[BatchParetoResult
     return written
 
 
-def _parse_pairs_from_csv_text(csv_text: str) -> list[dict[str, Any]]:
+def _parse_pairs_from_csv_text(csv_text: str) -> list[ODPair]:
     reader = csv.DictReader(io.StringIO(csv_text))
     required = {"origin_lat", "origin_lon", "destination_lat", "destination_lon"}
     headers = set(reader.fieldnames or [])
@@ -5484,20 +5508,20 @@ def _parse_pairs_from_csv_text(csv_text: str) -> list[dict[str, Any]]:
             detail=f"CSV missing required columns: {', '.join(missing)}",
         )
 
-    pairs: list[dict[str, Any]] = []
+    pairs: list[ODPair] = []
     for idx, row in enumerate(reader, start=2):
         try:
             pairs.append(
-                {
-                    "origin": {
-                        "lat": float(row["origin_lat"]),
-                        "lon": float(row["origin_lon"]),
-                    },
-                    "destination": {
-                        "lat": float(row["destination_lat"]),
-                        "lon": float(row["destination_lon"]),
-                    },
-                }
+                ODPair(
+                    origin=LatLng(
+                        lat=float(row["origin_lat"]),
+                        lon=float(row["origin_lon"]),
+                    ),
+                    destination=LatLng(
+                        lat=float(row["destination_lat"]),
+                        lon=float(row["destination_lon"]),
+                    ),
+                )
             )
         except Exception as e:
             raise HTTPException(

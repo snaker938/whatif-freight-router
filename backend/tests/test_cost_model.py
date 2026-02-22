@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -29,7 +29,7 @@ TOLL_TARIFFS_READY = _toll_tariffs_ready()
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import random
 
-from .models import IncidentSimulatorConfig, SimulatedIncidentEvent
+from .models import IncidentEventType, IncidentSimulatorConfig, SimulatedIncidentEvent
 
 
 def _seed_for_route(config: IncidentSimulatorConfig, route_key: str) -> int:
@@ -31,7 +31,7 @@ def simulate_incident_events(
 
     events: list[SimulatedIncidentEvent] = []
     cumulative_time_s = 0.0
-    event_specs: list[tuple[str, float, float]] = [
+    event_specs: list[tuple[IncidentEventType, float, float]] = [
         ("dwell", float(config.dwell_rate_per_100km), float(config.dwell_delay_s)),
         ("accident", float(config.accident_rate_per_100km), float(config.accident_delay_s)),
         ("closure", float(config.closure_rate_per_100km), float(config.closure_delay_s)),
@@ -70,4 +70,3 @@ def simulate_incident_events(
 
     events.sort(key=lambda event: (event.start_offset_s, event.segment_index, event.event_type, event.event_id))
     return events[: config.max_events_per_route]
-

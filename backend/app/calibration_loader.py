@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -87,9 +87,9 @@ def _parse_iso_datetime(raw: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     else:
-        parsed = parsed.astimezone(timezone.utc)
+        parsed = parsed.astimezone(UTC)
     return parsed
 
 
@@ -109,13 +109,13 @@ def _infer_as_of_from_payload(payload: dict[str, Any]) -> datetime | None:
 
 
 def _infer_as_of_from_path(path: Path) -> datetime:
-    return datetime.fromtimestamp(float(path.stat().st_mtime), tz=timezone.utc)
+    return datetime.fromtimestamp(float(path.stat().st_mtime), tz=UTC)
 
 
 def _is_fresh(as_of_utc: datetime | None, *, max_age_days: int) -> bool:
     if as_of_utc is None:
         return False
-    return (datetime.now(timezone.utc) - as_of_utc) <= timedelta(days=max(1, int(max_age_days)))
+    return (datetime.now(UTC) - as_of_utc) <= timedelta(days=max(1, int(max_age_days)))
 
 
 def _raise_if_strict_stale(
@@ -1010,7 +1010,15 @@ def _parse_scenario_profiles_payload(
                 },
             )
         if contexts:
-            actual_hours = len({int(ctx.hour_slot_local) for ctx in contexts.values()})
+            observed_hours: set[int] = set()
+            for ctx in contexts.values():
+                if ctx.hour_slot_local is None:
+                    continue
+                try:
+                    observed_hours.add(int(ctx.hour_slot_local))
+                except (TypeError, ValueError):
+                    continue
+            actual_hours = len(observed_hours)
             actual_corridors = len(
                 {
                     str(ctx.corridor_geohash5).strip().lower()
@@ -1171,7 +1179,7 @@ def load_scenario_profiles() -> ScenarioProfiles:
 def _is_fresh_minutes(as_of_utc: datetime | None, *, max_age_minutes: int) -> bool:
     if as_of_utc is None:
         return False
-    return (datetime.now(timezone.utc) - as_of_utc) <= timedelta(minutes=max(1, int(max_age_minutes)))
+    return (datetime.now(UTC) - as_of_utc) <= timedelta(minutes=max(1, int(max_age_minutes)))
 
 
 def _raise_if_strict_stale_minutes(
@@ -2677,8 +2685,8 @@ def _select_fuel_history_row(
 
     selected_row: dict[str, Any] | None = None
     if as_of_utc is not None:
-        target = as_of_utc if as_of_utc.tzinfo is not None else as_of_utc.replace(tzinfo=timezone.utc)
-        target = target.astimezone(timezone.utc)
+        target = as_of_utc if as_of_utc.tzinfo is not None else as_of_utc.replace(tzinfo=UTC)
+        target = target.astimezone(UTC)
         dated_rows: list[tuple[datetime, dict[str, Any]]] = []
         for row in candidate_rows:
             row_dt = _parse_iso_datetime(str(row.get("as_of_utc", row.get("as_of", ""))).strip())
@@ -3667,10 +3675,10 @@ def load_fuel_uncertainty_surface() -> FuelUncertaintySurface:
         for i in range(shape[0]):
             for j in range(shape[1]):
                 for k in range(shape[2]):
-                    for l in range(shape[3]):
-                        q10 = p10[i][j][k][l]
-                        q50 = p50[i][j][k][l]
-                        q90 = p90[i][j][k][l]
+                    for idx_l in range(shape[3]):
+                        q10 = p10[i][j][k][idx_l]
+                        q50 = p50[i][j][k][idx_l]
+                        q90 = p90[i][j][k][idx_l]
                         if not (q10 <= q50 <= q90):
                             raise ModelDataError(
                                 reason_code="model_asset_unavailable",

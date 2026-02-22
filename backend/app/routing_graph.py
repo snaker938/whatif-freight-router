@@ -8,7 +8,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .k_shortest import PathResult, TransitionStateFn, yen_k_shortest_paths, yen_k_shortest_paths_with_stats
+from .k_shortest import (
+    PathResult,
+    TransitionStateFn,
+    yen_k_shortest_paths,
+    yen_k_shortest_paths_with_stats,
+)
 from .settings import settings
 
 try:  # pragma: no cover - optional fast path for huge graph assets
@@ -41,8 +46,8 @@ class RouteGraph:
     version: str
     source: str
     nodes: dict[str, tuple[float, float]]
-    adjacency: dict[str, tuple["GraphEdge", ...]]
-    edge_index: dict[tuple[str, str], "GraphEdge"]
+    adjacency: dict[str, tuple[GraphEdge, ...]]
+    edge_index: dict[tuple[str, str], GraphEdge]
     grid_index: dict[tuple[int, int], tuple[str, ...]]
 
 
@@ -76,9 +81,15 @@ def _parse_node(raw: dict[str, object]) -> tuple[str, float, float] | None:
     if node_id_raw is None:
         return None
     node_id = str(node_id_raw)
+    lat_raw = raw.get("lat", 0.0)
+    lon_raw = raw.get("lon", 0.0)
+    if not isinstance(lat_raw, (int, float, str)):
+        return None
+    if not isinstance(lon_raw, (int, float, str)):
+        return None
     try:
-        lat = float(raw.get("lat", 0.0))
-        lon = float(raw.get("lon", 0.0))
+        lat = float(lat_raw)
+        lon = float(lon_raw)
     except (TypeError, ValueError):
         return None
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
@@ -97,9 +108,15 @@ def _parse_edge(raw: object) -> tuple[str, str, GraphEdge, bool] | None:
         oneway = bool(raw.get("oneway", False))
         highway = str(raw.get("highway", "unclassified")).strip().lower() or "unclassified"
         toll = bool(raw.get("toll", False))
-        try:
-            maxspeed_kph = float(raw.get("maxspeed_kph")) if raw.get("maxspeed_kph") is not None else None
-        except (TypeError, ValueError):
+        maxspeed_raw = raw.get("maxspeed_kph")
+        if maxspeed_raw is None:
+            maxspeed_kph = None
+        elif isinstance(maxspeed_raw, (int, float, str)):
+            try:
+                maxspeed_kph = float(maxspeed_raw)
+            except (TypeError, ValueError):
+                maxspeed_kph = None
+        else:
             maxspeed_kph = None
     elif isinstance(raw, (list, tuple)) and len(raw) >= 3:
         u, v, distance_m = raw[0], raw[1], raw[2]
@@ -751,6 +768,19 @@ def route_graph_candidate_routes(
     incident_rate_multiplier = max(0.5, min(2.8, float(scenario_mod.get("incident_rate_multiplier", 1.0))))
     incident_delay_multiplier = max(0.5, min(2.8, float(scenario_mod.get("incident_delay_multiplier", 1.0))))
     sigma_multiplier = max(0.4, min(2.8, float(scenario_mod.get("stochastic_sigma_multiplier", 1.0))))
+    weather_regime_factor = max(0.75, min(1.75, float(scenario_mod.get("weather_regime_factor", 1.0))))
+    hour_bucket_factor = max(0.75, min(1.75, float(scenario_mod.get("hour_bucket_factor", 1.0))))
+    road_class_factors_raw = scenario_mod.get("road_class_factors", {})
+    road_class_factors: dict[str, float] = {}
+    if isinstance(road_class_factors_raw, dict):
+        for key, value in road_class_factors_raw.items():
+            normalized_key = str(key).strip().lower()
+            if not normalized_key:
+                continue
+            try:
+                road_class_factors[normalized_key] = max(0.70, min(1.85, float(value)))
+            except (TypeError, ValueError):
+                continue
     scenario_edge_scaling_version = str(scenario_mod.get("scenario_edge_scaling_version", "v3_live_transform"))
     road_sensitivity = {
         "motorway": 0.75,

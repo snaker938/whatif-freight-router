@@ -30,10 +30,17 @@ def _report_lines(
     metadata: dict[str, Any],
     results: dict[str, Any],
 ) -> list[str]:
-    request = manifest.get("request") if isinstance(manifest.get("request"), dict) else {}
-    execution = manifest.get("execution") if isinstance(manifest.get("execution"), dict) else {}
-    stochastic = execution.get("stochastic") if isinstance(execution.get("stochastic"), dict) else {}
-    signature = manifest.get("signature") if isinstance(manifest.get("signature"), dict) else {}
+    request_raw = manifest.get("request")
+    request: dict[str, Any] = request_raw if isinstance(request_raw, dict) else {}
+
+    execution_raw = manifest.get("execution")
+    execution: dict[str, Any] = execution_raw if isinstance(execution_raw, dict) else {}
+
+    stochastic_raw = execution.get("stochastic")
+    stochastic: dict[str, Any] = stochastic_raw if isinstance(stochastic_raw, dict) else {}
+
+    signature_raw = manifest.get("signature")
+    signature: dict[str, Any] = signature_raw if isinstance(signature_raw, dict) else {}
 
     lines: list[str] = [
         "Freight Router Run Report",
@@ -62,13 +69,14 @@ def _report_lines(
 
     max_pairs = 10
     for idx, pair in enumerate(result_rows[:max_pairs]):
-        pair_dict = pair if isinstance(pair, dict) else {}
+        pair_dict: dict[str, Any] = pair if isinstance(pair, dict) else {}
         routes = pair_dict.get("routes")
         if not isinstance(routes, list) or not routes:
             lines.append(f"pair {idx}: no routes (error={pair_dict.get('error', 'n/a')})")
             continue
-        route = routes[0] if isinstance(routes[0], dict) else {}
-        metrics = route.get("metrics") if isinstance(route.get("metrics"), dict) else {}
+        route: dict[str, Any] = routes[0] if isinstance(routes[0], dict) else {}
+        metrics_raw = route.get("metrics")
+        metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
         route_id = route.get("id", f"pair{idx}_route0")
         duration_s = _to_float(metrics.get("duration_s"))
         money = _to_float(metrics.get("monetary_cost"))

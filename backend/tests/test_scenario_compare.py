@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,7 @@ class FakeOSRM:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:
@@ -47,7 +47,8 @@ def _scenario_profiles_payload(now_iso: str) -> dict[str, Any]:
     transform["fit_strategy"] = "empirical_temporal_forward"
     transform["scenario_edge_scaling_version"] = "v4_live_empirical"
     transform["context_similarity"]["max_distance"] = 10.0
-    q = lambda v: {"p10": v * 0.97, "p50": v, "p90": v * 1.03}
+    def q(v: float) -> dict[str, float]:
+        return {"p10": v * 0.97, "p50": v, "p90": v * 1.03}
     base_profiles = {
         "no_sharing": {
             "duration_multiplier": q(1.10),

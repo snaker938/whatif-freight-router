@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from bisect import bisect_left
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -10,17 +10,20 @@ from .settings import settings
 from .terrain_dem_index import (
     load_terrain_manifest,
     sample_elevation_m,
-    terrain_live_begin_route_run as _terrain_live_begin_route_run,
-    terrain_live_diagnostics_snapshot as _terrain_live_diagnostics_snapshot,
     terrain_live_route_token,
     terrain_runtime_status,
+)
+from .terrain_dem_index import (
+    terrain_live_begin_route_run as _terrain_live_begin_route_run,
+)
+from .terrain_dem_index import (
+    terrain_live_diagnostics_snapshot as _terrain_live_diagnostics_snapshot,
 )
 from .terrain_physics import (
     params_for_vehicle,
     route_emissions_multiplier,
     segment_duration_multiplier,
 )
-
 
 EARTH_RADIUS_M = 6_371_000.0
 UK_BBOX = {
@@ -106,7 +109,7 @@ class TerrainCoverageError(ValueError):
         return self.message
 
     @classmethod
-    def dem_coverage_insufficient(cls, *, coverage_ratio: float, required_ratio: float, version: str) -> "TerrainCoverageError":
+    def dem_coverage_insufficient(cls, *, coverage_ratio: float, required_ratio: float, version: str) -> TerrainCoverageError:
         return cls(
             reason_code="terrain_dem_coverage_insufficient",
             coverage_ratio=coverage_ratio,
@@ -119,7 +122,7 @@ class TerrainCoverageError(ValueError):
         )
 
     @classmethod
-    def region_unsupported(cls, *, version: str) -> "TerrainCoverageError":
+    def region_unsupported(cls, *, version: str) -> TerrainCoverageError:
         return cls(
             reason_code="terrain_region_unsupported",
             coverage_ratio=0.0,
@@ -129,7 +132,7 @@ class TerrainCoverageError(ValueError):
         )
 
     @classmethod
-    def asset_unavailable(cls, *, version: str) -> "TerrainCoverageError":
+    def asset_unavailable(cls, *, version: str) -> TerrainCoverageError:
         return cls(
             reason_code="terrain_dem_asset_unavailable",
             coverage_ratio=0.0,

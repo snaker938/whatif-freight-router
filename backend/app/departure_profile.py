@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .calibration_loader import load_departure_profile, load_uk_bank_holidays
@@ -9,7 +9,7 @@ from .calibration_loader import load_departure_profile, load_uk_bank_holidays
 try:
     UK_TZ = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
-    UK_TZ = timezone.utc
+    UK_TZ = UTC
 
 _GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
 
@@ -173,7 +173,7 @@ def time_of_day_multiplier_uk(
         )
 
     aware = departure_time_utc if departure_time_utc.tzinfo is not None else departure_time_utc.replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     local = aware.astimezone(UK_TZ)
     minute = (local.hour * 60) + local.minute

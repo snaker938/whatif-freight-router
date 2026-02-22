@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Sequence
+from typing import Any
 
-from .models import GeoJSONLineString, LatLng, RouteMetrics, RouteOption, Waypoint
+from .models import (
+    GeoJSONLineString,
+    LatLng,
+    RouteMetrics,
+    RouteOption,
+    TerrainSummaryPayload,
+    Waypoint,
+)
 
 
 @dataclass(frozen=True)
@@ -289,7 +297,11 @@ def _compose_route_option(leg_options: Sequence[RouteOption], *, option_id: str)
             "tariff_rule_ids": sorted(set(toll_rule_ids)),
             "fallback_policy_used": False,
         },
-        terrain_summary=terrain_summary,
+        terrain_summary=(
+            TerrainSummaryPayload.model_validate(terrain_summary)
+            if terrain_summary is not None
+            else None
+        ),
         incident_events=incident_events,
     )
 

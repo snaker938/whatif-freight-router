@@ -28,8 +28,8 @@ def _mk_option(
         geometry=GeoJSONLineString(
             type="LineString",
             coordinates=[
-                [start[1], start[0]],
-                [end[1], end[0]],
+                (start[1], start[0]),
+                (end[1], end[0]),
             ],
         ),
         metrics=RouteMetrics(
