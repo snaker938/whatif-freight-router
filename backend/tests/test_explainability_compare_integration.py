@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import app.main as main_module
 from fastapi.testclient import TestClient
 
+from app.main import CandidateDiagnostics, TerrainDiagnostics
 from app.main import app, osrm_client
+from app.models import GeoJSONLineString, RouteMetrics, RouteOption, ScenarioSummary
+from app.scenario import ScenarioMode
 from app.settings import settings
 
 
@@ -53,6 +57,120 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
     out_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(settings, "out_dir", str(out_dir))
     fake = MultiRouteOSRM()
+
+    async def _fake_collect_route_options_with_diagnostics(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        TerrainDiagnostics,
+        CandidateDiagnostics,
+    ]:
+        origin = kwargs["origin"]
+        destination = kwargs["destination"]
+        option_prefix = str(kwargs.get("option_prefix", "route"))
+        scenario_mode = kwargs.get("scenario_mode", ScenarioMode.NO_SHARING)
+        weather_cfg = kwargs.get("weather")
+        weather_enabled = bool(getattr(weather_cfg, "enabled", False))
+
+        base_stages: list[dict[str, float | str]] = [
+            {"stage": "baseline", "duration_s": 3000.0, "delta_s": 0.0},
+            {"stage": "time_of_day", "duration_s": 3150.0, "delta_s": 150.0},
+            {"stage": "scenario", "duration_s": 3300.0, "delta_s": 150.0},
+        ]
+        if weather_enabled:
+            base_stages.append({"stage": "weather", "duration_s": 3420.0, "delta_s": 120.0})
+        base_stages.append(
+            {
+                "stage": "gradient",
+                "duration_s": 3520.0 if weather_enabled else 3400.0,
+                "delta_s": 100.0,
+            }
+        )
+
+        options: list[RouteOption] = []
+        for idx, scale in enumerate((1.0, 1.1, 1.2), start=1):
+            coords = [
+                (float(origin.lon), float(origin.lat)),
+                (
+                    float((origin.lon + destination.lon) / 2.0),
+                    float((origin.lat + destination.lat) / 2.0),
+                ),
+                (float(destination.lon), float(destination.lat)),
+            ]
+            duration_s = 3500.0 * scale
+            distance_km = 70.0 * scale
+            options.append(
+                RouteOption(
+                    id=f"{option_prefix}_{idx}",
+                    geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+                    metrics=RouteMetrics(
+                        distance_km=distance_km,
+                        duration_s=duration_s,
+                        monetary_cost=120.0 * scale,
+                        emissions_kg=95.0 * scale,
+                        avg_speed_kmh=distance_km / (duration_s / 3600.0),
+                        weather_delay_s=120.0 if weather_enabled else 0.0,
+                        incident_delay_s=0.0,
+                    ),
+                    eta_explanations=[
+                        "Baseline ETA computed.",
+                        "Time-of-day profile applied.",
+                        "Scenario multiplier applied.",
+                        "Terrain profile applied.",
+                    ],
+                    eta_timeline=[
+                        {
+                            "stage": str(stage["stage"]),
+                            "duration_s": float(stage["duration_s"]) * scale,
+                            "delta_s": float(stage["delta_s"]) * scale,
+                        }
+                        for stage in base_stages
+                    ],
+                    segment_breakdown=[
+                        {
+                            "segment_index": 0,
+                            "distance_km": distance_km,
+                            "duration_s": duration_s,
+                            "incident_delay_s": 0.0,
+                            "emissions_kg": 95.0 * scale,
+                            "monetary_cost": 120.0 * scale,
+                        }
+                    ],
+                    scenario_summary=ScenarioSummary(
+                        mode=scenario_mode,
+                        duration_multiplier=1.0,
+                        incident_rate_multiplier=1.0,
+                        incident_delay_multiplier=1.0,
+                        fuel_consumption_multiplier=1.0,
+                        emissions_multiplier=1.0,
+                        stochastic_sigma_multiplier=1.0,
+                        source="pytest",
+                        version="pytest",
+                    ),
+                    incident_events=[],
+                )
+            )
+
+        return (
+            options,
+            [],
+            len(options),
+            TerrainDiagnostics(),
+            CandidateDiagnostics(
+                raw_count=len(options),
+                deduped_count=len(options),
+                graph_explored_states=3,
+                graph_generated_paths=3,
+                graph_emitted_paths=len(options),
+                candidate_budget=3,
+            ),
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fake_collect_route_options_with_diagnostics,
+    )
     app.dependency_overrides[osrm_client] = lambda: fake
 
     try:

@@ -7,9 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+from app.main import CandidateDiagnostics, TerrainDiagnostics
 from app.main import app, osrm_client
+from app.models import GeoJSONLineString, RouteMetrics, RouteOption, ScenarioSummary
 from app.routing_graph import GraphCandidateDiagnostics
 from app.routing_osrm import OSRMError
+from app.scenario import ScenarioMode
+from app.settings import settings
 
 
 def _make_route(
@@ -127,9 +131,88 @@ def client(fake_osrm: FakeOSRM, monkeypatch: pytest.MonkeyPatch):
             ),
         )
 
+    async def _fake_collect_route_options_with_diagnostics(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        TerrainDiagnostics,
+        CandidateDiagnostics,
+    ]:
+        scenario_mode = kwargs.get("scenario_mode", ScenarioMode.NO_SHARING)
+        raw_routes = [
+            _make_route(
+                point_count=1800,
+                duration_s=900.0,
+                distance_m=120_000.0,
+                lon_offset=-1.9,
+            ),
+            _make_route(
+                point_count=1600,
+                duration_s=1050.0,
+                distance_m=126_000.0,
+                lon_offset=-1.7,
+            ),
+        ]
+
+        options: list[RouteOption] = []
+        for idx, route in enumerate(raw_routes, start=1):
+            raw_coords = route["geometry"]["coordinates"]
+            coords = [(float(pt[0]), float(pt[1])) for pt in raw_coords]
+            coords = main_module._downsample_coords(coords)
+            distance_km = float(route["distance"]) / 1000.0
+            duration_s = float(route["duration"])
+            avg_speed_kmh = distance_km / (duration_s / 3600.0)
+            options.append(
+                RouteOption(
+                    id=f"route_{idx}",
+                    geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+                    metrics=RouteMetrics(
+                        distance_km=distance_km,
+                        duration_s=duration_s,
+                        monetary_cost=distance_km * 2.0,
+                        emissions_kg=distance_km * 0.8,
+                        avg_speed_kmh=avg_speed_kmh,
+                    ),
+                    scenario_summary=ScenarioSummary(
+                        mode=scenario_mode,
+                        duration_multiplier=1.0,
+                        incident_rate_multiplier=1.0,
+                        incident_delay_multiplier=1.0,
+                        fuel_consumption_multiplier=1.0,
+                        emissions_multiplier=1.0,
+                        stochastic_sigma_multiplier=1.0,
+                        source="pytest",
+                        version="pytest",
+                    ),
+                )
+            )
+
+        return (
+            options,
+            [],
+            len(raw_routes),
+            TerrainDiagnostics(),
+            CandidateDiagnostics(
+                raw_count=len(raw_routes),
+                deduped_count=len(options),
+                graph_explored_states=320,
+                graph_generated_paths=28,
+                graph_emitted_paths=len(options),
+                candidate_budget=24,
+            ),
+        )
+
     app.dependency_overrides[osrm_client] = lambda: fake_osrm
+    monkeypatch.setenv("STRICT_RUNTIME_TEST_BYPASS", "1")
+    monkeypatch.setattr(settings, "strict_live_data_required", False)
+    monkeypatch.setattr(settings, "live_scenario_require_url_in_strict", False)
     monkeypatch.setattr(main_module, "route_graph_status", lambda: (True, "ok"))
     monkeypatch.setattr(main_module, "route_graph_candidate_routes", _fake_graph_candidate_routes)
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fake_collect_route_options_with_diagnostics,
+    )
     try:
         with TestClient(app) as c:
             yield c
