@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from tempfile import gettempdir
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,25 @@ def _default_osrm_base_url() -> str:
 def _default_model_asset_dir() -> str:
     # Keep model artifacts in backend/out by default to avoid polluting source assets.
     return str(Path(__file__).resolve().parents[1] / "out" / "model_assets")
+
+
+def _resolve_writable_out_dir(configured_out_dir: str) -> str:
+    candidates = (
+        Path(configured_out_dir),
+        Path(__file__).resolve().parents[1] / "out",
+        Path.cwd() / "out",
+        Path(gettempdir()) / "whatif-freight-router" / "out",
+    )
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".writetest"
+            probe.touch(exist_ok=True)
+            probe.unlink(missing_ok=True)
+            return str(candidate)
+        except OSError:
+            continue
+    return str(Path.cwd() / "out")
 
 
 class Settings(BaseSettings):
@@ -513,6 +533,7 @@ class Settings(BaseSettings):
         self.live_scenario_require_url_in_strict = True
         self.live_scenario_allow_signed_fallback = False
         self.scenario_require_signature = True
+        self.out_dir = _resolve_writable_out_dir(self.out_dir)
         rf = str(self.risk_family or "cvar_excess").strip().lower()
         if rf not in {"cvar_excess", "entropic", "downside_semivariance"}:
             rf = "cvar_excess"

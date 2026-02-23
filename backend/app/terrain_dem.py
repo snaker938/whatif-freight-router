@@ -97,7 +97,7 @@ def _route_intersects_uk(coordinates_lon_lat: list[tuple[float, float]]) -> bool
     return False
 
 
-@dataclass(frozen=True)
+@dataclass
 class TerrainCoverageError(ValueError):
     reason_code: str
     coverage_ratio: float
