@@ -34,7 +34,7 @@ def _is_tolled_props(props: dict[str, Any]) -> bool:
         or toll_tag in {"yes", "hgv", "all"}
         or barrier == "toll_booth"
         or highway == "toll_gantry"
-        or ("tunnel" in name and operator)
+        or ("tunnel" in name and bool(operator))
     )
 
 

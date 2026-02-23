@@ -3,13 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
-
 
 TILE_URL_TEMPLATE = "https://s3.amazonaws.com/elevation-tiles-prod/geotiff/{z}/{x}/{y}.tif"
 

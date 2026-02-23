@@ -4,7 +4,7 @@ import argparse
 import json
 import math
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -339,8 +339,8 @@ def build(
     if not nodes or not edges:
         raise RuntimeError("No graph nodes/edges were extracted from source input.")
 
-    generated_at_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    as_of_utc = datetime.fromtimestamp(source.stat().st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    generated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    as_of_utc = datetime.fromtimestamp(source.stat().st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")
     payload = {
         "version": "uk-routing-graph-v1",
         "source": str(source),

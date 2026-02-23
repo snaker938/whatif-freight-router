@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
 import csv
 import glob
-import json
-import sys
 import hashlib
+import json
 import os
-from datetime import datetime, timedelta, timezone
+import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -15,33 +16,34 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.calibration_loader import (
-    load_departure_profile,
-    load_scenario_profiles,
-    load_fuel_consumption_surface,
-    load_fuel_price_snapshot,
-    load_fuel_uncertainty_surface,
-    load_stochastic_regimes,
-    load_uk_bank_holidays,
-    load_toll_segments_seed,
-    load_toll_tariffs,
-)
-from app.vehicles import load_builtin_vehicles
-from app.settings import settings
-from build_routing_graph_uk import build as build_routing_graph
-from build_terrain_tiles_uk import build_assets as build_terrain_assets
 from build_departure_profiles_uk import build as build_departure_profiles
-from build_stochastic_calibration_uk import build as build_stochastic_regimes
-from build_scenario_profiles_uk import build as build_scenario_profiles
 from build_pricing_tables_uk import build as build_pricing_tables
+from build_routing_graph_uk import build as build_routing_graph
+from build_scenario_profiles_uk import build as build_scenario_profiles
+from build_stochastic_calibration_uk import build as build_stochastic_regimes
+from build_terrain_tiles_uk import build_assets as build_terrain_assets
 from extract_osm_tolls_uk import extract as extract_toll_assets
-from fetch_public_dem_tiles_uk import fetch_tiles as fetch_public_dem_tiles
+from fetch_carbon_intensity_uk import augment_carbon_schedule, build_intensity_asset
 from fetch_dft_counts_uk import build as build_departure_counts_empirical
 from fetch_fuel_history_uk import build as build_fuel_history
-from fetch_carbon_intensity_uk import augment_carbon_schedule, build_intensity_asset
+from fetch_public_dem_tiles_uk import fetch_tiles as fetch_public_dem_tiles
 from fetch_stochastic_residuals_uk import build as build_stochastic_residuals
 from fetch_toll_truth_uk import build as build_toll_truth_fixtures
 from validate_graph_coverage import validate as validate_graph_coverage
+
+from app.calibration_loader import (
+    load_departure_profile,
+    load_fuel_consumption_surface,
+    load_fuel_price_snapshot,
+    load_fuel_uncertainty_surface,
+    load_scenario_profiles,
+    load_stochastic_regimes,
+    load_toll_segments_seed,
+    load_toll_tariffs,
+    load_uk_bank_holidays,
+)
+from app.settings import settings
+from app.vehicles import load_builtin_vehicles
 
 
 def _ci_strict_mode() -> bool:
@@ -164,12 +166,12 @@ def _parse_iso_utc(raw: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _require_fresh_as_of(*, label: str, as_of: datetime, max_age_days: int) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if as_of > (now + timedelta(days=2)):
         raise RuntimeError(f"{label} as_of_utc is unexpectedly in the future: {as_of.isoformat()}")
     if now - as_of > timedelta(days=max(1, int(max_age_days))):
@@ -269,6 +271,7 @@ def _validate_stochastic_residual_asset(
     min_weather_profiles: int,
     min_vehicle_types: int,
     min_local_slots: int,
+    min_unique_corridors: int,
     max_age_days: int,
 ) -> None:
     if not path.exists():
@@ -295,6 +298,7 @@ def _validate_stochastic_residual_asset(
     weather_profiles: set[str] = set()
     vehicles: set[str] = set()
     slots: set[str] = set()
+    corridors: set[str] = set()
     day_kinds: set[str] = set()
     latest_as_of: datetime | None = None
     with path.open("r", encoding="utf-8", newline="") as f:
@@ -311,6 +315,7 @@ def _validate_stochastic_residual_asset(
             weather_profiles.add(str(row.get("weather_profile", "")).strip().lower())
             vehicles.add(str(row.get("vehicle_type", "")).strip().lower())
             slots.add(str(row.get("local_time_slot", "")).strip().lower())
+            corridors.add(str(row.get("corridor_bucket", "")).strip().lower())
             day_kinds.add(str(row.get("day_kind", "")).strip().lower())
             for field, low, high in (
                 ("traffic", 0.25, 4.5),
@@ -362,6 +367,11 @@ def _validate_stochastic_residual_asset(
     if len(slots - {""}) < max(1, int(min_local_slots)):
         raise RuntimeError(
             f"Empirical residual local-slot diversity too small ({len(slots - {''})} < {int(min_local_slots)})."
+        )
+    if len(corridors - {""}) < max(1, int(min_unique_corridors)):
+        raise RuntimeError(
+            "Empirical residual corridor diversity too small "
+            f"({len(corridors - {''})} < {int(min_unique_corridors)})."
         )
     if latest_as_of is None:
         raise RuntimeError("Empirical residual corpus is missing as_of_utc coverage.")
@@ -514,8 +524,11 @@ def _validate_toll_fixture_dir(path: Path, *, required_keys: set[str], min_count
                 payload.get("expected_contains_toll"), bool
             ):
                 raise RuntimeError(f"Toll pricing fixture has invalid expected_contains_toll: {fixture}")
+            raw_expected_cost = payload.get("expected_toll_cost_gbp")
+            if raw_expected_cost is None:
+                raise RuntimeError(f"Toll pricing fixture has missing expected_toll_cost_gbp: {fixture}")
             try:
-                expected_cost = float(payload.get("expected_toll_cost_gbp"))
+                expected_cost = float(raw_expected_cost)
             except (TypeError, ValueError) as exc:
                 raise RuntimeError(f"Toll pricing fixture has invalid expected_toll_cost_gbp: {fixture}") from exc
             if expected_cost < 0.0:
@@ -1537,7 +1550,7 @@ def build_assets(
                 h.update(chunk)
         checksums[rel] = h.hexdigest()
 
-    generated_at_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    generated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     signature_seed = json.dumps(checksums, sort_keys=True, separators=(",", ":")).encode("utf-8")
     signature = hashlib.sha256(signature_seed).hexdigest()
     (out_dir / "manifest.json").write_text(

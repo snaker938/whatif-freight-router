@@ -5,7 +5,7 @@ import csv
 import json
 import os
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -118,8 +118,8 @@ def _build_from_empirical_counts(
         observed_stdev[(region, road_bucket, day_kind)] = stdev_series
 
     # Fill any missing day kinds per region/road bucket using weekday defaults.
-    for region, road_map in profiles.items():
-        for road_bucket, day_map in road_map.items():
+    for _region, road_map in profiles.items():
+        for _road_bucket, day_map in road_map.items():
             weekday = day_map.get("weekday", [1.0 for _ in range(1440)])
             weekend = day_map.get("weekend", weekday)
             holiday = day_map.get("holiday", weekend)
@@ -244,7 +244,7 @@ def build(
         profiles, envelopes = _build_synthetic_from_sparse(sparse_csv=sparse_csv)
         source = str(sparse_csv)
 
-    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now_iso = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     payload: dict[str, Any] = {
         "source": source,
         "version": version,

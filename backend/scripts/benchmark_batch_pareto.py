@@ -5,10 +5,11 @@ import json
 import random
 import sys
 import tracemalloc
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Sequence
+from typing import Any
 
 import httpx
 from fastapi.testclient import TestClient

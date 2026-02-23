@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy.spatial import cKDTree
+
+
+def _load_scipy_ckdtree() -> type[Any] | None:
+    try:  # pragma: no cover - scipy is optional in some local setups
+        spatial = importlib.import_module("scipy.spatial")
+    except Exception:  # pragma: no cover
+        return None
+    candidate = getattr(spatial, "cKDTree", None)
+    return candidate if isinstance(candidate, type) else None
+
+
+_SciPyKDTree = _load_scipy_ckdtree()
 
 
 def _load_graph(path: Path) -> dict[str, Any]:
@@ -118,8 +130,19 @@ def validate(
     fixture_xy, _ = _to_xy_m(fixture_points)
     if graph_xy.shape[0] == 0 or fixture_xy.shape[0] == 0:
         raise RuntimeError("Coverage validation requires non-empty graph and fixture coordinates.")
-    tree = cKDTree(graph_xy)
-    distances_m, _indices = tree.query(fixture_xy, k=1, workers=-1)
+    if _SciPyKDTree is not None:
+        tree = _SciPyKDTree(graph_xy)
+        distances_m, _indices = tree.query(fixture_xy, k=1, workers=-1)
+    else:
+        # Fallback for environments without scipy: chunked brute-force nearest-neighbor.
+        best = np.full((fixture_xy.shape[0],), np.inf, dtype=np.float64)
+        chunk_size = 10_000
+        for start in range(0, graph_xy.shape[0], chunk_size):
+            graph_chunk = graph_xy[start : start + chunk_size]
+            diff = fixture_xy[:, None, :] - graph_chunk[None, :, :]
+            dist_sq = np.einsum("ijk,ijk->ij", diff, diff)
+            best = np.minimum(best, np.sqrt(np.min(dist_sq, axis=1)))
+        distances_m = best
     worst_fixture_dist = float(np.max(distances_m))
     if worst_fixture_dist > max_fixture_dist_m:
         raise RuntimeError(

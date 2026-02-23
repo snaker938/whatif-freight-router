@@ -4,9 +4,10 @@ import argparse
 import csv
 import json
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 
 def _utc_now_iso() -> str:

@@ -1,22 +1,23 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
 import hashlib
 import json
+import math
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.calibration_loader import load_scenario_profiles
 from app.live_data_sources import live_scenario_context
 from app.scenario import ScenarioMode, build_scenario_route_context, resolve_scenario_profile
-from app.calibration_loader import load_scenario_profiles
 
 
 def _signature(payload: dict[str, Any]) -> str:
@@ -408,10 +409,9 @@ def _load_corridors(path: Path | None) -> list[dict[str, Any]]:
         corridor = str(row.get("corridor", row.get("corridor_bucket", ""))).strip()
         if not corridor:
             continue
-        try:
-            lat = float(row.get("lat"))
-            lon = float(row.get("lon"))
-        except (TypeError, ValueError):
+        lat = _safe_float(row.get("lat"), float("nan"))
+        lon = _safe_float(row.get("lon"), float("nan"))
+        if not (math.isfinite(lat) and math.isfinite(lon)):
             continue
         road_hint = str(row.get("road_hint", "")).strip() or None
         out.append(

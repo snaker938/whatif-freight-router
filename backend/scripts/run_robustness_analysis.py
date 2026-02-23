@@ -6,9 +6,10 @@ import json
 import random
 import statistics
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import httpx
 from fastapi.testclient import TestClient

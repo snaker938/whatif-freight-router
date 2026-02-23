@@ -13,11 +13,13 @@ try:  # pragma: no cover - this script is exercised in dev/CI build jobs
     import numpy as np
     import rasterio
     from rasterio.merge import merge as raster_merge
-    from rasterio.warp import calculate_default_transform, reproject, Resampling
+    from rasterio.transform import array_bounds as raster_array_bounds
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
 except Exception:  # pragma: no cover
     np = None  # type: ignore[assignment]
     rasterio = None  # type: ignore[assignment]
     raster_merge = None  # type: ignore[assignment]
+    raster_array_bounds = None  # type: ignore[assignment]
     calculate_default_transform = None  # type: ignore[assignment]
     reproject = None  # type: ignore[assignment]
     Resampling = None  # type: ignore[assignment]
@@ -29,6 +31,18 @@ def _checksum(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 256), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _coerce_positive_int(value: Any, *, field_name: str) -> int:
+    if value is None:
+        raise RuntimeError(f"Missing {field_name} when computing DEM reprojection transform.")
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"Invalid {field_name} from DEM reprojection transform: {value!r}") from exc
+    if coerced <= 0:
+        raise RuntimeError(f"Non-positive {field_name} from DEM reprojection transform: {coerced}.")
+    return coerced
 
 
 def _read_grid(path: Path) -> dict[str, Any]:
@@ -110,6 +124,7 @@ def _build_from_geotiff_sources(
         rasterio is None
         or raster_merge is None
         or np is None
+        or raster_array_bounds is None
         or calculate_default_transform is None
         or reproject is None
         or Resampling is None
@@ -129,14 +144,16 @@ def _build_from_geotiff_sources(
         if str(src_crs).upper() != dst_crs:
             src_height = int(band.shape[0])
             src_width = int(band.shape[1])
-            src_bounds = rasterio.transform.array_bounds(src_height, src_width, transform)
-            dst_transform, dst_width, dst_height = calculate_default_transform(
+            src_bounds = raster_array_bounds(src_height, src_width, transform)
+            dst_transform, dst_width_raw, dst_height_raw = calculate_default_transform(
                 src_crs,
                 dst_crs,
                 src_width,
                 src_height,
                 *src_bounds,
             )
+            dst_width = _coerce_positive_int(dst_width_raw, field_name="dst_width")
+            dst_height = _coerce_positive_int(dst_height_raw, field_name="dst_height")
             reprojected = np.empty((dst_height, dst_width), dtype=band.dtype)
             reproject(
                 source=band,
@@ -174,7 +191,7 @@ def _build_from_geotiff_sources(
         with rasterio.open(out_tif, "w", **meta) as dst:
             dst.write(band, 1)
 
-        west, south, east, north = rasterio.transform.array_bounds(
+        west, south, east, north = raster_array_bounds(
             int(band.shape[0]),
             int(band.shape[1]),
             transform,

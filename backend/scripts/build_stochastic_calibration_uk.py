@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import json
+import bisect
 import csv
+import hashlib
+import json
 import math
 import os
-import bisect
-import hashlib
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -200,7 +200,7 @@ def _quantile_mapping(values: list[float]) -> list[list[float]]:
 
 
 def _merge(base: dict[str, float], mod_a: dict[str, float], mod_b: dict[str, float]) -> dict[str, Any]:
-    out = dict(base)
+    out: dict[str, Any] = dict(base)
     for key, value in mod_a.items():
         out[key] = max(0.10, float(out.get(key, 1.0)) * float(value))
     for key, value in mod_b.items():
@@ -274,9 +274,9 @@ def _build_from_residuals(
             except ValueError:
                 continue
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
+                parsed = parsed.replace(tzinfo=UTC)
             else:
-                parsed = parsed.astimezone(timezone.utc)
+                parsed = parsed.astimezone(UTC)
             return parsed
         return None
 
@@ -586,24 +586,24 @@ def _build_from_residuals(
     }
     fit_window = {
         "start_utc": (
-            min(fit_dates).astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            min(fit_dates).astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             if fit_dates
             else ""
         ),
         "end_utc": (
-            max(fit_dates).astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            max(fit_dates).astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             if fit_dates
             else ""
         ),
     }
     holdout_window = {
         "start_utc": (
-            min(holdout_dates).astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            min(holdout_dates).astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             if holdout_dates
             else ""
         ),
         "end_utc": (
-            max(holdout_dates).astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            max(holdout_dates).astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             if holdout_dates
             else ""
         ),
@@ -723,9 +723,15 @@ def _validate_prior_rows(
         road_bucket = str(prior.get("road_bucket", "")).strip().lower()
         weather_profile = str(prior.get("weather_profile", "")).strip().lower()
         vehicle_type = str(prior.get("vehicle_type", "")).strip().lower()
+        sigma_floor_raw = prior.get("sigma_floor")
+        sample_count_raw = prior.get("sample_count")
+        if sigma_floor_raw is None or sample_count_raw is None:
+            raise RuntimeError(
+                f"Residual prior '{prior_id}' has missing numeric values."
+            )
         try:
-            sigma_floor = float(prior.get("sigma_floor"))
-            sample_count = int(float(prior.get("sample_count")))
+            sigma_floor = float(sigma_floor_raw)
+            sample_count = int(float(sample_count_raw))
         except (TypeError, ValueError) as exc:
             raise RuntimeError(
                 f"Residual prior '{prior_id}' has invalid numeric values."
@@ -799,7 +805,7 @@ def build(
     priors: list[dict[str, Any]] = []
     calibration_version = "v3-uk-empirical-2026.02"
     calibration_basis = "synthetic"
-    if strict_empirical:
+    if strict_empirical and residuals_csv is not None:
         regimes, posterior_model, holdout_metrics, fit_window, holdout_window = _build_from_residuals(
             residuals_csv=residuals_csv
         )
@@ -891,8 +897,8 @@ def build(
         "copula_id": "gaussian_5x5_uk_v3_calibrated",
         "calibration_version": calibration_version,
         "calibration_basis": calibration_basis,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "as_of_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "as_of_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "fit_window": fit_window,
         "holdout_window": holdout_window,
         "split_strategy": split_strategy,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
 import json
 import statistics
@@ -15,9 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.calibration_loader import load_fuel_price_snapshot, load_scenario_profiles, load_stochastic_regimes
-from app.main import _finalize_pareto_options, _option_objective_value, build_option
+from app.calibration_loader import (
+    load_fuel_price_snapshot,
+    load_scenario_profiles,
+    load_stochastic_regimes,
+)
 from app.fuel_energy_model import segment_energy_and_emissions
+from app.main import _finalize_pareto_options, _option_objective_value, build_option
 from app.models import CostToggles, EmissionsContext, RouteOption, StochasticConfig
 from app.routing_graph import load_route_graph, route_graph_candidate_routes
 from app.scenario import ScenarioMode
@@ -633,7 +638,7 @@ def _score_departure_time(routes: list[dict[str, Any]]) -> tuple[int, dict[str, 
     }
 
 
-def _score_scenario_profiles(routes: list[dict[str, Any]]) -> tuple[int, dict[str, float]]:
+def _score_scenario_profiles(routes: list[dict[str, Any]]) -> tuple[int, dict[str, float | None]]:
     if not routes:
         return 0, {
             "monotonic_duration": 0.0,
@@ -1160,7 +1165,7 @@ def _score_scenario_profiles(routes: list[dict[str, Any]]) -> tuple[int, dict[st
     }
 
 
-def _score_stochastic_sampling(routes: list[dict[str, Any]]) -> tuple[int, dict[str, float]]:
+def _score_stochastic_sampling(routes: list[dict[str, Any]]) -> tuple[int, dict[str, float | None]]:
     if not routes:
         return 0, {
             "invariants": 0.0,
@@ -1878,7 +1883,7 @@ def _score_toll_cost(options: list[RouteOption], dropped_reasons: Counter[str]) 
         decomposition_checks.append(_relative_error_score(total_components, total_monetary, tolerance=0.02))
         toll_md = option.toll_metadata or {}
         has_classification = bool(str(toll_md.get("classification_source", "")).strip())
-        has_pricing = bool((toll_md.get("tariff_rule_ids", []) or [])) or sum(float(row.get("toll_cost", 0.0)) for row in option.segment_breakdown) <= 0.0
+        has_pricing = bool(toll_md.get("tariff_rule_ids", []) or []) or sum(float(row.get("toll_cost", 0.0)) for row in option.segment_breakdown) <= 0.0
         priced_toll_checks.append(1.0 if (has_classification and has_pricing) else 0.0)
     unresolved_count = dropped_reasons.get("toll_tariff_unresolved", 0) + dropped_reasons.get("toll_tariff_unavailable", 0)
     unresolved_penalty = max(0.0, 1.0 - (unresolved_count / max(1, len(options))))
@@ -1963,12 +1968,23 @@ def _score_toll_cost(options: list[RouteOption], dropped_reasons: Counter[str]) 
 
 def _safe_score_eval(
     fn: Any,
-) -> tuple[int, dict[str, float | str]]:
+) -> tuple[int, dict[str, float | str | None]]:
     try:
         score, metrics = fn()
         return int(score), metrics
     except Exception as exc:
         return 0, {"error": str(exc).strip() or type(exc).__name__}
+
+
+def _exception_reason_code(exc: Exception) -> str | None:
+    extra = getattr(exc, "__dict__", {})
+    if not isinstance(extra, dict):
+        return None
+    value = extra.get("reason_code")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def main() -> None:
@@ -1984,7 +2000,7 @@ def main() -> None:
     subsystem = args.subsystem
     missing_raw_evidence = _strict_missing_raw_evidence(subsystem=subsystem)
     if missing_raw_evidence:
-        zero_scores = {key: 0 for key in QUALITY_THRESHOLDS}
+        zero_scores: dict[str, float] = {key: 0.0 for key in QUALITY_THRESHOLDS}
         zero_scores["overall"] = 0.0
         fatal = {
             "scores": zero_scores,
@@ -2029,7 +2045,7 @@ def main() -> None:
     fixture_count_ok = len(routes) >= min_routes
     corridor_count_ok = len(corridor_sigs) >= min_corridors
     if not fixture_count_ok or not corridor_count_ok:
-        zero_scores = {key: 0 for key in QUALITY_THRESHOLDS}
+        zero_scores: dict[str, float] = {key: 0.0 for key in QUALITY_THRESHOLDS}
         zero_scores["overall"] = 0.0
         out = {
             "scores": zero_scores,
@@ -2057,7 +2073,7 @@ def main() -> None:
 
     synthetic_violations = _synthetic_manifest_violations(Path(settings.model_asset_dir))
     if synthetic_violations:
-        zero_scores = {key: 0 for key in QUALITY_THRESHOLDS}
+        zero_scores: dict[str, float] = {key: 0.0 for key in QUALITY_THRESHOLDS}
         zero_scores["overall"] = 0.0
         out = {
             "scores": zero_scores,
@@ -2139,18 +2155,20 @@ def main() -> None:
             reason = "unknown"
             if "reason_code:" in msg:
                 reason = msg.split("reason_code:", 1)[1].split(";", 1)[0].strip() or "unknown"
-            elif hasattr(exc, "reason_code"):
-                reason = str(getattr(exc, "reason_code") or "unknown")
-            elif (
-                "terrain_dem_asset_unavailable" in msg.lower()
-                or "terrain dem assets are unavailable" in msg.lower()
-                or "synthetic grid terrain assets are disabled" in msg.lower()
-            ):
-                reason = "terrain_dem_asset_unavailable"
-            elif "terrain" in msg.lower() and "coverage" in msg.lower():
-                reason = "terrain_dem_coverage_insufficient"
-            elif "toll" in msg.lower():
-                reason = "toll_tariff_unresolved"
+            else:
+                reason_code = _exception_reason_code(exc)
+                if reason_code is not None:
+                    reason = reason_code
+                elif (
+                    "terrain_dem_asset_unavailable" in msg.lower()
+                    or "terrain dem assets are unavailable" in msg.lower()
+                    or "synthetic grid terrain assets are disabled" in msg.lower()
+                ):
+                    reason = "terrain_dem_asset_unavailable"
+                elif "terrain" in msg.lower() and "coverage" in msg.lower():
+                    reason = "terrain_dem_coverage_insufficient"
+                elif "toll" in msg.lower():
+                    reason = "toll_tariff_unresolved"
             dropped_reasons[reason] += 1
 
         try:
@@ -2174,14 +2192,16 @@ def main() -> None:
             reason = "unknown"
             if "reason_code:" in msg:
                 reason = msg.split("reason_code:", 1)[1].split(";", 1)[0].strip() or "unknown"
-            elif hasattr(exc, "reason_code"):
-                reason = str(getattr(exc, "reason_code") or "unknown")
-            elif "toll" in msg.lower():
-                reason = "toll_tariff_unresolved"
+            else:
+                reason_code = _exception_reason_code(exc)
+                if reason_code is not None:
+                    reason = reason_code
+                elif "toll" in msg.lower():
+                    reason = "toll_tariff_unresolved"
             dropped_toll_reasons[reason] += 1
 
     if not options:
-        zero_scores = {key: 0 for key in QUALITY_THRESHOLDS}
+        zero_scores: dict[str, float] = {key: 0.0 for key in QUALITY_THRESHOLDS}
         zero_scores["overall"] = 0.0
         out = {
             "scores": zero_scores,
@@ -2218,17 +2238,17 @@ def main() -> None:
     carbon_score, carbon_metrics = _safe_score_eval(lambda: _score_carbon_price(routes))
     toll_cost_score, toll_cost_metrics = _safe_score_eval(lambda: _score_toll_cost(toll_options, dropped_toll_reasons))
 
-    scores = {
-        "risk_aversion": risk_score,
-        "dominance": dominance_score,
-        "scenario_profile": scenario_score,
-        "departure_time": departure_score,
-        "stochastic_sampling": stochastic_score,
-        "terrain_profile": terrain_score,
-        "toll_classification": toll_class_score,
-        "fuel_price": fuel_score,
-        "carbon_price": carbon_score,
-        "toll_cost": toll_cost_score,
+    scores: dict[str, float] = {
+        "risk_aversion": float(risk_score),
+        "dominance": float(dominance_score),
+        "scenario_profile": float(scenario_score),
+        "departure_time": float(departure_score),
+        "stochastic_sampling": float(stochastic_score),
+        "terrain_profile": float(terrain_score),
+        "toll_classification": float(toll_class_score),
+        "fuel_price": float(fuel_score),
+        "carbon_price": float(carbon_score),
+        "toll_cost": float(toll_cost_score),
     }
 
     total_dropped = dropped + dropped_toll

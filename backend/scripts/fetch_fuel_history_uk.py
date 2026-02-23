@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -65,14 +64,20 @@ def _load_history_payload(path: Path) -> tuple[list[FuelPoint], dict[str, float]
         prices = row.get("prices_gbp_per_l", {})
         if not isinstance(prices, dict):
             continue
+        diesel_raw = prices.get("diesel")
+        petrol_raw = prices.get("petrol")
+        lng_raw = prices.get("lng")
+        grid_raw = row.get("grid_price_gbp_per_kwh")
+        if diesel_raw is None or petrol_raw is None or lng_raw is None or grid_raw is None:
+            continue
         try:
             points.append(
                 FuelPoint(
                     day=_parse_day(str(row.get("as_of", ""))),
-                    diesel=float(prices.get("diesel")),
-                    petrol=float(prices.get("petrol")),
-                    lng=float(prices.get("lng")),
-                    grid=float(row.get("grid_price_gbp_per_kwh")),
+                    diesel=float(diesel_raw),
+                    petrol=float(petrol_raw),
+                    lng=float(lng_raw),
+                    grid=float(grid_raw),
                 )
             )
         except (TypeError, ValueError):
