@@ -3258,8 +3258,10 @@ def load_stochastic_residual_prior(
             [
                 f"uk_default_{day}_{slot}_{road}_{weather}_{vehicle_bucket}",
                 f"uk_default_{day}_h12_{road}_{weather}_{vehicle_bucket}",
+                f"uk_default_{day}_h00_{road}_{weather}_{vehicle_bucket}",
                 f"uk_default_{day}_{slot}_{road}_{weather}_default",
                 f"uk_default_{day}_h12_{road}_{weather}_default",
+                f"uk_default_{day}_h00_{road}_{weather}_default",
             ]
         )
 
@@ -3311,8 +3313,10 @@ def load_stochastic_residual_prior(
             suffixes = [
                 f"_{day}_{slot}_{road}_{weather}_{vehicle_bucket}",
                 f"_{day}_h12_{road}_{weather}_{vehicle_bucket}",
+                f"_{day}_h00_{road}_{weather}_{vehicle_bucket}",
                 f"_{day}_{slot}_{road}_{weather}_default",
                 f"_{day}_h12_{road}_{weather}_default",
+                f"_{day}_h00_{road}_{weather}_default",
             ]
             for suffix in suffixes:
                 for key in sorted(priors):
@@ -3361,8 +3365,10 @@ def load_stochastic_residual_prior(
             suffixes = [
                 f"_{day}_{slot}_{road}_{weather}_{vehicle_bucket}",
                 f"_{day}_h12_{road}_{weather}_{vehicle_bucket}",
+                f"_{day}_h00_{road}_{weather}_{vehicle_bucket}",
                 f"_{day}_{slot}_{road}_{weather}_default",
                 f"_{day}_h12_{road}_{weather}_default",
+                f"_{day}_h00_{road}_{weather}_default",
             ]
             for suffix in suffixes:
                 for key in sorted(indexed):
