@@ -7,8 +7,11 @@ from typing import Any
 import pytest
 
 import app.calibration_loader as calibration_loader
+import app.carbon_model as carbon_model
+import app.fuel_energy_model as fuel_energy_model
 import app.main as main_module
 import app.scenario as scenario_module
+from app.calibration_loader import FuelPriceSnapshot
 from app.main import build_option
 from app.models import CostToggles
 from app.scenario import ScenarioMode, ScenarioPolicy
@@ -30,6 +33,31 @@ def _scenario_require_url_relaxed(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
     monkeypatch.setattr(settings, "live_toll_topology_allow_signed_fallback", True)
     monkeypatch.setattr(settings, "live_carbon_require_url_in_strict", False)
     monkeypatch.setattr(settings, "live_carbon_allow_signed_fallback", True)
+    monkeypatch.setattr(
+        main_module,
+        "resolve_carbon_price",
+        lambda **_kwargs: carbon_model.CarbonPricingContext(
+            price_per_kg=0.10,
+            source="pytest_live",
+            schedule_year=2026,
+            scope_mode="ttw",
+            uncertainty_low=0.08,
+            uncertainty_high=0.12,
+        ),
+    )
+    monkeypatch.setattr(
+        fuel_energy_model,
+        "load_fuel_price_snapshot",
+        lambda as_of_utc=None: FuelPriceSnapshot(
+            prices_gbp_per_l={"diesel": 1.52, "petrol": 1.58},
+            grid_price_gbp_per_kwh=0.28,
+            regional_multipliers={"uk_default": 1.0},
+            as_of="2026-01-15T00:00:00Z",
+            source="pytest_live",
+            signature="pytest",
+            live_diagnostics={"cache_hit": True, "source_url": "pytest://fuel"},
+        ),
+    )
     monkeypatch.setattr(
         main_module,
         "resolve_scenario_profile",

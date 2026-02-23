@@ -217,6 +217,61 @@ def _toll_topology_payload(now_iso: str) -> dict[str, Any]:
     }
 
 
+def _stochastic_payload(now_iso: str) -> dict[str, Any]:
+    context_probs: dict[str, dict[str, float]] = {}
+    corridors = [f"c{i:02d}" for i in range(8)]
+    slots = ["h00", "h04", "h08", "h12", "h16", "h20"]
+    for corridor in corridors:
+        for slot in slots:
+            key = f"{corridor}|weekday|{slot}|mixed|clear|default"
+            context_probs[key] = {"weekday_offpeak": 1.0}
+    context_probs["*|weekday|h12|mixed|clear|default"] = {"weekday_offpeak": 1.0}
+    context_probs["*|weekday|*|mixed|clear|default"] = {"weekday_offpeak": 1.0}
+    return {
+        "as_of_utc": now_iso,
+        "calibration_basis": "empirical",
+        "calibration_version": "stochastic_live_test_v1",
+        "copula_id": "gaussian_5x5_v2",
+        "split_strategy": "temporal_forward_plus_corridor_block",
+        "holdout_window": {"start_utc": "2025-01-01T00:00:00Z", "end_utc": "2025-12-31T23:59:59Z"},
+        "holdout_metrics": {"pit_mean": 0.5, "coverage": 0.95, "crps_mean": 0.2, "duration_mape": 0.10},
+        "coverage_metrics": {"hour_slot_coverage": 12.0, "corridor_coverage": 10.0},
+        "posterior_model": {"context_to_regime_probs": context_probs},
+        "regimes": {
+            "weekday_offpeak": {
+                "sigma_scale": 1.0,
+                "traffic_scale": 1.0,
+                "incident_scale": 1.0,
+                "weather_scale": 1.0,
+                "price_scale": 1.0,
+                "eco_scale": 1.0,
+                "corr": [
+                    [1.0, 0.20, 0.15, 0.10, 0.08],
+                    [0.20, 1.0, 0.20, 0.12, 0.10],
+                    [0.15, 0.20, 1.0, 0.14, 0.12],
+                    [0.10, 0.12, 0.14, 1.0, 0.20],
+                    [0.08, 0.10, 0.12, 0.20, 1.0],
+                ],
+                "spread_floor": 0.05,
+                "spread_cap": 1.25,
+                "factor_low": 0.55,
+                "factor_high": 2.2,
+                "duration_mix": [1.0, 1.0, 1.0],
+                "monetary_mix": [0.62, 0.38],
+                "emissions_mix": [0.72, 0.28],
+                "transform_family": "quantile_mapping_v1",
+                "shock_quantile_mapping": {
+                    "traffic": [[-2.0, 0.75], [0.0, 1.0], [2.0, 1.35]],
+                    "incident": [[-2.0, 0.72], [0.0, 1.0], [2.0, 1.40]],
+                    "weather": [[-2.0, 0.78], [0.0, 1.0], [2.0, 1.30]],
+                    "price": [[-2.0, 0.82], [0.0, 1.0], [2.0, 1.25]],
+                    "eco": [[-2.0, 0.80], [0.0, 1.0], [2.0, 1.22]],
+                },
+            }
+        },
+    }
+
+
 def _carbon_schedule_payload(now_iso: str) -> dict[str, Any]:
     return {
         "as_of_utc": now_iso,
@@ -245,6 +300,7 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "live_fuel_price_url", "https://live.example/fuel")
     monkeypatch.setattr(settings, "live_toll_tariffs_url", "https://live.example/tariffs")
     monkeypatch.setattr(settings, "live_toll_topology_url", "https://live.example/topology")
+    monkeypatch.setattr(settings, "live_stochastic_regimes_url", "https://live.example/stochastic")
     monkeypatch.setattr(settings, "live_carbon_schedule_url", "https://live.example/carbon")
     monkeypatch.setattr(calibration_loader, "live_scenario_profiles", lambda: _scenario_profiles_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_scenario_context", lambda _ctx: _scenario_context_payload(now_iso))
@@ -253,6 +309,7 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(calibration_loader, "live_fuel_prices", lambda _as_of: _fuel_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_toll_tariffs", lambda: _toll_tariffs_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_toll_topology", lambda: _toll_topology_payload(now_iso))
+    monkeypatch.setattr(calibration_loader, "live_stochastic_regimes", lambda: _stochastic_payload(now_iso))
     monkeypatch.setattr(carbon_model, "live_carbon_schedule", lambda: _carbon_schedule_payload(now_iso))
     calibration_loader.load_scenario_profiles.cache_clear()
     calibration_loader.load_live_scenario_context.cache_clear()
@@ -261,6 +318,7 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch):
     calibration_loader.load_toll_tariffs.cache_clear()
     calibration_loader.load_toll_segments_seed.cache_clear()
     calibration_loader.load_fuel_price_snapshot.cache_clear()
+    calibration_loader.load_stochastic_regimes.cache_clear()
     yield
     calibration_loader.load_scenario_profiles.cache_clear()
     calibration_loader.load_live_scenario_context.cache_clear()
@@ -269,6 +327,7 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch):
     calibration_loader.load_toll_tariffs.cache_clear()
     calibration_loader.load_toll_segments_seed.cache_clear()
     calibration_loader.load_fuel_price_snapshot.cache_clear()
+    calibration_loader.load_stochastic_regimes.cache_clear()
 
 
 def test_default_emissions_context_matches_explicit_defaults() -> None:

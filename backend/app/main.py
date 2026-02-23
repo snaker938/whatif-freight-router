@@ -5131,13 +5131,14 @@ async def compare_scenarios(
 
     try:
         results, deltas = await _run_scenario_compare(req=req, osrm=osrm)
+        deltas_payload = {mode: delta.model_dump(mode="json") for mode, delta in deltas.items()}
 
         manifest_payload = {
             "schema_version": "1.0.0",
             "type": "scenario_compare",
             "request": req.model_dump(mode="json"),
             "results": [item.model_dump(mode="json") for item in results],
-            "deltas": deltas,
+            "deltas": deltas_payload,
             "execution": {
                 "duration_ms": round((time.perf_counter() - t0) * 1000.0, 3),
                 "scenario_count": len(results),
@@ -5320,6 +5321,7 @@ async def replay_experiment_compare(
 
         run_id = str(uuid.uuid4())
         results, deltas = await _run_scenario_compare(req=req, osrm=osrm)
+        deltas_payload = {mode: delta.model_dump(mode="json") for mode, delta in deltas.items()}
 
         manifest_payload = {
             "schema_version": "1.0.0",
@@ -5327,7 +5329,7 @@ async def replay_experiment_compare(
             "source": {"experiment_id": bundle.id, "experiment_name": bundle.name},
             "request": req.model_dump(mode="json"),
             "results": [item.model_dump(mode="json") for item in results],
-            "deltas": deltas,
+            "deltas": deltas_payload,
             "execution": {
                 "duration_ms": round((time.perf_counter() - t0) * 1000.0, 3),
                 "scenario_count": len(results),

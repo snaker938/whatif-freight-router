@@ -12,7 +12,12 @@ import app.calibration_loader as calibration_loader
 import app.carbon_model as carbon_model
 import app.fuel_energy_model as fuel_energy_model
 import app.main as main_module
-from app.calibration_loader import FuelPriceSnapshot
+import app.risk_model as risk_model
+from app.calibration_loader import (
+    FuelPriceSnapshot,
+    RiskNormalizationReference,
+    StochasticResidualPrior,
+)
 from app.main import app, osrm_client
 from app.routing_graph import GraphCandidateDiagnostics
 from app.settings import settings
@@ -348,6 +353,48 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(calibration_loader, "live_toll_tariffs", lambda: _toll_tariffs_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_toll_topology", lambda: _toll_topology_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_stochastic_regimes", lambda: _stochastic_payload(now_iso))
+    monkeypatch.setattr(
+        main_module,
+        "load_stochastic_residual_prior",
+        lambda **_kwargs: StochasticResidualPrior(
+            sigma_floor=0.08,
+            sample_count=48,
+            source="pytest_live",
+            calibration_version="stochastic_live_test_v1",
+            as_of_utc=now_iso,
+            prior_id="uk_default_weekday_h12_mixed_clear_rigid_hgv",
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_risk_normalization_reference",
+        lambda *_args, **_kwargs: RiskNormalizationReference(
+            duration_s_per_km=70.0,
+            monetary_gbp_per_km=0.6,
+            emissions_kg_per_km=0.8,
+            source="pytest_live",
+            version="risk_live_test_v1",
+            as_of_utc=now_iso,
+            corridor_bucket="uk_default",
+            day_kind="weekday",
+            local_time_slot="h12",
+        ),
+    )
+    monkeypatch.setattr(
+        risk_model,
+        "load_risk_normalization_reference",
+        lambda *_args, **_kwargs: RiskNormalizationReference(
+            duration_s_per_km=70.0,
+            monetary_gbp_per_km=0.6,
+            emissions_kg_per_km=0.8,
+            source="pytest_live",
+            version="risk_live_test_v1",
+            as_of_utc=now_iso,
+            corridor_bucket="uk_default",
+            day_kind="weekday",
+            local_time_slot="h12",
+        ),
+    )
     monkeypatch.setattr(carbon_model, "live_carbon_schedule", lambda: _carbon_schedule_payload(now_iso))
     monkeypatch.setattr(main_module, "route_graph_status", lambda: (True, "ok"))
     monkeypatch.setattr(main_module, "route_graph_candidate_routes", _fake_graph_candidate_routes)
