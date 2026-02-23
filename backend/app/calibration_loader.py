@@ -3538,7 +3538,11 @@ def _validate_generic_signature(
             reason_code=reason_code,
             message=f"{message_prefix} signature is required in strict runtime.",
         )
-    payload_no_sig = {k: v for k, v in payload.items() if k != "signature"}
+    payload_no_sig = {
+        k: v
+        for k, v in payload.items()
+        if k != "signature" and not str(k).startswith("_")
+    }
     expected = hashlib.sha256(
         json.dumps(payload_no_sig, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
