@@ -5,7 +5,10 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import app, osrm_client
+from app.models import ScenarioCompareDelta, ScenarioCompareResult
+from app.scenario import ScenarioMode
 from app.settings import settings
 
 
@@ -40,6 +43,21 @@ def test_experiment_lifecycle_and_compare_replay(tmp_path: Path, monkeypatch) ->
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(settings, "out_dir", str(out_dir))
+
+    async def _fake_run_scenario_compare(*, req, osrm):
+        _ = req, osrm
+        results = [
+            ScenarioCompareResult(scenario_mode=ScenarioMode.NO_SHARING, selected=None, candidates=[]),
+            ScenarioCompareResult(scenario_mode=ScenarioMode.PARTIAL_SHARING, selected=None, candidates=[]),
+            ScenarioCompareResult(scenario_mode=ScenarioMode.FULL_SHARING, selected=None, candidates=[]),
+        ]
+        deltas = {
+            "partial_sharing": ScenarioCompareDelta(duration_s_delta=-120.0, monetary_cost_delta=-8.0, emissions_kg_delta=-5.0),
+            "full_sharing": ScenarioCompareDelta(duration_s_delta=-210.0, monetary_cost_delta=-14.0, emissions_kg_delta=-9.0),
+        }
+        return results, deltas
+
+    monkeypatch.setattr(main_module, "_run_scenario_compare", _fake_run_scenario_compare)
     app.dependency_overrides[osrm_client] = lambda: FakeOSRM()
 
     try:

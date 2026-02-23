@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import tracemalloc
@@ -93,6 +94,14 @@ def _run_inprocess_fake(args: argparse.Namespace) -> dict[str, Any]:
     from app.settings import settings
 
     old_out_dir = settings.out_dir
+    old_live_runtime_data_enabled = settings.live_runtime_data_enabled
+    old_strict_live_data_required = settings.strict_live_data_required
+    old_test_bypass = os.environ.get("STRICT_RUNTIME_TEST_BYPASS")
+
+    # Keep in-process fake benchmark deterministic and independent of live network feeds.
+    settings.live_runtime_data_enabled = False
+    settings.strict_live_data_required = False
+    os.environ["STRICT_RUNTIME_TEST_BYPASS"] = "1"
     settings.out_dir = str(Path(args.out_dir).resolve())
     payload = _build_payload(args)
 
@@ -108,6 +117,12 @@ def _run_inprocess_fake(args: argparse.Namespace) -> dict[str, Any]:
         tracemalloc.stop()
         app.dependency_overrides.clear()
         settings.out_dir = old_out_dir
+        settings.live_runtime_data_enabled = old_live_runtime_data_enabled
+        settings.strict_live_data_required = old_strict_live_data_required
+        if old_test_bypass is None:
+            os.environ.pop("STRICT_RUNTIME_TEST_BYPASS", None)
+        else:
+            os.environ["STRICT_RUNTIME_TEST_BYPASS"] = old_test_bypass
 
     if resp.status_code != 200:
         raise RuntimeError(f"benchmark request failed: status={resp.status_code} body={resp.text}")

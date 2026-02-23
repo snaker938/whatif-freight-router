@@ -1,53 +1,58 @@
 # Tutorial Mode and Reporting
 
-Last Updated: 2026-02-19  
-Applies To: `frontend/app/components/TutorialOverlay.tsx`, run artifacts APIs
+Last Updated: 2026-02-23  
+Applies To: frontend tutorial flows and backend run artifact APIs
 
-## Tutorial Mode
+## Tutorial Mode Scope
 
-The frontend tutorial is chaptered and stateful (`tutorial_v3_*` keys). It walks through:
+Tutorial flow guides users through:
 
-- setup and map interaction
-- route/pareto compute
-- scenario compare and departure optimization
-- duty chain and experiments
-- run artifact inspection
+- route and pareto generation
+- scenario compare
+- departure optimization
+- duty chain and experiment workflows
+- artifact inspection
 
-Tutorial behavior is desktop-first and designed to keep users inside core workflows.
+## Backend Reporting Endpoints Used by UI
 
-## Reporting and Run Artifacts
-
-Successful compute flows can produce run artifacts retrievable from backend:
-
-- `GET /runs/{run_id}/artifacts`
-- `GET /runs/{run_id}/artifacts/report.pdf`
 - `GET /runs/{run_id}/manifest`
+- `GET /runs/{run_id}/scenario-manifest`
 - `GET /runs/{run_id}/provenance`
+- `GET /runs/{run_id}/signature`
+- `GET /runs/{run_id}/scenario-signature`
+- `GET /runs/{run_id}/artifacts`
+- `GET /runs/{run_id}/artifacts/results.json`
+- `GET /runs/{run_id}/artifacts/results.csv`
+- `GET /runs/{run_id}/artifacts/metadata.json`
+- `GET /runs/{run_id}/artifacts/routes.geojson`
+- `GET /runs/{run_id}/artifacts/results_summary.csv`
+- `GET /runs/{run_id}/artifacts/report.pdf`
 
-## Practical Flow
+## Practical Operator Flow
 
-1. Execute compute from the sidebar.
-2. Capture returned `run_id`.
-3. Inspect provenance/signature.
-4. Download `report.pdf` and result files.
+1. trigger compute action in UI
+2. capture returned `run_id`
+3. inspect manifest + provenance + signatures
+4. download artifact files needed for reporting/debug
 
-## Commands
+## Local Commands
 
-From repo root:
+Frontend:
 
 ```powershell
 pnpm -C frontend dev
 ```
 
-From `backend/` (optional validation):
+Backend headless scenario smoke:
 
 ```powershell
-uv run python scripts/run_headless_scenario.py --input-json ../docs/examples/sample_batch_request.json
+uv run --project backend python backend/scripts/run_headless_scenario.py --input-json docs/examples/sample_batch_request.json
 ```
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Frontend Dev Tools Coverage](frontend-dev-tools.md)
 - [Sample Manifest and Outputs](sample-manifest.md)
-- [API Cookbook](api-cookbook.md)
+- [Backend APIs and Tooling](backend-api-tools.md)
+

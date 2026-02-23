@@ -26,7 +26,8 @@ pnpm -C frontend build
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Tutorial Mode and Reporting](tutorial-and-reporting.md)
 - [Map Overlays and Tooltips](map-overlays-tooltips.md)
 - [Frontend Dev Tools Coverage](frontend-dev-tools.md)
+

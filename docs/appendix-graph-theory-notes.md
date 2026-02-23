@@ -21,7 +21,8 @@ Pareto quality is bounded by candidate-space coverage. Better path enumeration i
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Dissertation Math Overview](dissertation-math-overview.md)
 - [Expanded Math Appendix](math-appendix.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+

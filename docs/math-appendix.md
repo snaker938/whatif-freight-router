@@ -21,7 +21,8 @@ Strict Pareto filtering is applied over generated candidates, then downstream se
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Dissertation Math Overview](dissertation-math-overview.md)
 - [Graph Theory Notes](appendix-graph-theory-notes.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
+

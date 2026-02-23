@@ -28,7 +28,8 @@ Utility fields in route outputs:
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Expanded Math Appendix](math-appendix.md)
 - [Graph Theory Notes](appendix-graph-theory-notes.md)
 - [CO2e Validation Notes](co2e-validation.md)
+

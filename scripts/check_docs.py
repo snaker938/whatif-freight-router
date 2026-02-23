@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
 ROOT_README = ROOT / "README.md"
-DOC_INDEX = DOCS_DIR / "README.md"
+DOC_INDEX = DOCS_DIR / "DOCS_INDEX.md"
 BACKEND_MAIN = ROOT / "backend" / "app" / "main.py"
 BACKEND_DOC = DOCS_DIR / "backend-api-tools.md"
 
@@ -95,7 +95,7 @@ def run_orphan_check() -> list[str]:
     errors: list[str] = []
     docs = list_docs()
     if not DOC_INDEX.exists():
-        return ["docs/README.md is missing"]
+        return ["docs/DOCS_INDEX.md is missing"]
 
     index_text = read_text(DOC_INDEX)
     linked_docs: set[str] = set()
@@ -106,10 +106,14 @@ def run_orphan_check() -> list[str]:
         if resolved.suffix.lower() == ".md" and resolved.is_file() and resolved.parent == DOCS_DIR:
             linked_docs.add(resolved.name)
 
-    all_doc_names = {p.name for p in docs if p.name.lower() != "readme.md"}
+    all_doc_names = {
+        p.name
+        for p in docs
+        if p.name.lower() not in {"readme.md", DOC_INDEX.name.lower()}
+    }
     missing_from_index = sorted(all_doc_names - linked_docs)
     for name in missing_from_index:
-        errors.append(f"docs/{name} is not linked from docs/README.md")
+        errors.append(f"docs/{name} is not linked from docs/DOCS_INDEX.md")
 
     for doc in docs:
         text = read_text(doc)

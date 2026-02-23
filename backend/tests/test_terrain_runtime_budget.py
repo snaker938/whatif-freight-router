@@ -3,20 +3,24 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 import app.calibration_loader as calibration_loader
 import app.carbon_model as carbon_model
+import app.departure_profile as departure_profile_module
 import app.fuel_energy_model as fuel_energy_model
 import app.main as main_module
 import app.scenario as scenario_module
 from app.calibration_loader import FuelPriceSnapshot
+from app.departure_profile import DepartureMultiplier
 from app.main import build_option
 from app.models import CostToggles
 from app.scenario import ScenarioMode, ScenarioPolicy
 from app.settings import settings
+from app.toll_engine import TollComputation
 
 
 @pytest.fixture(autouse=True)
@@ -85,6 +89,60 @@ def _scenario_require_url_relaxed(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
             stochastic_sigma_multiplier=1.0,
             source="test",
             version="test",
+        ),
+    )
+    monkeypatch.setattr(
+        departure_profile_module,
+        "time_of_day_multiplier_uk",
+        lambda *_args, **_kwargs: DepartureMultiplier(
+            multiplier=1.0,
+            profile_source="pytest",
+            local_time_iso=None,
+            profile_day="weekday",
+            profile_key="pytest.departure",
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "time_of_day_multiplier_uk",
+        lambda *_args, **_kwargs: DepartureMultiplier(
+            multiplier=1.0,
+            profile_source="pytest",
+            local_time_iso=None,
+            profile_day="weekday",
+            profile_key="pytest.departure",
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "compute_toll_cost",
+        lambda **_kwargs: TollComputation(
+            contains_toll=False,
+            toll_distance_km=0.0,
+            toll_cost_gbp=0.0,
+            confidence=1.0,
+            source="pytest",
+            details={},
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_route_stochastic_uncertainty",
+        lambda *_args, **_kwargs: (
+            {"q95_duration_s": 1.0, "q95_monetary_cost": 1.0, "q95_emissions_kg": 1.0},
+            {"sample_count": 0, "seed": "pytest", "sigma": 0.0},
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_risk_normalization_reference",
+        lambda **_kwargs: SimpleNamespace(
+            source="pytest",
+            version="pytest",
+            as_of_utc="2026-01-15T00:00:00Z",
+            corridor_bucket="uk_default",
+            day_kind="weekday",
+            local_time_slot="h08",
         ),
     )
     calibration_loader.load_scenario_profiles.cache_clear()

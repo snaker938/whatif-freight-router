@@ -4,6 +4,9 @@ from pathlib import Path
 
 import httpx
 
+import scripts.benchmark_batch_pareto as benchmark_batch_pareto
+import scripts.run_robustness_analysis as robustness_module
+import scripts.run_sensitivity_analysis as sensitivity_module
 from scripts.benchmark_batch_pareto import build_parser as benchmark_parser
 from scripts.benchmark_batch_pareto import run_benchmark
 from scripts.check_eta_concept_drift import build_parser as drift_parser
@@ -24,7 +27,7 @@ def test_benchmark_parser_defaults() -> None:
     assert args.max_alternatives == 3
 
 
-def test_run_benchmark_inprocess_fake_writes_schema(tmp_path: Path) -> None:
+def test_run_benchmark_inprocess_fake_writes_schema(tmp_path: Path, monkeypatch) -> None:
     out_dir = tmp_path / "out"
     output_file = out_dir / "bench.json"
     args = benchmark_parser().parse_args(
@@ -38,6 +41,20 @@ def test_run_benchmark_inprocess_fake_writes_schema(tmp_path: Path) -> None:
             "--output",
             str(output_file),
         ]
+    )
+
+    monkeypatch.setattr(
+        benchmark_batch_pareto,
+        "_run_inprocess_fake",
+        lambda parsed_args: {
+            "timestamp": "2026-02-23T00:00:00+00:00",
+            "mode": "inprocess-fake",
+            "pair_count": int(parsed_args.pair_count),
+            "duration_ms": 123.4,
+            "peak_memory_bytes": 1024,
+            "error_count": 0,
+            "run_id": "benchmark-test-run",
+        },
     )
 
     record = run_benchmark(args)
@@ -131,7 +148,7 @@ def test_execute_headless_run_with_mock_transport(tmp_path: Path) -> None:
     assert summary["downloaded_artifacts"] == ["metadata.json", "results.csv", "results.json"]
 
 
-def test_run_robustness_inprocess_fake_outputs(tmp_path: Path) -> None:
+def test_run_robustness_inprocess_fake_outputs(tmp_path: Path, monkeypatch) -> None:
     out_dir = tmp_path / "out"
     args = robustness_parser().parse_args(
         [
@@ -145,6 +162,30 @@ def test_run_robustness_inprocess_fake_outputs(tmp_path: Path) -> None:
             str(out_dir),
         ]
     )
+
+    def _fake_run_inprocess(parsed_args, seed: int) -> dict[str, object]:
+        _ = parsed_args
+        duration = 3600.0 + float(seed % 7)
+        return {
+            "run_id": f"robust-{seed}",
+            "results": [
+                {
+                    "error": None,
+                    "routes": [
+                        {
+                            "metrics": {
+                                "duration_s": duration,
+                                "monetary_cost": 120.0 + float(seed % 5),
+                                "emissions_kg": 85.0 + float(seed % 3),
+                            }
+                        }
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(robustness_module, "_run_inprocess", _fake_run_inprocess)
+
     payload = run_robustness(args)
     assert payload["mode"] == "inprocess-fake"
     assert payload["pair_count"] == 6
@@ -155,7 +196,7 @@ def test_run_robustness_inprocess_fake_outputs(tmp_path: Path) -> None:
     assert Path(payload["csv_output"]).exists()
 
 
-def test_run_sensitivity_inprocess_fake_outputs(tmp_path: Path) -> None:
+def test_run_sensitivity_inprocess_fake_outputs(tmp_path: Path, monkeypatch) -> None:
     out_dir = tmp_path / "out"
     args = sensitivity_parser().parse_args(
         [
@@ -170,6 +211,37 @@ def test_run_sensitivity_inprocess_fake_outputs(tmp_path: Path) -> None:
             str(out_dir),
         ]
     )
+
+    def _fake_execute_batch(parsed_args, payload: dict[str, object]) -> dict[str, object]:
+        _ = parsed_args
+        case_name = str(payload.get("toggles", {}).get("case", "baseline"))
+        toggles = payload.get("cost_toggles", {})
+        fuel_mult = float(toggles.get("fuel_price_multiplier", 1.0))
+        carbon = float(toggles.get("carbon_price_per_kg", 0.0))
+        toll = float(toggles.get("toll_cost_per_km", 0.0))
+        duration = 3400.0 * fuel_mult
+        monetary = 100.0 * fuel_mult + (carbon * 10.0) + (toll * 5.0)
+        emissions = 80.0 * fuel_mult + (carbon * 2.0)
+        return {
+            "run_id": f"sensitivity-{case_name}",
+            "results": [
+                {
+                    "error": None,
+                    "routes": [
+                        {
+                            "metrics": {
+                                "duration_s": duration,
+                                "monetary_cost": monetary,
+                                "emissions_kg": emissions,
+                            }
+                        }
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(sensitivity_module, "_execute_batch", _fake_execute_batch)
+
     payload = run_sensitivity(args)
     assert payload["mode"] == "inprocess-fake"
     assert payload["pair_count"] == 5

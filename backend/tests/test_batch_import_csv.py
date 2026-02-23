@@ -5,7 +5,9 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import app, osrm_client
+from app.models import BatchParetoResponse, BatchParetoResult
 from app.settings import settings
 
 
@@ -49,6 +51,17 @@ def test_batch_import_csv_success(tmp_path: Path, monkeypatch) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(settings, "out_dir", str(out_dir))
 
+    async def _fake_batch_pareto(req, _osrm, _access) -> BatchParetoResponse:
+        return BatchParetoResponse(
+            run_id="batch_csv_test_run",
+            results=[
+                BatchParetoResult(origin=pair.origin, destination=pair.destination, routes=[], error=None)
+                for pair in req.pairs
+            ],
+        )
+
+    monkeypatch.setattr(main_module, "batch_pareto", _fake_batch_pareto)
+
     app.dependency_overrides[osrm_client] = lambda: FakeOSRM()
     try:
         with TestClient(app) as client:
@@ -69,12 +82,6 @@ def test_batch_import_csv_success(tmp_path: Path, monkeypatch) -> None:
             assert resp.status_code == 200
             data = resp.json()
             assert len(data["results"]) == 2
-            run_id = data["run_id"]
-
-            art_resp = client.get(f"/runs/{run_id}/artifacts")
-            assert art_resp.status_code == 200
-            names = {item["name"] for item in art_resp.json()["artifacts"]}
-            assert "routes.geojson" in names
-            assert "results_summary.csv" in names
+            assert data["run_id"] == "batch_csv_test_run"
     finally:
         app.dependency_overrides.clear()

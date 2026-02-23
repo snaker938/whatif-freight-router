@@ -1,9 +1,11 @@
 # Quality Gates and Benchmarks
 
-Last Updated: 2026-02-21  
-Applies To: backend quality harness and performance gates
+Last Updated: 2026-02-23  
+Applies To: `backend/scripts/score_model_quality.py`, `backend/scripts/benchmark_model_v2.py`, CI lanes in .github/workflows/backend-ci.yml
 
-## Required Commands
+This page defines the backend acceptance gates used locally and in CI.
+
+## Core Gate Sequence
 
 From `backend/`:
 
@@ -11,66 +13,93 @@ From `backend/`:
 uv run python scripts/build_model_assets.py
 uv run python scripts/score_model_quality.py
 uv run python scripts/benchmark_model_v2.py
-uv run python scripts/score_model_quality.py --subsystem fuel_price
 ```
+
+Targeted subsystem scoring examples:
+
+```powershell
+uv run python scripts/score_model_quality.py --subsystem fuel_price
+uv run python scripts/score_model_quality.py --subsystem scenario_profile
+uv run python scripts/score_model_quality.py --subsystem stochastic
+```
+
+## CI Lanes (Authoritative)
+
+Workflow: .github/workflows/backend-ci.yml
+
+### `fast-lane`
+
+- `STRICT_RUNTIME_TEST_BYPASS=1`
+- deterministic fixture-first smoke/regression subset
+- validates day-to-day behavior with short runtime
+
+### `strict-live-lane`
+
+- `STRICT_RUNTIME_TEST_BYPASS=0`
+- `LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK=0`
+- `LIVE_FUEL_ALLOW_SIGNED_FALLBACK=0`
+- validates strict reason-code parity and strict data-path behavior
 
 ## Minimum Acceptance Gates
 
-- all subsystem quality scores meet configured threshold
-- dropped routes stay at configured maximum (strict default is zero)
-- warm-cache runtime gate for `/route` and `/pareto` passes
+- subsystem quality scores pass configured thresholds
+- dropped routes do not exceed configured cap (strict default target: `0`)
+- warm-cache latency checks remain within configured budgets for `/route` and `/pareto`
+- strict reason-code behavior remains stable for missing/stale/invalid model data
 
-Fuel subsystem scoring emphasizes empirical behavior over metadata-only checks:
+## Subsystem Expectations
 
-- holdout p50 error on consumption outputs
-- monotonic sensitivity checks (load/speed/grade/temp)
-- quantile validity and coverage (`p10 <= p50 <= p90`)
-- strict live-source readiness (URL/auth/signature policy)
+### Fuel
 
-Scenario subsystem scoring checks:
+- consumption sanity and quantile ordering (`p10 <= p50 <= p90`)
+- holdout fit quality on empirical samples
+- strict live input handling:
+  - URL/auth requirements
+  - signature policy where required
+  - reason-code mapping for auth/source failures
 
-- scenario factor monotonicity across modes (`no_sharing >= partial_sharing >= full_sharing`)
-- mode separability on holdout routes (duration/money/emissions)
-- strict holdout threshold: `mode_separation_mean >= 0.03`
-- strict holdout threshold: `duration_mape <= 0.08`
-- strict holdout threshold: `monetary_mape <= 0.08`
-- strict holdout threshold: `emissions_mape <= 0.08`
-- strict holdout threshold: `coverage >= 0.90`
-- per-option `scenario_summary` completeness
-- uncertainty metadata completeness (`scenario_mode`, `scenario_profile_version`, `scenario_sigma_multiplier`)
-- context coverage depth in `scenario_profiles_uk.json`
-- holdout metric quality from scenario profile artifact (`holdout_metrics.mode_separation_mean`)
-- cross-mode ordering on holdout routes (duration/money/emissions)
-- strict-failure behavior when scenario profile assets are missing/invalid
-- scenario subsystem score weighting: 70% holdout metrics
-- scenario subsystem score weighting: 20% mode ordering/separability
-- scenario subsystem score weighting: 10% metadata/contract checks
+### Scenario
 
-Stochastic subsystem strictness checks:
+- strict monotonicity across modes (`no_sharing >= partial_sharing >= full_sharing`)
+- context-conditioned separability on holdout
+- `scenario_summary` completeness on returned options
+- uncertainty metadata fields present and coherent
+- strict-failure behavior:
+  - missing/unavailable profile -> `scenario_profile_unavailable`
+  - invalid payload/transform -> `scenario_profile_invalid`
 
-- posterior regime model is required (`posterior_model.context_to_regime_probs`)
-- transform family is required per regime (`quantile_mapping_v1`)
-- shock quantile mappings are required for all factors (`traffic`, `incident`, `weather`, `price`, `eco`)
-- clipping diagnostics are scored (`sample_count_clip_ratio`, `sigma_clip_ratio`, `factor_clip_rate`)
+### Stochastic
 
-Vehicle profile strictness expectations:
+- posterior context regime probabilities present
+- `quantile_mapping_v1` transforms per regime
+- required factor mappings: `traffic`, `incident`, `weather`, `price`, `eco`
+- clipping/coverage diagnostics remain bounded
 
-- v2 schema coverage for built-in and custom profiles
-- explicit class mapping coverage (`fuel_surface_class`, `toll_vehicle_class`, `toll_axle_class`)
-- strict unknown-vehicle failure behavior (`vehicle_profile_unavailable`)
-- no ID-substring inference reliance in runtime subsystems
+### Vehicle Profiles
 
-CI strictness lanes:
+- v2 profile schema consistency (built-in + custom)
+- strict unknown/invalid mapping to:
+  - `vehicle_profile_unavailable`
+  - `vehicle_profile_invalid`
 
-- fast deterministic lane keeps fixture-focused runtime with explicit test bypass where configured
-- strict lane runs with `STRICT_RUNTIME_TEST_BYPASS=0` so freshness/fallback-sensitive paths are validated without implicit bypass semantics
+### Terrain
 
-## Regression Test Command
+- UK fail-closed coverage behavior (`terrain_dem_coverage_insufficient`)
+- unsupported region behavior (`terrain_region_unsupported`)
+- strict DEM availability behavior (`terrain_dem_asset_unavailable`)
 
-From repo root:
+## Recommended Test Execution Modes
+
+Full local backend suite (resource intensive):
 
 ```powershell
 uv run --project backend pytest backend/tests
+```
+
+Low-resource sequential execution (preferred on constrained laptops):
+
+```powershell
+.\scripts\run_backend_tests_safe.ps1 -MaxCores 1 -PriorityClass Idle
 ```
 
 ## Docs Drift Check
@@ -83,7 +112,8 @@ python scripts/check_docs.py
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Performance Profiling Notes](performance-profiling-notes.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
+

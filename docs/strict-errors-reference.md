@@ -1,32 +1,44 @@
 # Strict Error Contract Reference
 
-Last Updated: 2026-02-21  
-Applies To: all route-producing backend flows
+Last Updated: 2026-02-23  
+Applies To: `backend/app/main.py`, `backend/app/model_data_errors.py`
 
-## Non-Stream Error Shape (`422`)
+This document describes strict reason-code failures used across route-producing APIs.
+
+## Canonical Error Shape (`422`)
 
 ```json
 {
   "detail": {
     "reason_code": "terrain_dem_coverage_insufficient",
     "message": "Terrain DEM coverage below threshold.",
-    "warnings": ["Coverage 0.91 < required 0.98"]
+    "warnings": [
+      "Coverage 0.91 < required 0.98"
+    ]
   }
 }
 ```
 
-## Stream Fatal Shape
+Optional keys are included when relevant:
+
+- `terrain_dem_version`
+- `terrain_coverage_required`
+- `terrain_coverage_min_observed`
+
+## Canonical Stream Fatal Shape
 
 ```json
 {
   "type": "fatal",
   "reason_code": "epsilon_infeasible",
-  "message": "No candidates satisfy epsilon constraints.",
+  "message": "No routes satisfy epsilon constraints for this request.",
   "warnings": []
 }
 ```
 
 ## Frozen Reason Codes
+
+The backend normalizes to the frozen set below (`FROZEN_REASON_CODES`).
 
 - `routing_graph_unavailable`
 - `departure_profile_unavailable`
@@ -50,24 +62,60 @@ Applies To: all route-producing backend flows
 - `carbon_intensity_unavailable`
 - `epsilon_infeasible`
 - `no_route_candidates`
+- `model_asset_unavailable`
+
+## Primary Failure Families
+
+### Terrain and Graph
+
+- `terrain_region_unsupported`: non-UK request under UK-only terrain policy.
+- `terrain_dem_asset_unavailable`: DEM asset/load/live tile unavailable.
+- `terrain_dem_coverage_insufficient`: coverage below strict threshold.
+- `routing_graph_unavailable`: routing graph missing/invalid for strict run.
+
+### Toll and Cost Inputs
+
+- `toll_topology_unavailable`: live or strict topology unavailable.
+- `toll_tariff_unavailable`: tariff source unavailable.
+- `toll_tariff_unresolved`: candidate could not resolve toll tariff mapping.
+
+### Fuel and Carbon Inputs
+
+- `fuel_price_auth_unavailable`: required auth/API credentials missing/invalid.
+- `fuel_price_source_unavailable`: missing/stale/invalid price payload.
+- `carbon_policy_unavailable`: carbon policy schedule unavailable.
+- `carbon_intensity_unavailable`: carbon intensity lookup unavailable.
+
+### Scenario and Stochastic Inputs
+
+- `scenario_profile_unavailable`: scenario profile/context not retrievable or too stale.
+- `scenario_profile_invalid`: schema/monotonicity/transform violations.
+- `stochastic_calibration_unavailable`: strict stochastic asset missing/invalid.
+
+### Vehicle and Risk Inputs
+
+- `vehicle_profile_unavailable`: unknown/missing vehicle profile in strict flow.
+- `vehicle_profile_invalid`: strict validation failed for vehicle profile payload.
+- `risk_normalization_unavailable`: normalization artifact unavailable.
+- `risk_prior_unavailable`: uncertainty prior missing for strict requirements.
+
+### Selection and Feasibility
+
+- `epsilon_infeasible`: no candidate satisfies provided epsilon constraints.
+- `no_route_candidates`: no viable candidates after strict filtering.
+- `model_asset_unavailable`: generic strict model asset availability failure.
+
+## Notes for Batch and Stream Consumers
+
+- Batch per-pair failures are serialized into `error` text in strict format:
+  `reason_code:<code>; message:<message>`
+- Stream fatal events preserve reason code and warning list for machine parsing.
+- Unknown/internal codes are normalized to the frozen set before emission.
 
 ## Related Docs
 
-Fuel strict semantics:
-
-- missing/invalid live auth when required maps to `fuel_price_auth_unavailable`
-- missing/stale/invalid source data maps to `fuel_price_source_unavailable`
-- signed fallback is only accepted when `LIVE_FUEL_ALLOW_SIGNED_FALLBACK=true` and signature/freshness checks pass
-- unknown vehicle id maps to `vehicle_profile_unavailable`
-- invalid/stale vehicle profile asset maps to `vehicle_profile_invalid`
-- missing/stale scenario policy asset maps to `scenario_profile_unavailable`
-- missing required `LIVE_SCENARIO_COEFFICIENT_URL` in strict runtime maps to `scenario_profile_unavailable`
-- invalid/non-monotonic scenario policy asset maps to `scenario_profile_invalid`
-- missing/stale/incomplete free live scenario context (WebTRIS, Traffic England, DfT, Open-Meteo) maps to `scenario_profile_unavailable`
-- invalid scenario live payload structure or trusted-host policy failures map to `scenario_profile_invalid`
-- missing stochastic posterior context model or missing shock quantile mappings in strict runtime map to `stochastic_calibration_unavailable`
-
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
+- [Model Assets and Data Sources](model-assets-and-data-sources.md)
 - [API Cookbook](api-cookbook.md)
-- [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+

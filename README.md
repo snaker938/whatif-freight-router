@@ -92,6 +92,12 @@ Use this for full containerized verification. Do not run this at the same time a
   - recreates those folders with `.gitkeep`
   - use when forcing a fully clean rebuild or recovering from suspected cache corruption
 
+- `scripts/serve_docs.ps1`
+  - serves markdown docs from `docs/` over a local HTTP server
+  - run from repo root:
+  - `.\scripts\serve_docs.ps1`
+  - then open `http://localhost:8088/`
+
 - `backend/scripts/benchmark_batch_pareto.py`
   - benchmark harness with runtime/resource logs
   - run from `backend/`:
@@ -131,8 +137,14 @@ Use this for full containerized verification. Do not run this at the same time a
 
 ## Documentation
 
-- `docs/README.md`
+- `docs/DOCS_INDEX.md`
   - central docs index and source-of-truth navigation
+- `docs/run-and-operations.md`
+  - complete local runbook (frontend/backend/full stack/docs/tests)
+- run docs checks from repo root:
+  - `python scripts/check_docs.py`
+- serve docs locally from repo root:
+  - `.\scripts\serve_docs.ps1`
 - `docs/backend-api-tools.md`
   - backend endpoint inventory, strict contract shape, and tooling commands
 - `docs/api-cookbook.md`
@@ -141,6 +153,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - reason-code catalog and stream/non-stream failure shape
 - `docs/quality-gates-and-benchmarks.md`
   - quality and performance gate workflow
+- `notebooks/NOTEBOOKS_POLICY.md`
+  - notebook-free policy and alternatives
 
 ## API Quick Commands
 

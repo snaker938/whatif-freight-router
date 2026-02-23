@@ -1,15 +1,16 @@
 # Backend APIs and Tooling
 
-Last Updated: 2026-02-21  
-Applies To: `backend/app/main.py` strict runtime
+Last Updated: 2026-02-23  
+Applies To: `backend/app/main.py`, `backend/app/models.py`, `backend/app/settings.py`
 
-This page is the backend contract and tooling reference for the current codebase.
+This page is the source-of-truth backend API contract for current strict runtime behavior.
 
-## Core Runtime Notes
+## Runtime Contract (Current)
 
-- Runtime uses strict, reason-coded failure handling for model-data constraints.
-- Streaming and non-streaming endpoints use aligned reason-code semantics.
-- Hybrid data mode is supported (fresh signed assets and optional live refresh where configured).
+- Runtime is hard-strict by default via `Settings._enforce_strict_runtime_defaults` in `backend/app/settings.py`.
+- Route-producing failures are reason-coded and normalized with `normalize_reason_code` in `backend/app/model_data_errors.py`.
+- Streaming and non-streaming flows use aligned reason-code semantics.
+- Synthetic fallback paths are blocked in strict production paths unless explicitly test-scoped.
 
 ## Endpoint Inventory
 
@@ -28,22 +29,6 @@ This page is the backend contract and tooling reference for the current codebase
 - `POST /vehicles/custom`
 - `PUT /vehicles/custom/{vehicle_id}`
 - `DELETE /vehicles/custom/{vehicle_id}`
-
-Vehicle profile payloads are v2 in strict runtime and include additive fields:
-
-- `schema_version`
-- `vehicle_class`
-- `toll_vehicle_class`
-- `toll_axle_class`
-- `fuel_surface_class`
-- `risk_bucket`
-- `stochastic_bucket`
-- `terrain_params`
-- `aliases`
-- `profile_source`
-- `profile_as_of_utc`
-
-Unknown `vehicle_type` now fails strict route-producing requests with `422 vehicle_profile_unavailable`.
 
 ### Routing and Pareto
 
@@ -66,8 +51,8 @@ Unknown `vehicle_type` now fails strict route-producing requests with `422 vehic
 
 ### Batch
 
-- `POST /batch/pareto`
 - `POST /batch/import/csv`
+- `POST /batch/pareto`
 
 ### Run Artifacts and Signatures
 
@@ -91,16 +76,47 @@ Unknown `vehicle_type` now fails strict route-producing requests with `422 vehic
 - `GET /oracle/quality/dashboard`
 - `GET /oracle/quality/dashboard.csv`
 
-## Strict Error Contract
+## Request Surface (Core Models)
 
-### Non-stream endpoints
+All route-producing requests are derived from `RouteRequest`/`ParetoRequest`/`BatchParetoRequest` families in `backend/app/models.py`.
+
+Shared fields:
+
+- `origin`, `destination`, optional `waypoints`
+- `vehicle_type`
+- `scenario_mode` (`no_sharing`, `partial_sharing`, `full_sharing`)
+- `weights` (`time`, `money`, `co2`)
+- `cost_toggles` (`use_tolls`, `fuel_price_multiplier`, `carbon_price_per_kg`, `toll_cost_per_km`)
+- `terrain_profile` (`flat`, `rolling`, `hilly`)
+- `stochastic` (`enabled`, `seed`, `sigma`, `samples`)
+- `optimization_mode` (`expected_value`, `robust`)
+- `risk_aversion`
+- `emissions_context`
+- `weather`
+- `incident_simulation`
+- `departure_time_utc`
+- `pareto_method` (`dominance`, `epsilon_constraint`)
+- `epsilon` (`duration_s`, `monetary_cost`, `emissions_kg`)
+
+Endpoint-specific:
+
+- `POST /batch/pareto`: `pairs` (1..500), optional `seed`, `toggles`, `model_version`
+- `POST /batch/import/csv`: `csv_text` plus the same optional controls as batch
+- `POST /departure/optimize`: `window_start_utc`, `window_end_utc`, `step_minutes`, optional `time_window`
+- `POST /duty/chain`: `stops` (2..50)
+
+## Strict Error Shapes
+
+### Non-stream endpoints (`422`)
 
 ```json
 {
   "detail": {
-    "reason_code": "terrain_dem_asset_unavailable",
-    "message": "Terrain DEM assets are unavailable.",
-    "warnings": ["Build model assets before routing."],
+    "reason_code": "terrain_dem_coverage_insufficient",
+    "message": "Terrain DEM coverage below threshold.",
+    "warnings": [
+      "Coverage 0.91 < required 0.98"
+    ],
     "terrain_dem_version": "uk_dem_v1",
     "terrain_coverage_required": 0.98,
     "terrain_coverage_min_observed": 0.91
@@ -108,103 +124,60 @@ Unknown `vehicle_type` now fails strict route-producing requests with `422 vehic
 }
 ```
 
-### Stream fatal event (`POST /pareto/stream`)
+### Stream fatal event (`POST /pareto/stream`, `POST /api/pareto/stream`)
 
 ```json
 {
   "type": "fatal",
   "reason_code": "epsilon_infeasible",
-  "message": "No candidates satisfied epsilon constraints.",
+  "message": "No routes satisfy epsilon constraints for this request.",
   "warnings": []
 }
 ```
 
-Scenario model-data failures follow the same canonical shape with:
+## Scenario Runtime Notes
 
-- `scenario_profile_unavailable`
-- `scenario_profile_invalid`
+- Scenario policy is context-conditioned and strict-validated.
+- `LIVE_SCENARIO_COEFFICIENT_URL` is required in strict runtime.
+- Context uses free UK feeds (WebTRIS, Traffic England, DfT raw counts, Open-Meteo).
+- Missing/stale/incomplete strict context resolves to scenario reason codes (`scenario_profile_unavailable` / `scenario_profile_invalid`).
+- Signed fallback is blocked by strict defaults (`LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK=false` unless overridden for controlled scenarios).
 
-## Common Request Features
+Successful route payloads include additive scenario fields:
 
-These are available across route-producing endpoints where applicable:
+- `route.scenario_summary.*`
+- uncertainty metadata keys such as `scenario_mode`, `scenario_profile_version`, `scenario_sigma_multiplier`, `scenario_context_key`
 
-- `weights`
-- `risk_aversion`
-- `max_alternatives`
-- `pareto_method`
-- `epsilon`
-- `departure_time_utc`
-- `cost_toggles`
-- `weather`
-- `incident_simulation`
-- `emissions_context`
+`POST /scenario/compare` specifics:
 
-## Scenario Policy Runtime
+- `baseline_mode` is fixed to `no_sharing`
+- `deltas` carry per-metric nullable deltas plus `*_status`, `*_reason_code`, `*_missing_source`, `*_reason_source`
 
-Scenario mode is strict asset-backed policy (`no_sharing`, `partial_sharing`, `full_sharing`) and applies multipliers to:
+## Vehicle Runtime Notes
 
-- duration
-- incident rate and delay
-- fuel/energy consumption
-- emissions
-- stochastic sigma
+- Built-in profiles are strict asset-backed (`backend/assets/uk/vehicle_profiles_uk.json`).
+- Custom profiles are persisted in the runtime output config area (`backend/out/config/`, runtime file: vehicles_v2.json).
+- Unknown or invalid `vehicle_type` in strict route-producing flows returns `422` with `vehicle_profile_unavailable` or `vehicle_profile_invalid`.
 
-Scenario policy is context-conditioned by:
+## Batch and Artifact Runtime Notes
 
-- `corridor_geohash5`
-- `hour_slot_local`
-- `road_mix_vector` / `road_mix_bucket`
-- `vehicle_class`
-- `day_kind`
-- `weather_regime`
-
-Strict runtime requires `LIVE_SCENARIO_COEFFICIENT_URL` and resolves live scenario context from free UK APIs (WebTRIS, Traffic England, DfT raw counts, Open-Meteo). Missing/stale/incomplete live context fails with canonical scenario reason codes. Signed local fallback is blocked by default unless `LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK=true`.
-
-Successful `RouteOption` payloads include additive `scenario_summary`.  
-Successful uncertainty metadata includes additive scenario fields:
-
-- `scenario_mode`
-- `scenario_profile_version`
-- `scenario_sigma_multiplier`
-- `scenario_context_key`
-- `scenario_live_as_of_utc`
-
-Pareto diagnostics include additive scenario candidate-impact keys:
-
-- `scenario_candidate_family_count`
-- `scenario_candidate_jaccard_vs_baseline`
-- `scenario_edge_scaling_version`
-
-`POST /scenario/compare` includes additive `baseline_mode` and it is fixed to `no_sharing`.
-`/scenario/compare` deltas now include nullable deltas with per-metric status fields (`ok`/`missing`) to avoid false zero-delta masking.
-When a metric is missing, the compare payload also carries per-metric provenance:
-
-- `*_reason_code`
-- `*_missing_source`
-- `*_reason_source`
-
-## Fuel Output Additions
-
-On successful route options, fuel provenance and quantiles are emitted in additive fields (segment rows and route weather summary), including:
-
-- `fuel_price_source`, `fuel_price_as_of`
-- `consumption_model_source`, `consumption_model_version`, `consumption_model_as_of_utc`
-- `fuel_liters_p10`, `fuel_liters_p50`, `fuel_liters_p90`
-- `fuel_cost_p10_gbp`, `fuel_cost_p50_gbp`, `fuel_cost_p90_gbp`
-
-## Model and Artifact Commands
-
-From `backend/`:
-
-```powershell
-uv run python scripts/build_model_assets.py
-uv run python scripts/score_model_quality.py
-uv run python scripts/benchmark_model_v2.py
-```
+- `POST /batch/pareto` processes pairs with bounded concurrency (`BATCH_CONCURRENCY`).
+- Batch outputs include per-pair `error` strings in strict format (`reason_code:...; message:...`) when a pair cannot produce routes.
+- Artifact set is fixed by `ARTIFACT_FILES` in `backend/app/run_store.py`:
+  - results.json
+  - results.csv
+  - metadata.json
+  - routes.geojson
+  - results_summary.csv
+  - report.pdf
+- Signed manifests are written to:
+  - `backend/out/manifests/{run_id}.json`
+  - `backend/out/scenario_manifests/{run_id}.json`
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
 - [API Cookbook](api-cookbook.md)
-- [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+- [Model Assets and Data Sources](model-assets-and-data-sources.md)
+

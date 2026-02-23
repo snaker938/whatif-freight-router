@@ -26,7 +26,8 @@ Segment tooltips can surface:
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Frontend Accessibility and i18n](frontend-accessibility-i18n.md)
 - [Tutorial Mode and Reporting](tutorial-and-reporting.md)
 - [Synthetic Incidents and Weather](synthetic-incidents-weather.md)
+

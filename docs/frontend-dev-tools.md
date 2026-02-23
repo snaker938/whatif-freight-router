@@ -40,7 +40,8 @@ This page maps frontend Dev Tools panels to backend endpoints so backend feature
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Tutorial Mode and Reporting](tutorial-and-reporting.md)
 - [Frontend Accessibility and i18n](frontend-accessibility-i18n.md)
+

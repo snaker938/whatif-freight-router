@@ -51,7 +51,8 @@ This document defines weather and synthetic incident request fields used for con
 
 ## Related Docs
 
-- [Documentation Index](README.md)
+- [Documentation Index](DOCS_INDEX.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [API Cookbook](api-cookbook.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+
