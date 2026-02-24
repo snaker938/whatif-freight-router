@@ -567,6 +567,34 @@ def compute_toll_cost(
         total_distance_fee += max(0.0, distance_fee_per_km) * max(0.0, overlap_km)
 
     if not matched_seeds and contains_toll and classified_toll_distance_km > 0.0:
+        explicit_rate = max(0.0, float(fallback_toll_cost_per_km))
+        if explicit_rate > 0.0:
+            fallback_cost = max(0.0, explicit_rate * max(0.0, toll_distance_km))
+            class_signal = (
+                min(1.0, classified_toll_distance_km / max(distance_km, 1e-6))
+                if distance_km > 0
+                else 0.0
+            )
+            confidence = max(0.35, min(0.80, 0.45 + (0.30 * class_signal)))
+            return TollComputation(
+                contains_toll=True,
+                toll_distance_km=round(toll_distance_km, 6),
+                toll_cost_gbp=round(fallback_cost, 6),
+                confidence=round(confidence, 6),
+                source="class_fallback_rate",
+                details={
+                    "segments_matched": 0,
+                    "classified_steps": classified_step_count,
+                    "minute_uk": minute,
+                    "fallback_policy_used": True,
+                    "pricing_unresolved": False,
+                    "tariff_rule_ids": "explicit_user_rate",
+                    "matched_asset_ids": "",
+                    "unresolved_asset_ids": "",
+                    "explicit_user_rate_gbp_per_km": round(explicit_rate, 6),
+                    "tariff_catalog_size": len(tariffs.rules),
+                },
+            )
         return TollComputation(
             contains_toll=True,
             toll_distance_km=round(toll_distance_km, 6),

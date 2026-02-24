@@ -3294,21 +3294,34 @@ def load_stochastic_residual_prior(
         enforce=True,
     )
 
+    def _build_prior(*, prior: dict[str, Any], prior_id_value: str) -> StochasticResidualPrior:
+        sigma_floor = max(0.005, min(0.75, _safe_float(prior.get("sigma_floor"), 0.0)))
+        sample_count = max(1, int(_safe_float(prior.get("sample_count"), 0)))
+        return StochasticResidualPrior(
+            sigma_floor=sigma_floor,
+            sample_count=sample_count,
+            source=source,
+            calibration_version=str(payload.get("calibration_version", "v2")),
+            as_of_utc=str(payload.get("as_of_utc", payload.get("as_of", ""))).strip() or None,
+            prior_id=prior_id_value,
+        )
+
+    fallback_candidates: list[tuple[str, str, str, str, str, str, str, dict[str, Any]]] = []
+
     priors = payload.get("priors", {})
     if isinstance(priors, dict):
         for key in candidate_keys:
             prior = priors.get(key)
             if isinstance(prior, dict):
-                sigma_floor = max(0.005, min(0.75, _safe_float(prior.get("sigma_floor"), 0.0)))
-                sample_count = max(1, int(_safe_float(prior.get("sample_count"), 0)))
-                return StochasticResidualPrior(
-                    sigma_floor=sigma_floor,
-                    sample_count=sample_count,
-                    source=source,
-                    calibration_version=str(payload.get("calibration_version", "v2")),
-                    as_of_utc=str(payload.get("as_of_utc", payload.get("as_of", ""))).strip() or None,
-                    prior_id=str(key),
-                )
+                return _build_prior(prior=prior, prior_id_value=str(key))
+        for key, prior in priors.items():
+            if not isinstance(key, str) or not isinstance(prior, dict):
+                continue
+            parts = key.rsplit("_", 5)
+            if len(parts) != 6:
+                continue
+            cb, dk, slot_key, rb, wp, vb = parts
+            fallback_candidates.append((cb, dk, slot_key, rb, wp, vb, key, prior))
         if pytest_bypass_enabled or pytest_context:
             suffixes = [
                 f"_{day}_{slot}_{road}_{weather}_{vehicle_bucket}",
@@ -3322,16 +3335,7 @@ def load_stochastic_residual_prior(
                 for key in sorted(priors):
                     prior = priors.get(key)
                     if isinstance(key, str) and isinstance(prior, dict) and key.endswith(suffix):
-                        sigma_floor = max(0.005, min(0.75, _safe_float(prior.get("sigma_floor"), 0.0)))
-                        sample_count = max(1, int(_safe_float(prior.get("sample_count"), 0)))
-                        return StochasticResidualPrior(
-                            sigma_floor=sigma_floor,
-                            sample_count=sample_count,
-                            source=source,
-                            calibration_version=str(payload.get("calibration_version", "v2")),
-                            as_of_utc=str(payload.get("as_of_utc", payload.get("as_of", ""))).strip() or None,
-                            prior_id=str(key),
-                        )
+                        return _build_prior(prior=prior, prior_id_value=str(key))
     if isinstance(priors, list):
         indexed: dict[str, dict[str, Any]] = {}
         for row in priors:
@@ -3348,19 +3352,11 @@ def load_stochastic_residual_prior(
             slot_key = _canonical_local_time_slot(str(row.get("local_time_slot", "h12")))
             key = f"{cb}_{dk}_{slot_key}_{rb}_{wp}_{vb}"
             indexed[key] = row
+            fallback_candidates.append((cb, dk, slot_key, rb, wp, vb, key, row))
         for key in candidate_keys:
             prior = indexed.get(key)
             if prior is not None:
-                sigma_floor = max(0.005, min(0.75, _safe_float(prior.get("sigma_floor"), 0.0)))
-                sample_count = max(1, int(_safe_float(prior.get("sample_count"), 0)))
-                return StochasticResidualPrior(
-                    sigma_floor=sigma_floor,
-                    sample_count=sample_count,
-                    source=source,
-                    calibration_version=str(payload.get("calibration_version", "v2")),
-                    as_of_utc=str(payload.get("as_of_utc", payload.get("as_of", ""))).strip() or None,
-                    prior_id=str(prior.get("prior_id", key)),
-                )
+                return _build_prior(prior=prior, prior_id_value=str(prior.get("prior_id", key)))
         if pytest_bypass_enabled or pytest_context:
             suffixes = [
                 f"_{day}_{slot}_{road}_{weather}_{vehicle_bucket}",
@@ -3375,16 +3371,33 @@ def load_stochastic_residual_prior(
                     if not key.endswith(suffix):
                         continue
                     prior = indexed[key]
-                    sigma_floor = max(0.005, min(0.75, _safe_float(prior.get("sigma_floor"), 0.0)))
-                    sample_count = max(1, int(_safe_float(prior.get("sample_count"), 0)))
-                    return StochasticResidualPrior(
-                        sigma_floor=sigma_floor,
-                        sample_count=sample_count,
-                        source=source,
-                        calibration_version=str(payload.get("calibration_version", "v2")),
-                        as_of_utc=str(payload.get("as_of_utc", payload.get("as_of", ""))).strip() or None,
-                        prior_id=str(prior.get("prior_id", key)),
-                    )
+                    return _build_prior(prior=prior, prior_id_value=str(prior.get("prior_id", key)))
+
+    if fallback_candidates:
+        def _score(candidate: tuple[str, str, str, str, str, str, str, dict[str, Any]]) -> tuple[int, int, str]:
+            cb, dk, slot_key, rb, wp, vb, key, row = candidate
+            score = 0
+            if vb == vehicle_bucket:
+                score += 64
+            if wp == weather:
+                score += 32
+            if rb == road:
+                score += 16
+            if slot_key == slot:
+                score += 8
+            if dk == day:
+                score += 4
+            if cb == corridor:
+                score += 2
+            sample_count = max(1, int(_safe_float(row.get("sample_count"), 0)))
+            return score, sample_count, key
+
+        best = max(fallback_candidates, key=_score)
+        best_score, _, _ = _score(best)
+        if best_score > 0:
+            _, _, _, _, _, _, key, prior = best
+            prior_id_value = str(prior.get("prior_id", key))
+            return _build_prior(prior=prior, prior_id_value=prior_id_value)
 
     raise ModelDataError(
         reason_code="risk_prior_unavailable",
