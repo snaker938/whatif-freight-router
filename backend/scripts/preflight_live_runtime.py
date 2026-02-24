@@ -50,6 +50,21 @@ def _error_payload(exc: Exception) -> dict[str, Any]:
     }
 
 
+def _departure_profile_details() -> dict[str, Any]:
+    profile = load_departure_profile()
+    contextual = getattr(profile, "contextual", None)
+    if isinstance(contextual, dict):
+        region_count = len(contextual)
+    else:
+        # Backward-compatible shape used by some tests and legacy fixtures.
+        profiles = getattr(profile, "profiles", {})
+        region_count = len(profiles) if isinstance(profiles, dict) else 0
+    return {
+        "source": str(getattr(profile, "source", "")),
+        "region_count": int(region_count),
+    }
+
+
 def _run_required_checks() -> list[dict[str, Any]]:
     now = datetime.now(UTC)
     checks: list[tuple[str, Any]] = [
@@ -91,10 +106,7 @@ def _run_required_checks() -> list[dict[str, Any]]:
         ),
         (
             "departure_profiles",
-            lambda: {
-                "source": load_departure_profile().source,
-                "region_count": len(load_departure_profile().profiles),
-            },
+            _departure_profile_details,
         ),
         (
             "bank_holidays",

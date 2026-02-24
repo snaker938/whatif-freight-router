@@ -1,8 +1,8 @@
 {
   "source": "proxy_from_labeled_toll_fixture_corpus_v1",
   "version": "uk_tariffs_v5_empirical_proxy",
-  "generated_at_utc": "2026-02-24T12:20:03Z",
-  "as_of_utc": "2026-02-24T12:20:03Z",
+  "generated_at_utc": "2026-02-24T12:30:54Z",
+  "as_of_utc": "2026-02-24T12:30:54Z",
   "defaults": {
     "crossing_fee_gbp": 0.0,
     "distance_fee_gbp_per_km": 0.0
