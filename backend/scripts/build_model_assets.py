@@ -35,11 +35,11 @@ from fetch_toll_truth_uk import build as build_toll_truth_fixtures
 from validate_graph_coverage import validate as validate_graph_coverage
 
 from app.calibration_loader import (
+    _parse_scenario_profiles_payload,
     load_departure_profile,
     load_fuel_consumption_surface,
     load_fuel_price_snapshot,
     load_fuel_uncertainty_surface,
-    load_scenario_profiles,
     load_stochastic_regimes,
     load_toll_segments_seed,
     load_toll_tariffs,
@@ -47,6 +47,32 @@ from app.calibration_loader import (
 )
 from app.settings import settings
 from app.vehicles import load_builtin_vehicles
+
+
+def _log_step(message: str) -> None:
+    stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    print(f"[build_model_assets {stamp}] {message}", flush=True)
+
+
+def _load_local_scenario_profiles_for_compile(path: Path):
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read local scenario profiles asset: {path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Local scenario profiles asset must be a JSON object: {path}")
+    prior_bypass = os.environ.get("STRICT_RUNTIME_TEST_BYPASS")
+    os.environ["STRICT_RUNTIME_TEST_BYPASS"] = "1"
+    try:
+        return _parse_scenario_profiles_payload(
+            payload,
+            source=f"model_asset_build:{path.name}",
+        )
+    finally:
+        if prior_bypass is None:
+            os.environ.pop("STRICT_RUNTIME_TEST_BYPASS", None)
+        else:
+            os.environ["STRICT_RUNTIME_TEST_BYPASS"] = prior_bypass
 
 
 def _ci_strict_mode() -> bool:
@@ -613,6 +639,7 @@ def build_assets(
     force_rebuild_graph: bool = False,
     force_rebuild_terrain: bool = False,
 ) -> None:
+    _log_step("starting strict model-asset build")
     if allow_synthetic:
         raise ValueError("Synthetic asset generation is disabled in strict runtime.")
     if allow_geojson_routing_graph:
@@ -639,6 +666,7 @@ def build_assets(
             "Strict empirical build requires external raw datasets. Missing: "
             + ", ".join(missing_raw)
         )
+    _log_step("validated required strict raw datasets")
     out_dir.mkdir(parents=True, exist_ok=True)
     departure_counts_default = ROOT / "assets" / "uk" / "departure_counts_empirical.csv"
     stochastic_residuals_default = ROOT / "assets" / "uk" / "stochastic_residuals_empirical.csv"
@@ -680,6 +708,7 @@ def build_assets(
         min_hours=18,
         max_age_days=int(settings.live_departure_max_age_days),
     )
+    _log_step("validated departure empirical corpus")
 
     if stochastic_residuals_input is None:
         stochastic_residuals_input = stochastic_residuals_default
@@ -720,6 +749,7 @@ def build_assets(
         min_unique_corridors=1,
         max_age_days=int(settings.live_stochastic_max_age_days),
     )
+    _log_step("validated stochastic residual corpus")
 
     fuel_asset_path = ROOT / "assets" / "uk" / "fuel_prices_uk.json"
     if _json_array_len(fuel_asset_path, "history") < 365:
@@ -731,6 +761,7 @@ def build_assets(
         )
     if _json_array_len(fuel_asset_path, "history") < 365:
         raise RuntimeError("Fuel price history must contain at least 365 daily rows.")
+    _log_step("validated fuel history asset")
     fuel_consumption_surface_path = ROOT / "assets" / "uk" / "fuel_consumption_surface_uk.json"
     fuel_uncertainty_surface_path = ROOT / "assets" / "uk" / "fuel_uncertainty_surface_uk.json"
     scenario_profiles_asset_path = ROOT / "assets" / "uk" / "scenario_profiles_uk.json"
@@ -828,6 +859,7 @@ def build_assets(
 
     # Build contextual departure + stochastic regime assets first so runtime loaders
     # consume compiled model assets rather than bundled defaults.
+    _log_step("building contextual departure profiles")
     sparse_departure_seed = ROOT / "assets" / "uk" / "departure_profile_uk.csv"
     if not sparse_departure_seed.exists():
         sparse_departure_seed = departure_counts_input
@@ -843,12 +875,14 @@ def build_assets(
         residuals_csv=stochastic_residuals_input,
         allow_synthetic=allow_synthetic,
     )
+    _log_step("building contextual stochastic regimes")
     priors_out = out_dir / "stochastic_residual_priors_uk.json"
     _validate_stochastic_outputs(
         regimes_path=out_dir / "stochastic_regimes_uk.json",
         priors_path=priors_out,
         max_age_days=int(settings.live_stochastic_max_age_days),
     )
+    _log_step("validated contextual stochastic outputs")
     priors_asset = ROOT / "assets" / "uk" / "stochastic_residual_priors_uk.json"
     if priors_out.exists():
         priors_asset.write_text(priors_out.read_text(encoding="utf-8"), encoding="utf-8")
@@ -875,10 +909,12 @@ def build_assets(
                 "Strict build requires OSM PBF toll topology source."
             )
         if force_rebuild_topology or not _existing_topology_valid(existing_toll_topology):
+            _log_step(f"extracting toll topology from {toll_source}")
             extract_toll_assets(
                 source_geojson=toll_source,
                 output_geojson=existing_toll_topology,
             )
+            _log_step("toll topology extraction complete")
     tariff_truth_source = ROOT / "data" / "raw" / "uk" / "toll_tariffs_operator_truth.json"
     build_pricing_tables(
         fuel_source=ROOT / "assets" / "uk" / "fuel_prices_uk.json",
@@ -888,6 +924,7 @@ def build_assets(
         output_dir=out_dir,
         min_tariff_rules=200,
     )
+    _log_step("pricing tables build complete")
     graph_source_candidates: list[Path] = []
     if routing_graph_source is not None:
         graph_source_candidates.append(routing_graph_source)
@@ -922,11 +959,13 @@ def build_assets(
             min_nodes=max(1, int(settings.route_graph_min_nodes)),
             min_edges=max(1, int(settings.route_graph_min_adjacency)),
         ):
+            _log_step(f"building routing graph from {graph_source}")
             build_routing_graph(
                 source=graph_source,
                 output=graph_output,
                 max_ways=max(0, int(routing_graph_max_ways)),
             )
+            _log_step("routing graph build complete")
     graph_meta = _load_graph_meta(graph_output)
     if graph_meta is None:
         raise RuntimeError(
@@ -949,6 +988,7 @@ def build_assets(
         min_edges=max(1, int(settings.route_graph_min_adjacency)),
         max_fixture_dist_m=max(100.0, float(settings.route_graph_fixture_max_distance_m)),
     )
+    _log_step("routing graph coverage validation complete")
     coverage_report["graph_size_mb"] = round(graph_size_mb, 2)
     (out_dir / "routing_graph_coverage_report.json").write_text(
         json.dumps(coverage_report, indent=2),
@@ -956,6 +996,7 @@ def build_assets(
     )
 
     dep = load_departure_profile()
+    _log_step("compiling departure profile asset")
     (out_dir / "departure_profile_uk_compiled.json").write_text(
         json.dumps(
             {
@@ -970,7 +1011,8 @@ def build_assets(
         ),
         encoding="utf-8",
     )
-    scenario_profiles = load_scenario_profiles()
+    scenario_profiles = _load_local_scenario_profiles_for_compile(scenario_profiles_asset_path)
+    _log_step("compiling scenario profiles")
     required_modes = {"no_sharing", "partial_sharing", "full_sharing"}
     global_modes = set((scenario_profiles.profiles or {}).keys())
     if required_modes.issubset(global_modes):
@@ -1187,6 +1229,7 @@ def build_assets(
     )
 
     toll_tariffs = load_toll_tariffs()
+    _log_step("compiling toll tariff assets")
     (out_dir / "toll_tariffs_uk_compiled.json").write_text(
         json.dumps(
             {
@@ -1219,6 +1262,7 @@ def build_assets(
     )
 
     toll_segments = load_toll_segments_seed()
+    _log_step("compiling toll segment assets")
     (out_dir / "toll_segments_seed_compiled.json").write_text(
         json.dumps(
             {
@@ -1244,6 +1288,7 @@ def build_assets(
     )
 
     fuel_snapshot = load_fuel_price_snapshot()
+    _log_step("compiling fuel and vehicle assets")
     (out_dir / "fuel_prices_uk_compiled.json").write_text(
         json.dumps(
             {
@@ -1332,6 +1377,7 @@ def build_assets(
     )
 
     stochastic_regimes = load_stochastic_regimes()
+    _log_step("compiling stochastic regimes")
     posterior_model = (
         stochastic_regimes.posterior_model
         if isinstance(stochastic_regimes.posterior_model, dict)
@@ -1454,6 +1500,7 @@ def build_assets(
     terrain_dir.mkdir(parents=True, exist_ok=True)
     terrain_manifest = terrain_dir / "terrain_manifest.json"
     if force_rebuild_terrain or not _existing_terrain_valid(terrain_manifest):
+        _log_step("terrain rebuild required")
         dem_glob_candidates = [
             str((out_dir / "dem_source" / "*.tif").resolve()),
             str((ROOT / "assets" / "uk" / "dem" / "*.tif").resolve()),
@@ -1465,6 +1512,7 @@ def build_assets(
                 break
         if not dem_glob:
             dem_fetch_dir = out_dir / "dem_source"
+            _log_step("fetching public DEM tiles")
             downloaded, requested, _failures = fetch_public_dem_tiles(
                 output_dir=dem_fetch_dir,
                 zoom=8,
@@ -1479,8 +1527,10 @@ def build_assets(
                 raise FileNotFoundError(
                     "No DEM GeoTIFF files were available and public DEM bootstrap fetch returned zero tiles."
                 )
+            _log_step(f"public DEM fetch complete ({downloaded}/{requested} tiles)")
             dem_glob = str((dem_fetch_dir / "*.tif").resolve())
         source_grid = ROOT / "assets" / "uk" / "terrain_dem_grid_uk.json"
+        _log_step("building terrain assets")
         build_terrain_assets(
             source_dem_glob=dem_glob,
             source_grid=source_grid,
@@ -1490,6 +1540,7 @@ def build_assets(
             tile_size=1024,
             allow_synthetic_grid=False,
         )
+        _log_step("terrain asset build complete")
 
     carbon_schedule_src = ROOT / "assets" / "uk" / "carbon_price_schedule_uk.json"
     if carbon_schedule_src.exists():
@@ -1571,6 +1622,7 @@ def build_assets(
         ),
         encoding="utf-8",
     )
+    _log_step(f"strict model-asset build complete (out_dir={out_dir})")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build deterministic backend model assets.")
