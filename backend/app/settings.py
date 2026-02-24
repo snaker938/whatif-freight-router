@@ -68,8 +68,36 @@ class Settings(BaseSettings):
     route_cache_max_entries: int = Field(default=1024, alias="ROUTE_CACHE_MAX_ENTRIES")
     live_runtime_data_enabled: bool = Field(default=True, alias="LIVE_RUNTIME_DATA_ENABLED")
     strict_live_data_required: bool = Field(default=True, alias="STRICT_LIVE_DATA_REQUIRED")
-    live_data_cache_ttl_s: int = Field(default=3600, ge=10, alias="LIVE_DATA_CACHE_TTL_S")
+    live_data_cache_ttl_s: int = Field(default=3600, ge=1, alias="LIVE_DATA_CACHE_TTL_S")
     live_data_request_timeout_s: float = Field(default=20.0, ge=1.0, le=120.0, alias="LIVE_DATA_REQUEST_TIMEOUT_S")
+    live_http_max_attempts: int = Field(default=6, ge=1, le=12, alias="LIVE_HTTP_MAX_ATTEMPTS")
+    live_http_retry_deadline_ms: int = Field(default=30_000, ge=100, le=300_000, alias="LIVE_HTTP_RETRY_DEADLINE_MS")
+    live_http_retry_backoff_base_ms: int = Field(
+        default=200,
+        ge=0,
+        le=30_000,
+        alias="LIVE_HTTP_RETRY_BACKOFF_BASE_MS",
+    )
+    live_http_retry_backoff_max_ms: int = Field(
+        default=2_500,
+        ge=0,
+        le=120_000,
+        alias="LIVE_HTTP_RETRY_BACKOFF_MAX_MS",
+    )
+    live_http_retry_jitter_ms: int = Field(
+        default=150,
+        ge=0,
+        le=10_000,
+        alias="LIVE_HTTP_RETRY_JITTER_MS",
+    )
+    live_http_retry_respect_retry_after: bool = Field(
+        default=True,
+        alias="LIVE_HTTP_RETRY_RESPECT_RETRY_AFTER",
+    )
+    live_http_retryable_status_codes: str = Field(
+        default="429,500,502,503,504",
+        alias="LIVE_HTTP_RETRYABLE_STATUS_CODES",
+    )
     live_bank_holidays_url: str = Field(
         default="https://www.gov.uk/bank-holidays.json",
         alias="LIVE_BANK_HOLIDAYS_URL",
@@ -112,7 +140,7 @@ class Settings(BaseSettings):
         alias="LIVE_SCENARIO_DFT_COUNTS_URL",
     )
     live_scenario_dft_max_pages: int = Field(
-        default=8,
+        default=20,
         ge=1,
         le=50,
         alias="LIVE_SCENARIO_DFT_MAX_PAGES",
@@ -177,7 +205,7 @@ class Settings(BaseSettings):
     )
     live_scenario_cache_ttl_seconds: int = Field(
         default=300,
-        ge=30,
+        ge=1,
         le=86_400,
         alias="LIVE_SCENARIO_CACHE_TTL_SECONDS",
     )
@@ -246,6 +274,10 @@ class Settings(BaseSettings):
         alias="LIVE_CARBON_ALLOW_SIGNED_FALLBACK",
     )
     live_carbon_allowed_hosts: str = Field(default="", alias="LIVE_CARBON_ALLOWED_HOSTS")
+    live_bank_holidays_allowed_hosts: str = Field(
+        default="www.gov.uk,gov.uk",
+        alias="LIVE_BANK_HOLIDAYS_ALLOWED_HOSTS",
+    )
     live_departure_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_DEPARTURE_MAX_AGE_DAYS")
     live_stochastic_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_STOCHASTIC_MAX_AGE_DAYS")
     live_toll_topology_max_age_days: int = Field(default=30, ge=1, le=3650, alias="LIVE_TOLL_TOPOLOGY_MAX_AGE_DAYS")

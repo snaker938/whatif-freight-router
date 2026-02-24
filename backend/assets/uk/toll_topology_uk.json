@@ -1,0 +1,853 @@
+{
+  "type": "FeatureCollection",
+  "source": "https://raw.githubusercontent.com/snaker938/whatif-freight-router/55e3027/backend/assets/uk/toll_segments_seed.geojson",
+  "version": "uk-v2",
+  "generated_at_utc": "2026-02-24T12:20:03Z",
+  "as_of_utc": "2026-02-24T12:20:03Z",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dartford_crossing",
+        "name": "Dartford Crossing",
+        "operator": "national_highways",
+        "road_class": "crossing",
+        "crossing_id": "dartford_crossing",
+        "direction": "both",
+        "crossing_fee_gbp": 6.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            0.2784,
+            51.4746
+          ],
+          [
+            0.3075,
+            51.4761
+          ],
+          [
+            0.336,
+            51.4778
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "m6_toll_walsall",
+        "name": "M6 Toll",
+        "operator": "m6_toll",
+        "road_class": "motorway_toll",
+        "crossing_id": "m6_toll_walsall",
+        "direction": "both",
+        "crossing_fee_gbp": 0.0,
+        "distance_fee_gbp_per_km": 0.52
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.988,
+            52.592
+          ],
+          [
+            -1.912,
+            52.627
+          ],
+          [
+            -1.844,
+            52.655
+          ],
+          [
+            -1.771,
+            52.673
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mersey_gateway",
+        "name": "Mersey Gateway",
+        "operator": "mersey_gateway",
+        "road_class": "crossing",
+        "crossing_id": "mersey_gateway",
+        "direction": "both",
+        "crossing_fee_gbp": 8.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.7092,
+            53.3389
+          ],
+          [
+            -2.6953,
+            53.3451
+          ],
+          [
+            -2.6818,
+            53.3514
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "humber_bridge",
+        "name": "Humber Bridge",
+        "operator": "humber_bridge",
+        "road_class": "crossing",
+        "crossing_id": "humber_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 12.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -0.4665,
+            53.7223
+          ],
+          [
+            -0.4413,
+            53.7284
+          ],
+          [
+            -0.4161,
+            53.7342
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "tyne_tunnel",
+        "name": "Tyne Tunnel",
+        "operator": "tyne_tunnel",
+        "road_class": "tunnel_toll",
+        "crossing_id": "tyne_tunnel",
+        "direction": "both",
+        "crossing_fee_gbp": 4.2,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.534,
+            54.9921
+          ],
+          [
+            -1.5115,
+            54.9934
+          ],
+          [
+            -1.4895,
+            54.9942
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mersey_tunnels",
+        "name": "Mersey Tunnels",
+        "operator": "mersey_tunnels",
+        "road_class": "tunnel_toll",
+        "crossing_id": "mersey_tunnels",
+        "direction": "both",
+        "crossing_fee_gbp": 3.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.992,
+            53.3962
+          ],
+          [
+            -2.9895,
+            53.4021
+          ],
+          [
+            -2.9828,
+            53.4082
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "itchen_bridge",
+        "name": "Itchen Bridge",
+        "operator": "southampton_city",
+        "road_class": "bridge_toll",
+        "crossing_id": "itchen_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 2.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.3897,
+            50.9032
+          ],
+          [
+            -1.381,
+            50.904
+          ],
+          [
+            -1.3728,
+            50.905
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "tamar_bridge",
+        "name": "Tamar Bridge",
+        "operator": "tamar_crossings",
+        "road_class": "bridge_toll",
+        "crossing_id": "tamar_bridge",
+        "direction": "eastbound",
+        "crossing_fee_gbp": 4.2,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -4.1889,
+            50.3944
+          ],
+          [
+            -4.175,
+            50.3948
+          ],
+          [
+            -4.1612,
+            50.3953
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "forth_road_bridge",
+        "name": "Forth Road Bridge",
+        "operator": "forth_bridge",
+        "road_class": "bridge_toll",
+        "crossing_id": "forth_road_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 6.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -3.404,
+            56.004
+          ],
+          [
+            -3.39,
+            56.009
+          ],
+          [
+            -3.376,
+            56.013
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "severn_crossing_old",
+        "name": "Severn Crossing",
+        "operator": "severn_crossing",
+        "road_class": "bridge_toll",
+        "crossing_id": "severn_crossing_old",
+        "direction": "eastbound",
+        "crossing_fee_gbp": 0.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.706,
+            51.574
+          ],
+          [
+            -2.671,
+            51.578
+          ],
+          [
+            -2.635,
+            51.583
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "whitestone_bridge",
+        "name": "Whitestone Bridge",
+        "operator": "local_bridge",
+        "road_class": "bridge_toll",
+        "crossing_id": "whitestone_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 2.8,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -3.656,
+            50.532
+          ],
+          [
+            -3.645,
+            50.533
+          ],
+          [
+            -3.634,
+            50.534
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "cleddau_bridge",
+        "name": "Cleddau Bridge",
+        "operator": "cleddau_bridge",
+        "road_class": "bridge_toll",
+        "crossing_id": "cleddau_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 2.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -4.941,
+            51.708
+          ],
+          [
+            -4.928,
+            51.711
+          ],
+          [
+            -4.915,
+            51.713
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "clifton_bridge",
+        "name": "Clifton Suspension Bridge",
+        "operator": "clifton_bridge",
+        "road_class": "bridge_toll",
+        "crossing_id": "clifton_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 1.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.637,
+            51.454
+          ],
+          [
+            -2.628,
+            51.455
+          ],
+          [
+            -2.619,
+            51.456
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "river_tyne_northbound",
+        "name": "A19 Tyne Crossing",
+        "operator": "tyne_tunnel",
+        "road_class": "tunnel_toll",
+        "crossing_id": "river_tyne_northbound",
+        "direction": "northbound",
+        "crossing_fee_gbp": 4.2,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.539,
+            54.985
+          ],
+          [
+            -1.523,
+            54.989
+          ],
+          [
+            -1.507,
+            54.992
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "river_tyne_southbound",
+        "name": "A19 Tyne Crossing South",
+        "operator": "tyne_tunnel",
+        "road_class": "tunnel_toll",
+        "crossing_id": "river_tyne_southbound",
+        "direction": "southbound",
+        "crossing_fee_gbp": 4.2,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.507,
+            54.992
+          ],
+          [
+            -1.523,
+            54.989
+          ],
+          [
+            -1.539,
+            54.985
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "eastlink_bridge",
+        "name": "East Link Bridge",
+        "operator": "local_bridge",
+        "road_class": "bridge_toll",
+        "crossing_id": "eastlink_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 2.1,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.911,
+            53.406
+          ],
+          [
+            -2.903,
+            53.409
+          ],
+          [
+            -2.895,
+            53.412
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "queen_elizabeth_bridge",
+        "name": "QEII Bridge",
+        "operator": "national_highways",
+        "road_class": "crossing",
+        "crossing_id": "queen_elizabeth_bridge",
+        "direction": "both",
+        "crossing_fee_gbp": 6.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            0.284,
+            51.475
+          ],
+          [
+            0.307,
+            51.476
+          ],
+          [
+            0.331,
+            51.478
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "m6_toll_north",
+        "name": "M6 Toll North",
+        "operator": "m6_toll",
+        "road_class": "motorway_toll",
+        "crossing_id": "m6_toll_north",
+        "direction": "both",
+        "crossing_fee_gbp": 0.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.771,
+            52.673
+          ],
+          [
+            -1.73,
+            52.699
+          ],
+          [
+            -1.685,
+            52.725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "m6_toll_south",
+        "name": "M6 Toll South",
+        "operator": "m6_toll",
+        "road_class": "motorway_toll",
+        "crossing_id": "m6_toll_south",
+        "direction": "both",
+        "crossing_fee_gbp": 0.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.988,
+            52.592
+          ],
+          [
+            -1.952,
+            52.611
+          ],
+          [
+            -1.912,
+            52.627
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "humber_bridge_west",
+        "name": "Humber Bridge West",
+        "operator": "humber_bridge",
+        "road_class": "crossing",
+        "crossing_id": "humber_bridge_west",
+        "direction": "both",
+        "crossing_fee_gbp": 12.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -0.47,
+            53.721
+          ],
+          [
+            -0.453,
+            53.726
+          ],
+          [
+            -0.436,
+            53.731
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "humber_bridge_east",
+        "name": "Humber Bridge East",
+        "operator": "humber_bridge",
+        "road_class": "crossing",
+        "crossing_id": "humber_bridge_east",
+        "direction": "both",
+        "crossing_fee_gbp": 12.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -0.436,
+            53.731
+          ],
+          [
+            -0.422,
+            53.734
+          ],
+          [
+            -0.408,
+            53.737
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mersey_gateway_west",
+        "name": "Mersey Gateway West",
+        "operator": "mersey_gateway",
+        "road_class": "crossing",
+        "crossing_id": "mersey_gateway_west",
+        "direction": "both",
+        "crossing_fee_gbp": 8.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.715,
+            53.336
+          ],
+          [
+            -2.701,
+            53.342
+          ],
+          [
+            -2.687,
+            53.348
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mersey_gateway_east",
+        "name": "Mersey Gateway East",
+        "operator": "mersey_gateway",
+        "road_class": "crossing",
+        "crossing_id": "mersey_gateway_east",
+        "direction": "both",
+        "crossing_fee_gbp": 8.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.687,
+            53.348
+          ],
+          [
+            -2.673,
+            53.354
+          ],
+          [
+            -2.659,
+            53.36
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "itc_north",
+        "name": "Itchen Bridge North",
+        "operator": "southampton_city",
+        "road_class": "bridge_toll",
+        "crossing_id": "itc_north",
+        "direction": "northbound",
+        "crossing_fee_gbp": 2.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.39,
+            50.902
+          ],
+          [
+            -1.382,
+            50.904
+          ],
+          [
+            -1.374,
+            50.906
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "itc_south",
+        "name": "Itchen Bridge South",
+        "operator": "southampton_city",
+        "road_class": "bridge_toll",
+        "crossing_id": "itc_south",
+        "direction": "southbound",
+        "crossing_fee_gbp": 2.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.374,
+            50.906
+          ],
+          [
+            -1.382,
+            50.904
+          ],
+          [
+            -1.39,
+            50.902
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "tamar_bridge_east",
+        "name": "Tamar Bridge Eastbound",
+        "operator": "tamar_crossings",
+        "road_class": "bridge_toll",
+        "crossing_id": "tamar_bridge_east",
+        "direction": "eastbound",
+        "crossing_fee_gbp": 4.2,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -4.189,
+            50.394
+          ],
+          [
+            -4.176,
+            50.395
+          ],
+          [
+            -4.163,
+            50.396
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "tamar_bridge_west",
+        "name": "Tamar Bridge Westbound",
+        "operator": "tamar_crossings",
+        "road_class": "bridge_toll",
+        "crossing_id": "tamar_bridge_west",
+        "direction": "westbound",
+        "crossing_fee_gbp": 0.0,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -4.163,
+            50.396
+          ],
+          [
+            -4.176,
+            50.395
+          ],
+          [
+            -4.189,
+            50.394
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mersey_tunnel_kingsway",
+        "name": "Kingsway Tunnel",
+        "operator": "mersey_tunnels",
+        "road_class": "tunnel_toll",
+        "crossing_id": "mersey_tunnel_kingsway",
+        "direction": "both",
+        "crossing_fee_gbp": 3.5,
+        "distance_fee_gbp_per_km": 0.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -2.991,
+            53.398
+          ],
+          [
+            -2.985,
+            53.404
+          ],
+          [
+            -2.979,
+            53.41
+          ]
+        ]
+      }
+    }
+  ]
+}

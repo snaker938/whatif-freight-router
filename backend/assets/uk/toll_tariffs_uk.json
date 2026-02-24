@@ -1,0 +1,5512 @@
+{
+  "source": "proxy_from_labeled_toll_fixture_corpus_v1",
+  "version": "uk_tariffs_v5_empirical_proxy",
+  "generated_at_utc": "2026-02-24T12:20:03Z",
+  "as_of_utc": "2026-02-24T12:20:03Z",
+  "defaults": {
+    "crossing_fee_gbp": 0.0,
+    "distance_fee_gbp_per_km": 0.0
+  },
+  "rules": [
+    {
+      "id": "proxy_rule_price_0000_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0001_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0002_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0003_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0004_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0005_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0006_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0007_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0008_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0009_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0010_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0011_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0012_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0013_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0014_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0015_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0016_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0017_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0018_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0019_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0020_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0021_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0022_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0023_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0024_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0025_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0026_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0027_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0028_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0029_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0030_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0031_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0032_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0033_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0034_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0035_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0036_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0037_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0038_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0039_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0040_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0041_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0042_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0043_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0044_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0045_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0046_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0047_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0048_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0049_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0050_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0051_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0052_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0053_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0054_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0055_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0056_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0057_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0058_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0059_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0060_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0061_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0062_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0063_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0064_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0065_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0066_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0067_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0068_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0069_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0070_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0071_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0072_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0073_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0074_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0075_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0076_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0077_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0078_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0079_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0080_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0081_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0082_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0083_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0084_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0085_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0086_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0087_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0088_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0089_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0090_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0091_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0092_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0093_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0094_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0095_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0096_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0097_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0098_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0099_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0001_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "bristol_manchester_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0002_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cambridge_norwich_nontoll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0005_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "glasgow_edinburgh_nontoll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0007_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "london_leicester_nontoll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0010_00",
+      "operator": "public_proxy_operator",
+      "crossing_id": "york_newcastle_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 0,
+      "end_minute": 359,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0000_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0001_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0002_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0003_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0004_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0005_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0006_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0007_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0008_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0009_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0010_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0011_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0012_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0013_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0014_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0015_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0016_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0017_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0018_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0019_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0020_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0021_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0022_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0023_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0024_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0025_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0026_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0027_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0028_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0029_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0030_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0031_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0032_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0033_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0034_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0035_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0036_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0037_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0038_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0039_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0040_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0041_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0042_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0043_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0044_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0045_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0046_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0047_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0048_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0049_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0050_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0051_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0052_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0053_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0054_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0055_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0056_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0057_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0058_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0059_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0060_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0061_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0062_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0063_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0064_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0065_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0066_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0067_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0068_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0069_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0070_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0071_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0072_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0073_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0074_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0075_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0076_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0077_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0078_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0079_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0080_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0081_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0082_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0083_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0084_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0085_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0086_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0087_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0088_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0089_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0090_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0091_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0092_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0093_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0094_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0095_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0096_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0097_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0098_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0099_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0001_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "bristol_manchester_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0002_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cambridge_norwich_nontoll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0005_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "glasgow_edinburgh_nontoll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0007_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "london_leicester_nontoll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_proxy_price_from_class_0010_01",
+      "operator": "public_proxy_operator",
+      "crossing_id": "york_newcastle_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 360,
+      "end_minute": 719,
+      "crossing_fee_gbp": 0.0,
+      "distance_fee_gbp_per_km": 0.0,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0000_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0001_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0002_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0003_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0004_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "newcastle_london_tolled",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 13.9,
+      "distance_fee_gbp_per_km": 0.139,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0005_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "southampton_london_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 8.89,
+      "distance_fee_gbp_per_km": 0.0889,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0006_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "birmingham_liverpool_mixed",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 10.27,
+      "distance_fee_gbp_per_km": 0.1027,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0007_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "cardiff_bristol_crossing",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0008_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "exeter_plymouth_toll",
+      "road_class": "mixed",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 5.76,
+      "distance_fee_gbp_per_km": 0.0576,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    },
+    {
+      "id": "proxy_rule_price_0009_02",
+      "operator": "public_proxy_operator",
+      "crossing_id": "leeds_hull_bridge_toll",
+      "road_class": "primary",
+      "direction": "both",
+      "start_minute": 720,
+      "end_minute": 1079,
+      "crossing_fee_gbp": 7.25,
+      "distance_fee_gbp_per_km": 0.0725,
+      "vehicle_classes": [
+        "rigid_hgv",
+        "artic_hgv",
+        "van"
+      ],
+      "axle_classes": [
+        "default",
+        "heavy"
+      ],
+      "payment_classes": [
+        "cash",
+        "tag"
+      ],
+      "exemptions": []
+    }
+  ]
+}

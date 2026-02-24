@@ -1,0 +1,6606 @@
+{
+  "as_of": "2026-02-20T00:00:00Z",
+  "as_of_utc": "2026-02-20T00:00:00Z",
+  "refreshed_at_utc": "2026-02-24T00:28:17Z",
+  "source": "public_fuel_history_uk",
+  "provider_contract_version": "fuel-live-v1",
+  "prices_gbp_per_l": {
+    "diesel": 1.563,
+    "petrol": 1.51,
+    "lng": 1.015
+  },
+  "grid_price_gbp_per_kwh": 0.248,
+  "history": [
+    {
+      "as_of": "2024-02-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.564,
+        "petrol": 1.5158,
+        "lng": 1.0133
+      },
+      "grid_price_gbp_per_kwh": 0.2455
+    },
+    {
+      "as_of": "2024-02-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5648,
+        "petrol": 1.5164,
+        "lng": 1.0134
+      },
+      "grid_price_gbp_per_kwh": 0.2458
+    },
+    {
+      "as_of": "2024-02-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5651,
+        "petrol": 1.5166,
+        "lng": 1.0132
+      },
+      "grid_price_gbp_per_kwh": 0.2461
+    },
+    {
+      "as_of": "2024-02-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5651,
+        "petrol": 1.5164,
+        "lng": 1.0127
+      },
+      "grid_price_gbp_per_kwh": 0.2463
+    },
+    {
+      "as_of": "2024-02-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5646,
+        "petrol": 1.516,
+        "lng": 1.0122
+      },
+      "grid_price_gbp_per_kwh": 0.2466
+    },
+    {
+      "as_of": "2024-02-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.564,
+        "petrol": 1.5153,
+        "lng": 1.0114
+      },
+      "grid_price_gbp_per_kwh": 0.2469
+    },
+    {
+      "as_of": "2024-02-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5631,
+        "petrol": 1.5145,
+        "lng": 1.0104
+      },
+      "grid_price_gbp_per_kwh": 0.2472
+    },
+    {
+      "as_of": "2024-02-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5622,
+        "petrol": 1.5132,
+        "lng": 1.0095
+      },
+      "grid_price_gbp_per_kwh": 0.2474
+    },
+    {
+      "as_of": "2024-02-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.561,
+        "petrol": 1.5121,
+        "lng": 1.0084
+      },
+      "grid_price_gbp_per_kwh": 0.2477
+    },
+    {
+      "as_of": "2024-03-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5598,
+        "petrol": 1.5108,
+        "lng": 1.0071
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2024-03-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5578,
+        "petrol": 1.509,
+        "lng": 1.0058
+      },
+      "grid_price_gbp_per_kwh": 0.2481
+    },
+    {
+      "as_of": "2024-03-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5561,
+        "petrol": 1.5071,
+        "lng": 1.0046
+      },
+      "grid_price_gbp_per_kwh": 0.2482
+    },
+    {
+      "as_of": "2024-03-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5544,
+        "petrol": 1.5056,
+        "lng": 1.0033
+      },
+      "grid_price_gbp_per_kwh": 0.2483
+    },
+    {
+      "as_of": "2024-03-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.553,
+        "petrol": 1.5042,
+        "lng": 1.0022
+      },
+      "grid_price_gbp_per_kwh": 0.2484
+    },
+    {
+      "as_of": "2024-03-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5517,
+        "petrol": 1.5031,
+        "lng": 1.0014
+      },
+      "grid_price_gbp_per_kwh": 0.2485
+    },
+    {
+      "as_of": "2024-03-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5509,
+        "petrol": 1.5023,
+        "lng": 1.0007
+      },
+      "grid_price_gbp_per_kwh": 0.2486
+    },
+    {
+      "as_of": "2024-03-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5504,
+        "petrol": 1.5018,
+        "lng": 1.0002
+      },
+      "grid_price_gbp_per_kwh": 0.2487
+    },
+    {
+      "as_of": "2024-03-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5505,
+        "petrol": 1.5016,
+        "lng": 1.0
+      },
+      "grid_price_gbp_per_kwh": 0.2488
+    },
+    {
+      "as_of": "2024-03-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5507,
+        "petrol": 1.5019,
+        "lng": 1.0001
+      },
+      "grid_price_gbp_per_kwh": 0.2489
+    },
+    {
+      "as_of": "2024-03-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5514,
+        "petrol": 1.5026,
+        "lng": 1.0004
+      },
+      "grid_price_gbp_per_kwh": 0.249
+    },
+    {
+      "as_of": "2024-03-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5527,
+        "petrol": 1.5036,
+        "lng": 1.001
+      },
+      "grid_price_gbp_per_kwh": 0.2491
+    },
+    {
+      "as_of": "2024-03-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.554,
+        "petrol": 1.505,
+        "lng": 1.0018
+      },
+      "grid_price_gbp_per_kwh": 0.2492
+    },
+    {
+      "as_of": "2024-03-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5559,
+        "petrol": 1.5068,
+        "lng": 1.0028
+      },
+      "grid_price_gbp_per_kwh": 0.2493
+    },
+    {
+      "as_of": "2024-03-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5581,
+        "petrol": 1.5089,
+        "lng": 1.0041
+      },
+      "grid_price_gbp_per_kwh": 0.2494
+    },
+    {
+      "as_of": "2024-03-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5604,
+        "petrol": 1.5112,
+        "lng": 1.0055
+      },
+      "grid_price_gbp_per_kwh": 0.2495
+    },
+    {
+      "as_of": "2024-03-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5629,
+        "petrol": 1.5137,
+        "lng": 1.0071
+      },
+      "grid_price_gbp_per_kwh": 0.2495
+    },
+    {
+      "as_of": "2024-03-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5657,
+        "petrol": 1.5162,
+        "lng": 1.0087
+      },
+      "grid_price_gbp_per_kwh": 0.2496
+    },
+    {
+      "as_of": "2024-03-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5685,
+        "petrol": 1.519,
+        "lng": 1.0103
+      },
+      "grid_price_gbp_per_kwh": 0.2497
+    },
+    {
+      "as_of": "2024-03-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5714,
+        "petrol": 1.5217,
+        "lng": 1.012
+      },
+      "grid_price_gbp_per_kwh": 0.2498
+    },
+    {
+      "as_of": "2024-03-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5742,
+        "petrol": 1.5243,
+        "lng": 1.0136
+      },
+      "grid_price_gbp_per_kwh": 0.2499
+    },
+    {
+      "as_of": "2024-03-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5767,
+        "petrol": 1.5268,
+        "lng": 1.0152
+      },
+      "grid_price_gbp_per_kwh": 0.25
+    },
+    {
+      "as_of": "2024-03-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5792,
+        "petrol": 1.5292,
+        "lng": 1.0165
+      },
+      "grid_price_gbp_per_kwh": 0.2501
+    },
+    {
+      "as_of": "2024-03-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5813,
+        "petrol": 1.5311,
+        "lng": 1.0178
+      },
+      "grid_price_gbp_per_kwh": 0.2502
+    },
+    {
+      "as_of": "2024-03-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5831,
+        "petrol": 1.533,
+        "lng": 1.0189
+      },
+      "grid_price_gbp_per_kwh": 0.2503
+    },
+    {
+      "as_of": "2024-03-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5847,
+        "petrol": 1.5344,
+        "lng": 1.0196
+      },
+      "grid_price_gbp_per_kwh": 0.2504
+    },
+    {
+      "as_of": "2024-03-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5857,
+        "petrol": 1.5355,
+        "lng": 1.0203
+      },
+      "grid_price_gbp_per_kwh": 0.2505
+    },
+    {
+      "as_of": "2024-03-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5864,
+        "petrol": 1.5362,
+        "lng": 1.0205
+      },
+      "grid_price_gbp_per_kwh": 0.2506
+    },
+    {
+      "as_of": "2024-03-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5868,
+        "petrol": 1.5365,
+        "lng": 1.0206
+      },
+      "grid_price_gbp_per_kwh": 0.2507
+    },
+    {
+      "as_of": "2024-03-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5867,
+        "petrol": 1.5364,
+        "lng": 1.0204
+      },
+      "grid_price_gbp_per_kwh": 0.2508
+    },
+    {
+      "as_of": "2024-03-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.5862,
+        "petrol": 1.5359,
+        "lng": 1.02
+      },
+      "grid_price_gbp_per_kwh": 0.2509
+    },
+    {
+      "as_of": "2024-04-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5854,
+        "petrol": 1.5351,
+        "lng": 1.0193
+      },
+      "grid_price_gbp_per_kwh": 0.251
+    },
+    {
+      "as_of": "2024-04-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5835,
+        "petrol": 1.5332,
+        "lng": 1.0182
+      },
+      "grid_price_gbp_per_kwh": 0.2509
+    },
+    {
+      "as_of": "2024-04-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5813,
+        "petrol": 1.5311,
+        "lng": 1.0169
+      },
+      "grid_price_gbp_per_kwh": 0.2509
+    },
+    {
+      "as_of": "2024-04-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5787,
+        "petrol": 1.5287,
+        "lng": 1.0156
+      },
+      "grid_price_gbp_per_kwh": 0.2508
+    },
+    {
+      "as_of": "2024-04-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5763,
+        "petrol": 1.5262,
+        "lng": 1.014
+      },
+      "grid_price_gbp_per_kwh": 0.2507
+    },
+    {
+      "as_of": "2024-04-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5735,
+        "petrol": 1.5235,
+        "lng": 1.0124
+      },
+      "grid_price_gbp_per_kwh": 0.2507
+    },
+    {
+      "as_of": "2024-04-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5708,
+        "petrol": 1.5208,
+        "lng": 1.0105
+      },
+      "grid_price_gbp_per_kwh": 0.2506
+    },
+    {
+      "as_of": "2024-04-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5681,
+        "petrol": 1.5183,
+        "lng": 1.0089
+      },
+      "grid_price_gbp_per_kwh": 0.2505
+    },
+    {
+      "as_of": "2024-04-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5656,
+        "petrol": 1.5157,
+        "lng": 1.0076
+      },
+      "grid_price_gbp_per_kwh": 0.2505
+    },
+    {
+      "as_of": "2024-04-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5632,
+        "petrol": 1.5133,
+        "lng": 1.006
+      },
+      "grid_price_gbp_per_kwh": 0.2504
+    },
+    {
+      "as_of": "2024-04-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5609,
+        "petrol": 1.5112,
+        "lng": 1.0047
+      },
+      "grid_price_gbp_per_kwh": 0.2503
+    },
+    {
+      "as_of": "2024-04-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5589,
+        "petrol": 1.5094,
+        "lng": 1.0037
+      },
+      "grid_price_gbp_per_kwh": 0.2503
+    },
+    {
+      "as_of": "2024-04-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5574,
+        "petrol": 1.5078,
+        "lng": 1.0027
+      },
+      "grid_price_gbp_per_kwh": 0.2502
+    },
+    {
+      "as_of": "2024-04-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5562,
+        "petrol": 1.5067,
+        "lng": 1.002
+      },
+      "grid_price_gbp_per_kwh": 0.2501
+    },
+    {
+      "as_of": "2024-04-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5554,
+        "petrol": 1.5058,
+        "lng": 1.0016
+      },
+      "grid_price_gbp_per_kwh": 0.2501
+    },
+    {
+      "as_of": "2024-04-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5549,
+        "petrol": 1.5054,
+        "lng": 1.0015
+      },
+      "grid_price_gbp_per_kwh": 0.25
+    },
+    {
+      "as_of": "2024-04-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5549,
+        "petrol": 1.5054,
+        "lng": 1.0015
+      },
+      "grid_price_gbp_per_kwh": 0.2499
+    },
+    {
+      "as_of": "2024-04-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5553,
+        "petrol": 1.5057,
+        "lng": 1.0019
+      },
+      "grid_price_gbp_per_kwh": 0.2499
+    },
+    {
+      "as_of": "2024-04-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.556,
+        "petrol": 1.5063,
+        "lng": 1.0024
+      },
+      "grid_price_gbp_per_kwh": 0.2498
+    },
+    {
+      "as_of": "2024-04-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5571,
+        "petrol": 1.5074,
+        "lng": 1.0032
+      },
+      "grid_price_gbp_per_kwh": 0.2497
+    },
+    {
+      "as_of": "2024-04-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5586,
+        "petrol": 1.5088,
+        "lng": 1.0043
+      },
+      "grid_price_gbp_per_kwh": 0.2497
+    },
+    {
+      "as_of": "2024-04-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5601,
+        "petrol": 1.5104,
+        "lng": 1.0054
+      },
+      "grid_price_gbp_per_kwh": 0.2496
+    },
+    {
+      "as_of": "2024-04-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5619,
+        "petrol": 1.5122,
+        "lng": 1.0068
+      },
+      "grid_price_gbp_per_kwh": 0.2495
+    },
+    {
+      "as_of": "2024-04-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5639,
+        "petrol": 1.514,
+        "lng": 1.0082
+      },
+      "grid_price_gbp_per_kwh": 0.2495
+    },
+    {
+      "as_of": "2024-04-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.566,
+        "petrol": 1.516,
+        "lng": 1.0096
+      },
+      "grid_price_gbp_per_kwh": 0.2494
+    },
+    {
+      "as_of": "2024-04-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5681,
+        "petrol": 1.518,
+        "lng": 1.011
+      },
+      "grid_price_gbp_per_kwh": 0.2493
+    },
+    {
+      "as_of": "2024-04-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5701,
+        "petrol": 1.5198,
+        "lng": 1.0124
+      },
+      "grid_price_gbp_per_kwh": 0.2493
+    },
+    {
+      "as_of": "2024-04-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5719,
+        "petrol": 1.5216,
+        "lng": 1.0138
+      },
+      "grid_price_gbp_per_kwh": 0.2492
+    },
+    {
+      "as_of": "2024-04-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5736,
+        "petrol": 1.5233,
+        "lng": 1.0149
+      },
+      "grid_price_gbp_per_kwh": 0.2491
+    },
+    {
+      "as_of": "2024-04-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5749,
+        "petrol": 1.5245,
+        "lng": 1.016
+      },
+      "grid_price_gbp_per_kwh": 0.2491
+    },
+    {
+      "as_of": "2024-05-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.576,
+        "petrol": 1.5257,
+        "lng": 1.0168
+      },
+      "grid_price_gbp_per_kwh": 0.249
+    },
+    {
+      "as_of": "2024-05-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5761,
+        "petrol": 1.5257,
+        "lng": 1.0171
+      },
+      "grid_price_gbp_per_kwh": 0.2488
+    },
+    {
+      "as_of": "2024-05-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5757,
+        "petrol": 1.5255,
+        "lng": 1.0173
+      },
+      "grid_price_gbp_per_kwh": 0.2485
+    },
+    {
+      "as_of": "2024-05-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.575,
+        "petrol": 1.5249,
+        "lng": 1.0171
+      },
+      "grid_price_gbp_per_kwh": 0.2483
+    },
+    {
+      "as_of": "2024-05-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5739,
+        "petrol": 1.5239,
+        "lng": 1.0167
+      },
+      "grid_price_gbp_per_kwh": 0.2481
+    },
+    {
+      "as_of": "2024-05-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5723,
+        "petrol": 1.5225,
+        "lng": 1.0161
+      },
+      "grid_price_gbp_per_kwh": 0.2479
+    },
+    {
+      "as_of": "2024-05-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5704,
+        "petrol": 1.5208,
+        "lng": 1.0152
+      },
+      "grid_price_gbp_per_kwh": 0.2476
+    },
+    {
+      "as_of": "2024-05-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5681,
+        "petrol": 1.5186,
+        "lng": 1.014
+      },
+      "grid_price_gbp_per_kwh": 0.2474
+    },
+    {
+      "as_of": "2024-05-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5654,
+        "petrol": 1.5161,
+        "lng": 1.0127
+      },
+      "grid_price_gbp_per_kwh": 0.2472
+    },
+    {
+      "as_of": "2024-05-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5625,
+        "petrol": 1.5134,
+        "lng": 1.0112
+      },
+      "grid_price_gbp_per_kwh": 0.247
+    },
+    {
+      "as_of": "2024-05-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5594,
+        "petrol": 1.5106,
+        "lng": 1.0094
+      },
+      "grid_price_gbp_per_kwh": 0.2467
+    },
+    {
+      "as_of": "2024-05-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5562,
+        "petrol": 1.5074,
+        "lng": 1.0078
+      },
+      "grid_price_gbp_per_kwh": 0.2465
+    },
+    {
+      "as_of": "2024-05-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5528,
+        "petrol": 1.5043,
+        "lng": 1.006
+      },
+      "grid_price_gbp_per_kwh": 0.2463
+    },
+    {
+      "as_of": "2024-05-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5494,
+        "petrol": 1.5011,
+        "lng": 1.004
+      },
+      "grid_price_gbp_per_kwh": 0.2461
+    },
+    {
+      "as_of": "2024-05-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.546,
+        "petrol": 1.498,
+        "lng": 1.0021
+      },
+      "grid_price_gbp_per_kwh": 0.2458
+    },
+    {
+      "as_of": "2024-05-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5428,
+        "petrol": 1.4949,
+        "lng": 1.0005
+      },
+      "grid_price_gbp_per_kwh": 0.2456
+    },
+    {
+      "as_of": "2024-05-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5397,
+        "petrol": 1.492,
+        "lng": 0.9988
+      },
+      "grid_price_gbp_per_kwh": 0.2454
+    },
+    {
+      "as_of": "2024-05-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5368,
+        "petrol": 1.4893,
+        "lng": 0.9972
+      },
+      "grid_price_gbp_per_kwh": 0.2452
+    },
+    {
+      "as_of": "2024-05-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5343,
+        "petrol": 1.4869,
+        "lng": 0.996
+      },
+      "grid_price_gbp_per_kwh": 0.2449
+    },
+    {
+      "as_of": "2024-05-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5321,
+        "petrol": 1.4848,
+        "lng": 0.9948
+      },
+      "grid_price_gbp_per_kwh": 0.2447
+    },
+    {
+      "as_of": "2024-05-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5301,
+        "petrol": 1.483,
+        "lng": 0.9939
+      },
+      "grid_price_gbp_per_kwh": 0.2445
+    },
+    {
+      "as_of": "2024-05-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5285,
+        "petrol": 1.4818,
+        "lng": 0.9932
+      },
+      "grid_price_gbp_per_kwh": 0.2443
+    },
+    {
+      "as_of": "2024-05-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5275,
+        "petrol": 1.4807,
+        "lng": 0.9929
+      },
+      "grid_price_gbp_per_kwh": 0.244
+    },
+    {
+      "as_of": "2024-05-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5267,
+        "petrol": 1.48,
+        "lng": 0.9928
+      },
+      "grid_price_gbp_per_kwh": 0.2438
+    },
+    {
+      "as_of": "2024-05-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5263,
+        "petrol": 1.48,
+        "lng": 0.9929
+      },
+      "grid_price_gbp_per_kwh": 0.2436
+    },
+    {
+      "as_of": "2024-05-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5265,
+        "petrol": 1.48,
+        "lng": 0.9933
+      },
+      "grid_price_gbp_per_kwh": 0.2434
+    },
+    {
+      "as_of": "2024-05-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5268,
+        "petrol": 1.4806,
+        "lng": 0.994
+      },
+      "grid_price_gbp_per_kwh": 0.2431
+    },
+    {
+      "as_of": "2024-05-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5274,
+        "petrol": 1.4812,
+        "lng": 0.9946
+      },
+      "grid_price_gbp_per_kwh": 0.2429
+    },
+    {
+      "as_of": "2024-05-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5285,
+        "petrol": 1.4821,
+        "lng": 0.9955
+      },
+      "grid_price_gbp_per_kwh": 0.2427
+    },
+    {
+      "as_of": "2024-05-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5295,
+        "petrol": 1.4833,
+        "lng": 0.9966
+      },
+      "grid_price_gbp_per_kwh": 0.2425
+    },
+    {
+      "as_of": "2024-05-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.5307,
+        "petrol": 1.4845,
+        "lng": 0.9978
+      },
+      "grid_price_gbp_per_kwh": 0.2422
+    },
+    {
+      "as_of": "2024-06-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.532,
+        "petrol": 1.486,
+        "lng": 0.999
+      },
+      "grid_price_gbp_per_kwh": 0.242
+    },
+    {
+      "as_of": "2024-06-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5329,
+        "petrol": 1.4871,
+        "lng": 1.0
+      },
+      "grid_price_gbp_per_kwh": 0.2417
+    },
+    {
+      "as_of": "2024-06-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5337,
+        "petrol": 1.4879,
+        "lng": 1.0011
+      },
+      "grid_price_gbp_per_kwh": 0.2413
+    },
+    {
+      "as_of": "2024-06-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5343,
+        "petrol": 1.4887,
+        "lng": 1.0021
+      },
+      "grid_price_gbp_per_kwh": 0.241
+    },
+    {
+      "as_of": "2024-06-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5349,
+        "petrol": 1.4892,
+        "lng": 1.0028
+      },
+      "grid_price_gbp_per_kwh": 0.2407
+    },
+    {
+      "as_of": "2024-06-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5351,
+        "petrol": 1.4894,
+        "lng": 1.0034
+      },
+      "grid_price_gbp_per_kwh": 0.2403
+    },
+    {
+      "as_of": "2024-06-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5351,
+        "petrol": 1.4896,
+        "lng": 1.0039
+      },
+      "grid_price_gbp_per_kwh": 0.24
+    },
+    {
+      "as_of": "2024-06-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5347,
+        "petrol": 1.4892,
+        "lng": 1.0041
+      },
+      "grid_price_gbp_per_kwh": 0.2397
+    },
+    {
+      "as_of": "2024-06-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.534,
+        "petrol": 1.4886,
+        "lng": 1.004
+      },
+      "grid_price_gbp_per_kwh": 0.2393
+    },
+    {
+      "as_of": "2024-06-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5329,
+        "petrol": 1.4875,
+        "lng": 1.0038
+      },
+      "grid_price_gbp_per_kwh": 0.239
+    },
+    {
+      "as_of": "2024-06-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5312,
+        "petrol": 1.4862,
+        "lng": 1.0033
+      },
+      "grid_price_gbp_per_kwh": 0.2387
+    },
+    {
+      "as_of": "2024-06-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5294,
+        "petrol": 1.4843,
+        "lng": 1.0025
+      },
+      "grid_price_gbp_per_kwh": 0.2383
+    },
+    {
+      "as_of": "2024-06-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5271,
+        "petrol": 1.4822,
+        "lng": 1.0015
+      },
+      "grid_price_gbp_per_kwh": 0.238
+    },
+    {
+      "as_of": "2024-06-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5244,
+        "petrol": 1.4798,
+        "lng": 1.0001
+      },
+      "grid_price_gbp_per_kwh": 0.2377
+    },
+    {
+      "as_of": "2024-06-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5214,
+        "petrol": 1.477,
+        "lng": 0.9987
+      },
+      "grid_price_gbp_per_kwh": 0.2373
+    },
+    {
+      "as_of": "2024-06-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.518,
+        "petrol": 1.474,
+        "lng": 0.9971
+      },
+      "grid_price_gbp_per_kwh": 0.237
+    },
+    {
+      "as_of": "2024-06-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5147,
+        "petrol": 1.4706,
+        "lng": 0.9952
+      },
+      "grid_price_gbp_per_kwh": 0.2367
+    },
+    {
+      "as_of": "2024-06-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.511,
+        "petrol": 1.4672,
+        "lng": 0.9933
+      },
+      "grid_price_gbp_per_kwh": 0.2363
+    },
+    {
+      "as_of": "2024-06-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5074,
+        "petrol": 1.4638,
+        "lng": 0.9915
+      },
+      "grid_price_gbp_per_kwh": 0.236
+    },
+    {
+      "as_of": "2024-06-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5036,
+        "petrol": 1.4601,
+        "lng": 0.9893
+      },
+      "grid_price_gbp_per_kwh": 0.2357
+    },
+    {
+      "as_of": "2024-06-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5,
+        "petrol": 1.4567,
+        "lng": 0.9875
+      },
+      "grid_price_gbp_per_kwh": 0.2353
+    },
+    {
+      "as_of": "2024-06-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4962,
+        "petrol": 1.4533,
+        "lng": 0.9856
+      },
+      "grid_price_gbp_per_kwh": 0.235
+    },
+    {
+      "as_of": "2024-06-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4929,
+        "petrol": 1.4502,
+        "lng": 0.9837
+      },
+      "grid_price_gbp_per_kwh": 0.2347
+    },
+    {
+      "as_of": "2024-06-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4897,
+        "petrol": 1.4471,
+        "lng": 0.9822
+      },
+      "grid_price_gbp_per_kwh": 0.2343
+    },
+    {
+      "as_of": "2024-06-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4868,
+        "petrol": 1.4443,
+        "lng": 0.9806
+      },
+      "grid_price_gbp_per_kwh": 0.234
+    },
+    {
+      "as_of": "2024-06-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4842,
+        "petrol": 1.4418,
+        "lng": 0.9795
+      },
+      "grid_price_gbp_per_kwh": 0.2337
+    },
+    {
+      "as_of": "2024-06-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4818,
+        "petrol": 1.4397,
+        "lng": 0.9784
+      },
+      "grid_price_gbp_per_kwh": 0.2333
+    },
+    {
+      "as_of": "2024-06-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4801,
+        "petrol": 1.438,
+        "lng": 0.9777
+      },
+      "grid_price_gbp_per_kwh": 0.233
+    },
+    {
+      "as_of": "2024-06-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4785,
+        "petrol": 1.4367,
+        "lng": 0.9772
+      },
+      "grid_price_gbp_per_kwh": 0.2327
+    },
+    {
+      "as_of": "2024-06-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4774,
+        "petrol": 1.4357,
+        "lng": 0.9768
+      },
+      "grid_price_gbp_per_kwh": 0.2323
+    },
+    {
+      "as_of": "2024-07-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4767,
+        "petrol": 1.435,
+        "lng": 0.9769
+      },
+      "grid_price_gbp_per_kwh": 0.232
+    },
+    {
+      "as_of": "2024-07-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4762,
+        "petrol": 1.4346,
+        "lng": 0.977
+      },
+      "grid_price_gbp_per_kwh": 0.2317
+    },
+    {
+      "as_of": "2024-07-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4763,
+        "petrol": 1.4348,
+        "lng": 0.9775
+      },
+      "grid_price_gbp_per_kwh": 0.2314
+    },
+    {
+      "as_of": "2024-07-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4764,
+        "petrol": 1.4351,
+        "lng": 0.9781
+      },
+      "grid_price_gbp_per_kwh": 0.231
+    },
+    {
+      "as_of": "2024-07-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4769,
+        "petrol": 1.4357,
+        "lng": 0.979
+      },
+      "grid_price_gbp_per_kwh": 0.2307
+    },
+    {
+      "as_of": "2024-07-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4776,
+        "petrol": 1.4365,
+        "lng": 0.9798
+      },
+      "grid_price_gbp_per_kwh": 0.2304
+    },
+    {
+      "as_of": "2024-07-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4784,
+        "petrol": 1.4373,
+        "lng": 0.9808
+      },
+      "grid_price_gbp_per_kwh": 0.2301
+    },
+    {
+      "as_of": "2024-07-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4793,
+        "petrol": 1.4382,
+        "lng": 0.9818
+      },
+      "grid_price_gbp_per_kwh": 0.2297
+    },
+    {
+      "as_of": "2024-07-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4802,
+        "petrol": 1.4391,
+        "lng": 0.9829
+      },
+      "grid_price_gbp_per_kwh": 0.2294
+    },
+    {
+      "as_of": "2024-07-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.481,
+        "petrol": 1.4399,
+        "lng": 0.9839
+      },
+      "grid_price_gbp_per_kwh": 0.2291
+    },
+    {
+      "as_of": "2024-07-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4817,
+        "petrol": 1.4407,
+        "lng": 0.9847
+      },
+      "grid_price_gbp_per_kwh": 0.2288
+    },
+    {
+      "as_of": "2024-07-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4821,
+        "petrol": 1.4413,
+        "lng": 0.9857
+      },
+      "grid_price_gbp_per_kwh": 0.2285
+    },
+    {
+      "as_of": "2024-07-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4823,
+        "petrol": 1.4415,
+        "lng": 0.9862
+      },
+      "grid_price_gbp_per_kwh": 0.2281
+    },
+    {
+      "as_of": "2024-07-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4823,
+        "petrol": 1.4417,
+        "lng": 0.9866
+      },
+      "grid_price_gbp_per_kwh": 0.2278
+    },
+    {
+      "as_of": "2024-07-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4819,
+        "petrol": 1.4414,
+        "lng": 0.9868
+      },
+      "grid_price_gbp_per_kwh": 0.2275
+    },
+    {
+      "as_of": "2024-07-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4811,
+        "petrol": 1.4407,
+        "lng": 0.9869
+      },
+      "grid_price_gbp_per_kwh": 0.2272
+    },
+    {
+      "as_of": "2024-07-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.48,
+        "petrol": 1.4397,
+        "lng": 0.9865
+      },
+      "grid_price_gbp_per_kwh": 0.2268
+    },
+    {
+      "as_of": "2024-07-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4786,
+        "petrol": 1.4385,
+        "lng": 0.986
+      },
+      "grid_price_gbp_per_kwh": 0.2265
+    },
+    {
+      "as_of": "2024-07-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4766,
+        "petrol": 1.4366,
+        "lng": 0.9853
+      },
+      "grid_price_gbp_per_kwh": 0.2262
+    },
+    {
+      "as_of": "2024-07-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4744,
+        "petrol": 1.4345,
+        "lng": 0.9842
+      },
+      "grid_price_gbp_per_kwh": 0.2259
+    },
+    {
+      "as_of": "2024-07-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4718,
+        "petrol": 1.4321,
+        "lng": 0.9831
+      },
+      "grid_price_gbp_per_kwh": 0.2255
+    },
+    {
+      "as_of": "2024-07-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4689,
+        "petrol": 1.4295,
+        "lng": 0.9815
+      },
+      "grid_price_gbp_per_kwh": 0.2252
+    },
+    {
+      "as_of": "2024-07-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4659,
+        "petrol": 1.4265,
+        "lng": 0.9799
+      },
+      "grid_price_gbp_per_kwh": 0.2249
+    },
+    {
+      "as_of": "2024-07-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4625,
+        "petrol": 1.4234,
+        "lng": 0.9782
+      },
+      "grid_price_gbp_per_kwh": 0.2246
+    },
+    {
+      "as_of": "2024-07-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.459,
+        "petrol": 1.4201,
+        "lng": 0.9763
+      },
+      "grid_price_gbp_per_kwh": 0.2243
+    },
+    {
+      "as_of": "2024-07-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4555,
+        "petrol": 1.4167,
+        "lng": 0.9744
+      },
+      "grid_price_gbp_per_kwh": 0.2239
+    },
+    {
+      "as_of": "2024-07-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4518,
+        "petrol": 1.4131,
+        "lng": 0.9726
+      },
+      "grid_price_gbp_per_kwh": 0.2236
+    },
+    {
+      "as_of": "2024-07-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4483,
+        "petrol": 1.4098,
+        "lng": 0.9707
+      },
+      "grid_price_gbp_per_kwh": 0.2233
+    },
+    {
+      "as_of": "2024-07-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4448,
+        "petrol": 1.4066,
+        "lng": 0.9688
+      },
+      "grid_price_gbp_per_kwh": 0.223
+    },
+    {
+      "as_of": "2024-07-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4415,
+        "petrol": 1.4033,
+        "lng": 0.9671
+      },
+      "grid_price_gbp_per_kwh": 0.2226
+    },
+    {
+      "as_of": "2024-07-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.4384,
+        "petrol": 1.4005,
+        "lng": 0.9654
+      },
+      "grid_price_gbp_per_kwh": 0.2223
+    },
+    {
+      "as_of": "2024-08-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4355,
+        "petrol": 1.3978,
+        "lng": 0.9641
+      },
+      "grid_price_gbp_per_kwh": 0.222
+    },
+    {
+      "as_of": "2024-08-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4334,
+        "petrol": 1.3958,
+        "lng": 0.9628
+      },
+      "grid_price_gbp_per_kwh": 0.2218
+    },
+    {
+      "as_of": "2024-08-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4316,
+        "petrol": 1.3942,
+        "lng": 0.9619
+      },
+      "grid_price_gbp_per_kwh": 0.2215
+    },
+    {
+      "as_of": "2024-08-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.43,
+        "petrol": 1.3927,
+        "lng": 0.9612
+      },
+      "grid_price_gbp_per_kwh": 0.2213
+    },
+    {
+      "as_of": "2024-08-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4289,
+        "petrol": 1.3918,
+        "lng": 0.9609
+      },
+      "grid_price_gbp_per_kwh": 0.2211
+    },
+    {
+      "as_of": "2024-08-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4282,
+        "petrol": 1.3912,
+        "lng": 0.9608
+      },
+      "grid_price_gbp_per_kwh": 0.2209
+    },
+    {
+      "as_of": "2024-08-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4278,
+        "petrol": 1.3909,
+        "lng": 0.9608
+      },
+      "grid_price_gbp_per_kwh": 0.2206
+    },
+    {
+      "as_of": "2024-08-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4277,
+        "petrol": 1.3909,
+        "lng": 0.961
+      },
+      "grid_price_gbp_per_kwh": 0.2204
+    },
+    {
+      "as_of": "2024-08-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4281,
+        "petrol": 1.3914,
+        "lng": 0.9616
+      },
+      "grid_price_gbp_per_kwh": 0.2202
+    },
+    {
+      "as_of": "2024-08-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4286,
+        "petrol": 1.392,
+        "lng": 0.9624
+      },
+      "grid_price_gbp_per_kwh": 0.22
+    },
+    {
+      "as_of": "2024-08-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4294,
+        "petrol": 1.3929,
+        "lng": 0.9632
+      },
+      "grid_price_gbp_per_kwh": 0.2197
+    },
+    {
+      "as_of": "2024-08-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4304,
+        "petrol": 1.3939,
+        "lng": 0.9641
+      },
+      "grid_price_gbp_per_kwh": 0.2195
+    },
+    {
+      "as_of": "2024-08-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4315,
+        "petrol": 1.3951,
+        "lng": 0.9653
+      },
+      "grid_price_gbp_per_kwh": 0.2193
+    },
+    {
+      "as_of": "2024-08-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4326,
+        "petrol": 1.3963,
+        "lng": 0.9664
+      },
+      "grid_price_gbp_per_kwh": 0.2191
+    },
+    {
+      "as_of": "2024-08-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4337,
+        "petrol": 1.3975,
+        "lng": 0.9675
+      },
+      "grid_price_gbp_per_kwh": 0.2188
+    },
+    {
+      "as_of": "2024-08-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4347,
+        "petrol": 1.3986,
+        "lng": 0.9686
+      },
+      "grid_price_gbp_per_kwh": 0.2186
+    },
+    {
+      "as_of": "2024-08-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4358,
+        "petrol": 1.3996,
+        "lng": 0.9695
+      },
+      "grid_price_gbp_per_kwh": 0.2184
+    },
+    {
+      "as_of": "2024-08-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4365,
+        "petrol": 1.4005,
+        "lng": 0.9704
+      },
+      "grid_price_gbp_per_kwh": 0.2182
+    },
+    {
+      "as_of": "2024-08-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.437,
+        "petrol": 1.4011,
+        "lng": 0.9712
+      },
+      "grid_price_gbp_per_kwh": 0.2179
+    },
+    {
+      "as_of": "2024-08-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4374,
+        "petrol": 1.4016,
+        "lng": 0.9717
+      },
+      "grid_price_gbp_per_kwh": 0.2177
+    },
+    {
+      "as_of": "2024-08-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4373,
+        "petrol": 1.4016,
+        "lng": 0.972
+      },
+      "grid_price_gbp_per_kwh": 0.2175
+    },
+    {
+      "as_of": "2024-08-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4369,
+        "petrol": 1.4013,
+        "lng": 0.972
+      },
+      "grid_price_gbp_per_kwh": 0.2173
+    },
+    {
+      "as_of": "2024-08-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4362,
+        "petrol": 1.4007,
+        "lng": 0.9719
+      },
+      "grid_price_gbp_per_kwh": 0.217
+    },
+    {
+      "as_of": "2024-08-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.435,
+        "petrol": 1.3997,
+        "lng": 0.9715
+      },
+      "grid_price_gbp_per_kwh": 0.2168
+    },
+    {
+      "as_of": "2024-08-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4335,
+        "petrol": 1.3983,
+        "lng": 0.9708
+      },
+      "grid_price_gbp_per_kwh": 0.2166
+    },
+    {
+      "as_of": "2024-08-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4316,
+        "petrol": 1.3965,
+        "lng": 0.9699
+      },
+      "grid_price_gbp_per_kwh": 0.2164
+    },
+    {
+      "as_of": "2024-08-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4294,
+        "petrol": 1.3946,
+        "lng": 0.9687
+      },
+      "grid_price_gbp_per_kwh": 0.2161
+    },
+    {
+      "as_of": "2024-08-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.427,
+        "petrol": 1.3923,
+        "lng": 0.9674
+      },
+      "grid_price_gbp_per_kwh": 0.2159
+    },
+    {
+      "as_of": "2024-08-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4243,
+        "petrol": 1.3896,
+        "lng": 0.9659
+      },
+      "grid_price_gbp_per_kwh": 0.2157
+    },
+    {
+      "as_of": "2024-08-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4214,
+        "petrol": 1.3869,
+        "lng": 0.9643
+      },
+      "grid_price_gbp_per_kwh": 0.2155
+    },
+    {
+      "as_of": "2024-08-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.4183,
+        "petrol": 1.3839,
+        "lng": 0.9625
+      },
+      "grid_price_gbp_per_kwh": 0.2152
+    },
+    {
+      "as_of": "2024-09-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4152,
+        "petrol": 1.3812,
+        "lng": 0.9606
+      },
+      "grid_price_gbp_per_kwh": 0.215
+    },
+    {
+      "as_of": "2024-09-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4125,
+        "petrol": 1.3785,
+        "lng": 0.9593
+      },
+      "grid_price_gbp_per_kwh": 0.2149
+    },
+    {
+      "as_of": "2024-09-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4101,
+        "petrol": 1.3764,
+        "lng": 0.9577
+      },
+      "grid_price_gbp_per_kwh": 0.2149
+    },
+    {
+      "as_of": "2024-09-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4079,
+        "petrol": 1.374,
+        "lng": 0.9561
+      },
+      "grid_price_gbp_per_kwh": 0.2148
+    },
+    {
+      "as_of": "2024-09-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4055,
+        "petrol": 1.3719,
+        "lng": 0.9548
+      },
+      "grid_price_gbp_per_kwh": 0.2147
+    },
+    {
+      "as_of": "2024-09-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4036,
+        "petrol": 1.3699,
+        "lng": 0.9535
+      },
+      "grid_price_gbp_per_kwh": 0.2147
+    },
+    {
+      "as_of": "2024-09-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4018,
+        "petrol": 1.3683,
+        "lng": 0.9525
+      },
+      "grid_price_gbp_per_kwh": 0.2146
+    },
+    {
+      "as_of": "2024-09-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4003,
+        "petrol": 1.3668,
+        "lng": 0.9515
+      },
+      "grid_price_gbp_per_kwh": 0.2145
+    },
+    {
+      "as_of": "2024-09-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.3993,
+        "petrol": 1.3658,
+        "lng": 0.951
+      },
+      "grid_price_gbp_per_kwh": 0.2145
+    },
+    {
+      "as_of": "2024-09-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.3984,
+        "petrol": 1.365,
+        "lng": 0.9506
+      },
+      "grid_price_gbp_per_kwh": 0.2144
+    },
+    {
+      "as_of": "2024-09-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.398,
+        "petrol": 1.3647,
+        "lng": 0.9503
+      },
+      "grid_price_gbp_per_kwh": 0.2143
+    },
+    {
+      "as_of": "2024-09-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.398,
+        "petrol": 1.3647,
+        "lng": 0.9505
+      },
+      "grid_price_gbp_per_kwh": 0.2143
+    },
+    {
+      "as_of": "2024-09-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.3983,
+        "petrol": 1.365,
+        "lng": 0.9507
+      },
+      "grid_price_gbp_per_kwh": 0.2142
+    },
+    {
+      "as_of": "2024-09-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.3989,
+        "petrol": 1.3656,
+        "lng": 0.9515
+      },
+      "grid_price_gbp_per_kwh": 0.2141
+    },
+    {
+      "as_of": "2024-09-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.3998,
+        "petrol": 1.3665,
+        "lng": 0.9521
+      },
+      "grid_price_gbp_per_kwh": 0.2141
+    },
+    {
+      "as_of": "2024-09-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.401,
+        "petrol": 1.3677,
+        "lng": 0.9531
+      },
+      "grid_price_gbp_per_kwh": 0.214
+    },
+    {
+      "as_of": "2024-09-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4024,
+        "petrol": 1.3692,
+        "lng": 0.9542
+      },
+      "grid_price_gbp_per_kwh": 0.2139
+    },
+    {
+      "as_of": "2024-09-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4041,
+        "petrol": 1.3707,
+        "lng": 0.9553
+      },
+      "grid_price_gbp_per_kwh": 0.2139
+    },
+    {
+      "as_of": "2024-09-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4059,
+        "petrol": 1.3725,
+        "lng": 0.9567
+      },
+      "grid_price_gbp_per_kwh": 0.2138
+    },
+    {
+      "as_of": "2024-09-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4077,
+        "petrol": 1.3743,
+        "lng": 0.9581
+      },
+      "grid_price_gbp_per_kwh": 0.2137
+    },
+    {
+      "as_of": "2024-09-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4094,
+        "petrol": 1.3761,
+        "lng": 0.9595
+      },
+      "grid_price_gbp_per_kwh": 0.2137
+    },
+    {
+      "as_of": "2024-09-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4112,
+        "petrol": 1.3779,
+        "lng": 0.9609
+      },
+      "grid_price_gbp_per_kwh": 0.2136
+    },
+    {
+      "as_of": "2024-09-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4129,
+        "petrol": 1.3794,
+        "lng": 0.962
+      },
+      "grid_price_gbp_per_kwh": 0.2135
+    },
+    {
+      "as_of": "2024-09-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4144,
+        "petrol": 1.3809,
+        "lng": 0.9631
+      },
+      "grid_price_gbp_per_kwh": 0.2135
+    },
+    {
+      "as_of": "2024-09-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4156,
+        "petrol": 1.3821,
+        "lng": 0.9642
+      },
+      "grid_price_gbp_per_kwh": 0.2134
+    },
+    {
+      "as_of": "2024-09-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4165,
+        "petrol": 1.383,
+        "lng": 0.9649
+      },
+      "grid_price_gbp_per_kwh": 0.2133
+    },
+    {
+      "as_of": "2024-09-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.417,
+        "petrol": 1.3836,
+        "lng": 0.9655
+      },
+      "grid_price_gbp_per_kwh": 0.2133
+    },
+    {
+      "as_of": "2024-09-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4173,
+        "petrol": 1.3839,
+        "lng": 0.9657
+      },
+      "grid_price_gbp_per_kwh": 0.2132
+    },
+    {
+      "as_of": "2024-09-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4173,
+        "petrol": 1.3839,
+        "lng": 0.9659
+      },
+      "grid_price_gbp_per_kwh": 0.2131
+    },
+    {
+      "as_of": "2024-09-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4169,
+        "petrol": 1.3836,
+        "lng": 0.9657
+      },
+      "grid_price_gbp_per_kwh": 0.2131
+    },
+    {
+      "as_of": "2024-10-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4161,
+        "petrol": 1.3828,
+        "lng": 0.9653
+      },
+      "grid_price_gbp_per_kwh": 0.213
+    },
+    {
+      "as_of": "2024-10-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4158,
+        "petrol": 1.3825,
+        "lng": 0.9649
+      },
+      "grid_price_gbp_per_kwh": 0.2131
+    },
+    {
+      "as_of": "2024-10-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.415,
+        "petrol": 1.3817,
+        "lng": 0.9642
+      },
+      "grid_price_gbp_per_kwh": 0.2132
+    },
+    {
+      "as_of": "2024-10-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.414,
+        "petrol": 1.3808,
+        "lng": 0.9635
+      },
+      "grid_price_gbp_per_kwh": 0.2133
+    },
+    {
+      "as_of": "2024-10-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4128,
+        "petrol": 1.3795,
+        "lng": 0.9625
+      },
+      "grid_price_gbp_per_kwh": 0.2134
+    },
+    {
+      "as_of": "2024-10-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4112,
+        "petrol": 1.378,
+        "lng": 0.9614
+      },
+      "grid_price_gbp_per_kwh": 0.2135
+    },
+    {
+      "as_of": "2024-10-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4098,
+        "petrol": 1.3764,
+        "lng": 0.9601
+      },
+      "grid_price_gbp_per_kwh": 0.2136
+    },
+    {
+      "as_of": "2024-10-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4081,
+        "petrol": 1.3747,
+        "lng": 0.9588
+      },
+      "grid_price_gbp_per_kwh": 0.2137
+    },
+    {
+      "as_of": "2024-10-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4062,
+        "petrol": 1.3731,
+        "lng": 0.9576
+      },
+      "grid_price_gbp_per_kwh": 0.2138
+    },
+    {
+      "as_of": "2024-10-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4045,
+        "petrol": 1.3714,
+        "lng": 0.9563
+      },
+      "grid_price_gbp_per_kwh": 0.2139
+    },
+    {
+      "as_of": "2024-10-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4031,
+        "petrol": 1.3698,
+        "lng": 0.955
+      },
+      "grid_price_gbp_per_kwh": 0.214
+    },
+    {
+      "as_of": "2024-10-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4014,
+        "petrol": 1.3683,
+        "lng": 0.954
+      },
+      "grid_price_gbp_per_kwh": 0.2141
+    },
+    {
+      "as_of": "2024-10-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4003,
+        "petrol": 1.3672,
+        "lng": 0.9529
+      },
+      "grid_price_gbp_per_kwh": 0.2142
+    },
+    {
+      "as_of": "2024-10-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.3993,
+        "petrol": 1.3661,
+        "lng": 0.9522
+      },
+      "grid_price_gbp_per_kwh": 0.2143
+    },
+    {
+      "as_of": "2024-10-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.3985,
+        "petrol": 1.3653,
+        "lng": 0.9515
+      },
+      "grid_price_gbp_per_kwh": 0.2144
+    },
+    {
+      "as_of": "2024-10-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.3982,
+        "petrol": 1.3651,
+        "lng": 0.9513
+      },
+      "grid_price_gbp_per_kwh": 0.2145
+    },
+    {
+      "as_of": "2024-10-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.3981,
+        "petrol": 1.3649,
+        "lng": 0.9511
+      },
+      "grid_price_gbp_per_kwh": 0.2145
+    },
+    {
+      "as_of": "2024-10-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.3985,
+        "petrol": 1.3653,
+        "lng": 0.9511
+      },
+      "grid_price_gbp_per_kwh": 0.2146
+    },
+    {
+      "as_of": "2024-10-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.3992,
+        "petrol": 1.3659,
+        "lng": 0.9515
+      },
+      "grid_price_gbp_per_kwh": 0.2147
+    },
+    {
+      "as_of": "2024-10-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4002,
+        "petrol": 1.3669,
+        "lng": 0.952
+      },
+      "grid_price_gbp_per_kwh": 0.2148
+    },
+    {
+      "as_of": "2024-10-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4016,
+        "petrol": 1.3682,
+        "lng": 0.953
+      },
+      "grid_price_gbp_per_kwh": 0.2149
+    },
+    {
+      "as_of": "2024-10-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4032,
+        "petrol": 1.3698,
+        "lng": 0.9538
+      },
+      "grid_price_gbp_per_kwh": 0.215
+    },
+    {
+      "as_of": "2024-10-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4052,
+        "petrol": 1.3717,
+        "lng": 0.9551
+      },
+      "grid_price_gbp_per_kwh": 0.2151
+    },
+    {
+      "as_of": "2024-10-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4074,
+        "petrol": 1.3739,
+        "lng": 0.9565
+      },
+      "grid_price_gbp_per_kwh": 0.2152
+    },
+    {
+      "as_of": "2024-10-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4099,
+        "petrol": 1.3761,
+        "lng": 0.9579
+      },
+      "grid_price_gbp_per_kwh": 0.2153
+    },
+    {
+      "as_of": "2024-10-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4124,
+        "petrol": 1.3786,
+        "lng": 0.9595
+      },
+      "grid_price_gbp_per_kwh": 0.2154
+    },
+    {
+      "as_of": "2024-10-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4149,
+        "petrol": 1.3811,
+        "lng": 0.9612
+      },
+      "grid_price_gbp_per_kwh": 0.2155
+    },
+    {
+      "as_of": "2024-10-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4174,
+        "petrol": 1.3836,
+        "lng": 0.9628
+      },
+      "grid_price_gbp_per_kwh": 0.2156
+    },
+    {
+      "as_of": "2024-10-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.42,
+        "petrol": 1.386,
+        "lng": 0.9645
+      },
+      "grid_price_gbp_per_kwh": 0.2157
+    },
+    {
+      "as_of": "2024-10-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4224,
+        "petrol": 1.3882,
+        "lng": 0.9659
+      },
+      "grid_price_gbp_per_kwh": 0.2158
+    },
+    {
+      "as_of": "2024-10-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.4247,
+        "petrol": 1.3904,
+        "lng": 0.9673
+      },
+      "grid_price_gbp_per_kwh": 0.2159
+    },
+    {
+      "as_of": "2024-11-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4266,
+        "petrol": 1.3923,
+        "lng": 0.9686
+      },
+      "grid_price_gbp_per_kwh": 0.216
+    },
+    {
+      "as_of": "2024-11-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.429,
+        "petrol": 1.3946,
+        "lng": 0.9699
+      },
+      "grid_price_gbp_per_kwh": 0.2162
+    },
+    {
+      "as_of": "2024-11-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4313,
+        "petrol": 1.3967,
+        "lng": 0.9709
+      },
+      "grid_price_gbp_per_kwh": 0.2165
+    },
+    {
+      "as_of": "2024-11-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4331,
+        "petrol": 1.3983,
+        "lng": 0.9716
+      },
+      "grid_price_gbp_per_kwh": 0.2167
+    },
+    {
+      "as_of": "2024-11-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4345,
+        "petrol": 1.3996,
+        "lng": 0.9723
+      },
+      "grid_price_gbp_per_kwh": 0.2169
+    },
+    {
+      "as_of": "2024-11-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4356,
+        "petrol": 1.4004,
+        "lng": 0.9727
+      },
+      "grid_price_gbp_per_kwh": 0.2172
+    },
+    {
+      "as_of": "2024-11-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4363,
+        "petrol": 1.401,
+        "lng": 0.9728
+      },
+      "grid_price_gbp_per_kwh": 0.2174
+    },
+    {
+      "as_of": "2024-11-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4366,
+        "petrol": 1.4011,
+        "lng": 0.9726
+      },
+      "grid_price_gbp_per_kwh": 0.2176
+    },
+    {
+      "as_of": "2024-11-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4367,
+        "petrol": 1.4012,
+        "lng": 0.9721
+      },
+      "grid_price_gbp_per_kwh": 0.2179
+    },
+    {
+      "as_of": "2024-11-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4365,
+        "petrol": 1.4007,
+        "lng": 0.9716
+      },
+      "grid_price_gbp_per_kwh": 0.2181
+    },
+    {
+      "as_of": "2024-11-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4359,
+        "petrol": 1.3999,
+        "lng": 0.9708
+      },
+      "grid_price_gbp_per_kwh": 0.2183
+    },
+    {
+      "as_of": "2024-11-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4352,
+        "petrol": 1.3991,
+        "lng": 0.97
+      },
+      "grid_price_gbp_per_kwh": 0.2186
+    },
+    {
+      "as_of": "2024-11-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4343,
+        "petrol": 1.3983,
+        "lng": 0.9689
+      },
+      "grid_price_gbp_per_kwh": 0.2188
+    },
+    {
+      "as_of": "2024-11-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4333,
+        "petrol": 1.3972,
+        "lng": 0.9678
+      },
+      "grid_price_gbp_per_kwh": 0.219
+    },
+    {
+      "as_of": "2024-11-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4322,
+        "petrol": 1.3958,
+        "lng": 0.967
+      },
+      "grid_price_gbp_per_kwh": 0.2193
+    },
+    {
+      "as_of": "2024-11-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4312,
+        "petrol": 1.3947,
+        "lng": 0.9659
+      },
+      "grid_price_gbp_per_kwh": 0.2195
+    },
+    {
+      "as_of": "2024-11-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4303,
+        "petrol": 1.3939,
+        "lng": 0.9648
+      },
+      "grid_price_gbp_per_kwh": 0.2197
+    },
+    {
+      "as_of": "2024-11-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4296,
+        "petrol": 1.393,
+        "lng": 0.964
+      },
+      "grid_price_gbp_per_kwh": 0.22
+    },
+    {
+      "as_of": "2024-11-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.429,
+        "petrol": 1.3923,
+        "lng": 0.9632
+      },
+      "grid_price_gbp_per_kwh": 0.2202
+    },
+    {
+      "as_of": "2024-11-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4287,
+        "petrol": 1.3918,
+        "lng": 0.9627
+      },
+      "grid_price_gbp_per_kwh": 0.2204
+    },
+    {
+      "as_of": "2024-11-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4289,
+        "petrol": 1.3918,
+        "lng": 0.9622
+      },
+      "grid_price_gbp_per_kwh": 0.2207
+    },
+    {
+      "as_of": "2024-11-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4292,
+        "petrol": 1.392,
+        "lng": 0.962
+      },
+      "grid_price_gbp_per_kwh": 0.2209
+    },
+    {
+      "as_of": "2024-11-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4298,
+        "petrol": 1.3924,
+        "lng": 0.9621
+      },
+      "grid_price_gbp_per_kwh": 0.2211
+    },
+    {
+      "as_of": "2024-11-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4309,
+        "petrol": 1.3934,
+        "lng": 0.9625
+      },
+      "grid_price_gbp_per_kwh": 0.2214
+    },
+    {
+      "as_of": "2024-11-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4324,
+        "petrol": 1.3947,
+        "lng": 0.9632
+      },
+      "grid_price_gbp_per_kwh": 0.2216
+    },
+    {
+      "as_of": "2024-11-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4341,
+        "petrol": 1.3963,
+        "lng": 0.9639
+      },
+      "grid_price_gbp_per_kwh": 0.2218
+    },
+    {
+      "as_of": "2024-11-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4362,
+        "petrol": 1.3982,
+        "lng": 0.9649
+      },
+      "grid_price_gbp_per_kwh": 0.2221
+    },
+    {
+      "as_of": "2024-11-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4387,
+        "petrol": 1.4004,
+        "lng": 0.9662
+      },
+      "grid_price_gbp_per_kwh": 0.2223
+    },
+    {
+      "as_of": "2024-11-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4415,
+        "petrol": 1.403,
+        "lng": 0.9678
+      },
+      "grid_price_gbp_per_kwh": 0.2225
+    },
+    {
+      "as_of": "2024-11-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4445,
+        "petrol": 1.4057,
+        "lng": 0.9694
+      },
+      "grid_price_gbp_per_kwh": 0.2228
+    },
+    {
+      "as_of": "2024-12-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4477,
+        "petrol": 1.4088,
+        "lng": 0.971
+      },
+      "grid_price_gbp_per_kwh": 0.223
+    },
+    {
+      "as_of": "2024-12-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4513,
+        "petrol": 1.4122,
+        "lng": 0.973
+      },
+      "grid_price_gbp_per_kwh": 0.2234
+    },
+    {
+      "as_of": "2024-12-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.455,
+        "petrol": 1.4156,
+        "lng": 0.975
+      },
+      "grid_price_gbp_per_kwh": 0.2237
+    },
+    {
+      "as_of": "2024-12-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4586,
+        "petrol": 1.4191,
+        "lng": 0.977
+      },
+      "grid_price_gbp_per_kwh": 0.2241
+    },
+    {
+      "as_of": "2024-12-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4624,
+        "petrol": 1.4225,
+        "lng": 0.979
+      },
+      "grid_price_gbp_per_kwh": 0.2244
+    },
+    {
+      "as_of": "2024-12-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4658,
+        "petrol": 1.4259,
+        "lng": 0.9808
+      },
+      "grid_price_gbp_per_kwh": 0.2248
+    },
+    {
+      "as_of": "2024-12-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4693,
+        "petrol": 1.429,
+        "lng": 0.9825
+      },
+      "grid_price_gbp_per_kwh": 0.2251
+    },
+    {
+      "as_of": "2024-12-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4723,
+        "petrol": 1.4319,
+        "lng": 0.9842
+      },
+      "grid_price_gbp_per_kwh": 0.2255
+    },
+    {
+      "as_of": "2024-12-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4751,
+        "petrol": 1.4345,
+        "lng": 0.9856
+      },
+      "grid_price_gbp_per_kwh": 0.2258
+    },
+    {
+      "as_of": "2024-12-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4776,
+        "petrol": 1.4369,
+        "lng": 0.9868
+      },
+      "grid_price_gbp_per_kwh": 0.2262
+    },
+    {
+      "as_of": "2024-12-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4797,
+        "petrol": 1.4388,
+        "lng": 0.9878
+      },
+      "grid_price_gbp_per_kwh": 0.2265
+    },
+    {
+      "as_of": "2024-12-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4815,
+        "petrol": 1.4404,
+        "lng": 0.9885
+      },
+      "grid_price_gbp_per_kwh": 0.2269
+    },
+    {
+      "as_of": "2024-12-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.483,
+        "petrol": 1.4417,
+        "lng": 0.9889
+      },
+      "grid_price_gbp_per_kwh": 0.2273
+    },
+    {
+      "as_of": "2024-12-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4839,
+        "petrol": 1.4425,
+        "lng": 0.9891
+      },
+      "grid_price_gbp_per_kwh": 0.2276
+    },
+    {
+      "as_of": "2024-12-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4847,
+        "petrol": 1.4431,
+        "lng": 0.9891
+      },
+      "grid_price_gbp_per_kwh": 0.228
+    },
+    {
+      "as_of": "2024-12-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.485,
+        "petrol": 1.4433,
+        "lng": 0.9889
+      },
+      "grid_price_gbp_per_kwh": 0.2283
+    },
+    {
+      "as_of": "2024-12-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.485,
+        "petrol": 1.4431,
+        "lng": 0.9883
+      },
+      "grid_price_gbp_per_kwh": 0.2287
+    },
+    {
+      "as_of": "2024-12-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4847,
+        "petrol": 1.4427,
+        "lng": 0.9878
+      },
+      "grid_price_gbp_per_kwh": 0.229
+    },
+    {
+      "as_of": "2024-12-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4841,
+        "petrol": 1.4422,
+        "lng": 0.9869
+      },
+      "grid_price_gbp_per_kwh": 0.2294
+    },
+    {
+      "as_of": "2024-12-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4835,
+        "petrol": 1.4414,
+        "lng": 0.986
+      },
+      "grid_price_gbp_per_kwh": 0.2297
+    },
+    {
+      "as_of": "2024-12-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4829,
+        "petrol": 1.4406,
+        "lng": 0.9852
+      },
+      "grid_price_gbp_per_kwh": 0.2301
+    },
+    {
+      "as_of": "2024-12-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.482,
+        "petrol": 1.4396,
+        "lng": 0.984
+      },
+      "grid_price_gbp_per_kwh": 0.2305
+    },
+    {
+      "as_of": "2024-12-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4813,
+        "petrol": 1.4388,
+        "lng": 0.9832
+      },
+      "grid_price_gbp_per_kwh": 0.2308
+    },
+    {
+      "as_of": "2024-12-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4807,
+        "petrol": 1.438,
+        "lng": 0.9823
+      },
+      "grid_price_gbp_per_kwh": 0.2312
+    },
+    {
+      "as_of": "2024-12-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4801,
+        "petrol": 1.4375,
+        "lng": 0.9813
+      },
+      "grid_price_gbp_per_kwh": 0.2315
+    },
+    {
+      "as_of": "2024-12-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4798,
+        "petrol": 1.4371,
+        "lng": 0.9809
+      },
+      "grid_price_gbp_per_kwh": 0.2319
+    },
+    {
+      "as_of": "2024-12-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4798,
+        "petrol": 1.4369,
+        "lng": 0.9802
+      },
+      "grid_price_gbp_per_kwh": 0.2322
+    },
+    {
+      "as_of": "2024-12-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4801,
+        "petrol": 1.437,
+        "lng": 0.9801
+      },
+      "grid_price_gbp_per_kwh": 0.2326
+    },
+    {
+      "as_of": "2024-12-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4807,
+        "petrol": 1.4377,
+        "lng": 0.98
+      },
+      "grid_price_gbp_per_kwh": 0.2329
+    },
+    {
+      "as_of": "2024-12-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4818,
+        "petrol": 1.4384,
+        "lng": 0.9802
+      },
+      "grid_price_gbp_per_kwh": 0.2333
+    },
+    {
+      "as_of": "2024-12-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.483,
+        "petrol": 1.4397,
+        "lng": 0.9806
+      },
+      "grid_price_gbp_per_kwh": 0.2336
+    },
+    {
+      "as_of": "2025-01-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4848,
+        "petrol": 1.4412,
+        "lng": 0.9813
+      },
+      "grid_price_gbp_per_kwh": 0.234
+    },
+    {
+      "as_of": "2025-01-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4869,
+        "petrol": 1.4433,
+        "lng": 0.9823
+      },
+      "grid_price_gbp_per_kwh": 0.2343
+    },
+    {
+      "as_of": "2025-01-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4895,
+        "petrol": 1.4456,
+        "lng": 0.9834
+      },
+      "grid_price_gbp_per_kwh": 0.2346
+    },
+    {
+      "as_of": "2025-01-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4923,
+        "petrol": 1.4482,
+        "lng": 0.9848
+      },
+      "grid_price_gbp_per_kwh": 0.235
+    },
+    {
+      "as_of": "2025-01-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4955,
+        "petrol": 1.4513,
+        "lng": 0.9863
+      },
+      "grid_price_gbp_per_kwh": 0.2353
+    },
+    {
+      "as_of": "2025-01-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4988,
+        "petrol": 1.4544,
+        "lng": 0.9882
+      },
+      "grid_price_gbp_per_kwh": 0.2356
+    },
+    {
+      "as_of": "2025-01-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5024,
+        "petrol": 1.4577,
+        "lng": 0.9899
+      },
+      "grid_price_gbp_per_kwh": 0.2359
+    },
+    {
+      "as_of": "2025-01-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.506,
+        "petrol": 1.4613,
+        "lng": 0.9919
+      },
+      "grid_price_gbp_per_kwh": 0.2363
+    },
+    {
+      "as_of": "2025-01-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5099,
+        "petrol": 1.4648,
+        "lng": 0.9939
+      },
+      "grid_price_gbp_per_kwh": 0.2366
+    },
+    {
+      "as_of": "2025-01-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5137,
+        "petrol": 1.4683,
+        "lng": 0.9959
+      },
+      "grid_price_gbp_per_kwh": 0.2369
+    },
+    {
+      "as_of": "2025-01-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5174,
+        "petrol": 1.472,
+        "lng": 0.9978
+      },
+      "grid_price_gbp_per_kwh": 0.2372
+    },
+    {
+      "as_of": "2025-01-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5209,
+        "petrol": 1.4755,
+        "lng": 0.9998
+      },
+      "grid_price_gbp_per_kwh": 0.2375
+    },
+    {
+      "as_of": "2025-01-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5245,
+        "petrol": 1.4786,
+        "lng": 1.0015
+      },
+      "grid_price_gbp_per_kwh": 0.2379
+    },
+    {
+      "as_of": "2025-01-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5275,
+        "petrol": 1.4815,
+        "lng": 1.003
+      },
+      "grid_price_gbp_per_kwh": 0.2382
+    },
+    {
+      "as_of": "2025-01-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5305,
+        "petrol": 1.4843,
+        "lng": 1.0045
+      },
+      "grid_price_gbp_per_kwh": 0.2385
+    },
+    {
+      "as_of": "2025-01-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.533,
+        "petrol": 1.4866,
+        "lng": 1.0056
+      },
+      "grid_price_gbp_per_kwh": 0.2388
+    },
+    {
+      "as_of": "2025-01-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5352,
+        "petrol": 1.4887,
+        "lng": 1.0065
+      },
+      "grid_price_gbp_per_kwh": 0.2392
+    },
+    {
+      "as_of": "2025-01-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.537,
+        "petrol": 1.4904,
+        "lng": 1.0072
+      },
+      "grid_price_gbp_per_kwh": 0.2395
+    },
+    {
+      "as_of": "2025-01-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5384,
+        "petrol": 1.4916,
+        "lng": 1.0077
+      },
+      "grid_price_gbp_per_kwh": 0.2398
+    },
+    {
+      "as_of": "2025-01-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5394,
+        "petrol": 1.4926,
+        "lng": 1.0079
+      },
+      "grid_price_gbp_per_kwh": 0.2401
+    },
+    {
+      "as_of": "2025-01-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.54,
+        "petrol": 1.4931,
+        "lng": 1.0078
+      },
+      "grid_price_gbp_per_kwh": 0.2405
+    },
+    {
+      "as_of": "2025-01-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5402,
+        "petrol": 1.4932,
+        "lng": 1.0074
+      },
+      "grid_price_gbp_per_kwh": 0.2408
+    },
+    {
+      "as_of": "2025-01-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5402,
+        "petrol": 1.4931,
+        "lng": 1.0069
+      },
+      "grid_price_gbp_per_kwh": 0.2411
+    },
+    {
+      "as_of": "2025-01-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5399,
+        "petrol": 1.4927,
+        "lng": 1.0062
+      },
+      "grid_price_gbp_per_kwh": 0.2414
+    },
+    {
+      "as_of": "2025-01-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5393,
+        "petrol": 1.492,
+        "lng": 1.0053
+      },
+      "grid_price_gbp_per_kwh": 0.2417
+    },
+    {
+      "as_of": "2025-01-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5387,
+        "petrol": 1.4912,
+        "lng": 1.0045
+      },
+      "grid_price_gbp_per_kwh": 0.2421
+    },
+    {
+      "as_of": "2025-01-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5378,
+        "petrol": 1.4904,
+        "lng": 1.0034
+      },
+      "grid_price_gbp_per_kwh": 0.2424
+    },
+    {
+      "as_of": "2025-01-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5369,
+        "petrol": 1.4894,
+        "lng": 1.0022
+      },
+      "grid_price_gbp_per_kwh": 0.2427
+    },
+    {
+      "as_of": "2025-01-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.536,
+        "petrol": 1.4886,
+        "lng": 1.0012
+      },
+      "grid_price_gbp_per_kwh": 0.243
+    },
+    {
+      "as_of": "2025-01-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5353,
+        "petrol": 1.4878,
+        "lng": 1.0004
+      },
+      "grid_price_gbp_per_kwh": 0.2434
+    },
+    {
+      "as_of": "2025-01-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.5347,
+        "petrol": 1.4871,
+        "lng": 0.9994
+      },
+      "grid_price_gbp_per_kwh": 0.2437
+    },
+    {
+      "as_of": "2025-02-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5344,
+        "petrol": 1.4867,
+        "lng": 0.9987
+      },
+      "grid_price_gbp_per_kwh": 0.244
+    },
+    {
+      "as_of": "2025-02-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5341,
+        "petrol": 1.4863,
+        "lng": 0.9982
+      },
+      "grid_price_gbp_per_kwh": 0.2443
+    },
+    {
+      "as_of": "2025-02-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5342,
+        "petrol": 1.4861,
+        "lng": 0.9978
+      },
+      "grid_price_gbp_per_kwh": 0.2446
+    },
+    {
+      "as_of": "2025-02-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5345,
+        "petrol": 1.4863,
+        "lng": 0.9976
+      },
+      "grid_price_gbp_per_kwh": 0.2449
+    },
+    {
+      "as_of": "2025-02-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5352,
+        "petrol": 1.4869,
+        "lng": 0.9977
+      },
+      "grid_price_gbp_per_kwh": 0.2451
+    },
+    {
+      "as_of": "2025-02-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5364,
+        "petrol": 1.4879,
+        "lng": 0.9981
+      },
+      "grid_price_gbp_per_kwh": 0.2454
+    },
+    {
+      "as_of": "2025-02-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5379,
+        "petrol": 1.4892,
+        "lng": 0.9988
+      },
+      "grid_price_gbp_per_kwh": 0.2457
+    },
+    {
+      "as_of": "2025-02-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5398,
+        "petrol": 1.4909,
+        "lng": 0.9996
+      },
+      "grid_price_gbp_per_kwh": 0.246
+    },
+    {
+      "as_of": "2025-02-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5421,
+        "petrol": 1.4931,
+        "lng": 1.0007
+      },
+      "grid_price_gbp_per_kwh": 0.2463
+    },
+    {
+      "as_of": "2025-02-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5447,
+        "petrol": 1.4955,
+        "lng": 1.002
+      },
+      "grid_price_gbp_per_kwh": 0.2466
+    },
+    {
+      "as_of": "2025-02-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5478,
+        "petrol": 1.4983,
+        "lng": 1.0036
+      },
+      "grid_price_gbp_per_kwh": 0.2469
+    },
+    {
+      "as_of": "2025-02-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5509,
+        "petrol": 1.5012,
+        "lng": 1.0052
+      },
+      "grid_price_gbp_per_kwh": 0.2471
+    },
+    {
+      "as_of": "2025-02-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5542,
+        "petrol": 1.5043,
+        "lng": 1.0071
+      },
+      "grid_price_gbp_per_kwh": 0.2474
+    },
+    {
+      "as_of": "2025-02-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5579,
+        "petrol": 1.5076,
+        "lng": 1.0091
+      },
+      "grid_price_gbp_per_kwh": 0.2477
+    },
+    {
+      "as_of": "2025-02-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5615,
+        "petrol": 1.511,
+        "lng": 1.011
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2025-02-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5651,
+        "petrol": 1.5144,
+        "lng": 1.0129
+      },
+      "grid_price_gbp_per_kwh": 0.2483
+    },
+    {
+      "as_of": "2025-02-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5688,
+        "petrol": 1.5177,
+        "lng": 1.0149
+      },
+      "grid_price_gbp_per_kwh": 0.2486
+    },
+    {
+      "as_of": "2025-02-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5721,
+        "petrol": 1.5208,
+        "lng": 1.0168
+      },
+      "grid_price_gbp_per_kwh": 0.2489
+    },
+    {
+      "as_of": "2025-02-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5755,
+        "petrol": 1.5239,
+        "lng": 1.0184
+      },
+      "grid_price_gbp_per_kwh": 0.2491
+    },
+    {
+      "as_of": "2025-02-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5783,
+        "petrol": 1.5266,
+        "lng": 1.02
+      },
+      "grid_price_gbp_per_kwh": 0.2494
+    },
+    {
+      "as_of": "2025-02-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.581,
+        "petrol": 1.5291,
+        "lng": 1.0214
+      },
+      "grid_price_gbp_per_kwh": 0.2497
+    },
+    {
+      "as_of": "2025-02-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5834,
+        "petrol": 1.5312,
+        "lng": 1.0224
+      },
+      "grid_price_gbp_per_kwh": 0.25
+    },
+    {
+      "as_of": "2025-02-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5853,
+        "petrol": 1.533,
+        "lng": 1.0234
+      },
+      "grid_price_gbp_per_kwh": 0.2503
+    },
+    {
+      "as_of": "2025-02-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5869,
+        "petrol": 1.5344,
+        "lng": 1.0241
+      },
+      "grid_price_gbp_per_kwh": 0.2506
+    },
+    {
+      "as_of": "2025-02-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5881,
+        "petrol": 1.5353,
+        "lng": 1.0243
+      },
+      "grid_price_gbp_per_kwh": 0.2509
+    },
+    {
+      "as_of": "2025-02-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5888,
+        "petrol": 1.536,
+        "lng": 1.0244
+      },
+      "grid_price_gbp_per_kwh": 0.2511
+    },
+    {
+      "as_of": "2025-02-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5891,
+        "petrol": 1.5361,
+        "lng": 1.0243
+      },
+      "grid_price_gbp_per_kwh": 0.2514
+    },
+    {
+      "as_of": "2025-02-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5892,
+        "petrol": 1.536,
+        "lng": 1.024
+      },
+      "grid_price_gbp_per_kwh": 0.2517
+    },
+    {
+      "as_of": "2025-03-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5889,
+        "petrol": 1.5356,
+        "lng": 1.0233
+      },
+      "grid_price_gbp_per_kwh": 0.252
+    },
+    {
+      "as_of": "2025-03-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5875,
+        "petrol": 1.5342,
+        "lng": 1.0223
+      },
+      "grid_price_gbp_per_kwh": 0.2521
+    },
+    {
+      "as_of": "2025-03-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5858,
+        "petrol": 1.5325,
+        "lng": 1.0212
+      },
+      "grid_price_gbp_per_kwh": 0.2521
+    },
+    {
+      "as_of": "2025-03-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5839,
+        "petrol": 1.5307,
+        "lng": 1.0199
+      },
+      "grid_price_gbp_per_kwh": 0.2522
+    },
+    {
+      "as_of": "2025-03-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5819,
+        "petrol": 1.5287,
+        "lng": 1.0185
+      },
+      "grid_price_gbp_per_kwh": 0.2523
+    },
+    {
+      "as_of": "2025-03-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5799,
+        "petrol": 1.5267,
+        "lng": 1.0169
+      },
+      "grid_price_gbp_per_kwh": 0.2523
+    },
+    {
+      "as_of": "2025-03-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5779,
+        "petrol": 1.5248,
+        "lng": 1.0156
+      },
+      "grid_price_gbp_per_kwh": 0.2524
+    },
+    {
+      "as_of": "2025-03-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5761,
+        "petrol": 1.523,
+        "lng": 1.0143
+      },
+      "grid_price_gbp_per_kwh": 0.2525
+    },
+    {
+      "as_of": "2025-03-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5744,
+        "petrol": 1.5213,
+        "lng": 1.0132
+      },
+      "grid_price_gbp_per_kwh": 0.2525
+    },
+    {
+      "as_of": "2025-03-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5729,
+        "petrol": 1.5199,
+        "lng": 1.0121
+      },
+      "grid_price_gbp_per_kwh": 0.2526
+    },
+    {
+      "as_of": "2025-03-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5718,
+        "petrol": 1.5188,
+        "lng": 1.0113
+      },
+      "grid_price_gbp_per_kwh": 0.2526
+    },
+    {
+      "as_of": "2025-03-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.571,
+        "petrol": 1.518,
+        "lng": 1.0106
+      },
+      "grid_price_gbp_per_kwh": 0.2527
+    },
+    {
+      "as_of": "2025-03-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5705,
+        "petrol": 1.5175,
+        "lng": 1.0102
+      },
+      "grid_price_gbp_per_kwh": 0.2528
+    },
+    {
+      "as_of": "2025-03-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5703,
+        "petrol": 1.5175,
+        "lng": 1.0101
+      },
+      "grid_price_gbp_per_kwh": 0.2528
+    },
+    {
+      "as_of": "2025-03-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5707,
+        "petrol": 1.5176,
+        "lng": 1.0102
+      },
+      "grid_price_gbp_per_kwh": 0.2529
+    },
+    {
+      "as_of": "2025-03-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5714,
+        "petrol": 1.5183,
+        "lng": 1.0104
+      },
+      "grid_price_gbp_per_kwh": 0.253
+    },
+    {
+      "as_of": "2025-03-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5725,
+        "petrol": 1.5194,
+        "lng": 1.0111
+      },
+      "grid_price_gbp_per_kwh": 0.253
+    },
+    {
+      "as_of": "2025-03-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5741,
+        "petrol": 1.5209,
+        "lng": 1.0119
+      },
+      "grid_price_gbp_per_kwh": 0.2531
+    },
+    {
+      "as_of": "2025-03-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5758,
+        "petrol": 1.5227,
+        "lng": 1.013
+      },
+      "grid_price_gbp_per_kwh": 0.2532
+    },
+    {
+      "as_of": "2025-03-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.578,
+        "petrol": 1.5247,
+        "lng": 1.0143
+      },
+      "grid_price_gbp_per_kwh": 0.2532
+    },
+    {
+      "as_of": "2025-03-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5805,
+        "petrol": 1.5271,
+        "lng": 1.0157
+      },
+      "grid_price_gbp_per_kwh": 0.2533
+    },
+    {
+      "as_of": "2025-03-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.583,
+        "petrol": 1.5296,
+        "lng": 1.0174
+      },
+      "grid_price_gbp_per_kwh": 0.2534
+    },
+    {
+      "as_of": "2025-03-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5858,
+        "petrol": 1.5321,
+        "lng": 1.019
+      },
+      "grid_price_gbp_per_kwh": 0.2534
+    },
+    {
+      "as_of": "2025-03-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5886,
+        "petrol": 1.5349,
+        "lng": 1.0207
+      },
+      "grid_price_gbp_per_kwh": 0.2535
+    },
+    {
+      "as_of": "2025-03-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5915,
+        "petrol": 1.5377,
+        "lng": 1.0224
+      },
+      "grid_price_gbp_per_kwh": 0.2535
+    },
+    {
+      "as_of": "2025-03-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5943,
+        "petrol": 1.5402,
+        "lng": 1.0241
+      },
+      "grid_price_gbp_per_kwh": 0.2536
+    },
+    {
+      "as_of": "2025-03-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5968,
+        "petrol": 1.5429,
+        "lng": 1.0257
+      },
+      "grid_price_gbp_per_kwh": 0.2537
+    },
+    {
+      "as_of": "2025-03-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5993,
+        "petrol": 1.5451,
+        "lng": 1.0271
+      },
+      "grid_price_gbp_per_kwh": 0.2537
+    },
+    {
+      "as_of": "2025-03-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.6015,
+        "petrol": 1.5473,
+        "lng": 1.0284
+      },
+      "grid_price_gbp_per_kwh": 0.2538
+    },
+    {
+      "as_of": "2025-03-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.6034,
+        "petrol": 1.549,
+        "lng": 1.0295
+      },
+      "grid_price_gbp_per_kwh": 0.2539
+    },
+    {
+      "as_of": "2025-03-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.6049,
+        "petrol": 1.5505,
+        "lng": 1.0305
+      },
+      "grid_price_gbp_per_kwh": 0.2539
+    },
+    {
+      "as_of": "2025-04-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.6061,
+        "petrol": 1.5515,
+        "lng": 1.031
+      },
+      "grid_price_gbp_per_kwh": 0.254
+    },
+    {
+      "as_of": "2025-04-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.606,
+        "petrol": 1.5515,
+        "lng": 1.0312
+      },
+      "grid_price_gbp_per_kwh": 0.2539
+    },
+    {
+      "as_of": "2025-04-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.6056,
+        "petrol": 1.5511,
+        "lng": 1.0309
+      },
+      "grid_price_gbp_per_kwh": 0.2539
+    },
+    {
+      "as_of": "2025-04-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.6048,
+        "petrol": 1.5502,
+        "lng": 1.0304
+      },
+      "grid_price_gbp_per_kwh": 0.2538
+    },
+    {
+      "as_of": "2025-04-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.6035,
+        "petrol": 1.549,
+        "lng": 1.0298
+      },
+      "grid_price_gbp_per_kwh": 0.2537
+    },
+    {
+      "as_of": "2025-04-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.6019,
+        "petrol": 1.5474,
+        "lng": 1.029
+      },
+      "grid_price_gbp_per_kwh": 0.2537
+    },
+    {
+      "as_of": "2025-04-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5999,
+        "petrol": 1.5456,
+        "lng": 1.0277
+      },
+      "grid_price_gbp_per_kwh": 0.2536
+    },
+    {
+      "as_of": "2025-04-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5977,
+        "petrol": 1.5434,
+        "lng": 1.0264
+      },
+      "grid_price_gbp_per_kwh": 0.2535
+    },
+    {
+      "as_of": "2025-04-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5953,
+        "petrol": 1.541,
+        "lng": 1.0251
+      },
+      "grid_price_gbp_per_kwh": 0.2535
+    },
+    {
+      "as_of": "2025-04-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5926,
+        "petrol": 1.5386,
+        "lng": 1.0235
+      },
+      "grid_price_gbp_per_kwh": 0.2534
+    },
+    {
+      "as_of": "2025-04-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5899,
+        "petrol": 1.5359,
+        "lng": 1.0219
+      },
+      "grid_price_gbp_per_kwh": 0.2533
+    },
+    {
+      "as_of": "2025-04-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5871,
+        "petrol": 1.5331,
+        "lng": 1.02
+      },
+      "grid_price_gbp_per_kwh": 0.2533
+    },
+    {
+      "as_of": "2025-04-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5844,
+        "petrol": 1.5304,
+        "lng": 1.0184
+      },
+      "grid_price_gbp_per_kwh": 0.2532
+    },
+    {
+      "as_of": "2025-04-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5817,
+        "petrol": 1.528,
+        "lng": 1.0168
+      },
+      "grid_price_gbp_per_kwh": 0.2531
+    },
+    {
+      "as_of": "2025-04-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5793,
+        "petrol": 1.5256,
+        "lng": 1.0155
+      },
+      "grid_price_gbp_per_kwh": 0.2531
+    },
+    {
+      "as_of": "2025-04-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5771,
+        "petrol": 1.5234,
+        "lng": 1.0142
+      },
+      "grid_price_gbp_per_kwh": 0.253
+    },
+    {
+      "as_of": "2025-04-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5752,
+        "petrol": 1.5216,
+        "lng": 1.013
+      },
+      "grid_price_gbp_per_kwh": 0.2529
+    },
+    {
+      "as_of": "2025-04-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5737,
+        "petrol": 1.52,
+        "lng": 1.0122
+      },
+      "grid_price_gbp_per_kwh": 0.2529
+    },
+    {
+      "as_of": "2025-04-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5725,
+        "petrol": 1.5188,
+        "lng": 1.0115
+      },
+      "grid_price_gbp_per_kwh": 0.2528
+    },
+    {
+      "as_of": "2025-04-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5715,
+        "petrol": 1.5181,
+        "lng": 1.0111
+      },
+      "grid_price_gbp_per_kwh": 0.2527
+    },
+    {
+      "as_of": "2025-04-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5712,
+        "petrol": 1.5175,
+        "lng": 1.0109
+      },
+      "grid_price_gbp_per_kwh": 0.2527
+    },
+    {
+      "as_of": "2025-04-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5712,
+        "petrol": 1.5175,
+        "lng": 1.0109
+      },
+      "grid_price_gbp_per_kwh": 0.2526
+    },
+    {
+      "as_of": "2025-04-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5715,
+        "petrol": 1.518,
+        "lng": 1.0114
+      },
+      "grid_price_gbp_per_kwh": 0.2525
+    },
+    {
+      "as_of": "2025-04-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5723,
+        "petrol": 1.5186,
+        "lng": 1.0119
+      },
+      "grid_price_gbp_per_kwh": 0.2525
+    },
+    {
+      "as_of": "2025-04-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5732,
+        "petrol": 1.5198,
+        "lng": 1.0127
+      },
+      "grid_price_gbp_per_kwh": 0.2524
+    },
+    {
+      "as_of": "2025-04-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5747,
+        "petrol": 1.521,
+        "lng": 1.0138
+      },
+      "grid_price_gbp_per_kwh": 0.2523
+    },
+    {
+      "as_of": "2025-04-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5764,
+        "petrol": 1.5227,
+        "lng": 1.0149
+      },
+      "grid_price_gbp_per_kwh": 0.2523
+    },
+    {
+      "as_of": "2025-04-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5782,
+        "petrol": 1.5245,
+        "lng": 1.0163
+      },
+      "grid_price_gbp_per_kwh": 0.2522
+    },
+    {
+      "as_of": "2025-04-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5803,
+        "petrol": 1.5263,
+        "lng": 1.0177
+      },
+      "grid_price_gbp_per_kwh": 0.2521
+    },
+    {
+      "as_of": "2025-04-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5823,
+        "petrol": 1.5283,
+        "lng": 1.0191
+      },
+      "grid_price_gbp_per_kwh": 0.2521
+    },
+    {
+      "as_of": "2025-05-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5844,
+        "petrol": 1.5304,
+        "lng": 1.0205
+      },
+      "grid_price_gbp_per_kwh": 0.252
+    },
+    {
+      "as_of": "2025-05-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5857,
+        "petrol": 1.5316,
+        "lng": 1.0217
+      },
+      "grid_price_gbp_per_kwh": 0.2518
+    },
+    {
+      "as_of": "2025-05-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5868,
+        "petrol": 1.5328,
+        "lng": 1.0228
+      },
+      "grid_price_gbp_per_kwh": 0.2515
+    },
+    {
+      "as_of": "2025-05-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5879,
+        "petrol": 1.534,
+        "lng": 1.0238
+      },
+      "grid_price_gbp_per_kwh": 0.2513
+    },
+    {
+      "as_of": "2025-05-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5886,
+        "petrol": 1.5346,
+        "lng": 1.0246
+      },
+      "grid_price_gbp_per_kwh": 0.2511
+    },
+    {
+      "as_of": "2025-05-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5889,
+        "petrol": 1.5352,
+        "lng": 1.0252
+      },
+      "grid_price_gbp_per_kwh": 0.2509
+    },
+    {
+      "as_of": "2025-05-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.589,
+        "petrol": 1.5354,
+        "lng": 1.0255
+      },
+      "grid_price_gbp_per_kwh": 0.2506
+    },
+    {
+      "as_of": "2025-05-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5886,
+        "petrol": 1.5351,
+        "lng": 1.0257
+      },
+      "grid_price_gbp_per_kwh": 0.2504
+    },
+    {
+      "as_of": "2025-05-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5879,
+        "petrol": 1.5345,
+        "lng": 1.0257
+      },
+      "grid_price_gbp_per_kwh": 0.2502
+    },
+    {
+      "as_of": "2025-05-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5868,
+        "petrol": 1.5334,
+        "lng": 1.0251
+      },
+      "grid_price_gbp_per_kwh": 0.25
+    },
+    {
+      "as_of": "2025-05-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5852,
+        "petrol": 1.5321,
+        "lng": 1.0245
+      },
+      "grid_price_gbp_per_kwh": 0.2497
+    },
+    {
+      "as_of": "2025-05-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5833,
+        "petrol": 1.5303,
+        "lng": 1.0236
+      },
+      "grid_price_gbp_per_kwh": 0.2495
+    },
+    {
+      "as_of": "2025-05-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.581,
+        "petrol": 1.5282,
+        "lng": 1.0226
+      },
+      "grid_price_gbp_per_kwh": 0.2493
+    },
+    {
+      "as_of": "2025-05-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5784,
+        "petrol": 1.5258,
+        "lng": 1.0211
+      },
+      "grid_price_gbp_per_kwh": 0.2491
+    },
+    {
+      "as_of": "2025-05-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5754,
+        "petrol": 1.523,
+        "lng": 1.0196
+      },
+      "grid_price_gbp_per_kwh": 0.2488
+    },
+    {
+      "as_of": "2025-05-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5723,
+        "petrol": 1.5201,
+        "lng": 1.018
+      },
+      "grid_price_gbp_per_kwh": 0.2486
+    },
+    {
+      "as_of": "2025-05-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5691,
+        "petrol": 1.5169,
+        "lng": 1.0162
+      },
+      "grid_price_gbp_per_kwh": 0.2484
+    },
+    {
+      "as_of": "2025-05-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5656,
+        "petrol": 1.5138,
+        "lng": 1.0144
+      },
+      "grid_price_gbp_per_kwh": 0.2482
+    },
+    {
+      "as_of": "2025-05-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5622,
+        "petrol": 1.5106,
+        "lng": 1.0123
+      },
+      "grid_price_gbp_per_kwh": 0.2479
+    },
+    {
+      "as_of": "2025-05-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5588,
+        "petrol": 1.5075,
+        "lng": 1.0105
+      },
+      "grid_price_gbp_per_kwh": 0.2477
+    },
+    {
+      "as_of": "2025-05-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5556,
+        "petrol": 1.5043,
+        "lng": 1.0089
+      },
+      "grid_price_gbp_per_kwh": 0.2475
+    },
+    {
+      "as_of": "2025-05-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5525,
+        "petrol": 1.5015,
+        "lng": 1.0071
+      },
+      "grid_price_gbp_per_kwh": 0.2473
+    },
+    {
+      "as_of": "2025-05-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5497,
+        "petrol": 1.4988,
+        "lng": 1.0056
+      },
+      "grid_price_gbp_per_kwh": 0.247
+    },
+    {
+      "as_of": "2025-05-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5471,
+        "petrol": 1.4964,
+        "lng": 1.0043
+      },
+      "grid_price_gbp_per_kwh": 0.2468
+    },
+    {
+      "as_of": "2025-05-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5448,
+        "petrol": 1.4943,
+        "lng": 1.0031
+      },
+      "grid_price_gbp_per_kwh": 0.2466
+    },
+    {
+      "as_of": "2025-05-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5428,
+        "petrol": 1.4925,
+        "lng": 1.0022
+      },
+      "grid_price_gbp_per_kwh": 0.2464
+    },
+    {
+      "as_of": "2025-05-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5413,
+        "petrol": 1.491,
+        "lng": 1.0016
+      },
+      "grid_price_gbp_per_kwh": 0.2461
+    },
+    {
+      "as_of": "2025-05-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5403,
+        "petrol": 1.4901,
+        "lng": 1.0013
+      },
+      "grid_price_gbp_per_kwh": 0.2459
+    },
+    {
+      "as_of": "2025-05-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5395,
+        "petrol": 1.4895,
+        "lng": 1.0011
+      },
+      "grid_price_gbp_per_kwh": 0.2457
+    },
+    {
+      "as_of": "2025-05-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5391,
+        "petrol": 1.4892,
+        "lng": 1.0012
+      },
+      "grid_price_gbp_per_kwh": 0.2455
+    },
+    {
+      "as_of": "2025-05-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.5392,
+        "petrol": 1.4895,
+        "lng": 1.0015
+      },
+      "grid_price_gbp_per_kwh": 0.2452
+    },
+    {
+      "as_of": "2025-06-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5395,
+        "petrol": 1.4898,
+        "lng": 1.0021
+      },
+      "grid_price_gbp_per_kwh": 0.245
+    },
+    {
+      "as_of": "2025-06-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5398,
+        "petrol": 1.4903,
+        "lng": 1.0028
+      },
+      "grid_price_gbp_per_kwh": 0.2447
+    },
+    {
+      "as_of": "2025-06-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5403,
+        "petrol": 1.4909,
+        "lng": 1.0035
+      },
+      "grid_price_gbp_per_kwh": 0.2443
+    },
+    {
+      "as_of": "2025-06-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5412,
+        "petrol": 1.4917,
+        "lng": 1.0045
+      },
+      "grid_price_gbp_per_kwh": 0.244
+    },
+    {
+      "as_of": "2025-06-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5419,
+        "petrol": 1.4926,
+        "lng": 1.0055
+      },
+      "grid_price_gbp_per_kwh": 0.2437
+    },
+    {
+      "as_of": "2025-06-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5428,
+        "petrol": 1.4937,
+        "lng": 1.0065
+      },
+      "grid_price_gbp_per_kwh": 0.2433
+    },
+    {
+      "as_of": "2025-06-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5438,
+        "petrol": 1.4948,
+        "lng": 1.0075
+      },
+      "grid_price_gbp_per_kwh": 0.243
+    },
+    {
+      "as_of": "2025-06-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5445,
+        "petrol": 1.4956,
+        "lng": 1.0085
+      },
+      "grid_price_gbp_per_kwh": 0.2427
+    },
+    {
+      "as_of": "2025-06-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5454,
+        "petrol": 1.4964,
+        "lng": 1.0095
+      },
+      "grid_price_gbp_per_kwh": 0.2423
+    },
+    {
+      "as_of": "2025-06-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5458,
+        "petrol": 1.497,
+        "lng": 1.0102
+      },
+      "grid_price_gbp_per_kwh": 0.242
+    },
+    {
+      "as_of": "2025-06-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5461,
+        "petrol": 1.4975,
+        "lng": 1.0109
+      },
+      "grid_price_gbp_per_kwh": 0.2417
+    },
+    {
+      "as_of": "2025-06-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.546,
+        "petrol": 1.4975,
+        "lng": 1.0113
+      },
+      "grid_price_gbp_per_kwh": 0.2413
+    },
+    {
+      "as_of": "2025-06-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5457,
+        "petrol": 1.4972,
+        "lng": 1.0114
+      },
+      "grid_price_gbp_per_kwh": 0.241
+    },
+    {
+      "as_of": "2025-06-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5449,
+        "petrol": 1.4967,
+        "lng": 1.0113
+      },
+      "grid_price_gbp_per_kwh": 0.2407
+    },
+    {
+      "as_of": "2025-06-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5437,
+        "petrol": 1.4957,
+        "lng": 1.011
+      },
+      "grid_price_gbp_per_kwh": 0.2403
+    },
+    {
+      "as_of": "2025-06-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5422,
+        "petrol": 1.4942,
+        "lng": 1.0105
+      },
+      "grid_price_gbp_per_kwh": 0.24
+    },
+    {
+      "as_of": "2025-06-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5402,
+        "petrol": 1.4926,
+        "lng": 1.0097
+      },
+      "grid_price_gbp_per_kwh": 0.2397
+    },
+    {
+      "as_of": "2025-06-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5379,
+        "petrol": 1.4904,
+        "lng": 1.0086
+      },
+      "grid_price_gbp_per_kwh": 0.2393
+    },
+    {
+      "as_of": "2025-06-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5353,
+        "petrol": 1.488,
+        "lng": 1.0072
+      },
+      "grid_price_gbp_per_kwh": 0.239
+    },
+    {
+      "as_of": "2025-06-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5323,
+        "petrol": 1.4852,
+        "lng": 1.0058
+      },
+      "grid_price_gbp_per_kwh": 0.2387
+    },
+    {
+      "as_of": "2025-06-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5291,
+        "petrol": 1.4821,
+        "lng": 1.0041
+      },
+      "grid_price_gbp_per_kwh": 0.2383
+    },
+    {
+      "as_of": "2025-06-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5256,
+        "petrol": 1.4788,
+        "lng": 1.0021
+      },
+      "grid_price_gbp_per_kwh": 0.238
+    },
+    {
+      "as_of": "2025-06-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5218,
+        "petrol": 1.4754,
+        "lng": 1.0004
+      },
+      "grid_price_gbp_per_kwh": 0.2377
+    },
+    {
+      "as_of": "2025-06-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5182,
+        "petrol": 1.472,
+        "lng": 0.9984
+      },
+      "grid_price_gbp_per_kwh": 0.2373
+    },
+    {
+      "as_of": "2025-06-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5144,
+        "petrol": 1.4684,
+        "lng": 0.9961
+      },
+      "grid_price_gbp_per_kwh": 0.237
+    },
+    {
+      "as_of": "2025-06-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5108,
+        "petrol": 1.465,
+        "lng": 0.9941
+      },
+      "grid_price_gbp_per_kwh": 0.2367
+    },
+    {
+      "as_of": "2025-06-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5071,
+        "petrol": 1.4617,
+        "lng": 0.9924
+      },
+      "grid_price_gbp_per_kwh": 0.2363
+    },
+    {
+      "as_of": "2025-06-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5038,
+        "petrol": 1.4583,
+        "lng": 0.9904
+      },
+      "grid_price_gbp_per_kwh": 0.236
+    },
+    {
+      "as_of": "2025-06-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5005,
+        "petrol": 1.4555,
+        "lng": 0.9887
+      },
+      "grid_price_gbp_per_kwh": 0.2357
+    },
+    {
+      "as_of": "2025-06-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4976,
+        "petrol": 1.4527,
+        "lng": 0.9873
+      },
+      "grid_price_gbp_per_kwh": 0.2353
+    },
+    {
+      "as_of": "2025-07-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.495,
+        "petrol": 1.4503,
+        "lng": 0.986
+      },
+      "grid_price_gbp_per_kwh": 0.235
+    },
+    {
+      "as_of": "2025-07-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4927,
+        "petrol": 1.4482,
+        "lng": 0.9851
+      },
+      "grid_price_gbp_per_kwh": 0.2347
+    },
+    {
+      "as_of": "2025-07-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4908,
+        "petrol": 1.4465,
+        "lng": 0.9843
+      },
+      "grid_price_gbp_per_kwh": 0.2344
+    },
+    {
+      "as_of": "2025-07-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4893,
+        "petrol": 1.4452,
+        "lng": 0.9837
+      },
+      "grid_price_gbp_per_kwh": 0.2341
+    },
+    {
+      "as_of": "2025-07-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4882,
+        "petrol": 1.4442,
+        "lng": 0.9835
+      },
+      "grid_price_gbp_per_kwh": 0.2338
+    },
+    {
+      "as_of": "2025-07-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4875,
+        "petrol": 1.4437,
+        "lng": 0.9835
+      },
+      "grid_price_gbp_per_kwh": 0.2335
+    },
+    {
+      "as_of": "2025-07-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4872,
+        "petrol": 1.4433,
+        "lng": 0.9838
+      },
+      "grid_price_gbp_per_kwh": 0.2333
+    },
+    {
+      "as_of": "2025-07-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4871,
+        "petrol": 1.4433,
+        "lng": 0.9842
+      },
+      "grid_price_gbp_per_kwh": 0.233
+    },
+    {
+      "as_of": "2025-07-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4875,
+        "petrol": 1.4438,
+        "lng": 0.9847
+      },
+      "grid_price_gbp_per_kwh": 0.2327
+    },
+    {
+      "as_of": "2025-07-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4879,
+        "petrol": 1.4444,
+        "lng": 0.9857
+      },
+      "grid_price_gbp_per_kwh": 0.2324
+    },
+    {
+      "as_of": "2025-07-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4886,
+        "petrol": 1.4452,
+        "lng": 0.9865
+      },
+      "grid_price_gbp_per_kwh": 0.2321
+    },
+    {
+      "as_of": "2025-07-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4894,
+        "petrol": 1.446,
+        "lng": 0.9875
+      },
+      "grid_price_gbp_per_kwh": 0.2318
+    },
+    {
+      "as_of": "2025-07-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4904,
+        "petrol": 1.4469,
+        "lng": 0.9886
+      },
+      "grid_price_gbp_per_kwh": 0.2315
+    },
+    {
+      "as_of": "2025-07-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4913,
+        "petrol": 1.4478,
+        "lng": 0.9896
+      },
+      "grid_price_gbp_per_kwh": 0.2312
+    },
+    {
+      "as_of": "2025-07-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4921,
+        "petrol": 1.4486,
+        "lng": 0.9907
+      },
+      "grid_price_gbp_per_kwh": 0.2309
+    },
+    {
+      "as_of": "2025-07-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4928,
+        "petrol": 1.4494,
+        "lng": 0.9915
+      },
+      "grid_price_gbp_per_kwh": 0.2306
+    },
+    {
+      "as_of": "2025-07-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4932,
+        "petrol": 1.45,
+        "lng": 0.9924
+      },
+      "grid_price_gbp_per_kwh": 0.2304
+    },
+    {
+      "as_of": "2025-07-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4935,
+        "petrol": 1.4505,
+        "lng": 0.9929
+      },
+      "grid_price_gbp_per_kwh": 0.2301
+    },
+    {
+      "as_of": "2025-07-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4934,
+        "petrol": 1.4504,
+        "lng": 0.9934
+      },
+      "grid_price_gbp_per_kwh": 0.2298
+    },
+    {
+      "as_of": "2025-07-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.493,
+        "petrol": 1.4501,
+        "lng": 0.9938
+      },
+      "grid_price_gbp_per_kwh": 0.2295
+    },
+    {
+      "as_of": "2025-07-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4924,
+        "petrol": 1.4495,
+        "lng": 0.9937
+      },
+      "grid_price_gbp_per_kwh": 0.2292
+    },
+    {
+      "as_of": "2025-07-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4912,
+        "petrol": 1.4485,
+        "lng": 0.9935
+      },
+      "grid_price_gbp_per_kwh": 0.2289
+    },
+    {
+      "as_of": "2025-07-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4897,
+        "petrol": 1.4472,
+        "lng": 0.9928
+      },
+      "grid_price_gbp_per_kwh": 0.2286
+    },
+    {
+      "as_of": "2025-07-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4878,
+        "petrol": 1.4454,
+        "lng": 0.992
+      },
+      "grid_price_gbp_per_kwh": 0.2283
+    },
+    {
+      "as_of": "2025-07-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4857,
+        "petrol": 1.4433,
+        "lng": 0.991
+      },
+      "grid_price_gbp_per_kwh": 0.228
+    },
+    {
+      "as_of": "2025-07-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4831,
+        "petrol": 1.441,
+        "lng": 0.9899
+      },
+      "grid_price_gbp_per_kwh": 0.2277
+    },
+    {
+      "as_of": "2025-07-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4802,
+        "petrol": 1.4383,
+        "lng": 0.9883
+      },
+      "grid_price_gbp_per_kwh": 0.2275
+    },
+    {
+      "as_of": "2025-07-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.477,
+        "petrol": 1.4352,
+        "lng": 0.9869
+      },
+      "grid_price_gbp_per_kwh": 0.2272
+    },
+    {
+      "as_of": "2025-07-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4736,
+        "petrol": 1.4321,
+        "lng": 0.985
+      },
+      "grid_price_gbp_per_kwh": 0.2269
+    },
+    {
+      "as_of": "2025-07-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4701,
+        "petrol": 1.4288,
+        "lng": 0.983
+      },
+      "grid_price_gbp_per_kwh": 0.2266
+    },
+    {
+      "as_of": "2025-07-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.4666,
+        "petrol": 1.4254,
+        "lng": 0.9811
+      },
+      "grid_price_gbp_per_kwh": 0.2263
+    },
+    {
+      "as_of": "2025-08-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4628,
+        "petrol": 1.4218,
+        "lng": 0.9794
+      },
+      "grid_price_gbp_per_kwh": 0.226
+    },
+    {
+      "as_of": "2025-08-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4597,
+        "petrol": 1.4188,
+        "lng": 0.9775
+      },
+      "grid_price_gbp_per_kwh": 0.2258
+    },
+    {
+      "as_of": "2025-08-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4565,
+        "petrol": 1.4158,
+        "lng": 0.9757
+      },
+      "grid_price_gbp_per_kwh": 0.2255
+    },
+    {
+      "as_of": "2025-08-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4535,
+        "petrol": 1.4131,
+        "lng": 0.9742
+      },
+      "grid_price_gbp_per_kwh": 0.2253
+    },
+    {
+      "as_of": "2025-08-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4508,
+        "petrol": 1.4106,
+        "lng": 0.9727
+      },
+      "grid_price_gbp_per_kwh": 0.2251
+    },
+    {
+      "as_of": "2025-08-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4483,
+        "petrol": 1.4083,
+        "lng": 0.9713
+      },
+      "grid_price_gbp_per_kwh": 0.2249
+    },
+    {
+      "as_of": "2025-08-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4461,
+        "petrol": 1.4062,
+        "lng": 0.9702
+      },
+      "grid_price_gbp_per_kwh": 0.2246
+    },
+    {
+      "as_of": "2025-08-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4442,
+        "petrol": 1.4045,
+        "lng": 0.9693
+      },
+      "grid_price_gbp_per_kwh": 0.2244
+    },
+    {
+      "as_of": "2025-08-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4428,
+        "petrol": 1.4032,
+        "lng": 0.9687
+      },
+      "grid_price_gbp_per_kwh": 0.2242
+    },
+    {
+      "as_of": "2025-08-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4417,
+        "petrol": 1.4022,
+        "lng": 0.9684
+      },
+      "grid_price_gbp_per_kwh": 0.224
+    },
+    {
+      "as_of": "2025-08-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4409,
+        "petrol": 1.4016,
+        "lng": 0.9682
+      },
+      "grid_price_gbp_per_kwh": 0.2237
+    },
+    {
+      "as_of": "2025-08-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4406,
+        "petrol": 1.4013,
+        "lng": 0.9683
+      },
+      "grid_price_gbp_per_kwh": 0.2235
+    },
+    {
+      "as_of": "2025-08-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4405,
+        "petrol": 1.4014,
+        "lng": 0.9686
+      },
+      "grid_price_gbp_per_kwh": 0.2233
+    },
+    {
+      "as_of": "2025-08-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4407,
+        "petrol": 1.4017,
+        "lng": 0.9692
+      },
+      "grid_price_gbp_per_kwh": 0.2231
+    },
+    {
+      "as_of": "2025-08-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4414,
+        "petrol": 1.4024,
+        "lng": 0.97
+      },
+      "grid_price_gbp_per_kwh": 0.2228
+    },
+    {
+      "as_of": "2025-08-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4422,
+        "petrol": 1.4032,
+        "lng": 0.9709
+      },
+      "grid_price_gbp_per_kwh": 0.2226
+    },
+    {
+      "as_of": "2025-08-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4432,
+        "petrol": 1.4043,
+        "lng": 0.9719
+      },
+      "grid_price_gbp_per_kwh": 0.2224
+    },
+    {
+      "as_of": "2025-08-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4443,
+        "petrol": 1.4055,
+        "lng": 0.973
+      },
+      "grid_price_gbp_per_kwh": 0.2222
+    },
+    {
+      "as_of": "2025-08-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4454,
+        "petrol": 1.4067,
+        "lng": 0.9742
+      },
+      "grid_price_gbp_per_kwh": 0.2219
+    },
+    {
+      "as_of": "2025-08-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4465,
+        "petrol": 1.408,
+        "lng": 0.9754
+      },
+      "grid_price_gbp_per_kwh": 0.2217
+    },
+    {
+      "as_of": "2025-08-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4476,
+        "petrol": 1.4091,
+        "lng": 0.9765
+      },
+      "grid_price_gbp_per_kwh": 0.2215
+    },
+    {
+      "as_of": "2025-08-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4486,
+        "petrol": 1.4103,
+        "lng": 0.9774
+      },
+      "grid_price_gbp_per_kwh": 0.2213
+    },
+    {
+      "as_of": "2025-08-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4494,
+        "petrol": 1.4111,
+        "lng": 0.9783
+      },
+      "grid_price_gbp_per_kwh": 0.221
+    },
+    {
+      "as_of": "2025-08-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4501,
+        "petrol": 1.4118,
+        "lng": 0.9792
+      },
+      "grid_price_gbp_per_kwh": 0.2208
+    },
+    {
+      "as_of": "2025-08-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4503,
+        "petrol": 1.4121,
+        "lng": 0.9797
+      },
+      "grid_price_gbp_per_kwh": 0.2206
+    },
+    {
+      "as_of": "2025-08-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4502,
+        "petrol": 1.4121,
+        "lng": 0.98
+      },
+      "grid_price_gbp_per_kwh": 0.2204
+    },
+    {
+      "as_of": "2025-08-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4498,
+        "petrol": 1.4118,
+        "lng": 0.9803
+      },
+      "grid_price_gbp_per_kwh": 0.2201
+    },
+    {
+      "as_of": "2025-08-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.449,
+        "petrol": 1.4112,
+        "lng": 0.98
+      },
+      "grid_price_gbp_per_kwh": 0.2199
+    },
+    {
+      "as_of": "2025-08-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.448,
+        "petrol": 1.4103,
+        "lng": 0.9797
+      },
+      "grid_price_gbp_per_kwh": 0.2197
+    },
+    {
+      "as_of": "2025-08-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4464,
+        "petrol": 1.4088,
+        "lng": 0.979
+      },
+      "grid_price_gbp_per_kwh": 0.2195
+    },
+    {
+      "as_of": "2025-08-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.4446,
+        "petrol": 1.4071,
+        "lng": 0.9781
+      },
+      "grid_price_gbp_per_kwh": 0.2192
+    },
+    {
+      "as_of": "2025-09-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4425,
+        "petrol": 1.4052,
+        "lng": 0.977
+      },
+      "grid_price_gbp_per_kwh": 0.219
+    },
+    {
+      "as_of": "2025-09-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4406,
+        "petrol": 1.4034,
+        "lng": 0.9759
+      },
+      "grid_price_gbp_per_kwh": 0.2189
+    },
+    {
+      "as_of": "2025-09-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4385,
+        "petrol": 1.4014,
+        "lng": 0.9746
+      },
+      "grid_price_gbp_per_kwh": 0.2188
+    },
+    {
+      "as_of": "2025-09-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4364,
+        "petrol": 1.3991,
+        "lng": 0.9733
+      },
+      "grid_price_gbp_per_kwh": 0.2187
+    },
+    {
+      "as_of": "2025-09-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4339,
+        "petrol": 1.3969,
+        "lng": 0.9717
+      },
+      "grid_price_gbp_per_kwh": 0.2186
+    },
+    {
+      "as_of": "2025-09-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4315,
+        "petrol": 1.3945,
+        "lng": 0.9701
+      },
+      "grid_price_gbp_per_kwh": 0.2185
+    },
+    {
+      "as_of": "2025-09-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4288,
+        "petrol": 1.3918,
+        "lng": 0.9688
+      },
+      "grid_price_gbp_per_kwh": 0.2184
+    },
+    {
+      "as_of": "2025-09-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4264,
+        "petrol": 1.3894,
+        "lng": 0.9672
+      },
+      "grid_price_gbp_per_kwh": 0.2183
+    },
+    {
+      "as_of": "2025-09-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.424,
+        "petrol": 1.3872,
+        "lng": 0.9656
+      },
+      "grid_price_gbp_per_kwh": 0.2182
+    },
+    {
+      "as_of": "2025-09-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4218,
+        "petrol": 1.3851,
+        "lng": 0.9643
+      },
+      "grid_price_gbp_per_kwh": 0.2181
+    },
+    {
+      "as_of": "2025-09-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4197,
+        "petrol": 1.383,
+        "lng": 0.963
+      },
+      "grid_price_gbp_per_kwh": 0.218
+    },
+    {
+      "as_of": "2025-09-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4181,
+        "petrol": 1.3814,
+        "lng": 0.962
+      },
+      "grid_price_gbp_per_kwh": 0.2179
+    },
+    {
+      "as_of": "2025-09-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4166,
+        "petrol": 1.3799,
+        "lng": 0.961
+      },
+      "grid_price_gbp_per_kwh": 0.2178
+    },
+    {
+      "as_of": "2025-09-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4154,
+        "petrol": 1.3787,
+        "lng": 0.9603
+      },
+      "grid_price_gbp_per_kwh": 0.2177
+    },
+    {
+      "as_of": "2025-09-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4147,
+        "petrol": 1.378,
+        "lng": 0.9599
+      },
+      "grid_price_gbp_per_kwh": 0.2176
+    },
+    {
+      "as_of": "2025-09-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4141,
+        "petrol": 1.3775,
+        "lng": 0.9598
+      },
+      "grid_price_gbp_per_kwh": 0.2175
+    },
+    {
+      "as_of": "2025-09-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4141,
+        "petrol": 1.3774,
+        "lng": 0.96
+      },
+      "grid_price_gbp_per_kwh": 0.2174
+    },
+    {
+      "as_of": "2025-09-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4145,
+        "petrol": 1.3778,
+        "lng": 0.9602
+      },
+      "grid_price_gbp_per_kwh": 0.2173
+    },
+    {
+      "as_of": "2025-09-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4152,
+        "petrol": 1.3785,
+        "lng": 0.9607
+      },
+      "grid_price_gbp_per_kwh": 0.2172
+    },
+    {
+      "as_of": "2025-09-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4161,
+        "petrol": 1.3793,
+        "lng": 0.9615
+      },
+      "grid_price_gbp_per_kwh": 0.2171
+    },
+    {
+      "as_of": "2025-09-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4172,
+        "petrol": 1.3805,
+        "lng": 0.9626
+      },
+      "grid_price_gbp_per_kwh": 0.217
+    },
+    {
+      "as_of": "2025-09-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4187,
+        "petrol": 1.382,
+        "lng": 0.9637
+      },
+      "grid_price_gbp_per_kwh": 0.2169
+    },
+    {
+      "as_of": "2025-09-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4204,
+        "petrol": 1.3835,
+        "lng": 0.9648
+      },
+      "grid_price_gbp_per_kwh": 0.2168
+    },
+    {
+      "as_of": "2025-09-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4222,
+        "petrol": 1.3852,
+        "lng": 0.9662
+      },
+      "grid_price_gbp_per_kwh": 0.2167
+    },
+    {
+      "as_of": "2025-09-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.424,
+        "petrol": 1.387,
+        "lng": 0.9676
+      },
+      "grid_price_gbp_per_kwh": 0.2166
+    },
+    {
+      "as_of": "2025-09-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4258,
+        "petrol": 1.3888,
+        "lng": 0.969
+      },
+      "grid_price_gbp_per_kwh": 0.2165
+    },
+    {
+      "as_of": "2025-09-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4276,
+        "petrol": 1.3905,
+        "lng": 0.9704
+      },
+      "grid_price_gbp_per_kwh": 0.2164
+    },
+    {
+      "as_of": "2025-09-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4293,
+        "petrol": 1.392,
+        "lng": 0.9715
+      },
+      "grid_price_gbp_per_kwh": 0.2163
+    },
+    {
+      "as_of": "2025-09-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4307,
+        "petrol": 1.3935,
+        "lng": 0.9726
+      },
+      "grid_price_gbp_per_kwh": 0.2162
+    },
+    {
+      "as_of": "2025-09-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4319,
+        "petrol": 1.3947,
+        "lng": 0.9737
+      },
+      "grid_price_gbp_per_kwh": 0.2161
+    },
+    {
+      "as_of": "2025-10-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4329,
+        "petrol": 1.3956,
+        "lng": 0.9745
+      },
+      "grid_price_gbp_per_kwh": 0.216
+    },
+    {
+      "as_of": "2025-10-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4344,
+        "petrol": 1.397,
+        "lng": 0.9753
+      },
+      "grid_price_gbp_per_kwh": 0.2161
+    },
+    {
+      "as_of": "2025-10-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4354,
+        "petrol": 1.398,
+        "lng": 0.9759
+      },
+      "grid_price_gbp_per_kwh": 0.2162
+    },
+    {
+      "as_of": "2025-10-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4361,
+        "petrol": 1.3987,
+        "lng": 0.9762
+      },
+      "grid_price_gbp_per_kwh": 0.2163
+    },
+    {
+      "as_of": "2025-10-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4364,
+        "petrol": 1.399,
+        "lng": 0.9763
+      },
+      "grid_price_gbp_per_kwh": 0.2164
+    },
+    {
+      "as_of": "2025-10-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4364,
+        "petrol": 1.3989,
+        "lng": 0.9762
+      },
+      "grid_price_gbp_per_kwh": 0.2165
+    },
+    {
+      "as_of": "2025-10-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4359,
+        "petrol": 1.3984,
+        "lng": 0.9758
+      },
+      "grid_price_gbp_per_kwh": 0.2166
+    },
+    {
+      "as_of": "2025-10-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4353,
+        "petrol": 1.3979,
+        "lng": 0.9751
+      },
+      "grid_price_gbp_per_kwh": 0.2167
+    },
+    {
+      "as_of": "2025-10-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4343,
+        "petrol": 1.3968,
+        "lng": 0.9743
+      },
+      "grid_price_gbp_per_kwh": 0.2168
+    },
+    {
+      "as_of": "2025-10-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.433,
+        "petrol": 1.3954,
+        "lng": 0.9733
+      },
+      "grid_price_gbp_per_kwh": 0.2169
+    },
+    {
+      "as_of": "2025-10-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4316,
+        "petrol": 1.394,
+        "lng": 0.9722
+      },
+      "grid_price_gbp_per_kwh": 0.217
+    },
+    {
+      "as_of": "2025-10-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4299,
+        "petrol": 1.3925,
+        "lng": 0.9709
+      },
+      "grid_price_gbp_per_kwh": 0.2171
+    },
+    {
+      "as_of": "2025-10-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4282,
+        "petrol": 1.3908,
+        "lng": 0.9696
+      },
+      "grid_price_gbp_per_kwh": 0.2172
+    },
+    {
+      "as_of": "2025-10-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4263,
+        "petrol": 1.3889,
+        "lng": 0.9685
+      },
+      "grid_price_gbp_per_kwh": 0.2173
+    },
+    {
+      "as_of": "2025-10-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4246,
+        "petrol": 1.3873,
+        "lng": 0.9671
+      },
+      "grid_price_gbp_per_kwh": 0.2174
+    },
+    {
+      "as_of": "2025-10-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4229,
+        "petrol": 1.3857,
+        "lng": 0.9658
+      },
+      "grid_price_gbp_per_kwh": 0.2175
+    },
+    {
+      "as_of": "2025-10-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4215,
+        "petrol": 1.3843,
+        "lng": 0.9648
+      },
+      "grid_price_gbp_per_kwh": 0.2175
+    },
+    {
+      "as_of": "2025-10-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4202,
+        "petrol": 1.3829,
+        "lng": 0.9637
+      },
+      "grid_price_gbp_per_kwh": 0.2176
+    },
+    {
+      "as_of": "2025-10-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4193,
+        "petrol": 1.382,
+        "lng": 0.963
+      },
+      "grid_price_gbp_per_kwh": 0.2177
+    },
+    {
+      "as_of": "2025-10-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.4185,
+        "petrol": 1.3812,
+        "lng": 0.9623
+      },
+      "grid_price_gbp_per_kwh": 0.2178
+    },
+    {
+      "as_of": "2025-10-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.4181,
+        "petrol": 1.3807,
+        "lng": 0.9618
+      },
+      "grid_price_gbp_per_kwh": 0.2179
+    },
+    {
+      "as_of": "2025-10-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4181,
+        "petrol": 1.3808,
+        "lng": 0.9617
+      },
+      "grid_price_gbp_per_kwh": 0.218
+    },
+    {
+      "as_of": "2025-10-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4183,
+        "petrol": 1.3809,
+        "lng": 0.9618
+      },
+      "grid_price_gbp_per_kwh": 0.2181
+    },
+    {
+      "as_of": "2025-10-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.419,
+        "petrol": 1.3816,
+        "lng": 0.9623
+      },
+      "grid_price_gbp_per_kwh": 0.2182
+    },
+    {
+      "as_of": "2025-10-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4201,
+        "petrol": 1.3826,
+        "lng": 0.9628
+      },
+      "grid_price_gbp_per_kwh": 0.2183
+    },
+    {
+      "as_of": "2025-10-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4216,
+        "petrol": 1.384,
+        "lng": 0.9636
+      },
+      "grid_price_gbp_per_kwh": 0.2184
+    },
+    {
+      "as_of": "2025-10-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4233,
+        "petrol": 1.3857,
+        "lng": 0.9646
+      },
+      "grid_price_gbp_per_kwh": 0.2185
+    },
+    {
+      "as_of": "2025-10-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4252,
+        "petrol": 1.3876,
+        "lng": 0.9659
+      },
+      "grid_price_gbp_per_kwh": 0.2186
+    },
+    {
+      "as_of": "2025-10-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4274,
+        "petrol": 1.3898,
+        "lng": 0.9673
+      },
+      "grid_price_gbp_per_kwh": 0.2187
+    },
+    {
+      "as_of": "2025-10-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4299,
+        "petrol": 1.392,
+        "lng": 0.9687
+      },
+      "grid_price_gbp_per_kwh": 0.2188
+    },
+    {
+      "as_of": "2025-10-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.4325,
+        "petrol": 1.3945,
+        "lng": 0.9703
+      },
+      "grid_price_gbp_per_kwh": 0.2189
+    },
+    {
+      "as_of": "2025-11-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.435,
+        "petrol": 1.397,
+        "lng": 0.972
+      },
+      "grid_price_gbp_per_kwh": 0.219
+    },
+    {
+      "as_of": "2025-11-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4383,
+        "petrol": 1.4001,
+        "lng": 0.9739
+      },
+      "grid_price_gbp_per_kwh": 0.2193
+    },
+    {
+      "as_of": "2025-11-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4416,
+        "petrol": 1.4033,
+        "lng": 0.9757
+      },
+      "grid_price_gbp_per_kwh": 0.2195
+    },
+    {
+      "as_of": "2025-11-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4448,
+        "petrol": 1.4063,
+        "lng": 0.9773
+      },
+      "grid_price_gbp_per_kwh": 0.2198
+    },
+    {
+      "as_of": "2025-11-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4478,
+        "petrol": 1.4091,
+        "lng": 0.9789
+      },
+      "grid_price_gbp_per_kwh": 0.2201
+    },
+    {
+      "as_of": "2025-11-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4507,
+        "petrol": 1.4117,
+        "lng": 0.9804
+      },
+      "grid_price_gbp_per_kwh": 0.2203
+    },
+    {
+      "as_of": "2025-11-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4531,
+        "petrol": 1.414,
+        "lng": 0.9817
+      },
+      "grid_price_gbp_per_kwh": 0.2206
+    },
+    {
+      "as_of": "2025-11-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4552,
+        "petrol": 1.4159,
+        "lng": 0.9827
+      },
+      "grid_price_gbp_per_kwh": 0.2209
+    },
+    {
+      "as_of": "2025-11-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4571,
+        "petrol": 1.4176,
+        "lng": 0.9836
+      },
+      "grid_price_gbp_per_kwh": 0.2211
+    },
+    {
+      "as_of": "2025-11-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4585,
+        "petrol": 1.4189,
+        "lng": 0.984
+      },
+      "grid_price_gbp_per_kwh": 0.2214
+    },
+    {
+      "as_of": "2025-11-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4596,
+        "petrol": 1.4199,
+        "lng": 0.9844
+      },
+      "grid_price_gbp_per_kwh": 0.2217
+    },
+    {
+      "as_of": "2025-11-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4604,
+        "petrol": 1.4206,
+        "lng": 0.9844
+      },
+      "grid_price_gbp_per_kwh": 0.2219
+    },
+    {
+      "as_of": "2025-11-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.4607,
+        "petrol": 1.4208,
+        "lng": 0.9842
+      },
+      "grid_price_gbp_per_kwh": 0.2222
+    },
+    {
+      "as_of": "2025-11-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.4607,
+        "petrol": 1.4206,
+        "lng": 0.9839
+      },
+      "grid_price_gbp_per_kwh": 0.2225
+    },
+    {
+      "as_of": "2025-11-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.4603,
+        "petrol": 1.4202,
+        "lng": 0.9832
+      },
+      "grid_price_gbp_per_kwh": 0.2227
+    },
+    {
+      "as_of": "2025-11-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.4597,
+        "petrol": 1.4197,
+        "lng": 0.9823
+      },
+      "grid_price_gbp_per_kwh": 0.223
+    },
+    {
+      "as_of": "2025-11-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.4591,
+        "petrol": 1.4188,
+        "lng": 0.9815
+      },
+      "grid_price_gbp_per_kwh": 0.2233
+    },
+    {
+      "as_of": "2025-11-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.4581,
+        "petrol": 1.4178,
+        "lng": 0.9804
+      },
+      "grid_price_gbp_per_kwh": 0.2235
+    },
+    {
+      "as_of": "2025-11-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.4572,
+        "petrol": 1.4168,
+        "lng": 0.9792
+      },
+      "grid_price_gbp_per_kwh": 0.2238
+    },
+    {
+      "as_of": "2025-11-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.456,
+        "petrol": 1.4155,
+        "lng": 0.9783
+      },
+      "grid_price_gbp_per_kwh": 0.2241
+    },
+    {
+      "as_of": "2025-11-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.455,
+        "petrol": 1.4144,
+        "lng": 0.9772
+      },
+      "grid_price_gbp_per_kwh": 0.2243
+    },
+    {
+      "as_of": "2025-11-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.4541,
+        "petrol": 1.4134,
+        "lng": 0.9761
+      },
+      "grid_price_gbp_per_kwh": 0.2246
+    },
+    {
+      "as_of": "2025-11-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.4534,
+        "petrol": 1.4125,
+        "lng": 0.9752
+      },
+      "grid_price_gbp_per_kwh": 0.2249
+    },
+    {
+      "as_of": "2025-11-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.4528,
+        "petrol": 1.412,
+        "lng": 0.9744
+      },
+      "grid_price_gbp_per_kwh": 0.2251
+    },
+    {
+      "as_of": "2025-11-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.4525,
+        "petrol": 1.4116,
+        "lng": 0.9736
+      },
+      "grid_price_gbp_per_kwh": 0.2254
+    },
+    {
+      "as_of": "2025-11-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.4524,
+        "petrol": 1.4114,
+        "lng": 0.9733
+      },
+      "grid_price_gbp_per_kwh": 0.2257
+    },
+    {
+      "as_of": "2025-11-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.4527,
+        "petrol": 1.4116,
+        "lng": 0.9731
+      },
+      "grid_price_gbp_per_kwh": 0.2259
+    },
+    {
+      "as_of": "2025-11-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.4534,
+        "petrol": 1.4123,
+        "lng": 0.9732
+      },
+      "grid_price_gbp_per_kwh": 0.2262
+    },
+    {
+      "as_of": "2025-11-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.4545,
+        "petrol": 1.4132,
+        "lng": 0.9735
+      },
+      "grid_price_gbp_per_kwh": 0.2265
+    },
+    {
+      "as_of": "2025-11-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.4559,
+        "petrol": 1.4144,
+        "lng": 0.974
+      },
+      "grid_price_gbp_per_kwh": 0.2267
+    },
+    {
+      "as_of": "2025-12-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.4577,
+        "petrol": 1.416,
+        "lng": 0.9749
+      },
+      "grid_price_gbp_per_kwh": 0.227
+    },
+    {
+      "as_of": "2025-12-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.4603,
+        "petrol": 1.4185,
+        "lng": 0.976
+      },
+      "grid_price_gbp_per_kwh": 0.2273
+    },
+    {
+      "as_of": "2025-12-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.4631,
+        "petrol": 1.421,
+        "lng": 0.9774
+      },
+      "grid_price_gbp_per_kwh": 0.2276
+    },
+    {
+      "as_of": "2025-12-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.4661,
+        "petrol": 1.4239,
+        "lng": 0.979
+      },
+      "grid_price_gbp_per_kwh": 0.228
+    },
+    {
+      "as_of": "2025-12-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.4694,
+        "petrol": 1.427,
+        "lng": 0.9808
+      },
+      "grid_price_gbp_per_kwh": 0.2283
+    },
+    {
+      "as_of": "2025-12-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.4729,
+        "petrol": 1.4304,
+        "lng": 0.9826
+      },
+      "grid_price_gbp_per_kwh": 0.2286
+    },
+    {
+      "as_of": "2025-12-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.4768,
+        "petrol": 1.4338,
+        "lng": 0.9846
+      },
+      "grid_price_gbp_per_kwh": 0.2289
+    },
+    {
+      "as_of": "2025-12-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.4804,
+        "petrol": 1.4373,
+        "lng": 0.9866
+      },
+      "grid_price_gbp_per_kwh": 0.2293
+    },
+    {
+      "as_of": "2025-12-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.4842,
+        "petrol": 1.4407,
+        "lng": 0.9886
+      },
+      "grid_price_gbp_per_kwh": 0.2296
+    },
+    {
+      "as_of": "2025-12-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.4878,
+        "petrol": 1.4441,
+        "lng": 0.9906
+      },
+      "grid_price_gbp_per_kwh": 0.2299
+    },
+    {
+      "as_of": "2025-12-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.4914,
+        "petrol": 1.4475,
+        "lng": 0.9924
+      },
+      "grid_price_gbp_per_kwh": 0.2302
+    },
+    {
+      "as_of": "2025-12-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.4947,
+        "petrol": 1.4507,
+        "lng": 0.9943
+      },
+      "grid_price_gbp_per_kwh": 0.2305
+    },
+    {
+      "as_of": "2025-12-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.498,
+        "petrol": 1.4537,
+        "lng": 0.9958
+      },
+      "grid_price_gbp_per_kwh": 0.2309
+    },
+    {
+      "as_of": "2025-12-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5007,
+        "petrol": 1.4563,
+        "lng": 0.9972
+      },
+      "grid_price_gbp_per_kwh": 0.2312
+    },
+    {
+      "as_of": "2025-12-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5033,
+        "petrol": 1.4585,
+        "lng": 0.9986
+      },
+      "grid_price_gbp_per_kwh": 0.2315
+    },
+    {
+      "as_of": "2025-12-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5054,
+        "petrol": 1.4607,
+        "lng": 0.9994
+      },
+      "grid_price_gbp_per_kwh": 0.2318
+    },
+    {
+      "as_of": "2025-12-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5072,
+        "petrol": 1.4623,
+        "lng": 1.0002
+      },
+      "grid_price_gbp_per_kwh": 0.2322
+    },
+    {
+      "as_of": "2025-12-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5087,
+        "petrol": 1.4634,
+        "lng": 1.0007
+      },
+      "grid_price_gbp_per_kwh": 0.2325
+    },
+    {
+      "as_of": "2025-12-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5096,
+        "petrol": 1.4644,
+        "lng": 1.0009
+      },
+      "grid_price_gbp_per_kwh": 0.2328
+    },
+    {
+      "as_of": "2025-12-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5102,
+        "petrol": 1.4648,
+        "lng": 1.0009
+      },
+      "grid_price_gbp_per_kwh": 0.2331
+    },
+    {
+      "as_of": "2025-12-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5105,
+        "petrol": 1.465,
+        "lng": 1.0005
+      },
+      "grid_price_gbp_per_kwh": 0.2335
+    },
+    {
+      "as_of": "2025-12-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5105,
+        "petrol": 1.4648,
+        "lng": 1.0001
+      },
+      "grid_price_gbp_per_kwh": 0.2338
+    },
+    {
+      "as_of": "2025-12-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5102,
+        "petrol": 1.4645,
+        "lng": 0.9994
+      },
+      "grid_price_gbp_per_kwh": 0.2341
+    },
+    {
+      "as_of": "2025-12-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5098,
+        "petrol": 1.4638,
+        "lng": 0.9985
+      },
+      "grid_price_gbp_per_kwh": 0.2344
+    },
+    {
+      "as_of": "2025-12-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.509,
+        "petrol": 1.463,
+        "lng": 0.9977
+      },
+      "grid_price_gbp_per_kwh": 0.2347
+    },
+    {
+      "as_of": "2025-12-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5083,
+        "petrol": 1.4622,
+        "lng": 0.9968
+      },
+      "grid_price_gbp_per_kwh": 0.2351
+    },
+    {
+      "as_of": "2025-12-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5074,
+        "petrol": 1.4612,
+        "lng": 0.9956
+      },
+      "grid_price_gbp_per_kwh": 0.2354
+    },
+    {
+      "as_of": "2025-12-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5067,
+        "petrol": 1.4604,
+        "lng": 0.9946
+      },
+      "grid_price_gbp_per_kwh": 0.2357
+    },
+    {
+      "as_of": "2025-12-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5059,
+        "petrol": 1.4596,
+        "lng": 0.9938
+      },
+      "grid_price_gbp_per_kwh": 0.236
+    },
+    {
+      "as_of": "2025-12-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5055,
+        "petrol": 1.4589,
+        "lng": 0.9929
+      },
+      "grid_price_gbp_per_kwh": 0.2364
+    },
+    {
+      "as_of": "2025-12-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.5052,
+        "petrol": 1.4586,
+        "lng": 0.9922
+      },
+      "grid_price_gbp_per_kwh": 0.2367
+    },
+    {
+      "as_of": "2026-01-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5051,
+        "petrol": 1.4585,
+        "lng": 0.9918
+      },
+      "grid_price_gbp_per_kwh": 0.237
+    },
+    {
+      "as_of": "2026-01-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5054,
+        "petrol": 1.4586,
+        "lng": 0.9914
+      },
+      "grid_price_gbp_per_kwh": 0.2374
+    },
+    {
+      "as_of": "2026-01-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5061,
+        "petrol": 1.459,
+        "lng": 0.9914
+      },
+      "grid_price_gbp_per_kwh": 0.2377
+    },
+    {
+      "as_of": "2026-01-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.507,
+        "petrol": 1.4598,
+        "lng": 0.9916
+      },
+      "grid_price_gbp_per_kwh": 0.2381
+    },
+    {
+      "as_of": "2026-01-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5085,
+        "petrol": 1.4611,
+        "lng": 0.9921
+      },
+      "grid_price_gbp_per_kwh": 0.2384
+    },
+    {
+      "as_of": "2026-01-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5102,
+        "petrol": 1.4627,
+        "lng": 0.9928
+      },
+      "grid_price_gbp_per_kwh": 0.2388
+    },
+    {
+      "as_of": "2026-01-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5125,
+        "petrol": 1.4646,
+        "lng": 0.9937
+      },
+      "grid_price_gbp_per_kwh": 0.2391
+    },
+    {
+      "as_of": "2026-01-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5149,
+        "petrol": 1.4669,
+        "lng": 0.995
+      },
+      "grid_price_gbp_per_kwh": 0.2395
+    },
+    {
+      "as_of": "2026-01-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5179,
+        "petrol": 1.4696,
+        "lng": 0.9964
+      },
+      "grid_price_gbp_per_kwh": 0.2398
+    },
+    {
+      "as_of": "2026-01-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.521,
+        "petrol": 1.4725,
+        "lng": 0.998
+      },
+      "grid_price_gbp_per_kwh": 0.2402
+    },
+    {
+      "as_of": "2026-01-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5245,
+        "petrol": 1.4757,
+        "lng": 0.9997
+      },
+      "grid_price_gbp_per_kwh": 0.2405
+    },
+    {
+      "as_of": "2026-01-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5281,
+        "petrol": 1.4791,
+        "lng": 1.0017
+      },
+      "grid_price_gbp_per_kwh": 0.2409
+    },
+    {
+      "as_of": "2026-01-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.5318,
+        "petrol": 1.4825,
+        "lng": 1.0037
+      },
+      "grid_price_gbp_per_kwh": 0.2413
+    },
+    {
+      "as_of": "2026-01-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.5357,
+        "petrol": 1.4862,
+        "lng": 1.0057
+      },
+      "grid_price_gbp_per_kwh": 0.2416
+    },
+    {
+      "as_of": "2026-01-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5396,
+        "petrol": 1.4899,
+        "lng": 1.0077
+      },
+      "grid_price_gbp_per_kwh": 0.242
+    },
+    {
+      "as_of": "2026-01-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5433,
+        "petrol": 1.4933,
+        "lng": 1.0097
+      },
+      "grid_price_gbp_per_kwh": 0.2423
+    },
+    {
+      "as_of": "2026-01-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5471,
+        "petrol": 1.4967,
+        "lng": 1.0117
+      },
+      "grid_price_gbp_per_kwh": 0.2427
+    },
+    {
+      "as_of": "2026-01-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5505,
+        "petrol": 1.4999,
+        "lng": 1.0135
+      },
+      "grid_price_gbp_per_kwh": 0.243
+    },
+    {
+      "as_of": "2026-01-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5538,
+        "petrol": 1.503,
+        "lng": 1.0152
+      },
+      "grid_price_gbp_per_kwh": 0.2434
+    },
+    {
+      "as_of": "2026-01-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.5568,
+        "petrol": 1.5055,
+        "lng": 1.0166
+      },
+      "grid_price_gbp_per_kwh": 0.2437
+    },
+    {
+      "as_of": "2026-01-21",
+      "prices_gbp_per_l": {
+        "diesel": 1.5592,
+        "petrol": 1.508,
+        "lng": 1.0177
+      },
+      "grid_price_gbp_per_kwh": 0.2441
+    },
+    {
+      "as_of": "2026-01-22",
+      "prices_gbp_per_l": {
+        "diesel": 1.5616,
+        "petrol": 1.51,
+        "lng": 1.0188
+      },
+      "grid_price_gbp_per_kwh": 0.2445
+    },
+    {
+      "as_of": "2026-01-23",
+      "prices_gbp_per_l": {
+        "diesel": 1.5634,
+        "petrol": 1.5116,
+        "lng": 1.0194
+      },
+      "grid_price_gbp_per_kwh": 0.2448
+    },
+    {
+      "as_of": "2026-01-24",
+      "prices_gbp_per_l": {
+        "diesel": 1.5647,
+        "petrol": 1.5129,
+        "lng": 1.0199
+      },
+      "grid_price_gbp_per_kwh": 0.2452
+    },
+    {
+      "as_of": "2026-01-25",
+      "prices_gbp_per_l": {
+        "diesel": 1.5658,
+        "petrol": 1.5136,
+        "lng": 1.0201
+      },
+      "grid_price_gbp_per_kwh": 0.2455
+    },
+    {
+      "as_of": "2026-01-26",
+      "prices_gbp_per_l": {
+        "diesel": 1.5665,
+        "petrol": 1.5141,
+        "lng": 1.02
+      },
+      "grid_price_gbp_per_kwh": 0.2459
+    },
+    {
+      "as_of": "2026-01-27",
+      "prices_gbp_per_l": {
+        "diesel": 1.5668,
+        "petrol": 1.5142,
+        "lng": 1.0198
+      },
+      "grid_price_gbp_per_kwh": 0.2462
+    },
+    {
+      "as_of": "2026-01-28",
+      "prices_gbp_per_l": {
+        "diesel": 1.5666,
+        "petrol": 1.514,
+        "lng": 1.0192
+      },
+      "grid_price_gbp_per_kwh": 0.2466
+    },
+    {
+      "as_of": "2026-01-29",
+      "prices_gbp_per_l": {
+        "diesel": 1.5663,
+        "petrol": 1.5136,
+        "lng": 1.0186
+      },
+      "grid_price_gbp_per_kwh": 0.2469
+    },
+    {
+      "as_of": "2026-01-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.5657,
+        "petrol": 1.513,
+        "lng": 1.0178
+      },
+      "grid_price_gbp_per_kwh": 0.2473
+    },
+    {
+      "as_of": "2026-01-31",
+      "prices_gbp_per_l": {
+        "diesel": 1.5651,
+        "petrol": 1.512,
+        "lng": 1.0169
+      },
+      "grid_price_gbp_per_kwh": 0.2476
+    },
+    {
+      "as_of": "2026-02-01",
+      "prices_gbp_per_l": {
+        "diesel": 1.5642,
+        "petrol": 1.5112,
+        "lng": 1.0159
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-02",
+      "prices_gbp_per_l": {
+        "diesel": 1.5618,
+        "petrol": 1.5088,
+        "lng": 1.0141
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-03",
+      "prices_gbp_per_l": {
+        "diesel": 1.5594,
+        "petrol": 1.5067,
+        "lng": 1.0126
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-04",
+      "prices_gbp_per_l": {
+        "diesel": 1.5573,
+        "petrol": 1.5043,
+        "lng": 1.0111
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-05",
+      "prices_gbp_per_l": {
+        "diesel": 1.5552,
+        "petrol": 1.5025,
+        "lng": 1.0099
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-06",
+      "prices_gbp_per_l": {
+        "diesel": 1.5534,
+        "petrol": 1.5007,
+        "lng": 1.0087
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-07",
+      "prices_gbp_per_l": {
+        "diesel": 1.5516,
+        "petrol": 1.4992,
+        "lng": 1.0078
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-08",
+      "prices_gbp_per_l": {
+        "diesel": 1.5504,
+        "petrol": 1.498,
+        "lng": 1.0069
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-09",
+      "prices_gbp_per_l": {
+        "diesel": 1.5495,
+        "petrol": 1.4971,
+        "lng": 1.0063
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-10",
+      "prices_gbp_per_l": {
+        "diesel": 1.5491,
+        "petrol": 1.4965,
+        "lng": 1.006
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-11",
+      "prices_gbp_per_l": {
+        "diesel": 1.5489,
+        "petrol": 1.4965,
+        "lng": 1.006
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-12",
+      "prices_gbp_per_l": {
+        "diesel": 1.5492,
+        "petrol": 1.4968,
+        "lng": 1.006
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-13",
+      "prices_gbp_per_l": {
+        "diesel": 1.55,
+        "petrol": 1.4974,
+        "lng": 1.0066
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-14",
+      "prices_gbp_per_l": {
+        "diesel": 1.551,
+        "petrol": 1.4985,
+        "lng": 1.0072
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-15",
+      "prices_gbp_per_l": {
+        "diesel": 1.5525,
+        "petrol": 1.4998,
+        "lng": 1.0081
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-16",
+      "prices_gbp_per_l": {
+        "diesel": 1.5543,
+        "petrol": 1.5016,
+        "lng": 1.0093
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-17",
+      "prices_gbp_per_l": {
+        "diesel": 1.5561,
+        "petrol": 1.5034,
+        "lng": 1.0105
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-18",
+      "prices_gbp_per_l": {
+        "diesel": 1.5582,
+        "petrol": 1.5055,
+        "lng": 1.012
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-19",
+      "prices_gbp_per_l": {
+        "diesel": 1.5606,
+        "petrol": 1.5076,
+        "lng": 1.0135
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-02-20",
+      "prices_gbp_per_l": {
+        "diesel": 1.563,
+        "petrol": 1.51,
+        "lng": 1.015
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    }
+  ],
+  "regional_multipliers": {
+    "uk_default": 1.0,
+    "london_southeast": 1.04,
+    "midlands": 1.01,
+    "north_england": 0.99,
+    "scotland": 1.02,
+    "wales_west": 1.0,
+    "south_england": 1.01
+  },
+  "signature_algorithm": "sha256",
+  "signature": "cd5634ce661ee5c04948044cbf5fb0dabed8a070842bd492e7b53df156be743b",
+  "signed": true
+}

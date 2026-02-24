@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+import random
 import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -17,6 +19,18 @@ from .settings import settings
 class _CacheEntry:
     fetched_at_s: float
     payload: Any
+
+
+@dataclass
+class _RetryResult:
+    payload: Any | None
+    status_code: int | None
+    attempt_count: int
+    retry_count: int
+    retry_total_backoff_ms: int
+    last_error_name: str | None
+    last_error_status: int | None
+    deadline_exceeded: bool
 
 
 _CACHE: dict[str, _CacheEntry] = {}
@@ -36,6 +50,187 @@ def _cache_get(key: str) -> _CacheEntry | None:
 
 def _cache_put(key: str, payload: Any) -> None:
     _CACHE[key] = _CacheEntry(fetched_at_s=time.time(), payload=payload)
+
+
+def _retryable_status_codes() -> set[int]:
+    raw = str(settings.live_http_retryable_status_codes or "").strip()
+    if not raw:
+        return {429, 500, 502, 503, 504}
+    parsed: set[int] = set()
+    for token in raw.split(","):
+        part = token.strip()
+        if not part:
+            continue
+        try:
+            code = int(part)
+        except ValueError:
+            continue
+        if 100 <= code <= 599:
+            parsed.add(code)
+    return parsed or {429, 500, 502, 503, 504}
+
+
+def _is_retryable_status(code: int) -> bool:
+    return int(code) in _retryable_status_codes()
+
+
+def _is_retryable_exception(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        if response is None:
+            return False
+        return _is_retryable_status(int(response.status_code))
+    network_error_type = getattr(httpx, "NetworkError", httpx.TransportError)
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, network_error_type)):
+        return True
+    return False
+
+
+def _compute_backoff_ms(attempt_index: int) -> int:
+    attempt = max(1, int(attempt_index))
+    base_ms = max(0, int(settings.live_http_retry_backoff_base_ms))
+    max_ms = max(base_ms, int(settings.live_http_retry_backoff_max_ms))
+    jitter_ms = max(0, int(settings.live_http_retry_jitter_ms))
+    bounded = min(max_ms, base_ms * (2 ** (attempt - 1)))
+    if jitter_ms > 0:
+        bounded += random.randint(0, jitter_ms)
+    return int(min(max_ms, bounded))
+
+
+def _parse_retry_after_ms(response_headers: Any) -> int | None:
+    if response_headers is None:
+        return None
+    value = None
+    try:
+        value = response_headers.get("Retry-After")
+    except Exception:
+        value = None
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        seconds = float(text)
+        if seconds >= 0.0:
+            return int(seconds * 1000.0)
+    except ValueError:
+        pass
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    delta_s = max(0.0, (parsed.astimezone(UTC) - _utc_now()).total_seconds())
+    return int(delta_s * 1000.0)
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        return int(exc.response.status_code)
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    return None
+
+
+def _request_json_with_bounded_retry(
+    *,
+    url: str,
+    headers: dict[str, str] | None = None,
+    deadline_at_monotonic_s: float | None = None,
+) -> _RetryResult:
+    max_attempts = max(1, int(settings.live_http_max_attempts))
+    if deadline_at_monotonic_s is None:
+        deadline_ms = max(1, int(settings.live_http_retry_deadline_ms))
+        deadline_at_monotonic_s = time.monotonic() + (deadline_ms / 1000.0)
+    attempt_count = 0
+    retry_count = 0
+    retry_total_backoff_ms = 0
+    last_error_name: str | None = None
+    last_error_status: int | None = None
+    deadline_exceeded = False
+
+    while attempt_count < max_attempts:
+        remaining_s = deadline_at_monotonic_s - time.monotonic()
+        if remaining_s <= 0.0:
+            deadline_exceeded = True
+            break
+        request_timeout_s = min(float(settings.live_data_request_timeout_s), remaining_s)
+        if request_timeout_s <= 0.0:
+            deadline_exceeded = True
+            break
+        attempt_count += 1
+        try:
+            with httpx.Client(timeout=request_timeout_s) as client:
+                response = client.get(url, headers=headers)
+            status_code = int(response.status_code)
+            if status_code >= 400:
+                response.raise_for_status()
+            if status_code == 204 or not bytes(response.content or b""):
+                payload: Any = {}
+            else:
+                payload = response.json()
+            return _RetryResult(
+                payload=payload,
+                status_code=status_code,
+                attempt_count=attempt_count,
+                retry_count=retry_count,
+                retry_total_backoff_ms=retry_total_backoff_ms,
+                last_error_name=None,
+                last_error_status=None,
+                deadline_exceeded=False,
+            )
+        except Exception as exc:  # pragma: no cover - defensive boundary for HTTP stack
+            last_error_name = type(exc).__name__
+            last_error_status = _extract_status_code(exc)
+            if not _is_retryable_exception(exc):
+                break
+            if attempt_count >= max_attempts:
+                break
+            remaining_s = deadline_at_monotonic_s - time.monotonic()
+            if remaining_s <= 0.0:
+                deadline_exceeded = True
+                break
+            backoff_ms = _compute_backoff_ms(retry_count + 1)
+            retry_after_ms: int | None = None
+            if settings.live_http_retry_respect_retry_after and isinstance(exc, httpx.HTTPStatusError):
+                retry_after_ms = _parse_retry_after_ms(exc.response.headers if exc.response is not None else None)
+            wait_ms = int(backoff_ms)
+            if retry_after_ms is not None:
+                wait_ms = int(min(max(0, retry_after_ms), int(settings.live_http_retry_backoff_max_ms)))
+            remaining_ms = int(max(0.0, remaining_s * 1000.0))
+            wait_ms = min(wait_ms, remaining_ms)
+            retry_count += 1
+            if wait_ms <= 0:
+                deadline_exceeded = remaining_ms <= 0
+                continue
+            time.sleep(wait_ms / 1000.0)
+            retry_total_backoff_ms += wait_ms
+
+    return _RetryResult(
+        payload=None,
+        status_code=last_error_status,
+        attempt_count=attempt_count,
+        retry_count=retry_count,
+        retry_total_backoff_ms=retry_total_backoff_ms,
+        last_error_name=last_error_name,
+        last_error_status=last_error_status,
+        deadline_exceeded=deadline_exceeded,
+    )
+
+
+def _attach_retry_diagnostics(diagnostics: dict[str, Any], retry: _RetryResult) -> None:
+    diagnostics["retry_attempts"] = int(retry.attempt_count)
+    diagnostics["retry_count"] = int(retry.retry_count)
+    diagnostics["retry_total_backoff_ms"] = int(retry.retry_total_backoff_ms)
+    diagnostics["retry_last_error"] = retry.last_error_name
+    diagnostics["retry_last_status_code"] = retry.last_error_status
+    diagnostics["retry_deadline_exceeded"] = bool(retry.deadline_exceeded)
 
 
 def _strict_or_none(
@@ -236,6 +431,7 @@ def _fetch_json_with_ttl(
     url: str,
     ttl_s: int,
     allowed_hosts_csv: str = "",
+    deadline_at_monotonic_s: float | None = None,
 ) -> tuple[Any | None, str | None]:
     def _annotate(
         payload: Any,
@@ -244,6 +440,7 @@ def _fetch_json_with_ttl(
         fetch_error: str | None,
         stale_cache_used: bool,
         status_code: int | None,
+        retry: _RetryResult | None = None,
     ) -> Any:
         if not isinstance(payload, dict):
             return payload
@@ -256,6 +453,8 @@ def _fetch_json_with_ttl(
         diagnostics["stale_cache_used"] = bool(stale_cache_used)
         diagnostics["status_code"] = int(status_code) if status_code is not None else None
         diagnostics.setdefault("as_of_utc", _iso_utc(_utc_now()))
+        if retry is not None:
+            _attach_retry_diagnostics(diagnostics, retry)
         return payload
 
     if not _url_allowed(url, allowed_hosts_raw=allowed_hosts_csv):
@@ -268,38 +467,45 @@ def _fetch_json_with_ttl(
             fetch_error=None,
             stale_cache_used=False,
             status_code=None,
+            retry=_RetryResult(
+                payload=None,
+                status_code=None,
+                attempt_count=0,
+                retry_count=0,
+                retry_total_backoff_ms=0,
+                last_error_name=None,
+                last_error_status=None,
+                deadline_exceeded=False,
+            ),
         ), None
-    try:
-        with httpx.Client(timeout=max(2.0, float(settings.live_data_request_timeout_s))) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            if int(resp.status_code) == 204 or not bytes(resp.content or b""):
-                payload = {}
-            else:
-                payload = resp.json()
-    except Exception as exc:
+    retry_result = _request_json_with_bounded_retry(
+        url=url,
+        headers=None,
+        deadline_at_monotonic_s=deadline_at_monotonic_s,
+    )
+    if retry_result.payload is None:
+        if retry_result.deadline_exceeded:
+            error_name = "deadline_exceeded"
+        else:
+            error_name = retry_result.last_error_name or "source_unavailable"
         if cached is not None:
-            status_code: int | None = None
-            response_status = getattr(getattr(exc, "response", None), "status_code", None)
-            if isinstance(response_status, (int, float, str)):
-                try:
-                    status_code = int(response_status)
-                except (TypeError, ValueError):
-                    status_code = None
             return _annotate(
                 cached.payload,
                 cache_hit=True,
-                fetch_error=type(exc).__name__,
+                fetch_error=error_name,
                 stale_cache_used=True,
-                status_code=status_code,
-            ), f"stale_cache:{type(exc).__name__}"
-        return None, type(exc).__name__
+                status_code=retry_result.last_error_status,
+                retry=retry_result,
+            ), f"stale_cache:{error_name}"
+        return None, error_name
+    payload = retry_result.payload
     payload = _annotate(
         payload,
         cache_hit=False,
         fetch_error=None,
         stale_cache_used=False,
-        status_code=int(resp.status_code),
+        status_code=retry_result.status_code,
+        retry=retry_result,
     )
     _cache_put(key, payload)
     return payload, None
@@ -424,15 +630,27 @@ def _fetch_dft_rows_paginated(
     ttl_s: int,
     max_pages: int,
     query_patch: dict[str, str] | None = None,
+    query_deadline_ms: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str | None]:
     rows: list[dict[str, Any]] = []
     pages_fetched = 0
     fetch_error: str | None = None
     page_diagnostics: list[dict[str, Any]] = []
+    query_deadline_exceeded = False
     patch = {str(k): str(v) for k, v in (query_patch or {}).items() if str(k).strip() and str(v).strip()}
     next_url: str | None = _url_with_query(base_url, {"page[number]": "1", "page[size]": "100", **patch})
     page_number = 1
+    deadline_ms = (
+        max(1, int(query_deadline_ms))
+        if query_deadline_ms is not None
+        else max(1, int(settings.live_http_retry_deadline_ms))
+    )
+    query_deadline_at = time.monotonic() + (deadline_ms / 1000.0)
     while next_url and pages_fetched < max(1, int(max_pages)):
+        if time.monotonic() >= query_deadline_at:
+            fetch_error = "query_deadline_exceeded"
+            query_deadline_exceeded = True
+            break
         if not _scenario_url_allowed(next_url):
             fetch_error = "dft_url_not_allowed"
             break
@@ -441,7 +659,12 @@ def _fetch_dft_rows_paginated(
             key=cache_key,
             url=next_url,
             ttl_s=ttl_s,
+            deadline_at_monotonic_s=query_deadline_at,
         )
+        if page_err in {"deadline_exceeded", "stale_cache:deadline_exceeded"}:
+            if fetch_error is None:
+                fetch_error = "query_deadline_exceeded"
+            query_deadline_exceeded = True
         if page_err and fetch_error is None:
             fetch_error = page_err
         if not isinstance(payload, dict):
@@ -457,6 +680,12 @@ def _fetch_dft_rows_paginated(
                     "stale_cache_used": bool(live_diag.get("stale_cache_used", False)),
                     "status_code": live_diag.get("status_code"),
                     "as_of_utc": live_diag.get("as_of_utc"),
+                    "retry_attempts": _safe_int(live_diag.get("retry_attempts"), 0),
+                    "retry_count": _safe_int(live_diag.get("retry_count"), 0),
+                    "retry_total_backoff_ms": _safe_int(live_diag.get("retry_total_backoff_ms"), 0),
+                    "retry_last_error": live_diag.get("retry_last_error"),
+                    "retry_last_status_code": live_diag.get("retry_last_status_code"),
+                    "retry_deadline_exceeded": bool(live_diag.get("retry_deadline_exceeded", False)),
                 }
             )
         pages_fetched += 1
@@ -490,6 +719,8 @@ def _fetch_dft_rows_paginated(
             "pages_fetched": int(pages_fetched),
             "row_count": int(len(rows)),
             "max_pages": int(max_pages),
+            "query_deadline_ms": int(deadline_ms),
+            "query_deadline_exceeded": bool(query_deadline_exceeded),
             "query_patch": patch,
             "page_diagnostics": page_diagnostics,
         },
@@ -642,6 +873,7 @@ def _normalize_fuel_payload(
     fetch_error: str | None = None,
     stale_cache_used: bool = False,
     status_code: int | None = None,
+    retry: _RetryResult | None = None,
 ) -> dict[str, Any]:
     now = _utc_now()
     diagnostics: dict[str, Any] = {
@@ -653,6 +885,8 @@ def _normalize_fuel_payload(
         "stale_cache_used": bool(stale_cache_used),
         "status_code": int(status_code) if status_code is not None else None,
     }
+    if retry is not None:
+        _attach_retry_diagnostics(diagnostics, retry)
 
     if not isinstance(payload, dict):
         return _fuel_live_error(
@@ -771,6 +1005,7 @@ def _fetch_json(
         fetch_error: str | None,
         stale_cache_used: bool,
         status_code: int | None,
+        retry: _RetryResult | None = None,
     ) -> Any:
         if not isinstance(payload, dict):
             return payload
@@ -783,6 +1018,8 @@ def _fetch_json(
         diagnostics["fetch_error"] = fetch_error
         diagnostics["stale_cache_used"] = bool(stale_cache_used)
         diagnostics["status_code"] = int(status_code) if status_code is not None else None
+        if retry is not None:
+            _attach_retry_diagnostics(diagnostics, retry)
         return payload
 
     if not _url_allowed(url, allowed_hosts_raw=allowed_hosts_csv):
@@ -801,6 +1038,16 @@ def _fetch_json(
             fetch_error=None,
             stale_cache_used=False,
             status_code=None,
+            retry=_RetryResult(
+                payload=None,
+                status_code=None,
+                attempt_count=0,
+                retry_count=0,
+                retry_total_backoff_ms=0,
+                last_error_name=None,
+                last_error_status=None,
+                deadline_exceeded=False,
+            ),
         )
 
     if require_auth_token is not None and not require_auth_token.strip():
@@ -812,58 +1059,71 @@ def _fetch_json(
     if require_auth_token is not None and require_auth_token.strip():
         merged_headers["Authorization"] = f"Bearer {require_auth_token.strip()}"
 
-    try:
-        with httpx.Client(timeout=max(2.0, float(settings.live_data_request_timeout_s))) as client:
-            resp = client.get(url, headers=merged_headers)
-            if resp.status_code in (401, 403):
-                _strict_or_none(
-                    reason_code=reason_code_auth or reason_code_unavailable,
-                    message=f"Authentication failed for live source {key}.",
-                    details={"status_code": resp.status_code, "url": url},
-                )
-                return None
-            resp.raise_for_status()
-            payload = resp.json()
-    except httpx.HTTPError as exc:
-        # If we have a stale cache entry, return it and let loader freshness
-        # policies decide whether it is acceptable.
+    retry_result = _request_json_with_bounded_retry(
+        url=url,
+        headers=merged_headers,
+        deadline_at_monotonic_s=None,
+    )
+    if retry_result.payload is None:
+        status_code = retry_result.last_error_status
+        if status_code in (401, 403):
+            _strict_or_none(
+                reason_code=reason_code_auth or reason_code_unavailable,
+                message=f"Authentication failed for live source {key}.",
+                details={"status_code": status_code, "url": url},
+            )
+            return None
         stale = _cache_get(key)
         if stale is not None:
-            status_code = None
-            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
-                status_code = int(exc.response.status_code)
+            fetch_error = "deadline_exceeded" if retry_result.deadline_exceeded else retry_result.last_error_name
             return _annotate(
                 stale.payload,
                 cache_hit=True,
-                fetch_error=type(exc).__name__,
+                fetch_error=fetch_error or "source_unavailable",
                 stale_cache_used=True,
                 status_code=status_code,
+                retry=retry_result,
             )
+        error_name = "deadline_exceeded" if retry_result.deadline_exceeded else (retry_result.last_error_name or "source_unavailable")
         _strict_or_none(
             reason_code=reason_code_unavailable,
-            message=f"Live source unavailable for {key}: {type(exc).__name__}",
+            message=f"Live source unavailable for {key}: {error_name}",
             details={"url": url},
         )
         return None
+    payload = retry_result.payload
 
     payload = _annotate(
         payload,
         cache_hit=False,
         fetch_error=None,
         stale_cache_used=False,
-        status_code=int(resp.status_code),
+        status_code=retry_result.status_code,
+        retry=retry_result,
     )
     _cache_put(key, payload)
     return payload
 
 
 def live_bank_holidays() -> dict[str, Any] | None:
-    return _fetch_json(
+    payload = _fetch_json(
         key="bank_holidays",
         url=settings.live_bank_holidays_url,
         reason_code_unavailable="holiday_data_unavailable",
-        allowed_hosts_csv=str(settings.live_departure_allowed_hosts or ""),
+        allowed_hosts_csv=str(settings.live_bank_holidays_allowed_hosts or ""),
     )
+    if not isinstance(payload, dict):
+        return payload
+    if str(payload.get("as_of_utc", "")).strip() or str(payload.get("as_of", "")).strip():
+        return payload
+    diag = payload.get("_live_diagnostics")
+    if isinstance(diag, dict):
+        diag_as_of = str(diag.get("as_of_utc", "")).strip()
+        if diag_as_of:
+            enriched = dict(payload)
+            enriched["as_of_utc"] = diag_as_of
+            return enriched
+    return payload
 
 
 def live_departure_profiles() -> dict[str, Any] | None:
@@ -967,6 +1227,12 @@ def live_scenario_context(
                 "stale_cache_used": False,
                 "status_code": None,
                 "as_of_utc": None,
+                "retry_attempts": 0,
+                "retry_count": 0,
+                "retry_total_backoff_ms": 0,
+                "retry_last_error": None,
+                "retry_last_status_code": None,
+                "retry_deadline_exceeded": False,
             }
         live_diag = payload.get("_live_diagnostics")
         if not isinstance(live_diag, dict):
@@ -977,6 +1243,12 @@ def live_scenario_context(
                 "stale_cache_used": False,
                 "status_code": None,
                 "as_of_utc": None,
+                "retry_attempts": 0,
+                "retry_count": 0,
+                "retry_total_backoff_ms": 0,
+                "retry_last_error": None,
+                "retry_last_status_code": None,
+                "retry_deadline_exceeded": False,
             }
         return {
             "source_url": str(live_diag.get("source_url", fallback_url or "")).strip() or fallback_url,
@@ -985,6 +1257,12 @@ def live_scenario_context(
             "stale_cache_used": bool(live_diag.get("stale_cache_used", False)),
             "status_code": live_diag.get("status_code"),
             "as_of_utc": live_diag.get("as_of_utc"),
+            "retry_attempts": _safe_int(live_diag.get("retry_attempts"), 0),
+            "retry_count": _safe_int(live_diag.get("retry_count"), 0),
+            "retry_total_backoff_ms": _safe_int(live_diag.get("retry_total_backoff_ms"), 0),
+            "retry_last_error": live_diag.get("retry_last_error"),
+            "retry_last_status_code": live_diag.get("retry_last_status_code"),
+            "retry_deadline_exceeded": bool(live_diag.get("retry_deadline_exceeded", False)),
         }
 
     # Resolve URLs and enforce trusted-host policy for unsigned live payloads.
@@ -1212,6 +1490,7 @@ def live_scenario_context(
                 ttl_s=int(settings.live_scenario_cache_ttl_seconds),
                 max_pages=int(settings.live_scenario_dft_max_pages),
                 query_patch=query_patch,
+                query_deadline_ms=int(settings.live_http_retry_deadline_ms),
             )
             geolocated_count_i = sum(1 for row in rows_i if isinstance(row, dict) and _row_lat_lon(row) is not None)
             dft_query_meta.append(
@@ -1238,6 +1517,7 @@ def live_scenario_context(
                 ttl_s=int(settings.live_scenario_cache_ttl_seconds),
                 max_pages=int(settings.live_scenario_dft_max_pages),
                 query_patch={"filter[year]": str(int(now.year))},
+                query_deadline_ms=int(settings.live_http_retry_deadline_ms),
             )
             if err_fallback and dft_err is None:
                 dft_err = err_fallback
@@ -1621,6 +1901,16 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
             payload=cached.payload,
             provider_url=url,
             cache_hit=True,
+            retry=_RetryResult(
+                payload=None,
+                status_code=None,
+                attempt_count=0,
+                retry_count=0,
+                retry_total_backoff_ms=0,
+                last_error_name=None,
+                last_error_status=None,
+                deadline_exceeded=False,
+            ),
         )
         return normalized_cached
 
@@ -1631,46 +1921,61 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
         api_header = str(settings.live_fuel_api_key_header or "X-API-Key").strip() or "X-API-Key"
         headers[api_header] = api_key
 
-    try:
-        with httpx.Client(timeout=max(2.0, float(settings.live_data_request_timeout_s))) as client:
-            resp = client.get(url, headers=headers)
-            if resp.status_code in (401, 403):
-                return _fuel_live_error(
-                    reason_code="fuel_price_auth_unavailable",
-                    message="Authentication failed for live fuel source.",
-                    diagnostics={
-                        "provider_url": url,
-                        "status_code": resp.status_code,
-                        "fetched_at_utc": _iso_utc(_utc_now()),
-                    },
-                )
-            resp.raise_for_status()
-            payload = resp.json()
-    except httpx.HTTPError as exc:
+    retry_result = _request_json_with_bounded_retry(
+        url=url,
+        headers=headers,
+        deadline_at_monotonic_s=None,
+    )
+    if retry_result.payload is None:
+        if retry_result.last_error_status in (401, 403):
+            return _fuel_live_error(
+                reason_code="fuel_price_auth_unavailable",
+                message="Authentication failed for live fuel source.",
+                diagnostics={
+                    "provider_url": url,
+                    "status_code": retry_result.last_error_status,
+                    "fetched_at_utc": _iso_utc(_utc_now()),
+                },
+            )
         if cached is not None:
             normalized_stale = _normalize_fuel_payload(
                 payload=cached.payload,
                 provider_url=url,
                 cache_hit=True,
-                fetch_error=type(exc).__name__,
+                fetch_error=(
+                    "deadline_exceeded"
+                    if retry_result.deadline_exceeded
+                    else retry_result.last_error_name
+                ),
                 stale_cache_used=True,
+                status_code=retry_result.last_error_status,
+                retry=retry_result,
             )
             return normalized_stale
+        error_name = "deadline_exceeded" if retry_result.deadline_exceeded else (retry_result.last_error_name or "source_unavailable")
         return _fuel_live_error(
             reason_code="fuel_price_source_unavailable",
-            message=f"Live fuel source unavailable: {type(exc).__name__}",
+            message=f"Live fuel source unavailable: {error_name}",
             diagnostics={
                 "provider_url": url,
                 "fetched_at_utc": _iso_utc(_utc_now()),
+                "retry_attempts": int(retry_result.attempt_count),
+                "retry_count": int(retry_result.retry_count),
+                "retry_total_backoff_ms": int(retry_result.retry_total_backoff_ms),
+                "retry_last_error": retry_result.last_error_name,
+                "retry_last_status_code": retry_result.last_error_status,
+                "retry_deadline_exceeded": bool(retry_result.deadline_exceeded),
             },
         )
 
+    payload = retry_result.payload
     _cache_put(cache_key, payload)
     return _normalize_fuel_payload(
         payload=payload,
         provider_url=url,
         cache_hit=False,
-        status_code=int(resp.status_code),
+        status_code=retry_result.status_code,
+        retry=retry_result,
     )
 
 

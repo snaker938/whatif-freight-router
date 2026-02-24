@@ -134,6 +134,30 @@ while ($true) {
   Start-Sleep -Seconds 5
 }
 
+function Invoke-StrictLivePreflight {
+  $backendDir = Join-Path $repoRoot "backend"
+  $summaryPath = Join-Path $backendDir "out\model_assets\preflight_live_runtime.json"
+  Write-Host "Running strict live-data preflight..."
+  Push-Location $backendDir
+  try {
+    if (-not (Test-Path ".venv")) {
+      uv sync --dev
+      if ($LASTEXITCODE -ne 0) {
+        throw "uv sync --dev failed before strict live preflight."
+      }
+    }
+    uv run python scripts/preflight_live_runtime.py --output $summaryPath
+    if ($LASTEXITCODE -ne 0) {
+      throw "Strict live preflight failed. See summary: $summaryPath"
+    }
+    Write-Host "Strict live-data preflight passed."
+  } finally {
+    Pop-Location
+  }
+}
+
+Invoke-StrictLivePreflight
+
 function Test-PortListening {
   param(
     [Parameter(Mandatory = $true)][int]$Port
