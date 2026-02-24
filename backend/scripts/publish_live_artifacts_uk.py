@@ -179,6 +179,43 @@ def _build_toll_tariffs_payload(
     rules = compiled_payload.get("rules")
     if not isinstance(rules, list) or not rules:
         raise RuntimeError("toll_tariffs_uk_compiled.json must contain a non-empty top-level 'rules' array.")
+    strict_invalid_tokens = {"", "default", "*"}
+
+    def _normalized_class_list(raw: Any, *, fallback: list[str]) -> list[str]:
+        values: list[str] = []
+        if isinstance(raw, list):
+            for item in raw:
+                token = str(item).strip().lower()
+                if token and token not in strict_invalid_tokens:
+                    values.append(token)
+        # Keep stable ordering while de-duplicating.
+        deduped = list(dict.fromkeys(values))
+        if deduped:
+            return deduped
+        return list(fallback)
+
+    sanitized_rules: list[dict[str, Any]] = []
+    for row in rules:
+        if not isinstance(row, dict):
+            continue
+        rule = dict(row)
+        rule["vehicle_classes"] = _normalized_class_list(
+            rule.get("vehicle_classes"),
+            fallback=["rigid_hgv"],
+        )
+        rule["axle_classes"] = _normalized_class_list(
+            rule.get("axle_classes"),
+            fallback=["heavy"],
+        )
+        rule["payment_classes"] = _normalized_class_list(
+            rule.get("payment_classes"),
+            fallback=["cash"],
+        )
+        sanitized_rules.append(rule)
+
+    if not sanitized_rules:
+        raise RuntimeError("No valid tariff rules could be derived from toll_tariffs_uk_compiled.json.")
+
     defaults = compiled_payload.get("defaults")
     if not isinstance(defaults, dict):
         defaults = {
@@ -192,7 +229,7 @@ def _build_toll_tariffs_payload(
         "generated_at_utc": _utc_now_iso(),
         "as_of_utc": as_of_utc,
         "defaults": defaults,
-        "rules": rules,
+        "rules": sanitized_rules,
     }
 
 
