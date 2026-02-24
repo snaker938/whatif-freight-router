@@ -1,8 +1,8 @@
 {
   "source": "backend\\assets\\uk\\stochastic_residuals_empirical.csv",
   "calibration_version": "v4-uk-residual-fit",
-  "generated_at_utc": "2026-02-24T12:35:36.733457Z",
-  "as_of_utc": "2026-02-24T12:35:36.733475Z",
+  "generated_at_utc": "2026-02-24T12:44:06.789228Z",
+  "as_of_utc": "2026-02-24T12:44:06.789245Z",
   "priors": [
     {
       "corridor_bucket": "london_southeast",

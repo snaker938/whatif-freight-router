@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import csv
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+import scripts.collect_carbon_intensity_raw_uk as collect_carbon_intensity_raw_uk
+import scripts.collect_dft_raw_counts_uk as collect_dft_raw_counts_uk
+import scripts.collect_fuel_history_raw_uk as collect_fuel_history_raw_uk
+import scripts.collect_scenario_mode_outcomes_proxy_uk as collect_scenario_mode_outcomes_proxy_uk
+import scripts.collect_stochastic_residuals_raw_uk as collect_stochastic_residuals_raw_uk
+import scripts.collect_toll_truth_raw_uk as collect_toll_truth_raw_uk
 import scripts.extract_osm_tolls_uk as extract_osm_tolls_uk
 import scripts.fetch_carbon_intensity_uk as fetch_carbon_intensity_uk
 import scripts.fetch_dft_counts_uk as fetch_dft_counts_uk
@@ -282,6 +289,429 @@ def test_fetch_scenario_live_load_match_and_snapshot(tmp_path: Path, monkeypatch
     assert output.exists()
     assert snapshot["mode_is_projected"] is False
     assert set(snapshot["modes"].keys()) == {"no_sharing", "partial_sharing", "full_sharing"}
+
+
+def test_fetch_scenario_live_mode_source_projection_classifier() -> None:
+    assert fetch_scenario_live_uk._mode_source_is_projected("empirical_proxy_public_feeds_v1") is True
+    assert fetch_scenario_live_uk._mode_source_is_projected("bootstrap_replay_v1") is True
+    assert fetch_scenario_live_uk._mode_source_is_projected("resample_snapshot_v1") is True
+    assert fetch_scenario_live_uk._mode_source_is_projected("observed_telematics") is False
+
+
+def test_collect_dft_fetch_page_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(collect_dft_raw_counts_uk.time, "sleep", lambda seconds: sleep_calls.append(float(seconds)))
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _FlakyClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            _ = args, kwargs
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("transient")
+            return _Response({"data": [{"id": 1}]})
+
+    payload = collect_dft_raw_counts_uk._fetch_page(
+        client=_FlakyClient(),
+        base_url="https://example.test/raw-counts",
+        year=2026,
+        page_number=1,
+        page_size=10,
+        timeout_s=2.0,
+        retries=3,
+        backoff_s=0.1,
+    )
+    assert payload["data"] == [{"id": 1}]
+    assert len(sleep_calls) == 1
+
+
+def test_collect_dft_raw_collect_paginates_dedupes_and_writes_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_csv = tmp_path / "dft_counts_raw.csv"
+    state_file = tmp_path / "dft_counts_raw.state.json"
+    monkeypatch.setattr(
+        collect_dft_raw_counts_uk,
+        "_load_holiday_dates",
+        lambda **kwargs: {"2026-01-01"},
+    )
+
+    rows_page_1 = [
+        {
+            "id": "1",
+            "count_point_id": "100",
+            "count_date": "2026-01-01",
+            "hour": 8,
+            "direction_of_travel": "N",
+            "region_id": 3,
+            "local_authority_id": 11,
+            "road_name": "M1",
+            "road_category": "M",
+            "road_type": "major",
+            "latitude": 52.4,
+            "longitude": -1.9,
+            "all_motor_vehicles": 1200,
+            "all_hgvs": 140,
+            "cars_and_taxis": 1000,
+            "lgvs": 160,
+            "buses_and_coaches": 20,
+            "pedal_cycles": 5,
+            "two_wheeled_motor_vehicles": 12,
+        }
+    ]
+    rows_page_2 = [
+        rows_page_1[0],
+        {
+            "id": "2",
+            "count_point_id": "200",
+            "count_date": "2026-01-02",
+            "hour": 9,
+            "direction_of_travel": "S",
+            "region_id": 11,
+            "local_authority_id": 22,
+            "road_name": "A55",
+            "road_category": "PA",
+            "road_type": "primary",
+            "latitude": 53.3,
+            "longitude": -3.5,
+            "all_motor_vehicles": 700,
+            "all_hgvs": 80,
+            "cars_and_taxis": 560,
+            "lgvs": 90,
+            "buses_and_coaches": 8,
+            "pedal_cycles": 3,
+            "two_wheeled_motor_vehicles": 7,
+        },
+    ]
+
+    def _fake_fetch_page(**kwargs) -> dict[str, object]:
+        page = int(kwargs["page_number"])
+        if page == 1:
+            return {"data": rows_page_1, "next_page_url": "next", "last_page": 2}
+        if page == 2:
+            return {"data": rows_page_2, "next_page_url": None, "last_page": 2}
+        return {"data": []}
+
+    monkeypatch.setattr(collect_dft_raw_counts_uk, "_fetch_page", _fake_fetch_page)
+    summary = collect_dft_raw_counts_uk.collect(
+        output_csv=output_csv,
+        years=[2026],
+        base_url="https://example.test/raw-counts",
+        max_pages_per_year=5,
+        page_size=50,
+        retries=1,
+        backoff_s=0.01,
+        timeout_s=2.0,
+        target_min_rows=2,
+        append_safe=True,
+        resume=True,
+        state_file=state_file,
+        bank_holidays_url="https://example.test/bank-holidays.json",
+    )
+    assert summary["rows_written"] == 2
+    assert summary["pages_fetched"] == 2
+    assert output_csv.exists()
+    assert state_file.exists()
+
+    with output_csv.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 2
+    assert rows[0]["day_kind"] == "holiday"
+    assert rows[0]["corridor_bucket"] == "london_southeast"
+    assert rows[1]["corridor_bucket"] == "wales_west"
+
+
+def test_collect_stochastic_residuals_raw_builds_target_rows(tmp_path: Path) -> None:
+    scenario_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    scenario_jsonl.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "corridor_bucket": "uk_default",
+                        "day_kind": "weekday",
+                        "hour_slot_local": 8,
+                        "road_mix_bucket": "mixed",
+                        "weather_bucket": "clear",
+                        "traffic_features": {"flow_index": 120.0, "speed_index": 58.0},
+                        "incident_features": {"delay_pressure": 0.8, "severity_index": 0.4},
+                        "weather_features": {"weather_severity_index": 1.1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "corridor_bucket": "wales_west",
+                        "day_kind": "weekend",
+                        "hour_slot_local": 16,
+                        "road_mix_bucket": "primary_heavy",
+                        "weather_bucket": "rain",
+                        "traffic_features": {"flow_index": 90.0, "speed_index": 66.0},
+                        "incident_features": {"delay_pressure": 0.5, "severity_index": 0.3},
+                        "weather_features": {"weather_severity_index": 1.3},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    dft_raw_csv = tmp_path / "dft_counts_raw.csv"
+    dft_raw_csv.write_text(
+        "dedupe_key,corridor_bucket,day_kind,hour,road_bucket,road_category,all_motor_vehicles\n"
+        "k1,uk_default,weekday,8,mixed,m,1300\n"
+        "k2,wales_west,weekend,16,primary_heavy,pa,700\n",
+        encoding="utf-8",
+    )
+
+    output_csv = tmp_path / "stochastic_residuals_raw.csv"
+    summary = collect_stochastic_residuals_raw_uk.build(
+        scenario_jsonl=scenario_jsonl,
+        dft_raw_csv=dft_raw_csv,
+        output_csv=output_csv,
+        target_min_rows=12,
+        variants_per_row=2,
+    )
+    assert summary["rows_written"] == 12
+    assert summary["diversity"]["vehicle_type_count"] >= 2
+    assert output_csv.exists()
+    with output_csv.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 12
+    assert {"actual_duration_s", "expected_duration_s", "regime_id", "source"} <= set(rows[0].keys())
+
+
+def test_collect_fuel_history_raw_builds_payload_and_rejects_synthetic(tmp_path: Path) -> None:
+    source_a = tmp_path / "fuel_a.json"
+    source_b = tmp_path / "fuel_b.json"
+    source_a.write_text(
+        json.dumps(
+            {
+                "source": "public_feed_a",
+                "regional_multipliers": {"uk_default": 1.0, "london": 1.1},
+                "history": [
+                    {
+                        "as_of": "2026-02-01",
+                        "prices_gbp_per_l": {"diesel": 1.50, "petrol": 1.58, "lng": 1.04},
+                        "grid_price_gbp_per_kwh": 0.28,
+                    },
+                    {
+                        "as_of": "2026-02-02",
+                        "prices_gbp_per_l": {"diesel": 1.52, "petrol": 1.60, "lng": 1.05},
+                        "grid_price_gbp_per_kwh": 0.29,
+                    },
+                    {
+                        "as_of": "2026-02-03",
+                        "prices_gbp_per_l": {"diesel": 1.53, "petrol": 1.61, "lng": 1.06},
+                        "grid_price_gbp_per_kwh": 0.30,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    source_b.write_text(
+        json.dumps(
+            {
+                "source": "public_feed_b",
+                "history": [
+                    {
+                        "as_of": "2026-02-01",
+                        "prices_gbp_per_l": {"diesel": 1.51, "petrol": 1.59, "lng": 1.03},
+                        "grid_price_gbp_per_kwh": 0.27,
+                    },
+                    {
+                        "as_of": "2026-02-02",
+                        "prices_gbp_per_l": {"diesel": 1.53, "petrol": 1.61, "lng": 1.06},
+                        "grid_price_gbp_per_kwh": 0.28,
+                    },
+                    {
+                        "as_of": "2026-02-03",
+                        "prices_gbp_per_l": {"diesel": 1.54, "petrol": 1.62, "lng": 1.07},
+                        "grid_price_gbp_per_kwh": 0.29,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_json = tmp_path / "fuel_prices_raw.json"
+    summary = collect_fuel_history_raw_uk.build(
+        output_json=output_json,
+        source_urls=[],
+        source_jsons=[source_a, source_b],
+        min_days=3,
+        timeout_s=2.0,
+    )
+    assert summary["rows"] == 3
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    assert payload["source"] == "public_fuel_history_uk"
+    assert len(payload["history"]) == 3
+    assert "uk_default" in payload["regional_multipliers"]
+
+    synthetic_source = tmp_path / "fuel_synthetic.json"
+    synthetic_source.write_text(
+        json.dumps(
+            {
+                "source": "synthetic_generator",
+                "history": [
+                    {
+                        "as_of": "2026-02-01",
+                        "prices_gbp_per_l": {"diesel": 1.2, "petrol": 1.3, "lng": 0.9},
+                        "grid_price_gbp_per_kwh": 0.2,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError):
+        collect_fuel_history_raw_uk.build(
+            output_json=tmp_path / "should_fail.json",
+            source_urls=[],
+            source_jsons=[synthetic_source],
+            min_days=1,
+            timeout_s=2.0,
+        )
+
+
+def test_collect_carbon_intensity_raw_builds_profiles_with_stubbed_fetch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_fetch_json(*, client, url: str):  # noqa: ANN001
+        _ = client
+        if "/regional/intensity/" in url:
+            return {
+                "data": {
+                    "data": [
+                        {"from": "2026-02-01T00:00Z", "intensity": {"actual": 190}},
+                        {"from": "2026-02-01T01:00Z", "intensity": {"forecast": 210}},
+                    ]
+                }
+            }
+        return {
+            "data": [
+                {"from": "2026-02-01T00:00Z", "intensity": {"actual": 200}},
+                {"from": "2026-02-01T01:00Z", "intensity": {"actual": 220}},
+            ]
+        }
+
+    monkeypatch.setattr(collect_carbon_intensity_raw_uk, "_fetch_json", _fake_fetch_json)
+    output_json = tmp_path / "carbon_intensity_hourly_raw.json"
+    summary = collect_carbon_intensity_raw_uk.build(
+        output_json=output_json,
+        regions=["uk_default", "london"],
+        window_days=7,
+        timeout_s=2.0,
+    )
+    assert summary["region_count"] >= 2
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    assert "uk_default" in payload["regions"]
+    assert "london" in payload["regions"]
+    assert len(payload["regions"]["uk_default"]) == 24
+
+
+def test_collect_toll_truth_raw_builds_proxy_corpora(tmp_path: Path) -> None:
+    classification_source = tmp_path / "classification_source"
+    pricing_source = tmp_path / "pricing_source"
+    classification_source.mkdir(parents=True, exist_ok=True)
+    pricing_source.mkdir(parents=True, exist_ok=True)
+
+    for idx in range(20):
+        is_toll = idx % 2 == 0
+        (classification_source / f"class_{idx:03d}.json").write_text(
+            json.dumps(
+                {
+                    "fixture_id": f"class_{idx:03d}",
+                    "route_fixture": f"route_{idx:03d}.json",
+                    "expected_has_toll": is_toll,
+                }
+            ),
+            encoding="utf-8",
+        )
+    for idx in range(4):
+        is_toll = idx % 2 == 0
+        (pricing_source / f"price_{idx:03d}.json").write_text(
+            json.dumps(
+                {
+                    "fixture_id": f"price_{idx:03d}",
+                    "route_fixture": f"route_{idx:03d}.json",
+                    "expected_contains_toll": is_toll,
+                    "expected_toll_cost_gbp": 8.5 if is_toll else 0.0,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    classification_out = tmp_path / "classification_out"
+    pricing_out = tmp_path / "pricing_out"
+    tariffs_out = tmp_path / "toll_tariffs_operator_truth.json"
+    summary = collect_toll_truth_raw_uk.build(
+        classification_source=classification_source,
+        pricing_source=pricing_source,
+        classification_out=classification_out,
+        pricing_out=pricing_out,
+        tariffs_out=tariffs_out,
+        classification_target=20,
+        pricing_target=4,
+        min_tariff_rules=12,
+    )
+    assert summary["classification_count"] == 20
+    assert summary["pricing_count"] == 4
+    assert summary["tariff_rule_count"] == 12
+    tariff_payload = json.loads(tariffs_out.read_text(encoding="utf-8"))
+    assert tariff_payload["source"] == "proxy_from_labeled_toll_fixture_corpus_v1"
+    assert len(tariff_payload["rules"]) == 12
+
+
+def test_collect_scenario_mode_outcomes_proxy_builds_projected_rows(tmp_path: Path) -> None:
+    scenario_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    base_row = {
+        "as_of_utc": "2026-02-23T12:00:00Z",
+        "corridor_bucket": "uk_default",
+        "corridor_geohash5": "gcpvj",
+        "hour_slot_local": 12,
+        "road_mix_bucket": "mixed",
+        "vehicle_class": "rigid_hgv",
+        "day_kind": "weekday",
+        "weather_bucket": "clear",
+        "traffic_features": {"flow_index": 125.0, "speed_index": 55.0},
+        "incident_features": {"delay_pressure": 1.0, "severity_index": 0.5},
+        "weather_features": {"weather_severity_index": 1.2},
+    }
+    scenario_jsonl.write_text(
+        "\n".join([json.dumps(base_row), json.dumps(base_row)]) + "\n",
+        encoding="utf-8",
+    )
+    output_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
+    summary = collect_scenario_mode_outcomes_proxy_uk.build(
+        scenario_jsonl=scenario_jsonl,
+        output_jsonl=output_jsonl,
+    )
+    assert summary["rows"] == 1
+    rows = [json.loads(line) for line in output_jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["mode_observation_source"] == "empirical_proxy_public_feeds_v1"
+    assert row["mode_is_projected"] is True
+    no_mode = row["modes"]["no_sharing"]
+    partial_mode = row["modes"]["partial_sharing"]
+    full_mode = row["modes"]["full_sharing"]
+    assert no_mode["duration_multiplier"] > partial_mode["duration_multiplier"] > full_mode["duration_multiplier"]
 
 
 def test_fetch_stochastic_residuals_build_writes_output(tmp_path: Path) -> None:

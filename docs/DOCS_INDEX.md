@@ -66,6 +66,12 @@ python scripts/check_docs.py --check-paths
 python scripts/check_docs.py --check-endpoints
 ```
 
+- Strict live runtime preflight (before startup or deploy checks):
+
+```powershell
+uv run --project backend python backend/scripts/preflight_live_runtime.py
+```
+
 ## Viewing and Running Docs
 
 Project docs are markdown files under `docs/`. There is no separate docs build pipeline required.

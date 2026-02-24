@@ -24,6 +24,7 @@ What `dev.ps1` does:
 - creates `.env` from `.env.example` if missing
 - starts OSRM with Docker (`docker compose up -d osrm`)
 - waits for OSRM to respond on `http://localhost:5000/`
+- runs strict live preflight (`backend/scripts/preflight_live_runtime.py`) and fails fast if required live feeds are invalid/stale
 - starts backend in a new PowerShell window:
   - `uv sync --dev` (only if `.venv` missing)
   - `uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
@@ -129,6 +130,19 @@ Use this for full containerized verification. Do not run this at the same time a
   - regenerate `report.pdf` from manifest/results/metadata for a run
   - run from `backend/`:
   - `uv run python scripts/generate_run_report.py --run-id <run_id> --out-dir out`
+
+- `backend/scripts/publish_live_artifacts_uk.py`
+  - publishes strict JSON live artifacts into tracked `backend/assets/uk/` paths
+  - converts compiled toll outputs into strict runtime JSON payloads (`toll_topology_uk.json`, `toll_tariffs_uk.json`)
+  - validates/regenerates fuel signature when needed
+  - run from repo root:
+  - `uv run --project backend python backend/scripts/publish_live_artifacts_uk.py`
+
+- `backend/scripts/preflight_live_runtime.py`
+  - validates strict live runtime loaders before app startup
+  - writes summary to `backend/out/model_assets/preflight_live_runtime.json`
+  - run from repo root:
+  - `uv run --project backend python backend/scripts/preflight_live_runtime.py`
 
 - `scripts/demo_repro_run.ps1`
   - scripted reproducibility capsule run (fixed seed and pair count)

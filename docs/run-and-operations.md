@@ -27,6 +27,8 @@ Then review strict live URL/auth settings in `.env`:
 - carbon: `LIVE_CARBON_SCHEDULE_URL`
 - departure/stochastic/toll URLs
 - terrain: `LIVE_TERRAIN_DEM_URL_TEMPLATE`
+- strict host allow-lists: `LIVE_*_ALLOWED_HOSTS`
+- retry/query knobs: `LIVE_HTTP_RETRY_*`, `LIVE_SCENARIO_DFT_MAX_PAGES`
 
 ## Start Full Local Stack
 
@@ -35,6 +37,10 @@ From repo root:
 ```powershell
 .\scripts\dev.ps1
 ```
+
+`dev.ps1` now runs strict live preflight before backend/frontend launch. If a required live payload is stale/invalid, startup stops and writes:
+
+- `backend/out/model_assets/preflight_live_runtime.json`
 
 Expected services:
 
@@ -91,7 +97,15 @@ Use this when OSRM + backend assets + caches should be rebuilt end-to-end.
 ```powershell
 Set-Location backend
 uv run python scripts/build_model_assets.py
+uv run python scripts/publish_live_artifacts_uk.py
 ```
+
+This publish step updates strict runtime tracked artifact targets:
+
+- `backend/assets/uk/departure_profiles_uk.json`
+- `backend/assets/uk/stochastic_regimes_uk.json`
+- `backend/assets/uk/toll_topology_uk.json`
+- `backend/assets/uk/toll_tariffs_uk.json`
 
 5. Optional subsystem rebuilds:
 

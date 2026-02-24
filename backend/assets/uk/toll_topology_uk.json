@@ -2,8 +2,8 @@
   "type": "FeatureCollection",
   "source": "https://raw.githubusercontent.com/snaker938/whatif-freight-router/55e3027/backend/assets/uk/toll_segments_seed.geojson",
   "version": "uk-v2",
-  "generated_at_utc": "2026-02-24T12:20:03Z",
-  "as_of_utc": "2026-02-24T12:20:03Z",
+  "generated_at_utc": "2026-02-24T12:37:25Z",
+  "as_of_utc": "2026-02-24T12:37:25Z",
   "features": [
     {
       "type": "Feature",

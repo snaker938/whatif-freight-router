@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import httpx
 
 import scripts.benchmark_batch_pareto as benchmark_batch_pareto
+import scripts.preflight_live_runtime as preflight_module
 import scripts.run_robustness_analysis as robustness_module
 import scripts.run_sensitivity_analysis as sensitivity_module
 from scripts.benchmark_batch_pareto import build_parser as benchmark_parser
@@ -328,3 +330,22 @@ def test_generate_run_report_script_writes_pdf(tmp_path: Path) -> None:
     assert payload["run_id"] == run_id
     assert report_path.exists()
     assert report_path.read_bytes().startswith(b"%PDF")
+
+
+def test_preflight_script_main_writes_summary(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "preflight.json"
+    monkeypatch.setattr(
+        preflight_module,
+        "run_preflight",
+        lambda output_path: {  # noqa: ARG005
+            "required_ok": True,
+            "required_failure_count": 0,
+            "checks": [],
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["preflight_live_runtime.py", "--output", str(output_path)],
+    )
+    preflight_module.main()

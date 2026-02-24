@@ -1,0 +1,9 @@
+{
+  "fixture_id": "proxy_price_from_class_0007",
+  "route_fixture": "london_leicester_nontoll.json",
+  "expected_contains_toll": false,
+  "expected_toll_cost_gbp": 0.0,
+  "expected_currency": "GBP",
+  "source_provenance": "proxy_from_classification_balancer_v1",
+  "as_of_utc": "2026-02-24T00:26:38Z"
+}

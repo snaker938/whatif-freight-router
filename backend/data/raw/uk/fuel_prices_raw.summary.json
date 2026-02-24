@@ -1,0 +1,7 @@
+{
+  "rows": 731,
+  "sources": [
+    "backend\\data\\raw\\uk\\fuel_prices_seed_public.json"
+  ],
+  "output_json": "backend\\data\\raw\\uk\\fuel_prices_raw.json"
+}

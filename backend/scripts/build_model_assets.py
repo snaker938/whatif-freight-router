@@ -1575,6 +1575,11 @@ def build_assets(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build deterministic backend model assets.")
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Compatibility flag. Strict behavior is always enforced for this builder.",
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("backend/out/model_assets"),

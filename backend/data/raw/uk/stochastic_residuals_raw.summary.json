@@ -1,0 +1,37 @@
+{
+  "source": "empirical_proxy_public_feeds_v1",
+  "rows_written": 120000,
+  "target_min_rows": 120000,
+  "variants_per_row": 8,
+  "scenario_templates": 96,
+  "dft_rows": 12500,
+  "output_csv": "backend\\data\\raw\\uk\\stochastic_residuals_raw.csv",
+  "diversity": {
+    "regime_ids": [
+      "holiday_offpeak_high",
+      "holiday_offpeak_low",
+      "holiday_offpeak_mid",
+      "holiday_peak_high",
+      "holiday_peak_low",
+      "holiday_peak_mid",
+      "weekday_offpeak_high",
+      "weekday_offpeak_low",
+      "weekday_offpeak_mid",
+      "weekday_peak_high",
+      "weekday_peak_low",
+      "weekday_peak_mid",
+      "weekend_offpeak_high",
+      "weekend_offpeak_low",
+      "weekend_offpeak_mid",
+      "weekend_peak_high",
+      "weekend_peak_low",
+      "weekend_peak_mid"
+    ],
+    "road_bucket_count": 6,
+    "weather_profile_count": 5,
+    "vehicle_type_count": 3,
+    "corridor_count": 9,
+    "local_slot_count": 12
+  },
+  "as_of_utc": "2026-02-24T12:34:50Z"
+}

@@ -1,0 +1,12 @@
+{
+  "classification_count": 220,
+  "classification_true": 120,
+  "classification_false": 100,
+  "pricing_count": 105,
+  "pricing_true": 100,
+  "pricing_false": 5,
+  "tariff_rule_count": 220,
+  "classification_out": "backend\\data\\raw\\uk\\toll_classification",
+  "pricing_out": "backend\\data\\raw\\uk\\toll_pricing",
+  "tariffs_out": "backend\\data\\raw\\uk\\toll_tariffs_operator_truth.json"
+}

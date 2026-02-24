@@ -1,0 +1,15 @@
+{
+  "regions": [
+    "london",
+    "north_east",
+    "north_scotland",
+    "north_west",
+    "south_east",
+    "uk_default",
+    "wales",
+    "west_midlands"
+  ],
+  "region_count": 8,
+  "output_json": "backend\\data\\raw\\uk\\carbon_intensity_hourly_raw.json",
+  "as_of_utc": "2026-02-23T23:30:00Z"
+}

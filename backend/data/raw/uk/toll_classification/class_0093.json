@@ -1,0 +1,9 @@
+{
+  "fixture_id": "class_0093",
+  "route_fixture": "glasgow_edinburgh_nontoll.json",
+  "expected_has_toll": false,
+  "expected_reason": "step_class_signal",
+  "weight": 0.9844,
+  "as_of_utc": "2026-02-20T12:07:46Z",
+  "source_provenance": "proxy_from_labeled_fixture_corpus_v1"
+}

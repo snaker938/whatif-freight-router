@@ -1,0 +1,9 @@
+{
+  "fixture_id": "class_0043",
+  "route_fixture": "york_newcastle_mixed.json",
+  "expected_has_toll": false,
+  "expected_reason": "step_class_signal",
+  "weight": 0.9579,
+  "as_of_utc": "2026-02-20T12:07:46Z",
+  "source_provenance": "proxy_from_labeled_fixture_corpus_v1"
+}

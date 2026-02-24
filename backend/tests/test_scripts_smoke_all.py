@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 
 EXPECTED_SCRIPT_FILES = {
@@ -20,6 +19,12 @@ EXPECTED_SCRIPT_FILES = {
     "build_stochastic_calibration_uk.py",
     "build_terrain_tiles_uk.py",
     "check_eta_concept_drift.py",
+    "collect_carbon_intensity_raw_uk.py",
+    "collect_dft_raw_counts_uk.py",
+    "collect_fuel_history_raw_uk.py",
+    "collect_scenario_mode_outcomes_proxy_uk.py",
+    "collect_stochastic_residuals_raw_uk.py",
+    "collect_toll_truth_raw_uk.py",
     "extract_osm_tolls_uk.py",
     "fetch_carbon_intensity_uk.py",
     "fetch_dft_counts_uk.py",
@@ -29,6 +34,8 @@ EXPECTED_SCRIPT_FILES = {
     "fetch_stochastic_residuals_uk.py",
     "fetch_toll_truth_uk.py",
     "generate_run_report.py",
+    "preflight_live_runtime.py",
+    "publish_live_artifacts_uk.py",
     "run_headless_scenario.py",
     "run_robustness_analysis.py",
     "run_sensitivity_analysis.py",

@@ -1,0 +1,9 @@
+{
+  "fixture_id": "price_0075",
+  "route_fixture": "leeds_hull_bridge_toll.json",
+  "expected_contains_toll": true,
+  "expected_toll_cost_gbp": 7.25,
+  "expected_currency": "GBP",
+  "as_of_utc": "2026-02-20T12:07:46Z",
+  "source_provenance": "proxy_from_labeled_fixture_corpus_v1"
+}

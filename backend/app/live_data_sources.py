@@ -138,6 +138,16 @@ def _extract_status_code(exc: Exception) -> int | None:
     return None
 
 
+def _live_request_headers(url: str) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    host = (urlparse(url).hostname or "").strip().lower()
+    if host in {"raw.githubusercontent.com", "githubusercontent.com"}:
+        # Avoid stale edge-cache reads for strict live artifacts published on main.
+        headers["Cache-Control"] = "no-cache"
+        headers["Pragma"] = "no-cache"
+    return headers
+
+
 def _request_json_with_bounded_retry(
     *,
     url: str,
@@ -480,7 +490,7 @@ def _fetch_json_with_ttl(
         ), None
     retry_result = _request_json_with_bounded_retry(
         url=url,
-        headers=None,
+        headers=_live_request_headers(url),
         deadline_at_monotonic_s=deadline_at_monotonic_s,
     )
     if retry_result.payload is None:
@@ -1053,7 +1063,7 @@ def _fetch_json(
     if require_auth_token is not None and not require_auth_token.strip():
         return None
 
-    merged_headers: dict[str, str] = {}
+    merged_headers: dict[str, str] = _live_request_headers(url)
     if headers:
         merged_headers.update(headers)
     if require_auth_token is not None and require_auth_token.strip():
@@ -1914,7 +1924,7 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
         )
         return normalized_cached
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = _live_request_headers(url)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if api_key:
