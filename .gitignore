@@ -35,12 +35,16 @@ backend/out/experiments/*
 !backend/out/experiments/.gitkeep
 backend/out/model_assets/*
 !backend/out/model_assets/.gitkeep
+backend/out/test_runs/
+backend/out/oracle_quality/
 backend/assets/uk/*.osm.pbf
+backend/assets/uk/toll_tariffs_uk.yaml
 
 # Frontend
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+frontend/tsconfig.tsbuildinfo
 
 # Misc
 .DS_Store

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ except Exception:  # pragma: no cover
 
 EARTH_RADIUS_M = 6_371_000.0
 UK_BBOX = (49.75, 61.10, -8.75, 2.25)  # lat_min, lat_max, lon_min, lon_max
+GRAPH_PROGRESS_EVERY_WAYS = max(1, int(os.environ.get("ROUTING_GRAPH_PROGRESS_EVERY_WAYS", "5000")))
 ALLOWED_HIGHWAYS = {
     "motorway",
     "motorway_link",
@@ -175,6 +177,10 @@ def _extract_from_pbf(
     bbox: tuple[float, float, float, float],
     max_ways: int,
 ) -> tuple[dict[str, tuple[float, float]], list[dict[str, Any]]]:
+    print(
+        f"[routing_graph] extracting from {source} (max_ways={max_ways}, progress_every={GRAPH_PROGRESS_EVERY_WAYS})",
+        flush=True,
+    )
     if osmium is None:
         if source.suffix.lower() == ".osm":
             return _extract_from_osm_xml(source=source, bbox=bbox, max_ways=max_ways)
@@ -186,6 +192,7 @@ def _extract_from_pbf(
             self.nodes: dict[str, tuple[float, float]] = {}
             self.edges: list[dict[str, Any]] = []
             self.ways_seen = 0
+            self._last_report = 0
 
         def way(self, w: Any) -> None:
             if max_ways > 0 and self.ways_seen >= max_ways:
@@ -207,6 +214,13 @@ def _extract_from_pbf(
             if len(raw_points) < 2:
                 return
             self.ways_seen += 1
+            if self.ways_seen - self._last_report >= GRAPH_PROGRESS_EVERY_WAYS:
+                self._last_report = self.ways_seen
+                print(
+                    "[routing_graph] progress "
+                    f"ways={self.ways_seen} nodes={len(self.nodes)} edges={len(self.edges)}",
+                    flush=True,
+                )
             oneway = _oneway_from_tags(tags)
             direction = _direction_override(tags)
             maxspeed_kph = _parse_maxspeed(tags.get("maxspeed"))
@@ -240,6 +254,10 @@ def _extract_from_pbf(
     except TypeError:
         # Fallback for older pyosmium builds without explicit idx support.
         handler.apply_file(str(source), locations=True)
+    print(
+        f"[routing_graph] extraction complete ways={handler.ways_seen} nodes={len(handler.nodes)} edges={len(handler.edges)}",
+        flush=True,
+    )
     return handler.nodes, handler.edges
 
 
@@ -249,6 +267,10 @@ def _extract_from_osm_xml(
     bbox: tuple[float, float, float, float],
     max_ways: int,
 ) -> tuple[dict[str, tuple[float, float]], list[dict[str, Any]]]:
+    print(
+        f"[routing_graph] extracting from XML {source} (max_ways={max_ways}, progress_every={GRAPH_PROGRESS_EVERY_WAYS})",
+        flush=True,
+    )
     tree = ET.parse(source)
     root = tree.getroot()
     node_index: dict[str, tuple[float, float]] = {}
@@ -296,6 +318,12 @@ def _extract_from_osm_xml(
         if len(raw_points) < 2:
             continue
         ways_seen += 1
+        if ways_seen % GRAPH_PROGRESS_EVERY_WAYS == 0:
+            print(
+                "[routing_graph] progress "
+                f"ways={ways_seen} nodes={len(nodes)} edges={len(edges)}",
+                flush=True,
+            )
         oneway = _oneway_from_tags(tags)
         direction = _direction_override(tags)
         maxspeed_kph = _parse_maxspeed(tags.get("maxspeed"))
@@ -322,6 +350,10 @@ def _extract_from_osm_xml(
                     "maxspeed_kph": maxspeed_kph,
                 }
             )
+    print(
+        f"[routing_graph] extraction complete ways={ways_seen} nodes={len(nodes)} edges={len(edges)}",
+        flush=True,
+    )
     return nodes, edges
 
 
@@ -332,12 +364,14 @@ def build(
     bbox: tuple[float, float, float, float] = UK_BBOX,
     max_ways: int = 0,
 ) -> dict[str, Any]:
+    print(f"[routing_graph] build start source={source} output={output}", flush=True)
     if source.suffix.lower() in {".pbf", ".osm"}:
         nodes, edges = _extract_from_pbf(source=source, bbox=bbox, max_ways=max_ways)
     else:
         nodes, edges = _extract_from_geojson(source=source, bbox=bbox)
     if not nodes or not edges:
         raise RuntimeError("No graph nodes/edges were extracted from source input.")
+    print(f"[routing_graph] writing graph payload nodes={len(nodes)} edges={len(edges)}", flush=True)
 
     generated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     as_of_utc = datetime.fromtimestamp(source.stat().st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")

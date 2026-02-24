@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -445,6 +445,7 @@ def build_batch_snapshots(
     observed_mode_outcomes: list[dict[str, Any]] | None = None,
     require_observed_modes: bool = False,
     workers: int = 8,
+    progress_every: int = 20,
 ) -> dict[str, Any]:
     now_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     tasks: list[dict[str, Any]] = []
@@ -469,6 +470,16 @@ def build_batch_snapshots(
 
     batch_rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    started = datetime.now(UTC)
+    total_tasks = len(tasks)
+    progress_step = max(1, int(progress_every))
+
+    print(
+        "Starting scenario batch fetch "
+        f"(tasks={total_tasks}, workers={max(1, min(int(workers), total_tasks if total_tasks else 1))}, "
+        f"corridors={len(corridors)}, day_kinds={len(day_kinds)}, hour_slots={len(hour_slots)}).",
+        flush=True,
+    )
 
     def _worker(task: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         corridor = str(task.get("corridor", "uk_default"))
@@ -503,13 +514,37 @@ def build_batch_snapshots(
 
     max_workers = max(1, min(int(workers), len(tasks) if tasks else 1))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_worker, task) for task in tasks]
-        for fut in as_completed(futures):
-            snapshot, err = fut.result()
-            if snapshot is not None:
-                batch_rows.append(snapshot)
-            if err is not None:
-                errors.append(err)
+        pending = {executor.submit(_worker, task) for task in tasks}
+        completed = 0
+        next_heartbeat = datetime.now(UTC) + timedelta(seconds=15)
+        while pending:
+            done, pending = wait(pending, timeout=5, return_when=FIRST_COMPLETED)
+            if not done:
+                now = datetime.now(UTC)
+                if now >= next_heartbeat:
+                    elapsed_s = max(0.0, (now - started).total_seconds())
+                    print(
+                        "[scenario_batch] waiting "
+                        f"(done={completed}/{total_tasks}, ok={len(batch_rows)}, errors={len(errors)}, elapsed={elapsed_s:.1f}s)",
+                        flush=True,
+                    )
+                    next_heartbeat = now + timedelta(seconds=15)
+                continue
+            for fut in done:
+                snapshot, err = fut.result()
+                if snapshot is not None:
+                    batch_rows.append(snapshot)
+                if err is not None:
+                    errors.append(err)
+                completed += 1
+            if completed == total_tasks or completed % progress_step == 0:
+                elapsed_s = max(0.0, (datetime.now(UTC) - started).total_seconds())
+                print(
+                    "[scenario_batch] progress "
+                    f"{completed}/{total_tasks} "
+                    f"(ok={len(batch_rows)}, errors={len(errors)}, elapsed={elapsed_s:.1f}s)",
+                    flush=True,
+                )
 
     output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     if batch_rows:
@@ -600,6 +635,12 @@ def main() -> None:
         default=8,
         help="Parallel worker count for --batch mode.",
     )
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=20,
+        help="Emit batch progress every N completed contexts.",
+    )
     args = parser.parse_args()
     observed_mode_outcomes = (
         _load_observed_mode_outcomes(args.observed_mode_outcomes_jsonl)
@@ -622,6 +663,7 @@ def main() -> None:
             observed_mode_outcomes=observed_mode_outcomes,
             require_observed_modes=bool(args.require_observed_modes),
             workers=max(1, int(args.workers)),
+            progress_every=max(1, int(args.progress_every)),
         )
         print(
             f"Wrote scenario batch summary to {args.output} "

@@ -87,8 +87,14 @@ def fetch_tiles(
     )
     if not coords:
         return 0, 0, ["No tile coordinates resolved from bbox."]
+    print(
+        f"[dem_fetch] starting tile download requested={len(coords)} concurrency={max(1, concurrency)}",
+        flush=True,
+    )
     failures: list[str] = []
     ok_count = 0
+    completed = 0
+    progress_every = max(1, int(len(coords) / 10))
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as executor:
         futures = [
             executor.submit(
@@ -107,6 +113,13 @@ def fetch_tiles(
                 ok_count += 1
             else:
                 failures.append(message)
+            completed += 1
+            if completed == len(coords) or completed % progress_every == 0:
+                print(
+                    "[dem_fetch] progress "
+                    f"{completed}/{len(coords)} ok={ok_count} failed={len(failures)}",
+                    flush=True,
+                )
 
     manifest = {
         "generated_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -125,6 +138,10 @@ def fetch_tiles(
     (output_dir / "fetch_manifest.json").write_text(
         json.dumps(manifest, indent=2),
         encoding="utf-8",
+    )
+    print(
+        f"[dem_fetch] complete downloaded={ok_count}/{len(coords)} failures={len(failures)}",
+        flush=True,
     )
     return ok_count, len(coords), failures
 

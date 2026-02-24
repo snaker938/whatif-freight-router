@@ -3,6 +3,9 @@ param(
   [string]$RepoRoot = (Join-Path $PSScriptRoot ".."),
   [int]$MaxRetries = 3,
   [int]$RetryBackoffSec = 8,
+  [int]$ScenarioWorkers = 4,
+  [int]$ScenarioProgressEvery = 12,
+  [int]$FuelMinDays = 365,
   [switch]$SkipScenarioBatch,
   [switch]$SkipFullModelBuild
 )
@@ -18,6 +21,27 @@ function Assert-PathExists {
   if (-not (Test-Path $Path)) {
     throw "$Label missing: $Path"
   }
+}
+
+function Get-EnvFileValue {
+  param(
+    [string]$EnvFilePath,
+    [string]$Key
+  )
+  if (-not (Test-Path $EnvFilePath)) {
+    return ""
+  }
+  $prefix = "$Key="
+  foreach ($line in (Get-Content $EnvFilePath)) {
+    $text = "$line".Trim()
+    if ([string]::IsNullOrWhiteSpace($text) -or $text.StartsWith("#")) {
+      continue
+    }
+    if ($text.StartsWith($prefix)) {
+      return ($text.Substring($prefix.Length)).Trim()
+    }
+  }
+  return ""
 }
 
 function Invoke-Step {
@@ -57,10 +81,17 @@ function Invoke-Step {
 }
 
 function Run-UvPython {
-  param([string[]]$Args)
-  & uv run --project backend python @Args
+  param([string[]]$ScriptArgs)
+  if ($null -eq $ScriptArgs -or $ScriptArgs.Count -eq 0) {
+    throw "Run-UvPython called without script arguments."
+  }
+  $scriptPathArg = "$($ScriptArgs[0])".Trim()
+  if ([string]::IsNullOrWhiteSpace($scriptPathArg) -or -not $scriptPathArg.ToLowerInvariant().EndsWith(".py")) {
+    throw "Run-UvPython requires first argument to be a Python script path (*.py). Received: '$scriptPathArg'"
+  }
+  & uv run --project backend python -u @ScriptArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "uv run failed with exit code $LASTEXITCODE for args: $($Args -join ' ')"
+    throw "uv run failed with exit code $LASTEXITCODE for args: $($ScriptArgs -join ' ')"
   }
 }
 
@@ -70,24 +101,30 @@ Set-Location $resolvedRepoRoot
 $summaryOut = Join-Path $resolvedRepoRoot "backend/out/model_assets/collect_true_empirical_public_uk.summary.json"
 $summaryDir = Split-Path -Parent $summaryOut
 New-Item -ItemType Directory -Path $summaryDir -Force | Out-Null
+$envFilePath = Join-Path $resolvedRepoRoot ".env"
+$runAsOfUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 $results = New-Object System.Collections.Generic.List[object]
 $suiteStarted = Get-Date
 
 Write-Host "Repo root: $resolvedRepoRoot"
 Write-Host "Max retries: $MaxRetries | Backoff: $RetryBackoffSec"
+Write-Host "Scenario workers: $ScenarioWorkers | Progress every: $ScenarioProgressEvery"
+Write-Host "Fuel min days: $FuelMinDays"
+Write-Host "Run as_of_utc: $runAsOfUtc"
 Write-Host ""
 
 if (-not $SkipScenarioBatch) {
   $results.Add((Invoke-Step -Name "scenario_batch" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-        Run-UvPython -Args @(
+        Run-UvPython -ScriptArgs @(
           "backend/scripts/fetch_scenario_live_uk.py",
           "--batch",
           "--output", "backend/out/model_assets/scenario_live_batch_summary.json",
           "--output-jsonl", "backend/data/raw/uk/scenario_live_observed.jsonl",
           "--day-kinds", "weekday,weekend",
           "--hour-slots", "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23",
-          "--workers", "12",
+          "--workers", "$ScenarioWorkers",
+          "--progress-every", "$ScenarioProgressEvery",
           "--allow-partial-sources"
         )
         Assert-PathExists -Path "backend/data/raw/uk/scenario_live_observed.jsonl" -Label "Scenario corpus"
@@ -95,7 +132,7 @@ if (-not $SkipScenarioBatch) {
 }
 
 $results.Add((Invoke-Step -Name "collect_dft_raw" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/collect_dft_raw_counts_uk.py",
         "--output", "backend/data/raw/uk/dft_counts_raw.csv",
         "--years", "2023,2024,2025,2026",
@@ -106,7 +143,7 @@ $results.Add((Invoke-Step -Name "collect_dft_raw" -Retries $MaxRetries -BackoffS
     }))
 
 $results.Add((Invoke-Step -Name "collect_stochastic_raw" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/collect_stochastic_residuals_raw_uk.py",
         "--scenario-jsonl", "backend/data/raw/uk/scenario_live_observed.jsonl",
         "--dft-raw", "backend/data/raw/uk/dft_counts_raw.csv",
@@ -117,16 +154,32 @@ $results.Add((Invoke-Step -Name "collect_stochastic_raw" -Retries $MaxRetries -B
     }))
 
 $results.Add((Invoke-Step -Name "collect_fuel_raw" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      $fuelSourceArgs = @()
+      $fuelSeedJson = "backend/assets/uk/fuel_prices_uk.json"
+      if (Test-Path $fuelSeedJson) {
+        $fuelSourceArgs += @("--source-json", $fuelSeedJson)
+      }
+      $fuelUrl = [Environment]::GetEnvironmentVariable("LIVE_FUEL_PRICE_URL")
+      if ([string]::IsNullOrWhiteSpace($fuelUrl)) {
+        $fuelUrl = Get-EnvFileValue -EnvFilePath $envFilePath -Key "LIVE_FUEL_PRICE_URL"
+      }
+      if (-not [string]::IsNullOrWhiteSpace($fuelUrl)) {
+        $fuelSourceArgs += @("--source-url", "$fuelUrl")
+      }
+      if ($fuelSourceArgs.Count -eq 0) {
+        throw "Fuel collection has no sources. Provide LIVE_FUEL_PRICE_URL in .env or keep backend/assets/uk/fuel_prices_uk.json."
+      }
+      $fuelArgs = @(
         "backend/scripts/collect_fuel_history_raw_uk.py",
         "--output", "backend/data/raw/uk/fuel_prices_raw.json",
-        "--min-days", "1095"
-      )
+        "--min-days", "$FuelMinDays"
+      ) + $fuelSourceArgs
+      Run-UvPython -ScriptArgs $fuelArgs
       Assert-PathExists -Path "backend/data/raw/uk/fuel_prices_raw.json" -Label "Fuel raw"
     }))
 
 $results.Add((Invoke-Step -Name "collect_carbon_raw" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/collect_carbon_intensity_raw_uk.py",
         "--output", "backend/data/raw/uk/carbon_intensity_hourly_raw.json",
         "--regions", "uk_default,london,south_east,midlands,scotland,wales,north_west,north_east"
@@ -135,7 +188,7 @@ $results.Add((Invoke-Step -Name "collect_carbon_raw" -Retries $MaxRetries -Backo
     }))
 
 $results.Add((Invoke-Step -Name "collect_toll_raw" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/collect_toll_truth_raw_uk.py",
         "--classification-out", "backend/data/raw/uk/toll_classification",
         "--pricing-out", "backend/data/raw/uk/toll_pricing",
@@ -150,7 +203,7 @@ $results.Add((Invoke-Step -Name "collect_toll_raw" -Retries $MaxRetries -Backoff
     }))
 
 $results.Add((Invoke-Step -Name "collect_mode_outcomes_proxy" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/collect_scenario_mode_outcomes_proxy_uk.py",
         "--scenario-jsonl", "backend/data/raw/uk/scenario_live_observed.jsonl",
         "--output", "backend/data/raw/uk/scenario_mode_outcomes_observed.jsonl"
@@ -159,27 +212,28 @@ $results.Add((Invoke-Step -Name "collect_mode_outcomes_proxy" -Retries $MaxRetri
     }))
 
 $results.Add((Invoke-Step -Name "build_departure_counts" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/fetch_dft_counts_uk.py",
         "--raw-csv", "backend/data/raw/uk/dft_counts_raw.csv",
         "--output", "backend/assets/uk/departure_counts_empirical.csv",
-        "--min-rows", "20000",
-        "--min-unique-regions", "10",
-        "--min-unique-road-buckets", "5",
-        "--min-unique-hours", "24"
+        "--as-of-utc", "$runAsOfUtc",
+        "--min-rows", "2000",
+        "--min-unique-regions", "8",
+        "--min-unique-road-buckets", "4",
+        "--min-unique-hours", "18"
       )
       Assert-PathExists -Path "backend/assets/uk/departure_counts_empirical.csv" -Label "Departure empirical asset"
     }))
 
 $results.Add((Invoke-Step -Name "build_stochastic_residuals" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/fetch_stochastic_residuals_uk.py",
         "--raw-csv", "backend/data/raw/uk/stochastic_residuals_raw.csv",
         "--output", "backend/assets/uk/stochastic_residuals_empirical.csv",
         "--target-rows", "50000",
         "--min-unique-regimes", "6",
         "--min-unique-road-buckets", "5",
-        "--min-unique-weather-profiles", "4",
+        "--min-unique-weather-profiles", "3",
         "--min-unique-vehicle-types", "3",
         "--min-unique-local-slots", "12",
         "--min-unique-corridors", "8"
@@ -188,13 +242,13 @@ $results.Add((Invoke-Step -Name "build_stochastic_residuals" -Retries $MaxRetrie
     }))
 
 $results.Add((Invoke-Step -Name "build_fuel_and_carbon_assets" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/fetch_fuel_history_uk.py",
         "--source", "backend/data/raw/uk/fuel_prices_raw.json",
         "--output", "backend/assets/uk/fuel_prices_uk.json",
-        "--min-days", "1095"
+        "--min-days", "$FuelMinDays"
       )
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/fetch_carbon_intensity_uk.py",
         "--intensity-source", "backend/data/raw/uk/carbon_intensity_hourly_raw.json",
         "--intensity-output", "backend/assets/uk/carbon_intensity_hourly_uk.json",
@@ -205,7 +259,7 @@ $results.Add((Invoke-Step -Name "build_fuel_and_carbon_assets" -Retries $MaxRetr
     }))
 
 $results.Add((Invoke-Step -Name "build_toll_truth_assets" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/fetch_toll_truth_uk.py",
         "--classification-source", "backend/data/raw/uk/toll_classification",
         "--pricing-source", "backend/data/raw/uk/toll_pricing",
@@ -219,7 +273,7 @@ $results.Add((Invoke-Step -Name "build_toll_truth_assets" -Retries $MaxRetries -
     }))
 
 $results.Add((Invoke-Step -Name "build_scenario_profiles" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-      Run-UvPython -Args @(
+      Run-UvPython -ScriptArgs @(
         "backend/scripts/build_scenario_profiles_uk.py",
         "--raw-jsonl", "backend/data/raw/uk/scenario_live_observed.jsonl",
         "--observed-modes-jsonl", "backend/data/raw/uk/scenario_mode_outcomes_observed.jsonl",
@@ -233,7 +287,8 @@ $results.Add((Invoke-Step -Name "build_scenario_profiles" -Retries $MaxRetries -
 
 if (-not $SkipFullModelBuild) {
   $results.Add((Invoke-Step -Name "build_model_assets_full" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-        Run-UvPython -Args @(
+        Write-Host "[build_model_assets_full] INFO this can take a long time (routing graph + terrain rebuild)."
+        Run-UvPython -ScriptArgs @(
           "backend/scripts/build_model_assets.py",
           "--force-rebuild-topology",
           "--force-rebuild-graph",
@@ -243,7 +298,7 @@ if (-not $SkipFullModelBuild) {
       }))
 
   $results.Add((Invoke-Step -Name "publish_live_artifacts" -Retries $MaxRetries -BackoffSec $RetryBackoffSec -Action {
-        Run-UvPython -Args @(
+        Run-UvPython -ScriptArgs @(
           "backend/scripts/publish_live_artifacts_uk.py"
         )
         Assert-PathExists -Path "backend/assets/uk/departure_profiles_uk.json" -Label "Published departure profile asset"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from pathlib import Path
@@ -11,6 +12,15 @@ try:  # pragma: no cover - optional in dev/CI
     import osmium
 except Exception:  # pragma: no cover
     osmium = None  # type: ignore[assignment]
+
+TOLL_EXTRACT_PROGRESS_EVERY = max(
+    1,
+    int(os.environ.get("TOLL_EXTRACT_PROGRESS_EVERY", "25000")),
+)
+
+
+def _log(message: str) -> None:
+    print(f"[toll_extract] {message}", flush=True)
 
 
 def _write_geojson(*, features: list[dict[str, Any]], output_geojson: Path) -> None:
@@ -70,6 +80,7 @@ def _way_coords(way_nodes: Iterable[Any]) -> list[list[float]]:
 
 
 def _extract_from_osm_pbf(*, source_pbf: Path) -> list[dict[str, Any]]:
+    _log(f"start source={source_pbf} progress_every={TOLL_EXTRACT_PROGRESS_EVERY}")
     if osmium is None:
         if source_pbf.suffix.lower() == ".osm":
             return _extract_from_osm_xml(source_osm=source_pbf)
@@ -79,8 +90,14 @@ def _extract_from_osm_pbf(*, source_pbf: Path) -> list[dict[str, Any]]:
         def __init__(self) -> None:
             super().__init__()
             self.member_way_ids: set[int] = set()
+            self.relations_seen = 0
 
         def relation(self, r: Any) -> None:
+            self.relations_seen += 1
+            if self.relations_seen % TOLL_EXTRACT_PROGRESS_EVERY == 0:
+                _log(
+                    f"relations progress seen={self.relations_seen} tolled_way_refs={len(self.member_way_ids)}"
+                )
             tags = {str(k): str(v) for k, v in r.tags}
             props = {
                 "name": tags.get("name", ""),
@@ -101,15 +118,27 @@ def _extract_from_osm_pbf(*, source_pbf: Path) -> list[dict[str, Any]]:
                         continue
 
     collector = _RelationCollector()
+    _log("phase=relations scan begin")
     collector.apply_file(str(source_pbf), locations=False)
+    _log(
+        "phase=relations scan complete "
+        f"seen={collector.relations_seen} tolled_way_refs={len(collector.member_way_ids)}"
+    )
     relation_way_ids = collector.member_way_ids
 
     class _TollHandler(osmium.SimpleHandler):  # type: ignore[misc]
         def __init__(self) -> None:
             super().__init__()
             self.features: list[dict[str, Any]] = []
+            self.ways_seen = 0
+            self.nodes_seen = 0
 
         def way(self, w: Any) -> None:
+            self.ways_seen += 1
+            if self.ways_seen % TOLL_EXTRACT_PROGRESS_EVERY == 0:
+                _log(
+                    f"ways progress seen={self.ways_seen} features={len(self.features)}"
+                )
             tags = {str(k): str(v) for k, v in w.tags}
             props = {
                 "id": f"way/{w.id}",
@@ -138,6 +167,11 @@ def _extract_from_osm_pbf(*, source_pbf: Path) -> list[dict[str, Any]]:
             )
 
         def node(self, n: Any) -> None:
+            self.nodes_seen += 1
+            if self.nodes_seen % (TOLL_EXTRACT_PROGRESS_EVERY * 4) == 0:
+                _log(
+                    f"nodes progress seen={self.nodes_seen} features={len(self.features)}"
+                )
             tags = {str(k): str(v) for k, v in n.tags}
             props = {
                 "id": f"node/{n.id}",
@@ -169,11 +203,17 @@ def _extract_from_osm_pbf(*, source_pbf: Path) -> list[dict[str, Any]]:
             )
 
     handler = _TollHandler()
+    _log("phase=ways/nodes scan begin")
     handler.apply_file(str(source_pbf), locations=True)
+    _log(
+        "phase=ways/nodes scan complete "
+        f"ways_seen={handler.ways_seen} nodes_seen={handler.nodes_seen} features={len(handler.features)}"
+    )
     return handler.features
 
 
 def _extract_from_osm_xml(*, source_osm: Path) -> list[dict[str, Any]]:
+    _log(f"start XML source={source_osm}")
     tree = ET.parse(source_osm)
     root = tree.getroot()
     node_index: dict[str, tuple[float, float]] = {}
@@ -225,6 +265,7 @@ def _extract_from_osm_xml(*, source_osm: Path) -> list[dict[str, Any]]:
         }
         if _is_tolled_props(props):
             relation_way_ids.update(member_way_refs)
+    _log(f"xml relation scan complete tolled_way_refs={len(relation_way_ids)}")
 
     features: list[dict[str, Any]] = []
     for way in root.findall("way"):
@@ -270,6 +311,8 @@ def _extract_from_osm_xml(*, source_osm: Path) -> list[dict[str, Any]]:
                 "geometry": {"type": "LineString", "coordinates": coords},
             }
         )
+        if len(features) % max(1, int(TOLL_EXTRACT_PROGRESS_EVERY / 5)) == 0:
+            _log(f"xml way progress features={len(features)}")
 
     for node_id, tags in node_tags.items():
         props = {
@@ -299,6 +342,7 @@ def _extract_from_osm_xml(*, source_osm: Path) -> list[dict[str, Any]]:
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
             }
         )
+    _log(f"xml extraction complete features={len(features)}")
     return features
 
 
@@ -308,6 +352,7 @@ def extract(*, source_geojson: Path, output_geojson: Path) -> None:
         filtered = _extract_from_osm_pbf(source_pbf=source_geojson)
     else:
         filtered = _extract_from_geojson(source_geojson=source_geojson)
+    _log(f"writing GeoJSON features={len(filtered)} output={output_geojson}")
     _write_geojson(features=filtered, output_geojson=output_geojson)
 
 
