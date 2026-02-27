@@ -11,5 +11,5 @@
   ],
   "region_count": 8,
   "output_json": "backend\\data\\raw\\uk\\carbon_intensity_hourly_raw.json",
-  "as_of_utc": "2026-02-23T23:30:00Z"
+  "as_of_utc": "2026-02-26T23:30:00Z"
 }

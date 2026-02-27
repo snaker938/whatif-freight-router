@@ -22,6 +22,15 @@ def test_preflight_live_runtime_success(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(
         preflight_live_runtime,
+        "load_live_scenario_context",
+        lambda **kwargs: SimpleNamespace(  # noqa: ARG005
+            as_of_utc="2026-02-24T00:00:00Z",
+            coverage={"overall": 1.0},
+            source_set={"webtris": "ok", "traffic_england": "ok", "dft_counts": "ok", "open_meteo": "ok"},
+        ),
+    )
+    monkeypatch.setattr(
+        preflight_live_runtime,
         "load_toll_tariffs",
         lambda: SimpleNamespace(source="live", rules=[{"id": "rule_1"}]),
     )

@@ -1,8 +1,8 @@
 {
   "source": "empirical_proxy_public_feeds_v1",
-  "rows_written": 120000,
-  "target_min_rows": 120000,
-  "variants_per_row": 8,
+  "rows_written": 50000,
+  "target_min_rows": 50000,
+  "variants_per_row": 3,
   "scenario_templates": 96,
   "dft_rows": 12500,
   "output_csv": "backend\\data\\raw\\uk\\stochastic_residuals_raw.csv",
@@ -28,10 +28,10 @@
       "weekend_peak_mid"
     ],
     "road_bucket_count": 6,
-    "weather_profile_count": 5,
+    "weather_profile_count": 3,
     "vehicle_type_count": 3,
     "corridor_count": 9,
     "local_slot_count": 12
   },
-  "as_of_utc": "2026-02-24T12:34:50Z"
+  "as_of_utc": "2026-02-27T00:06:57Z"
 }

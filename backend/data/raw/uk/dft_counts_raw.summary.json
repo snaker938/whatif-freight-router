@@ -7,20 +7,15 @@
     2025,
     2026
   ],
-  "rows_written": 12500,
-  "target_min_rows": 30000,
-  "pages_fetched": 52,
-  "year_row_counts": {
-    "2023": 6250,
-    "2024": 6250,
-    "2025": 0,
-    "2026": 0
-  },
+  "rows_written": 0,
+  "target_min_rows": 200000,
+  "pages_fetched": 0,
+  "year_row_counts": {},
   "output_csv": "backend\\data\\raw\\uk\\dft_counts_raw.csv",
   "state_file": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\dft_counts_raw.state.json",
   "append_safe": true,
-  "started_at_utc": "2026-02-24T00:19:13Z",
-  "finished_at_utc": "2026-02-24T00:23:39Z",
-  "duration_seconds": 265.842,
-  "bank_holiday_count": 133
+  "started_at_utc": "2026-02-27T00:06:57Z",
+  "finished_at_utc": "2026-02-27T00:06:57Z",
+  "duration_seconds": 0.199,
+  "bank_holiday_count": 134
 }

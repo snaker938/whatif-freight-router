@@ -36,7 +36,53 @@ What `dev.ps1` does:
 URLs:
 - Frontend: `http://localhost:3000`
 - Backend docs: `http://localhost:8000/docs`
+- Backend readiness: `http://localhost:8000/health/ready`
 - OSRM: `http://localhost:5000`
+
+### Route compute timeout/fallback knobs
+
+The frontend compute flow now runs bounded fallback attempts with degraded alternatives (`12 -> 6 -> 3` by default).
+Configure in `.env` / `.env.example`:
+
+- `COMPUTE_ATTEMPT_TIMEOUT_MS` (server route-handler timeout override; default `420000`)
+- `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (server route-handler fallback timeout override; default `180000`)
+- `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS` (browser fallback; default `420000`)
+- `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (browser fallback; default `180000`)
+- `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS` (default `12,6,3`)
+- backend attempt ceiling: `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S` (default `420`)
+- bounded OD context probe: `ROUTE_CONTEXT_PROBE_TIMEOUT_MS` (default `2500`)
+- bounded OD context probe path budget: `ROUTE_CONTEXT_PROBE_MAX_PATHS` (default `2`)
+- strict scenario-source resiliency:
+  - `LIVE_SCENARIO_COEFFICIENT_URL` (default tracks `main` scenario artifact)
+  - `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES` (default `4320`)
+  - `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT` (default `true`)
+  - `LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT` (default `3`)
+  - `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT` (default `0.75`)
+- graph warmup on backend startup: `ROUTE_GRAPH_WARMUP_ON_STARTUP` (default `1`)
+- strict warmup fail-fast gate: `ROUTE_GRAPH_WARMUP_FAILFAST` (default `1`)
+- graph warmup timeout: `ROUTE_GRAPH_WARMUP_TIMEOUT_S` (default `1200`)
+- graph status check timeout: `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS` (default `1000`)
+- strict giant-component floor (nodes): `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES` (default `50000`)
+- strict giant-component floor (ratio): `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO` (default `0.20`)
+- strict OD nearest-node max distance (m): `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M` (default `10000`)
+- strict terrain fail-closed gate: `TERRAIN_DEM_FAIL_CLOSED_UK` (default `true`)
+- strict terrain minimum DEM coverage: `TERRAIN_DEM_COVERAGE_MIN_UK` (default `0.96`)
+- dev live-call tracing knobs (development only, sensitive when enabled):
+  - `DEV_ROUTE_DEBUG_CONSOLE_ENABLED`
+  - `DEV_ROUTE_DEBUG_INCLUDE_SENSITIVE`
+  - `DEV_ROUTE_DEBUG_MAX_CALLS_PER_REQUEST`
+  - `DEV_ROUTE_DEBUG_TRACE_TTL_SECONDS`
+  - `DEV_ROUTE_DEBUG_MAX_REQUEST_TRACES`
+
+Strict-live route compute now uses a hybrid cache refresh strategy: scenario coefficients refresh each attempt, while expensive live context feeds (DfT/WebTRIS/Traffic/Meteo) remain short-cached by TTL for fallback reliability.
+Frontend fallback now treats strict business failures (`HTTP 4xx` from route/pareto endpoints) as terminal and stops additional fallback attempts immediately.
+Routing graph runtime now always loads the full `routing_graph_uk.json` dataset in strict mode (no streamed/capped graph loading path exposed via env config).
+When graph warmup fail-fast is enabled, strict route endpoints return `routing_graph_warming_up` quickly until `GET /health/ready` reports `strict_route_ready=true`. If warmup exceeds timeout, endpoints return `routing_graph_warmup_failed` with rebuild guidance. If the loaded graph is fragmented, strict failures use `routing_graph_fragmented`; OD-specific failures use `routing_graph_disconnected_od` or `routing_graph_coverage_gap`.
+`GET /health/ready` now also reports `strict_live` readiness for scenario coefficients; if stale/unavailable under strict policy, `recommended_action=refresh_live_sources`.
+The frontend compute button is readiness-gated and remains disabled until strict route readiness is true.
+Before triggering compute, confirm `GET /health/ready` is reachable and reports `strict_route_ready=true` and `strict_live.ok=true`.
+Route Compute Diagnostics overlay now includes per-attempt live API call tracing (expected sources, observed URL calls, request/success/cache/retry status, headers, and extra diagnostics). Backend dev trace endpoint: `GET /debug/live-calls/{request_id}`.
+Repeated same-tile terrain route-cache hits are deduplicated in trace rows per request; use trace summary/terrain diagnostics for total cache-hit volume.
 
 
 ## Stopping the dev workflow

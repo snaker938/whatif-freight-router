@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 
+from .live_call_trace import record_call as record_live_call
 from .settings import settings
 
 
@@ -31,13 +32,30 @@ class _RetryResult:
     last_error_name: str | None
     last_error_status: int | None
     deadline_exceeded: bool
+    request_headers: dict[str, str] | None = None
+    response_headers: dict[str, str] | None = None
+    response_body_raw: str | None = None
+    response_body_content_type: str | None = None
+    response_body_bytes: int | None = None
 
 
 _CACHE: dict[str, _CacheEntry] = {}
 
 
-def clear_live_data_source_cache() -> None:
-    _CACHE.clear()
+def clear_live_data_source_cache(keys_or_prefixes: list[str] | tuple[str, ...] | None = None) -> None:
+    if not keys_or_prefixes:
+        _CACHE.clear()
+        return
+    targets = [str(item).strip() for item in keys_or_prefixes if str(item).strip()]
+    if not targets:
+        _CACHE.clear()
+        return
+    for cache_key in list(_CACHE.keys()):
+        for target in targets:
+            prefix = target[:-1] if target.endswith("*") else target
+            if cache_key == target or cache_key.startswith(prefix):
+                _CACHE.pop(cache_key, None)
+                break
 
 
 def _fresh(entry: _CacheEntry, *, ttl_s: int) -> bool:
@@ -140,12 +158,60 @@ def _extract_status_code(exc: Exception) -> int | None:
 
 def _live_request_headers(url: str) -> dict[str, str]:
     headers: dict[str, str] = {}
+    if bool(settings.live_route_compute_force_no_cache_headers):
+        headers["Cache-Control"] = "no-cache"
+        headers["Pragma"] = "no-cache"
+        return headers
     host = (urlparse(url).hostname or "").strip().lower()
     if host in {"raw.githubusercontent.com", "githubusercontent.com"}:
         # Avoid stale edge-cache reads for strict live artifacts published on main.
         headers["Cache-Control"] = "no-cache"
         headers["Pragma"] = "no-cache"
     return headers
+
+
+def _trace_live_call(
+    *,
+    source_key: str,
+    url: str,
+    method: str = "GET",
+    requested: bool,
+    success: bool,
+    status_code: int | None = None,
+    fetch_error: str | None = None,
+    cache_hit: bool = False,
+    stale_cache_used: bool = False,
+    retry: _RetryResult | None = None,
+    duration_ms: float | None = None,
+    headers: dict[str, str] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    record_live_call(
+        source_key=source_key,
+        component="live_data_sources",
+        url=url,
+        method=method,
+        requested=requested,
+        success=success,
+        status_code=status_code,
+        fetch_error=fetch_error,
+        cache_hit=cache_hit,
+        stale_cache_used=stale_cache_used,
+        retry_attempts=(retry.attempt_count if retry is not None else 0),
+        retry_count=(retry.retry_count if retry is not None else 0),
+        retry_total_backoff_ms=(retry.retry_total_backoff_ms if retry is not None else 0),
+        retry_last_error=(retry.last_error_name if retry is not None else None),
+        retry_last_status_code=(retry.last_error_status if retry is not None else None),
+        retry_deadline_exceeded=(retry.deadline_exceeded if retry is not None else False),
+        duration_ms=duration_ms,
+        headers=(dict(headers) if headers is not None else None),
+        request_headers_raw=(dict((retry.request_headers or {})) if retry is not None else None),
+        response_headers_raw=(dict((retry.response_headers or {})) if retry is not None else None),
+        response_body_raw=(retry.response_body_raw if retry is not None else None),
+        response_body_content_type=(retry.response_body_content_type if retry is not None else None),
+        response_body_bytes=(retry.response_body_bytes if retry is not None else None),
+        extra=extra or {},
+    )
 
 
 def _request_json_with_bounded_retry(
@@ -164,6 +230,10 @@ def _request_json_with_bounded_retry(
     last_error_name: str | None = None
     last_error_status: int | None = None
     deadline_exceeded = False
+    last_response_headers: dict[str, str] | None = None
+    last_response_body_raw: str | None = None
+    last_response_content_type: str | None = None
+    last_response_body_bytes: int | None = None
 
     while attempt_count < max_attempts:
         remaining_s = deadline_at_monotonic_s - time.monotonic()
@@ -179,6 +249,10 @@ def _request_json_with_bounded_retry(
             with httpx.Client(timeout=request_timeout_s) as client:
                 response = client.get(url, headers=headers)
             status_code = int(response.status_code)
+            response_headers = {str(k): str(v) for k, v in response.headers.items()}
+            response_body_bytes = int(len(response.content or b""))
+            response_body_raw = response.text if response.content is not None else ""
+            response_content_type = str(response.headers.get("Content-Type", "")).strip() or None
             if status_code >= 400:
                 response.raise_for_status()
             if status_code == 204 or not bytes(response.content or b""):
@@ -194,10 +268,39 @@ def _request_json_with_bounded_retry(
                 last_error_name=None,
                 last_error_status=None,
                 deadline_exceeded=False,
+                request_headers=dict(headers or {}),
+                response_headers=response_headers,
+                response_body_raw=response_body_raw,
+                response_body_content_type=response_content_type,
+                response_body_bytes=response_body_bytes,
             )
         except Exception as exc:  # pragma: no cover - defensive boundary for HTTP stack
             last_error_name = type(exc).__name__
             last_error_status = _extract_status_code(exc)
+            response_obj = getattr(exc, "response", None)
+            if response_obj is not None:
+                try:
+                    last_response_headers = {
+                        str(k): str(v) for k, v in getattr(response_obj, "headers", {}).items()
+                    }
+                except Exception:
+                    last_response_headers = None
+                try:
+                    raw_text = getattr(response_obj, "text", None)
+                    last_response_body_raw = str(raw_text) if raw_text is not None else None
+                except Exception:
+                    last_response_body_raw = None
+                try:
+                    body = getattr(response_obj, "content", None)
+                    last_response_body_bytes = int(len(body or b""))
+                except Exception:
+                    last_response_body_bytes = None
+                try:
+                    last_response_content_type = str(
+                        getattr(response_obj, "headers", {}).get("Content-Type", "")
+                    ).strip() or None
+                except Exception:
+                    last_response_content_type = None
             if not _is_retryable_exception(exc):
                 break
             if attempt_count >= max_attempts:
@@ -231,6 +334,11 @@ def _request_json_with_bounded_retry(
         last_error_name=last_error_name,
         last_error_status=last_error_status,
         deadline_exceeded=deadline_exceeded,
+        request_headers=dict(headers or {}),
+        response_headers=last_response_headers,
+        response_body_raw=last_response_body_raw,
+        response_body_content_type=last_response_content_type,
+        response_body_bytes=last_response_body_bytes,
     )
 
 
@@ -443,6 +551,8 @@ def _fetch_json_with_ttl(
     allowed_hosts_csv: str = "",
     deadline_at_monotonic_s: float | None = None,
 ) -> tuple[Any | None, str | None]:
+    request_headers = _live_request_headers(url)
+
     def _annotate(
         payload: Any,
         *,
@@ -468,37 +578,73 @@ def _fetch_json_with_ttl(
         return payload
 
     if not _url_allowed(url, allowed_hosts_raw=allowed_hosts_csv):
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=False,
+            success=False,
+            fetch_error="url_not_allowed",
+            headers=request_headers,
+        )
         return None, "url_not_allowed"
     cached = _cache_get(key)
     if cached is not None and _fresh(cached, ttl_s=ttl_s):
+        cache_retry = _RetryResult(
+            payload=None,
+            status_code=None,
+            attempt_count=0,
+            retry_count=0,
+            retry_total_backoff_ms=0,
+            last_error_name=None,
+            last_error_status=None,
+            deadline_exceeded=False,
+        )
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=False,
+            success=True,
+            cache_hit=True,
+            stale_cache_used=False,
+            retry=cache_retry,
+            headers=request_headers,
+            extra={"served_from": "fresh_cache"},
+        )
         return _annotate(
             cached.payload,
             cache_hit=True,
             fetch_error=None,
             stale_cache_used=False,
             status_code=None,
-            retry=_RetryResult(
-                payload=None,
-                status_code=None,
-                attempt_count=0,
-                retry_count=0,
-                retry_total_backoff_ms=0,
-                last_error_name=None,
-                last_error_status=None,
-                deadline_exceeded=False,
-            ),
+            retry=cache_retry,
         ), None
+    retry_started = time.monotonic()
     retry_result = _request_json_with_bounded_retry(
         url=url,
-        headers=_live_request_headers(url),
+        headers=request_headers,
         deadline_at_monotonic_s=deadline_at_monotonic_s,
     )
+    retry_duration_ms = round((time.monotonic() - retry_started) * 1000.0, 2)
     if retry_result.payload is None:
         if retry_result.deadline_exceeded:
             error_name = "deadline_exceeded"
         else:
             error_name = retry_result.last_error_name or "source_unavailable"
         if cached is not None:
+            _trace_live_call(
+                source_key=key,
+                url=url,
+                requested=True,
+                success=False,
+                status_code=retry_result.last_error_status,
+                fetch_error=error_name,
+                cache_hit=True,
+                stale_cache_used=True,
+                retry=retry_result,
+                duration_ms=retry_duration_ms,
+                headers=request_headers,
+                extra={"served_from": "stale_cache"},
+            )
             return _annotate(
                 cached.payload,
                 cache_hit=True,
@@ -507,8 +653,34 @@ def _fetch_json_with_ttl(
                 status_code=retry_result.last_error_status,
                 retry=retry_result,
             ), f"stale_cache:{error_name}"
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=True,
+            success=False,
+            status_code=retry_result.last_error_status,
+            fetch_error=error_name,
+            cache_hit=False,
+            stale_cache_used=False,
+            retry=retry_result,
+            duration_ms=retry_duration_ms,
+            headers=request_headers,
+        )
         return None, error_name
     payload = retry_result.payload
+    _trace_live_call(
+        source_key=key,
+        url=url,
+        requested=True,
+        success=True,
+        status_code=retry_result.status_code,
+        fetch_error=None,
+        cache_hit=False,
+        stale_cache_used=False,
+        retry=retry_result,
+        duration_ms=retry_duration_ms,
+        headers=request_headers,
+    )
     payload = _annotate(
         payload,
         cache_hit=False,
@@ -545,11 +717,10 @@ def _normalize_weather_bucket(*, weather_code: int | None, precip_mm: float, win
     return "clear"
 
 
-def _scenario_road_hint(route_context: dict[str, Any]) -> str:
-    road_hint = str(route_context.get("road_hint", "")).strip().upper()
-    if road_hint:
-        return road_hint
-    corridor = str(route_context.get("corridor_bucket", "")).strip().lower()
+def _scenario_named_corridor_road_hint(corridor_bucket: str) -> str | None:
+    corridor = str(corridor_bucket or "").strip().lower()
+    if not corridor:
+        return None
     if corridor in {"north_east_corridor", "scotland_south"}:
         return "A1"
     if corridor in {"north_west_corridor", "midlands_west"}:
@@ -558,7 +729,58 @@ def _scenario_road_hint(route_context: dict[str, Any]) -> str:
         return "M25"
     if corridor.startswith("wales"):
         return "M4"
-    return "A1"
+    return None
+
+
+def _scenario_centroid_road_hint(centroid_lat: float, centroid_lon: float) -> str | None:
+    if not (math.isfinite(centroid_lat) and math.isfinite(centroid_lon)):
+        return None
+    lat = float(centroid_lat)
+    lon = float(centroid_lon)
+    if lat >= 55.0:
+        return "M8"
+    if lon <= -3.0 and lat < 54.6:
+        return "M4"
+    if lon > -1.0 and lat <= 52.4:
+        return "M25"
+    if lat >= 54.0 and lon >= -2.1:
+        return "A1"
+    if lat >= 53.0 and lon <= -2.3:
+        return "M6"
+    if lat >= 52.0:
+        return "M6"
+    if lat < 52.0:
+        return "M27"
+    return None
+
+
+def _resolve_scenario_road_hint(
+    route_context: dict[str, Any],
+    *,
+    centroid_lat: float,
+    centroid_lon: float,
+) -> tuple[str, str]:
+    explicit = str(route_context.get("road_hint", "")).strip().upper()
+    if explicit:
+        return explicit, "explicit"
+    named_corridor = _scenario_named_corridor_road_hint(str(route_context.get("corridor_bucket", "")))
+    if named_corridor:
+        return named_corridor, "corridor_bucket"
+    centroid_hint = _scenario_centroid_road_hint(centroid_lat, centroid_lon)
+    if centroid_hint:
+        return centroid_hint, "centroid_region"
+    return "A1", "default"
+
+
+def _scenario_road_hint(route_context: dict[str, Any]) -> str:
+    centroid_lat = _safe_float(route_context.get("centroid_lat"), float("nan"))
+    centroid_lon = _safe_float(route_context.get("centroid_lon"), float("nan"))
+    road_hint, _source = _resolve_scenario_road_hint(
+        route_context,
+        centroid_lat=centroid_lat,
+        centroid_lon=centroid_lon,
+    )
+    return road_hint
 
 
 def _webtris_site_lat_lon(site: dict[str, Any]) -> tuple[float, float] | None:
@@ -1007,6 +1229,7 @@ def _fetch_json(
 ) -> Any | None:
     if not settings.live_runtime_data_enabled:
         return None
+    base_headers = _live_request_headers(url)
 
     def _annotate(
         payload: Any,
@@ -1033,6 +1256,14 @@ def _fetch_json(
         return payload
 
     if not _url_allowed(url, allowed_hosts_raw=allowed_hosts_csv):
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=False,
+            success=False,
+            fetch_error="url_not_allowed",
+            headers=base_headers,
+        )
         _strict_or_none(
             reason_code=reason_code_unavailable,
             message=f"Live source URL host/scheme is not allowed for {key}.",
@@ -1042,41 +1273,76 @@ def _fetch_json(
 
     cached = _cache_get(key)
     if cached is not None and _fresh(cached, ttl_s=settings.live_data_cache_ttl_s):
+        cache_retry = _RetryResult(
+            payload=None,
+            status_code=None,
+            attempt_count=0,
+            retry_count=0,
+            retry_total_backoff_ms=0,
+            last_error_name=None,
+            last_error_status=None,
+            deadline_exceeded=False,
+        )
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=False,
+            success=True,
+            cache_hit=True,
+            stale_cache_used=False,
+            retry=cache_retry,
+            headers=base_headers,
+            extra={"served_from": "fresh_cache"},
+        )
         return _annotate(
             cached.payload,
             cache_hit=True,
             fetch_error=None,
             stale_cache_used=False,
             status_code=None,
-            retry=_RetryResult(
-                payload=None,
-                status_code=None,
-                attempt_count=0,
-                retry_count=0,
-                retry_total_backoff_ms=0,
-                last_error_name=None,
-                last_error_status=None,
-                deadline_exceeded=False,
-            ),
+            retry=cache_retry,
         )
 
     if require_auth_token is not None and not require_auth_token.strip():
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=False,
+            success=False,
+            fetch_error="missing_auth_token",
+            headers=base_headers,
+        )
         return None
 
-    merged_headers: dict[str, str] = _live_request_headers(url)
+    merged_headers: dict[str, str] = dict(base_headers)
     if headers:
         merged_headers.update(headers)
     if require_auth_token is not None and require_auth_token.strip():
         merged_headers["Authorization"] = f"Bearer {require_auth_token.strip()}"
 
+    retry_started = time.monotonic()
     retry_result = _request_json_with_bounded_retry(
         url=url,
         headers=merged_headers,
         deadline_at_monotonic_s=None,
     )
+    retry_duration_ms = round((time.monotonic() - retry_started) * 1000.0, 2)
     if retry_result.payload is None:
         status_code = retry_result.last_error_status
         if status_code in (401, 403):
+            _trace_live_call(
+                source_key=key,
+                url=url,
+                requested=True,
+                success=False,
+                status_code=status_code,
+                fetch_error="auth_failed",
+                cache_hit=False,
+                stale_cache_used=False,
+                retry=retry_result,
+                duration_ms=retry_duration_ms,
+                headers=merged_headers,
+            )
             _strict_or_none(
                 reason_code=reason_code_auth or reason_code_unavailable,
                 message=f"Authentication failed for live source {key}.",
@@ -1086,6 +1352,20 @@ def _fetch_json(
         stale = _cache_get(key)
         if stale is not None:
             fetch_error = "deadline_exceeded" if retry_result.deadline_exceeded else retry_result.last_error_name
+            _trace_live_call(
+                source_key=key,
+                url=url,
+                requested=True,
+                success=False,
+                status_code=status_code,
+                fetch_error=fetch_error or "source_unavailable",
+                cache_hit=True,
+                stale_cache_used=True,
+                retry=retry_result,
+                duration_ms=retry_duration_ms,
+                headers=merged_headers,
+                extra={"served_from": "stale_cache"},
+            )
             return _annotate(
                 stale.payload,
                 cache_hit=True,
@@ -1095,6 +1375,19 @@ def _fetch_json(
                 retry=retry_result,
             )
         error_name = "deadline_exceeded" if retry_result.deadline_exceeded else (retry_result.last_error_name or "source_unavailable")
+        _trace_live_call(
+            source_key=key,
+            url=url,
+            requested=True,
+            success=False,
+            status_code=status_code,
+            fetch_error=error_name,
+            cache_hit=False,
+            stale_cache_used=False,
+            retry=retry_result,
+            duration_ms=retry_duration_ms,
+            headers=merged_headers,
+        )
         _strict_or_none(
             reason_code=reason_code_unavailable,
             message=f"Live source unavailable for {key}: {error_name}",
@@ -1102,6 +1395,19 @@ def _fetch_json(
         )
         return None
     payload = retry_result.payload
+    _trace_live_call(
+        source_key=key,
+        url=url,
+        requested=True,
+        success=True,
+        status_code=retry_result.status_code,
+        fetch_error=None,
+        cache_hit=False,
+        stale_cache_used=False,
+        retry=retry_result,
+        duration_ms=retry_duration_ms,
+        headers=merged_headers,
+    )
 
     payload = _annotate(
         payload,
@@ -1184,6 +1490,8 @@ def live_scenario_context(
     route_context: dict[str, Any],
     *,
     allow_partial_sources: bool = False,
+    min_source_count: int | None = None,
+    skip_dft_in_partial_mode: bool = True,
 ) -> dict[str, Any] | None:
     if not settings.live_runtime_data_enabled:
         return None
@@ -1193,7 +1501,11 @@ def live_scenario_context(
     if not math.isfinite(centroid_lat) or not math.isfinite(centroid_lon):
         centroid_lat = 54.2
         centroid_lon = -2.3
-    road_hint = _scenario_road_hint(route_context)
+    road_hint, road_hint_source = _resolve_scenario_road_hint(
+        route_context,
+        centroid_lat=centroid_lat,
+        centroid_lon=centroid_lon,
+    )
     cache_key = (
         "scenario_context:"
         f"{round(centroid_lat, 2)}:{round(centroid_lon, 2)}:"
@@ -1211,6 +1523,8 @@ def live_scenario_context(
             "centroid_lat": round(float(centroid_lat), 6),
             "centroid_lon": round(float(centroid_lon), 6),
             "road_hint": road_hint,
+            "resolved_road_hint_source": road_hint_source,
+            "resolved_road_hint_value": road_hint,
             "corridor_bucket": str(route_context.get("corridor_bucket", "uk_default")),
             "road_mix_bucket": str(route_context.get("road_mix_bucket", "mixed")),
             "day_kind": str(route_context.get("day_kind", "weekday")),
@@ -1489,7 +1803,7 @@ def live_scenario_context(
     dft_rows: list[dict[str, Any]] = []
     dft_err: str | None = None
     dft_query_meta: list[dict[str, Any]] = []
-    if allow_partial_sources:
+    if allow_partial_sources and skip_dft_in_partial_mode:
         # Corpus-building mode may continue without DfT when service availability is poor.
         dft_err = "partial_mode_dft_skipped"
     else:
@@ -1685,21 +1999,85 @@ def live_scenario_context(
         wind_kph=wind_kph,
     )
 
-    source_set = {
+    webtris_metadata_reachable = bool(nearest_sites) and webtris_sites_err is None
+    webtris_daily_transport_ok = any(
+        isinstance(row, dict)
+        and (
+            row.get("fetch_error") is None
+            or not str(row.get("fetch_error", "")).strip()
+        )
+        for row in webtris_fetch_diagnostics
+    )
+    source_signal_set = {
         "webtris": bool(webtris_used_sites),
         "traffic_england": bool(traffic_err is None and isinstance(traffic_payload, (dict, list))),
         "dft": dft_station_count > 0,
         "open_meteo": isinstance(current, dict) and bool(current),
     }
-    source_ok_count = sum(1 for ok in source_set.values() if ok)
+    source_reachability_set = {
+        "webtris": bool(webtris_metadata_reachable and webtris_daily_transport_ok),
+        "traffic_england": bool(traffic_err is None and isinstance(traffic_payload, (dict, list))),
+        "dft": bool(dft_err is None and dft_query_meta),
+        "open_meteo": bool(meteo_err is None and isinstance(meteo_payload, dict)),
+    }
+    source_gate_set = dict(source_signal_set)
+    required_source_count_configured = 4
+    required_source_count_effective = 4
+    waiver_applied = False
+    waiver_reason = ""
+    if allow_partial_sources:
+        required_source_count_configured = max(1, min(4, int(min_source_count if min_source_count is not None else 3)))
+        required_source_count_effective = int(required_source_count_configured)
+        webtris_sparse_but_reachable = bool(
+            source_signal_set["traffic_england"]
+            and source_signal_set["open_meteo"]
+            and source_reachability_set["webtris"]
+            and (not source_signal_set["webtris"])
+        )
+        dft_sparse_but_reachable = bool(
+            source_signal_set["traffic_england"]
+            and source_signal_set["open_meteo"]
+            and source_reachability_set["dft"]
+            and (not source_signal_set["dft"])
+        )
+        if webtris_sparse_but_reachable and dft_sparse_but_reachable:
+            waiver_applied = True
+            waiver_reason = "sparse_local_observations_control_plane_healthy"
+            required_source_count_effective = min(required_source_count_effective, 2)
+    source_ok_count = sum(1 for ok in source_gate_set.values() if ok)
     coverage_overall = source_ok_count / 4.0
-    if source_ok_count < 4 and not allow_partial_sources:
+    coverage_gate = {
+        "source_signal_set": source_signal_set,
+        "source_reachability_set": source_reachability_set,
+        "source_gate_set": source_gate_set,
+        "source_ok_count": int(source_ok_count),
+        "required_source_count_configured": int(required_source_count_configured),
+        "required_source_count_effective": int(required_source_count_effective),
+        "waiver_applied": bool(waiver_applied),
+        "waiver_reason": str(waiver_reason),
+    }
+    if source_ok_count < required_source_count_effective:
         return _scenario_live_error(
             reason_code="scenario_profile_unavailable",
-            message="Scenario live context incomplete: one or more required live sources were unavailable.",
+            message=(
+                "Scenario live context incomplete: one or more required live sources were unavailable "
+                f"(available={source_ok_count}/4, required={required_source_count_effective}/4)."
+            ),
             diagnostics={
                 **diagnostics,
-                "source_set": source_set,
+                "source_set": source_gate_set,
+                "source_signal_set": source_signal_set,
+                "source_reachability_set": source_reachability_set,
+                "source_gate_set": source_gate_set,
+                "source_ok_count": int(source_ok_count),
+                "required_source_count": int(required_source_count_effective),
+                "required_source_count_configured": int(required_source_count_configured),
+                "required_source_count_effective": int(required_source_count_effective),
+                "coverage_gate": coverage_gate,
+                "resolved_road_hint_source": road_hint_source,
+                "resolved_road_hint_value": road_hint,
+                "webtris_used_site_count": int(len(webtris_used_sites)),
+                "dft_selected_station_count": int(dft_station_count),
                 "webtris_error": webtris_sites_err or webtris_daily_err,
                 "traffic_england_error": traffic_err,
                 "dft_error": dft_err,
@@ -1832,11 +2210,18 @@ def live_scenario_context(
             "weather_severity_index": round(weather_severity_index, 6),
         },
         "coverage": {
-            "webtris": 1.0 if source_set["webtris"] else 0.0,
-            "traffic_england": 1.0 if source_set["traffic_england"] else 0.0,
-            "dft": 1.0 if source_set["dft"] else 0.0,
-            "open_meteo": 1.0 if source_set["open_meteo"] else 0.0,
+            "webtris": 1.0 if source_gate_set["webtris"] else 0.0,
+            "traffic_england": 1.0 if source_gate_set["traffic_england"] else 0.0,
+            "dft": 1.0 if source_gate_set["dft"] else 0.0,
+            "open_meteo": 1.0 if source_gate_set["open_meteo"] else 0.0,
             "overall": round(coverage_overall, 6),
+        },
+        "coverage_gate": {
+            **coverage_gate,
+            "resolved_road_hint_source": road_hint_source,
+            "resolved_road_hint_value": road_hint,
+            "webtris_used_site_count": int(len(webtris_used_sites)),
+            "dft_selected_station_count": int(dft_station_count),
         },
         "partial_source_mode": bool(allow_partial_sources),
         "route_context_echo": diagnostics["route_context"],
@@ -1894,7 +2279,22 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
     sep = "&" if "?" in settings.live_fuel_price_url else "?"
     url = f"{settings.live_fuel_price_url}{sep}month={yyyymm}"
     cache_key = f"fuel_prices:{yyyymm}"
+    request_headers = _live_request_headers(url)
+    merged_headers: dict[str, str] = dict(request_headers)
+    if token:
+        merged_headers["Authorization"] = f"Bearer {token}"
+    if api_key:
+        api_header = str(settings.live_fuel_api_key_header or "X-API-Key").strip() or "X-API-Key"
+        merged_headers[api_header] = api_key
     if not _url_allowed(url, allowed_hosts_raw=str(settings.live_fuel_allowed_hosts or "")):
+        _trace_live_call(
+            source_key="fuel_prices",
+            url=url,
+            requested=False,
+            success=False,
+            fetch_error="url_not_allowed",
+            headers=request_headers,
+        )
         return _fuel_live_error(
             reason_code="fuel_price_source_unavailable",
             message="Fuel live source URL host/scheme is not allowed.",
@@ -1907,37 +2307,57 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
 
     cached = _cache_get(cache_key)
     if cached is not None and _fresh(cached, ttl_s=settings.live_data_cache_ttl_s):
+        cache_retry = _RetryResult(
+            payload=None,
+            status_code=None,
+            attempt_count=0,
+            retry_count=0,
+            retry_total_backoff_ms=0,
+            last_error_name=None,
+            last_error_status=None,
+            deadline_exceeded=False,
+        )
+        _trace_live_call(
+            source_key="fuel_prices",
+            url=url,
+            requested=False,
+            success=True,
+            cache_hit=True,
+            stale_cache_used=False,
+            retry=cache_retry,
+            headers=request_headers,
+            extra={"served_from": "fresh_cache"},
+        )
         normalized_cached = _normalize_fuel_payload(
             payload=cached.payload,
             provider_url=url,
             cache_hit=True,
-            retry=_RetryResult(
-                payload=None,
-                status_code=None,
-                attempt_count=0,
-                retry_count=0,
-                retry_total_backoff_ms=0,
-                last_error_name=None,
-                last_error_status=None,
-                deadline_exceeded=False,
-            ),
+            retry=cache_retry,
         )
         return normalized_cached
 
-    headers: dict[str, str] = _live_request_headers(url)
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if api_key:
-        api_header = str(settings.live_fuel_api_key_header or "X-API-Key").strip() or "X-API-Key"
-        headers[api_header] = api_key
-
+    retry_started = time.monotonic()
     retry_result = _request_json_with_bounded_retry(
         url=url,
-        headers=headers,
+        headers=merged_headers,
         deadline_at_monotonic_s=None,
     )
+    retry_duration_ms = round((time.monotonic() - retry_started) * 1000.0, 2)
     if retry_result.payload is None:
         if retry_result.last_error_status in (401, 403):
+            _trace_live_call(
+                source_key="fuel_prices",
+                url=url,
+                requested=True,
+                success=False,
+                status_code=retry_result.last_error_status,
+                fetch_error="auth_failed",
+                cache_hit=False,
+                stale_cache_used=False,
+                retry=retry_result,
+                duration_ms=retry_duration_ms,
+                headers=merged_headers,
+            )
             return _fuel_live_error(
                 reason_code="fuel_price_auth_unavailable",
                 message="Authentication failed for live fuel source.",
@@ -1948,21 +2368,49 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
                 },
             )
         if cached is not None:
+            stale_fetch_error = (
+                "deadline_exceeded"
+                if retry_result.deadline_exceeded
+                else retry_result.last_error_name
+            ) or "source_unavailable"
+            _trace_live_call(
+                source_key="fuel_prices",
+                url=url,
+                requested=True,
+                success=False,
+                status_code=retry_result.last_error_status,
+                fetch_error=stale_fetch_error,
+                cache_hit=True,
+                stale_cache_used=True,
+                retry=retry_result,
+                duration_ms=retry_duration_ms,
+                headers=merged_headers,
+                extra={"served_from": "stale_cache"},
+            )
             normalized_stale = _normalize_fuel_payload(
                 payload=cached.payload,
                 provider_url=url,
                 cache_hit=True,
-                fetch_error=(
-                    "deadline_exceeded"
-                    if retry_result.deadline_exceeded
-                    else retry_result.last_error_name
-                ),
+                fetch_error=stale_fetch_error,
                 stale_cache_used=True,
                 status_code=retry_result.last_error_status,
                 retry=retry_result,
             )
             return normalized_stale
         error_name = "deadline_exceeded" if retry_result.deadline_exceeded else (retry_result.last_error_name or "source_unavailable")
+        _trace_live_call(
+            source_key="fuel_prices",
+            url=url,
+            requested=True,
+            success=False,
+            status_code=retry_result.last_error_status,
+            fetch_error=error_name,
+            cache_hit=False,
+            stale_cache_used=False,
+            retry=retry_result,
+            duration_ms=retry_duration_ms,
+            headers=merged_headers,
+        )
         return _fuel_live_error(
             reason_code="fuel_price_source_unavailable",
             message=f"Live fuel source unavailable: {error_name}",
@@ -1979,6 +2427,19 @@ def live_fuel_prices(as_of_utc: datetime | None) -> dict[str, Any] | None:
         )
 
     payload = retry_result.payload
+    _trace_live_call(
+        source_key="fuel_prices",
+        url=url,
+        requested=True,
+        success=True,
+        status_code=retry_result.status_code,
+        fetch_error=None,
+        cache_hit=False,
+        stale_cache_used=False,
+        retry=retry_result,
+        duration_ms=retry_duration_ms,
+        headers=merged_headers,
+    )
     _cache_put(cache_key, payload)
     return _normalize_fuel_payload(
         payload=payload,

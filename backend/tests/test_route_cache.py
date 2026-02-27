@@ -19,6 +19,7 @@ from app.main import app, osrm_client
 from app.departure_profile import DepartureMultiplier
 from app.routing_graph import GraphCandidateDiagnostics
 from app.scenario import ScenarioPolicy
+from app.settings import settings
 from app.toll_engine import TollComputation
 
 
@@ -69,6 +70,10 @@ def _payload(*, carbon_price: float = 0.0) -> dict[str, Any]:
 @pytest.fixture(autouse=True)
 def _runtime_stubs(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("STRICT_RUNTIME_TEST_BYPASS", "1")
+    monkeypatch.setattr(settings, "strict_live_data_required", False)
+    monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
+    monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
+    monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
 
     def _policy(*_args: Any, **_kwargs: Any) -> ScenarioPolicy:
         return ScenarioPolicy(
@@ -178,6 +183,10 @@ def _runtime_stubs(monkeypatch: pytest.MonkeyPatch):
             as_of_utc=datetime.now(UTC).isoformat(),
         ),
     )
+    async def _fake_graph_precheck(**_kwargs: Any) -> dict[str, Any]:
+        return {"ok": True, "reason_code": "ok", "origin_node_id": "pytest_origin", "destination_node_id": "pytest_destination"}
+
+    monkeypatch.setattr(main_module, "_route_graph_od_feasibility_async", _fake_graph_precheck)
     def _fake_graph_candidate_routes(
         *,
         origin_lat: float,
@@ -186,6 +195,7 @@ def _runtime_stubs(monkeypatch: pytest.MonkeyPatch):
         destination_lon: float,
         max_paths: int | None = None,
         scenario_edge_modifiers: dict[str, Any] | None = None,
+        **_kwargs: Any,
     ) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
         _ = (max_paths, scenario_edge_modifiers)
         routes: list[dict[str, Any]] = []

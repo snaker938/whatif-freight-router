@@ -13,14 +13,17 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
+from .live_call_trace import record_call as record_live_call
 from .settings import settings
 
 try:  # pragma: no cover - exercised in integration where rasterio is installed
     import rasterio
+    from rasterio.warp import transform as _rasterio_transform
 except Exception:  # pragma: no cover - strict runtime check handles missing backend
     rasterio = None  # type: ignore[assignment]
+    _rasterio_transform = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,7 @@ class TerrainManifest:
 _LIVE_DIAG_LOCK = threading.Lock()
 _LIVE_ROUTE_TOKEN = 0
 _LIVE_ROUTE_TILE_TOKENS: dict[tuple[int, int, int], int] = {}
+_LIVE_ROUTE_CACHE_TRACE_EMITTED: set[tuple[int, int, int]] = set()
 _LIVE_ROUTE_REMOTE_FETCHES = 0
 _LIVE_CIRCUIT_FAIL_STREAK = 0
 _LIVE_CIRCUIT_OPEN_UNTIL_MONOTONIC = 0.0
@@ -75,6 +79,7 @@ _LIVE_DIAGNOSTICS: dict[str, Any] = {
     "cache_hits": 0,
     "fetch_failures": 0,
     "stale_cache_used": 0,
+    "cache_hit_trace_suppressed": 0,
     "remote_fetches": 0,
     "circuit_breaker_open": False,
     "circuit_breaker_fail_streak": 0,
@@ -120,6 +125,7 @@ def terrain_live_begin_route_run() -> None:
         if _LIVE_ROUTE_TOKEN > 1_000_000_000:
             _LIVE_ROUTE_TOKEN = 1
         _LIVE_ROUTE_TILE_TOKENS.clear()
+        _LIVE_ROUTE_CACHE_TRACE_EMITTED.clear()
         _LIVE_ROUTE_REMOTE_FETCHES = 0
         _LIVE_DIAGNOSTICS.update(
             {
@@ -127,6 +133,7 @@ def terrain_live_begin_route_run() -> None:
                 "cache_hits": 0,
                 "fetch_failures": 0,
                 "stale_cache_used": 0,
+                "cache_hit_trace_suppressed": 0,
                 "remote_fetches": 0,
                 "circuit_breaker_open": bool(time.monotonic() < _LIVE_CIRCUIT_OPEN_UNTIL_MONOTONIC),
                 "circuit_breaker_fail_streak": int(_LIVE_CIRCUIT_FAIL_STREAK),
@@ -254,40 +261,76 @@ def _enforce_live_cache_budget(cache_dir: Path) -> None:
             continue
 
 
-def _download_tile_bytes(url: str, *, timeout_s: float, attempts: int = 2) -> tuple[bytes | None, int | None, str | None]:
+def _download_tile_bytes(
+    url: str,
+    *,
+    timeout_s: float,
+    attempts: int = 2,
+) -> tuple[bytes | None, int | None, str | None, dict[str, str] | None, str | None]:
     last_error: str | None = None
+    request_headers: dict[str, str] = {}
+    if bool(settings.live_route_compute_force_no_cache_headers):
+        request_headers["Cache-Control"] = "no-cache"
+        request_headers["Pragma"] = "no-cache"
     for _ in range(max(1, int(attempts))):
         try:
-            with urlopen(url, timeout=max(1.0, float(timeout_s))) as response:  # noqa: S310 - host policy validated upstream
+            request = Request(url, headers=request_headers)
+            with urlopen(request, timeout=max(1.0, float(timeout_s))) as response:  # noqa: S310 - host policy validated upstream
                 data = response.read()
                 status = int(getattr(response, "status", 200))
-            return data, status, None
+                headers = {str(k): str(v) for k, v in response.headers.items()}
+                content_type = str(response.headers.get("Content-Type", "")).strip() or None
+            return data, status, None, headers, content_type
         except HTTPError as exc:
             last_error = f"HTTP {exc.code}"
-            return None, int(exc.code), last_error
+            headers = {str(k): str(v) for k, v in exc.headers.items()} if exc.headers else None
+            content_type = (
+                str(exc.headers.get("Content-Type", "")).strip() or None
+                if exc.headers is not None
+                else None
+            )
+            return None, int(exc.code), last_error, headers, content_type
         except URLError as exc:
             last_error = f"URL error: {exc.reason}"
             continue
         except OSError as exc:
             last_error = f"OS error: {exc}"
             continue
-    return None, None, last_error or "download_failed"
+    return None, None, last_error or "download_failed", None, None
 
 
-_LIVE_FETCHER: Callable[[str], tuple[bytes | None, int | None, str | None]] | None = None
+_LIVE_FETCHER: Callable[
+    [str],
+    tuple[bytes | None, int | None, str | None]
+    | tuple[bytes | None, int | None, str | None, dict[str, str] | None, str | None],
+] | None = None
 
 
 def set_terrain_live_fetcher_for_testing(
-    fetcher: Callable[[str], tuple[bytes | None, int | None, str | None]] | None,
+    fetcher: Callable[
+        [str],
+        tuple[bytes | None, int | None, str | None]
+        | tuple[bytes | None, int | None, str | None, dict[str, str] | None, str | None],
+    ]
+    | None,
 ) -> None:
     """Inject a deterministic live fetch transport for CI and tests."""
     global _LIVE_FETCHER
     _LIVE_FETCHER = fetcher
 
 
-def _call_live_fetcher(url: str, *, timeout_s: float) -> tuple[bytes | None, int | None, str | None]:
+def _call_live_fetcher(
+    url: str,
+    *,
+    timeout_s: float,
+) -> tuple[bytes | None, int | None, str | None, dict[str, str] | None, str | None]:
     if _LIVE_FETCHER is not None:
-        return _LIVE_FETCHER(url)
+        raw = _LIVE_FETCHER(url)
+        if len(raw) >= 5:
+            data, status_code, err, response_headers, content_type = raw[:5]
+            return data, status_code, err, response_headers, content_type
+        data, status_code, err = raw[:3]
+        return data, status_code, err, None, None
     attempts = max(1, int(settings.live_terrain_fetch_retries))
     return _download_tile_bytes(url, timeout_s=timeout_s, attempts=attempts)
 
@@ -338,12 +381,45 @@ def _tile_seen_for_route(tile_key: tuple[int, int, int]) -> bool:
         return int(_LIVE_ROUTE_TILE_TOKENS.get(tile_key, -1)) == int(_LIVE_ROUTE_TOKEN)
 
 
+def _mark_route_cache_trace_emitted(tile_key: tuple[int, int, int]) -> None:
+    with _LIVE_DIAG_LOCK:
+        _LIVE_ROUTE_CACHE_TRACE_EMITTED.add(tile_key)
+
+
+def _route_cache_trace_emitted(tile_key: tuple[int, int, int]) -> bool:
+    with _LIVE_DIAG_LOCK:
+        return tile_key in _LIVE_ROUTE_CACHE_TRACE_EMITTED
+
+
 def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str | None]:
     strict, require_live, allow_fallback = _terrain_live_policy()
     tile_key = (int(z), int(x), int(y))
     path = _tile_path(z=z, x=x, y=y)
+    trace_base_extra = {
+        "tile_z": int(z),
+        "tile_x": int(x),
+        "tile_y": int(y),
+        "strict": bool(strict),
+        "require_live": bool(require_live),
+        "allow_fallback": bool(allow_fallback),
+    }
     if _tile_seen_for_route(tile_key) and path.exists():
         _incr_live_diag("cache_hits")
+        if _route_cache_trace_emitted(tile_key):
+            _incr_live_diag("cache_hit_trace_suppressed")
+        else:
+            _mark_route_cache_trace_emitted(tile_key)
+            record_live_call(
+                source_key="terrain_live_tile",
+                component="terrain_dem_index",
+                url="",
+                method="GET",
+                requested=False,
+                success=True,
+                cache_hit=True,
+                stale_cache_used=False,
+                extra={**trace_base_extra, "served_from": "route_tile_cache"},
+            )
         return path, None
 
     url = _render_live_tile_url(z=z, x=x, y=y)
@@ -351,13 +427,44 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
         if strict and require_live and not allow_fallback:
             _incr_live_diag("fetch_failures")
             _set_live_diag(fetch_error="missing_live_terrain_url_template")
+            record_live_call(
+                source_key="terrain_live_tile",
+                component="terrain_dem_index",
+                url="",
+                method="GET",
+                requested=False,
+                success=False,
+                fetch_error="missing_live_terrain_url_template",
+                extra={**trace_base_extra, "served_from": "none"},
+            )
             return None, "missing_live_terrain_url_template"
         if path.exists():
             _incr_live_diag("cache_hits")
             _mark_tile_seen_for_route(tile_key)
+            record_live_call(
+                source_key="terrain_live_tile",
+                component="terrain_dem_index",
+                url="",
+                method="GET",
+                requested=False,
+                success=True,
+                cache_hit=True,
+                stale_cache_used=False,
+                extra={**trace_base_extra, "served_from": "tile_cache_no_url"},
+            )
             return path, None
         _incr_live_diag("fetch_failures")
         _set_live_diag(fetch_error="missing_live_terrain_url_template")
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url="",
+            method="GET",
+            requested=False,
+            success=False,
+            fetch_error="missing_live_terrain_url_template",
+            extra={**trace_base_extra, "served_from": "none"},
+        )
         return None, "missing_live_terrain_url_template"
 
     parsed = urlparse(url)
@@ -369,7 +476,29 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
         if path.exists() and allow_fallback:
             _incr_live_diag("stale_cache_used")
             _mark_tile_seen_for_route(tile_key)
+            record_live_call(
+                source_key="terrain_live_tile",
+                component="terrain_dem_index",
+                url=url,
+                method="GET",
+                requested=False,
+                success=True,
+                fetch_error=f"host_not_allowed:{host}",
+                cache_hit=True,
+                stale_cache_used=True,
+                extra={**trace_base_extra, "served_from": "tile_cache_host_blocked"},
+            )
             return path, None
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url=url,
+            method="GET",
+            requested=False,
+            success=False,
+            fetch_error=f"host_not_allowed:{host}",
+            extra={**trace_base_extra, "served_from": "none"},
+        )
         return None, f"host_not_allowed:{host}"
 
     timeout_s = float(settings.live_data_request_timeout_s)
@@ -380,7 +509,29 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
         if path.exists() and allow_fallback:
             _incr_live_diag("stale_cache_used")
             _mark_tile_seen_for_route(tile_key)
+            record_live_call(
+                source_key="terrain_live_tile",
+                component="terrain_dem_index",
+                url=url,
+                method="GET",
+                requested=False,
+                success=True,
+                fetch_error="terrain_live_circuit_open",
+                cache_hit=True,
+                stale_cache_used=True,
+                extra={**trace_base_extra, "served_from": "tile_cache_circuit_open"},
+            )
             return path, None
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url=url,
+            method="GET",
+            requested=False,
+            success=False,
+            fetch_error="terrain_live_circuit_open",
+            extra={**trace_base_extra, "served_from": "none"},
+        )
         return None, "terrain_live_circuit_open"
 
     if not _consume_remote_fetch_budget():
@@ -389,7 +540,29 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
         if path.exists() and allow_fallback:
             _incr_live_diag("stale_cache_used")
             _mark_tile_seen_for_route(tile_key)
+            record_live_call(
+                source_key="terrain_live_tile",
+                component="terrain_dem_index",
+                url=url,
+                method="GET",
+                requested=False,
+                success=True,
+                fetch_error="terrain_live_fetch_budget_exceeded",
+                cache_hit=True,
+                stale_cache_used=True,
+                extra={**trace_base_extra, "served_from": "tile_cache_budget_exceeded"},
+            )
             return path, None
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url=url,
+            method="GET",
+            requested=False,
+            success=False,
+            fetch_error="terrain_live_fetch_budget_exceeded",
+            extra={**trace_base_extra, "served_from": "none"},
+        )
         return None, "terrain_live_fetch_budget_exceeded"
 
     _incr_live_diag("requests")
@@ -397,8 +570,14 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
 
     # Request-time live policy: refresh each route run per tile, then reuse
     # that tile for remaining samples in the same run.
-    data, status_code, err = _call_live_fetcher(url, timeout_s=timeout_s)
+    fetch_started = time.monotonic()
+    data, status_code, err, response_headers, content_type = _call_live_fetcher(
+        url,
+        timeout_s=timeout_s,
+    )
+    fetch_duration_ms = round((time.monotonic() - fetch_started) * 1000.0, 2)
     _set_live_diag(status_code=status_code, fetch_error=err)
+    binary_sha256 = hashlib.sha256(data).hexdigest() if data else None
     if data:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(".tmp")
@@ -411,6 +590,28 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
             stale_cache_used=False,
         )
         _mark_tile_seen_for_route(tile_key)
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url=url,
+            method="GET",
+            requested=True,
+            success=True,
+            status_code=status_code,
+            fetch_error=None,
+            cache_hit=False,
+            stale_cache_used=False,
+            duration_ms=fetch_duration_ms,
+            request_headers_raw={},
+            response_headers_raw=response_headers,
+            response_body_content_type=content_type,
+            response_body_bytes=int(len(data)),
+            extra={
+                **trace_base_extra,
+                "served_from": "remote_fetch",
+                "response_binary_sha256": binary_sha256,
+            },
+        )
         return path, None
 
     if path.exists() and (allow_fallback or _is_fresh_file(path, max_age_days=max_age_days)):
@@ -418,10 +619,46 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
         _set_live_diag(stale_cache_used=True)
         _record_fetch_failure()
         _mark_tile_seen_for_route(tile_key)
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url=url,
+            method="GET",
+            requested=True,
+            success=False,
+            status_code=status_code,
+            fetch_error=err or "live_tile_unavailable",
+            cache_hit=True,
+            stale_cache_used=True,
+            duration_ms=fetch_duration_ms,
+            request_headers_raw={},
+            response_headers_raw=response_headers,
+            response_body_content_type=content_type,
+            response_body_bytes=int(len(data)) if data else 0,
+            extra={**trace_base_extra, "served_from": "stale_tile_cache_after_fetch_error"},
+        )
         return path, None
 
     _incr_live_diag("fetch_failures")
     _record_fetch_failure()
+    record_live_call(
+        source_key="terrain_live_tile",
+        component="terrain_dem_index",
+        url=url,
+        method="GET",
+        requested=True,
+        success=False,
+        status_code=status_code,
+        fetch_error=err or "live_tile_unavailable",
+        cache_hit=False,
+        stale_cache_used=False,
+        duration_ms=fetch_duration_ms,
+        request_headers_raw={},
+        response_headers_raw=response_headers,
+        response_body_content_type=content_type,
+        response_body_bytes=int(len(data)) if data else 0,
+        extra={**trace_base_extra, "served_from": "none"},
+    )
     return None, err or "live_tile_unavailable"
 
 
@@ -652,6 +889,7 @@ class _RasterSampleData:
     nodata: float | None
     width: int
     height: int
+    crs: str | None
 
 
 def _raster_cache_slots() -> int:
@@ -664,13 +902,34 @@ def _load_raster_data_impl(path: str) -> _RasterSampleData:  # pragma: no cover 
         raise RuntimeError("rasterio is required to sample GeoTIFF terrain assets")
     with rasterio.open(path) as ds:
         band = ds.read(1)
+        crs_text = str(ds.crs).strip() if ds.crs is not None else None
         return _RasterSampleData(
             values=band,
             transform=ds.transform,
             nodata=(float(ds.nodata) if ds.nodata is not None else None),
             width=int(ds.width),
             height=int(ds.height),
+            crs=(crs_text or None),
         )
+
+
+def _project_lon_lat_for_raster(*, lon: float, lat: float, crs: str | None) -> tuple[float, float]:
+    crs_text = str(crs or "").strip()
+    if not crs_text or "4326" in crs_text.lower() or "wgs84" in crs_text.lower():
+        return float(lon), float(lat)
+    if _rasterio_transform is None:
+        return math.nan, math.nan
+    try:
+        xs, ys = _rasterio_transform("EPSG:4326", crs_text, [float(lon)], [float(lat)])
+    except Exception:
+        return math.nan, math.nan
+    if not xs or not ys:
+        return math.nan, math.nan
+    x = float(xs[0])
+    y = float(ys[0])
+    if not math.isfinite(x) or not math.isfinite(y):
+        return math.nan, math.nan
+    return x, y
 
 
 def _sample_bilinear_grid(tile: TerrainGridTile, *, lat: float, lon: float) -> float:
@@ -697,7 +956,10 @@ def _sample_bilinear_grid(tile: TerrainGridTile, *, lat: float, lon: float) -> f
 
 def _sample_bilinear_raster(tile: TerrainRasterTile, *, lat: float, lon: float) -> float:
     data = _load_raster_data(tile.path)
-    col_f, row_f = (~data.transform) * (lon, lat)
+    x, y = _project_lon_lat_for_raster(lon=lon, lat=lat, crs=data.crs)
+    if not math.isfinite(x) or not math.isfinite(y):
+        return math.nan
+    col_f, row_f = (~data.transform) * (x, y)
     if col_f < 0 or row_f < 0 or col_f > (data.width - 1) or row_f > (data.height - 1):
         return math.nan
 
@@ -725,7 +987,10 @@ def _sample_bilinear_raster(tile: TerrainRasterTile, *, lat: float, lon: float) 
 
 def _sample_bilinear_raster_path(path: Path, *, lat: float, lon: float) -> float:
     data = _load_raster_data(str(path))
-    col_f, row_f = (~data.transform) * (lon, lat)
+    x, y = _project_lon_lat_for_raster(lon=lon, lat=lat, crs=data.crs)
+    if not math.isfinite(x) or not math.isfinite(y):
+        return math.nan
+    col_f, row_f = (~data.transform) * (x, y)
     if col_f < 0 or row_f < 0 or col_f > (data.width - 1) or row_f > (data.height - 1):
         return math.nan
 

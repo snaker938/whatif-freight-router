@@ -15,6 +15,7 @@ APP_MODULE_TO_TEST_FILES = {
     "fuel_energy_model.py": ["test_cost_model.py", "test_emissions_context.py"],
     "incident_simulator.py": ["test_incident_simulator.py"],
     "k_shortest.py": ["test_k_shortest.py"],
+    "live_call_trace.py": ["test_live_call_trace_rollup.py", "test_route_graph_precheck_timeout.py"],
     "live_data_sources.py": [
         "test_rbac_logging_live_sources.py",
         "test_scripts_fetchers_extended.py",

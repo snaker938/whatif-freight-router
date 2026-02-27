@@ -1,11 +1,12 @@
 {
   "source": "public_fuel_history_uk",
   "source_inputs": [
-    "backend\\data\\raw\\uk\\fuel_prices_seed_public.json"
+    "backend\\assets\\uk\\fuel_prices_uk.json",
+    "https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/fuel_prices_uk.json"
   ],
   "as_of": "2026-02-20T00:00:00Z",
   "as_of_utc": "2026-02-20T00:00:00Z",
-  "generated_at_utc": "2026-02-24T00:26:50Z",
+  "generated_at_utc": "2026-02-27T00:06:59Z",
   "prices_gbp_per_l": {
     "diesel": 1.563,
     "petrol": 1.51,

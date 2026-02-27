@@ -54,6 +54,7 @@ export function buildRouteRequest(input: ODRoutingInput): RouteRequest {
     waypoints: input.waypoints,
     vehicle_type: input.vehicle_type,
     scenario_mode: input.scenario_mode,
+    max_alternatives: input.max_alternatives,
     weights: input.weights,
     ...input.advanced,
   };

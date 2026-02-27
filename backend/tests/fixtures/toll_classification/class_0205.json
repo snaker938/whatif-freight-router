@@ -4,5 +4,6 @@
   "expected_has_toll": false,
   "expected_reason": "step_class_signal",
   "weight": 0.9427,
-  "as_of_utc": "2026-02-20T12:07:46Z"
+  "as_of_utc": "2026-02-20T12:07:46Z",
+  "source_provenance": "proxy_from_labeled_fixture_corpus_v1"
 }

@@ -1,7 +1,8 @@
 {
   "rows": 731,
   "sources": [
-    "backend\\data\\raw\\uk\\fuel_prices_seed_public.json"
+    "backend\\assets\\uk\\fuel_prices_uk.json",
+    "https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/fuel_prices_uk.json"
   ],
   "output_json": "backend\\data\\raw\\uk\\fuel_prices_raw.json"
 }

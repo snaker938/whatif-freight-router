@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from tempfile import gettempdir
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _running_in_docker() -> bool:
@@ -61,6 +64,42 @@ class Settings(BaseSettings):
 
     out_dir: str = Field(default="/app/out", alias="OUT_DIR")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    dev_route_debug_console_enabled: bool = Field(
+        default=False,
+        alias="DEV_ROUTE_DEBUG_CONSOLE_ENABLED",
+    )
+    dev_route_debug_include_sensitive: bool = Field(
+        default=False,
+        alias="DEV_ROUTE_DEBUG_INCLUDE_SENSITIVE",
+    )
+    dev_route_debug_max_calls_per_request: int = Field(
+        default=2000,
+        ge=50,
+        le=20000,
+        alias="DEV_ROUTE_DEBUG_MAX_CALLS_PER_REQUEST",
+    )
+    dev_route_debug_trace_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        alias="DEV_ROUTE_DEBUG_TRACE_TTL_SECONDS",
+    )
+    dev_route_debug_max_request_traces: int = Field(
+        default=128,
+        ge=1,
+        le=5000,
+        alias="DEV_ROUTE_DEBUG_MAX_REQUEST_TRACES",
+    )
+    dev_route_debug_return_raw_payloads: bool = Field(
+        default=False,
+        alias="DEV_ROUTE_DEBUG_RETURN_RAW_PAYLOADS",
+    )
+    dev_route_debug_max_raw_body_chars: int = Field(
+        default=2048,
+        ge=0,
+        le=500_000,
+        alias="DEV_ROUTE_DEBUG_MAX_RAW_BODY_CHARS",
+    )
 
     # Batch control (so 100+ OD runs don't overload OSRM)
     batch_concurrency: int = Field(default=8, alias="BATCH_CONCURRENCY")
@@ -68,6 +107,34 @@ class Settings(BaseSettings):
     route_cache_max_entries: int = Field(default=1024, alias="ROUTE_CACHE_MAX_ENTRIES")
     live_runtime_data_enabled: bool = Field(default=True, alias="LIVE_RUNTIME_DATA_ENABLED")
     strict_live_data_required: bool = Field(default=True, alias="STRICT_LIVE_DATA_REQUIRED")
+    live_route_compute_refresh_mode: str = Field(
+        default="route_compute",
+        alias="LIVE_ROUTE_COMPUTE_REFRESH_MODE",
+    )
+    live_route_compute_require_all_expected: bool = Field(
+        default=False,
+        alias="LIVE_ROUTE_COMPUTE_REQUIRE_ALL_EXPECTED",
+    )
+    live_route_compute_force_no_cache_headers: bool = Field(
+        default=False,
+        alias="LIVE_ROUTE_COMPUTE_FORCE_NO_CACHE_HEADERS",
+    )
+    live_route_compute_prefetch_timeout_ms: int = Field(
+        default=300_000,
+        ge=1_000,
+        le=600_000,
+        alias="LIVE_ROUTE_COMPUTE_PREFETCH_TIMEOUT_MS",
+    )
+    live_route_compute_prefetch_max_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        alias="LIVE_ROUTE_COMPUTE_PREFETCH_MAX_CONCURRENCY",
+    )
+    live_route_compute_probe_terrain: bool = Field(
+        default=False,
+        alias="LIVE_ROUTE_COMPUTE_PROBE_TERRAIN",
+    )
     live_data_cache_ttl_s: int = Field(default=3600, ge=1, alias="LIVE_DATA_CACHE_TTL_S")
     live_data_request_timeout_s: float = Field(default=20.0, ge=1.0, le=120.0, alias="LIVE_DATA_REQUEST_TIMEOUT_S")
     live_http_max_attempts: int = Field(default=6, ge=1, le=12, alias="LIVE_HTTP_MAX_ATTEMPTS")
@@ -216,10 +283,26 @@ class Settings(BaseSettings):
         alias="LIVE_SCENARIO_MAX_AGE_MINUTES",
     )
     live_scenario_coefficient_max_age_minutes: int = Field(
-        default=120,
+        default=4320,
         ge=5,
         le=10_080,
         alias="LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES",
+    )
+    live_scenario_allow_partial_sources_strict: bool = Field(
+        default=True,
+        alias="LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT",
+    )
+    live_scenario_min_source_count_strict: int = Field(
+        default=3,
+        ge=1,
+        le=4,
+        alias="LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT",
+    )
+    live_scenario_min_coverage_overall_strict: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        alias="LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT",
     )
     live_stochastic_regimes_url: str = Field(default="", alias="LIVE_STOCHASTIC_REGIMES_URL")
     live_stochastic_require_url_in_strict: bool = Field(
@@ -313,17 +396,141 @@ class Settings(BaseSettings):
         le=200,
         alias="ROUTE_CANDIDATE_VIA_BUDGET",
     )
+    route_compute_attempt_timeout_s: int = Field(
+        default=1200,
+        ge=30,
+        le=3600,
+        alias="ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S",
+    )
+    route_context_probe_timeout_ms: int = Field(
+        default=2_500,
+        ge=100,
+        le=120_000,
+        alias="ROUTE_CONTEXT_PROBE_TIMEOUT_MS",
+    )
+    route_context_probe_enabled: bool = Field(
+        default=False,
+        alias="ROUTE_CONTEXT_PROBE_ENABLED",
+    )
+    route_context_probe_max_paths: int = Field(
+        default=2,
+        ge=1,
+        le=24,
+        alias="ROUTE_CONTEXT_PROBE_MAX_PATHS",
+    )
+    route_context_probe_max_state_budget: int = Field(
+        default=15_000,
+        ge=100,
+        le=2_000_000,
+        alias="ROUTE_CONTEXT_PROBE_MAX_STATE_BUDGET",
+    )
+    route_context_probe_max_hops: int = Field(
+        default=320,
+        ge=8,
+        le=20_000,
+        alias="ROUTE_CONTEXT_PROBE_MAX_HOPS",
+    )
+    route_graph_warmup_on_startup: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_WARMUP_ON_STARTUP",
+    )
+    route_graph_warmup_failfast: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_WARMUP_FAILFAST",
+    )
+    route_graph_warmup_timeout_s: int = Field(
+        default=1200,
+        ge=60,
+        le=86_400,
+        alias="ROUTE_GRAPH_WARMUP_TIMEOUT_S",
+    )
+    route_graph_status_check_timeout_ms: int = Field(
+        default=1000,
+        ge=100,
+        le=30_000,
+        alias="ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS",
+    )
+    route_graph_od_feasibility_timeout_ms: int = Field(
+        default=30_000,
+        ge=100,
+        le=120_000,
+        alias="ROUTE_GRAPH_OD_FEASIBILITY_TIMEOUT_MS",
+    )
+    route_graph_precheck_timeout_fail_closed: bool = Field(
+        default=False,
+        alias="ROUTE_GRAPH_PRECHECK_TIMEOUT_FAIL_CLOSED",
+    )
     route_graph_enabled: bool = Field(default=True, alias="ROUTE_GRAPH_ENABLED")
     route_graph_asset_path: str = Field(default="", alias="ROUTE_GRAPH_ASSET_PATH")
     route_graph_k_paths: int = Field(default=24, ge=1, le=128, alias="ROUTE_GRAPH_K_PATHS")
     route_graph_max_hops: int = Field(default=220, ge=8, le=2000, alias="ROUTE_GRAPH_MAX_HOPS")
+    route_graph_adaptive_hops_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_ADAPTIVE_HOPS_ENABLED",
+    )
+    route_graph_hops_per_km: float = Field(
+        default=18.0,
+        ge=0.1,
+        le=500.0,
+        alias="ROUTE_GRAPH_HOPS_PER_KM",
+    )
+    route_graph_hops_detour_factor: float = Field(
+        default=1.35,
+        ge=1.0,
+        le=8.0,
+        alias="ROUTE_GRAPH_HOPS_DETOUR_FACTOR",
+    )
+    route_graph_edge_length_estimate_m: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=2000.0,
+        alias="ROUTE_GRAPH_EDGE_LENGTH_ESTIMATE_M",
+    )
+    route_graph_hops_safety_factor: float = Field(
+        default=1.8,
+        ge=0.1,
+        le=20.0,
+        alias="ROUTE_GRAPH_HOPS_SAFETY_FACTOR",
+    )
+    route_graph_max_hops_cap: int = Field(
+        default=6000,
+        ge=8,
+        le=100_000,
+        alias="ROUTE_GRAPH_MAX_HOPS_CAP",
+    )
     route_graph_min_nodes: int = Field(default=100_000, ge=1, alias="ROUTE_GRAPH_MIN_NODES")
     route_graph_min_adjacency: int = Field(default=100_000, ge=1, alias="ROUTE_GRAPH_MIN_ADJACENCY")
     route_graph_max_state_budget: int = Field(
-        default=120_000,
+        default=600_000,
         ge=1000,
         le=2_000_000,
         alias="ROUTE_GRAPH_MAX_STATE_BUDGET",
+    )
+    route_graph_state_budget_per_hop: int = Field(
+        default=1600,
+        ge=10,
+        le=200_000,
+        alias="ROUTE_GRAPH_STATE_BUDGET_PER_HOP",
+    )
+    route_graph_state_budget_retry_multiplier: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=8.0,
+        alias="ROUTE_GRAPH_STATE_BUDGET_RETRY_MULTIPLIER",
+    )
+    route_graph_state_budget_retry_cap: int = Field(
+        default=2_500_000,
+        ge=1_000,
+        le=5_000_000,
+        alias="ROUTE_GRAPH_STATE_BUDGET_RETRY_CAP",
+    )
+    route_graph_state_space_rescue_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_STATE_SPACE_RESCUE_ENABLED",
+    )
+    route_graph_state_space_rescue_mode: str = Field(
+        default="reduced",
+        alias="ROUTE_GRAPH_STATE_SPACE_RESCUE_MODE",
     )
     route_graph_max_repeat_per_node: int = Field(
         default=1,
@@ -362,30 +569,38 @@ class Settings(BaseSettings):
         alias="ROUTE_GRAPH_SCENARIO_JACCARD_FLOOR",
     )
     route_graph_scenario_separability_fail: bool = Field(
-        default=True,
+        default=False,
         alias="ROUTE_GRAPH_SCENARIO_SEPARABILITY_FAIL",
     )
-    route_graph_streaming_load_enabled: bool = Field(
-        default=True,
-        alias="ROUTE_GRAPH_STREAMING_LOAD_ENABLED",
+    route_graph_min_giant_component_nodes: int = Field(
+        default=50_000,
+        ge=1_000,
+        le=10_000_000,
+        alias="ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES",
     )
-    route_graph_streaming_size_threshold_mb: int = Field(
-        default=256,
-        ge=32,
-        le=16_384,
-        alias="ROUTE_GRAPH_STREAMING_SIZE_THRESHOLD_MB",
+    route_graph_min_giant_component_ratio: float = Field(
+        default=0.20,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO",
     )
-    route_graph_streaming_max_nodes: int = Field(
-        default=220_000,
-        ge=10_000,
-        le=2_000_000,
-        alias="ROUTE_GRAPH_STREAMING_MAX_NODES",
+    route_graph_max_nearest_node_distance_m: float = Field(
+        default=10_000.0,
+        ge=100.0,
+        le=500_000.0,
+        alias="ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M",
     )
-    route_graph_streaming_max_edges: int = Field(
-        default=480_000,
-        ge=20_000,
-        le=6_000_000,
-        alias="ROUTE_GRAPH_STREAMING_MAX_EDGES",
+    route_graph_od_candidate_limit: int = Field(
+        default=2048,
+        ge=8,
+        le=50_000,
+        alias="ROUTE_GRAPH_OD_CANDIDATE_LIMIT",
+    )
+    route_graph_od_candidate_max_radius: int = Field(
+        default=12,
+        ge=1,
+        le=64,
+        alias="ROUTE_GRAPH_OD_CANDIDATE_MAX_RADIUS",
     )
     route_graph_strict_required: bool = Field(default=True, alias="ROUTE_GRAPH_STRICT_REQUIRED")
     manifest_signing_secret: str = Field(
@@ -433,7 +648,7 @@ class Settings(BaseSettings):
     model_asset_dir: str = Field(default_factory=_default_model_asset_dir, alias="MODEL_ASSET_DIR")
     terrain_dem_fail_closed_uk: bool = Field(default=True, alias="TERRAIN_DEM_FAIL_CLOSED_UK")
     terrain_dem_coverage_min_uk: float = Field(
-        default=0.98,
+        default=0.96,
         ge=0.0,
         le=1.0,
         alias="TERRAIN_DEM_COVERAGE_MIN_UK",
@@ -519,6 +734,16 @@ class Settings(BaseSettings):
         default=False,
         alias="LIVE_TERRAIN_ENABLE_IN_TESTS",
     )
+    live_terrain_prefetch_probe_fractions: str = Field(
+        default="0.5,0.35,0.65,0.2,0.8",
+        alias="LIVE_TERRAIN_PREFETCH_PROBE_FRACTIONS",
+    )
+    live_terrain_prefetch_min_covered_points: int = Field(
+        default=1,
+        ge=1,
+        le=32,
+        alias="LIVE_TERRAIN_PREFETCH_MIN_COVERED_POINTS",
+    )
     terrain_allow_synthetic_grid: bool = Field(
         default=False,
         alias="TERRAIN_ALLOW_SYNTHETIC_GRID",
@@ -565,11 +790,37 @@ class Settings(BaseSettings):
         self.live_scenario_require_url_in_strict = True
         self.live_scenario_allow_signed_fallback = False
         self.scenario_require_signature = True
+        legacy_graph_env_keys = (
+            "ROUTE_GRAPH_STREAMING_MAX_NODES",
+            "ROUTE_GRAPH_STREAMING_MAX_EDGES",
+            "ROUTE_GRAPH_COMPACT_LOAD_ENABLED",
+            "ROUTE_GRAPH_COMPACT_BACKBONE_SHARE",
+        )
+        legacy_present = [key for key in legacy_graph_env_keys if str(os.environ.get(key, "")).strip()]
+        if legacy_present:
+            _LOGGER.warning(
+                "Ignoring legacy compact-graph env overrides under strict full-graph runtime: %s",
+                ",".join(sorted(legacy_present)),
+            )
         self.out_dir = _resolve_writable_out_dir(self.out_dir)
         rf = str(self.risk_family or "cvar_excess").strip().lower()
         if rf not in {"cvar_excess", "entropic", "downside_semivariance"}:
             rf = "cvar_excess"
         self.risk_family = rf
+        refresh_mode = str(self.live_route_compute_refresh_mode or "route_compute").strip().lower()
+        if refresh_mode not in {"route_compute", "all_sources", "full"}:
+            refresh_mode = "route_compute"
+        self.live_route_compute_refresh_mode = refresh_mode
+        rescue_mode = str(self.route_graph_state_space_rescue_mode or "reduced").strip().lower()
+        if rescue_mode not in {"reduced", "full"}:
+            rescue_mode = "reduced"
+        self.route_graph_state_space_rescue_mode = rescue_mode
+        # In strict hard-refresh lanes, terrain probe is required for full live-freshness evidence.
+        if self.strict_live_data_required and (
+            self.live_route_compute_require_all_expected
+            or refresh_mode in {"all_sources", "full"}
+        ):
+            self.live_route_compute_probe_terrain = True
         return self
 
 

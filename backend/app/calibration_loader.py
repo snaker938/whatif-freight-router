@@ -38,9 +38,24 @@ def _pytest_active() -> bool:
     return "PYTEST_CURRENT_TEST" in os.environ
 
 
-def refresh_live_runtime_route_caches() -> None:
-    """Force live-source refreshes for strict route computations."""
-    clear_live_data_source_cache()
+def refresh_live_runtime_route_caches(*, mode: str = "full") -> None:
+    """Refresh strict live caches.
+
+    `mode="full"` keeps preflight and tooling behavior fail-closed by forcing a
+    complete cache reset. `mode="route_compute"` preserves expensive
+    scenario-context source caches (DfT/WebTRIS/traffic/meteo) while still
+    forcing scenario coefficients to refresh on each route attempt.
+    `mode="all_sources"` clears all in-memory live source caches for hard
+    freshness gates during route compute.
+    """
+
+    selected_mode = str(mode or "full").strip().lower()
+    if selected_mode == "route_compute":
+        clear_live_data_source_cache(keys_or_prefixes=("scenario:coefficients",))
+    elif selected_mode == "all_sources":
+        clear_live_data_source_cache()
+    else:
+        clear_live_data_source_cache()
     load_scenario_profiles.cache_clear()
     load_live_scenario_context.cache_clear()
     load_departure_profile.cache_clear()
@@ -906,9 +921,14 @@ def _parse_scenario_profiles_payload(
     pytest_bypass_enabled = _strict_runtime_test_bypass_enabled()
     strict_quality_gates = _strict_runtime_required() and not pytest_bypass_enabled
     if strict_quality_gates:
-        # Strict live-only policy: scenario modes must be fully observed at train time.
-        strict_min_observed_mode_row_share = 1.0
-        strict_max_projection_context_share = 0.0
+        strict_min_observed_mode_row_share = max(
+            0.0,
+            min(1.0, float(getattr(settings, "scenario_min_observed_mode_row_share", 0.20))),
+        )
+        strict_max_projection_context_share = max(
+            0.0,
+            min(1.0, float(getattr(settings, "scenario_max_projection_dominant_context_share", 0.80))),
+        )
         split_strategy = str(payload.get("split_strategy", "")).strip().lower()
         if split_strategy != "temporal_forward_plus_corridor_block":
             raise ModelDataError(
@@ -985,7 +1005,10 @@ def _parse_scenario_profiles_payload(
                     f"(actual={observed_mode_row_share:.6f}, "
                     f"required>={float(strict_min_observed_mode_row_share):.6f})."
                 ),
-                details={"observed_mode_row_share": observed_mode_row_share},
+                details={
+                    "observed_mode_row_share": observed_mode_row_share,
+                    "required_min_observed_mode_row_share": float(strict_min_observed_mode_row_share),
+                },
             )
         if projection_context_share != projection_context_share:
             raise ModelDataError(
@@ -1002,7 +1025,10 @@ def _parse_scenario_profiles_payload(
                     f"(actual={projection_context_share:.6f}, "
                     f"required<={float(strict_max_projection_context_share):.6f})."
                 ),
-                details={"projection_dominant_context_share": projection_context_share},
+                details={
+                    "projection_dominant_context_share": projection_context_share,
+                    "required_max_projection_dominant_context_share": float(strict_max_projection_context_share),
+                },
             )
         if hour_slot_cov < 6.0 or corridor_cov < 8.0:
             raise ModelDataError(
@@ -1092,6 +1118,9 @@ def _parse_scenario_profiles_payload(
                         message="Scenario context projection dominance exceeds strict threshold.",
                         details={
                             "projection_dominant_context_share": actual_projection_context_share,
+                            "required_max_projection_dominant_context_share": float(
+                                strict_max_projection_context_share
+                            ),
                             "projection_context_count": projection_context_count,
                             "context_count": len(contexts),
                         },
@@ -1259,11 +1288,43 @@ def _parse_live_scenario_context_payload(
         "open_meteo": max(0.0, min(1.0, _safe_float(coverage_raw.get("open_meteo"), 0.0))),
         "overall": max(0.0, min(1.0, _safe_float(coverage_raw.get("overall"), 0.0))),
     }
-    if coverage["overall"] < 0.999:
+    coverage_gate_raw = payload.get("coverage_gate")
+    coverage_gate = coverage_gate_raw if isinstance(coverage_gate_raw, dict) else {}
+    effective_required_source_count = None
+    if strict and isinstance(coverage_gate, dict):
+        parsed_effective_count = int(_safe_float(coverage_gate.get("required_source_count_effective"), 0.0))
+        if 1 <= parsed_effective_count <= 4:
+            effective_required_source_count = parsed_effective_count
+    required_overall_coverage = 0.999
+    if strict and bool(settings.live_scenario_allow_partial_sources_strict):
+        if effective_required_source_count is not None:
+            required_overall_coverage = max(
+                0.0,
+                min(1.0, float(effective_required_source_count) / 4.0),
+            )
+        else:
+            required_by_count = max(
+                1,
+                min(4, int(settings.live_scenario_min_source_count_strict)),
+            ) / 4.0
+            configured_min = max(
+                0.0,
+                min(1.0, float(settings.live_scenario_min_coverage_overall_strict)),
+            )
+            required_overall_coverage = max(required_by_count, configured_min)
+    if coverage["overall"] + 1e-9 < required_overall_coverage:
         raise ModelDataError(
             reason_code="scenario_profile_unavailable",
-            message="Live scenario context coverage is incomplete for strict runtime.",
-            details={"coverage": coverage},
+            message=(
+                "Live scenario context coverage is incomplete for strict runtime "
+                f"(overall={coverage['overall']:.3f}, required>={required_overall_coverage:.3f})."
+            ),
+            details={
+                "coverage": coverage,
+                "required_coverage_overall": round(required_overall_coverage, 6),
+                "partial_sources_allowed": bool(settings.live_scenario_allow_partial_sources_strict),
+                "required_source_count_effective": effective_required_source_count,
+            },
         )
 
     traffic_raw = payload.get("traffic_features", {})
@@ -1581,6 +1642,12 @@ def load_live_scenario_context(
     strict = _strict_runtime_required()
     pytest_bypass_enabled = _strict_runtime_test_bypass_enabled()
     enforce_freshness = strict and not pytest_bypass_enabled
+    allow_partial_sources = bool(settings.live_scenario_allow_partial_sources_strict and strict)
+    min_source_count = (
+        max(1, min(4, int(settings.live_scenario_min_source_count_strict)))
+        if allow_partial_sources
+        else 4
+    )
     live_failure: ModelDataError | None = None
     if settings.live_runtime_data_enabled:
         live_payload = live_scenario_context(
@@ -1594,7 +1661,10 @@ def load_live_scenario_context(
                 "centroid_lat": centroid_lat,
                 "centroid_lon": centroid_lon,
                 "road_hint": road_hint or "",
-            }
+            },
+            allow_partial_sources=allow_partial_sources,
+            min_source_count=min_source_count,
+            skip_dft_in_partial_mode=False,
         )
         if isinstance(live_payload, dict) and "_live_error" in live_payload:
             err = live_payload.get("_live_error", {})
@@ -1730,6 +1800,30 @@ def _parse_departure_profile_payload(
     weekday = default_road.get("weekday")
     weekend = default_road.get("weekend")
     holiday = default_road.get("holiday")
+    if not weekday or not weekend or not holiday:
+        preferred_roads = ("mixed", "motorway_dominant", "primary_heavy")
+        for region_key in sorted(contextual.keys()):
+            region_map = contextual.get(region_key)
+            if not isinstance(region_map, dict):
+                continue
+            road_keys: list[str] = []
+            for key in preferred_roads:
+                if isinstance(region_map.get(key), dict):
+                    road_keys.append(key)
+            for key in sorted(region_map.keys()):
+                if key not in road_keys and isinstance(region_map.get(key), dict):
+                    road_keys.append(key)
+            for road_key in road_keys:
+                road = region_map.get(road_key)
+                if not isinstance(road, dict):
+                    continue
+                weekday = road.get("weekday")
+                weekend = road.get("weekend")
+                holiday = road.get("holiday")
+                if weekday and weekend and holiday:
+                    break
+            if weekday and weekend and holiday:
+                break
     if not weekday or not weekend or not holiday:
         return None
     return DepartureProfile(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .scenario import ScenarioMode
 from .vehicles import VehicleProfile
@@ -26,6 +26,24 @@ class Weights(BaseModel):
     time: float = Field(..., ge=0)
     money: float = Field(..., ge=0)
     co2: float = Field(..., ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_aliases(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "money" not in data:
+            for key in ("cost", "monetary_cost"):
+                if key in data:
+                    data["money"] = data[key]
+                    break
+        if "co2" not in data:
+            for key in ("emissions", "emissions_kg", "co2e"):
+                if key in data:
+                    data["co2"] = data[key]
+                    break
+        return data
 
     @field_validator("time", "money", "co2")
     @classmethod
@@ -116,6 +134,7 @@ class RouteRequest(BaseModel):
     waypoints: list[Waypoint] = Field(default_factory=list, max_length=48)
     vehicle_type: str = Field(default="rigid_hgv")
     scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
+    max_alternatives: int = Field(default=24, ge=1, le=48)
     weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
     cost_toggles: CostToggles = Field(default_factory=CostToggles)
     terrain_profile: TerrainProfile = "flat"

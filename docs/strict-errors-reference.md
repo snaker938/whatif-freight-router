@@ -13,7 +13,7 @@ This document describes strict reason-code failures used across route-producing 
     "reason_code": "terrain_dem_coverage_insufficient",
     "message": "Terrain DEM coverage below threshold.",
     "warnings": [
-      "Coverage 0.91 < required 0.98"
+      "Coverage 0.91 < required 0.96"
     ]
   }
 }
@@ -92,6 +92,8 @@ The backend normalizes to the frozen set below (`FROZEN_REASON_CODES`).
 - `scenario_profile_invalid`: schema/monotonicity/transform violations.
 - `stochastic_calibration_unavailable`: strict stochastic asset missing/invalid.
 
+For stale scenario coefficients, diagnostics now prioritize freshness fields (`as_of_utc`, `age_minutes`, `max_age_minutes`) and only include scenario coverage-gate summaries when those fields are actually present in the failure payload.
+
 ### Vehicle and Risk Inputs
 
 - `vehicle_profile_unavailable`: unknown/missing vehicle profile in strict flow.
@@ -111,6 +113,7 @@ The backend normalizes to the frozen set below (`FROZEN_REASON_CODES`).
   `reason_code:<code>; message:<message>`
 - Stream fatal events preserve reason code and warning list for machine parsing.
 - Unknown/internal codes are normalized to the frozen set before emission.
+- Route readiness should be checked via `GET /health/ready`; strict mode now includes `strict_live` and may return `recommended_action=refresh_live_sources` when scenario coefficients are stale.
 
 ## Related Docs
 

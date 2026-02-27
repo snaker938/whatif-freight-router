@@ -22,7 +22,7 @@ import ScenarioParameterEditor, {
 import ScenarioTimeLapse from './components/ScenarioTimeLapse';
 import Select, { type SelectOption } from './components/Select';
 import SignatureVerifier from './components/devtools/SignatureVerifier';
-import { deleteJSON, getJSON, getText, postJSON, postNDJSON, putJSON } from './lib/api';
+import { deleteJSON, getJSON, getText, postJSON, postJSONWithMeta, postNDJSON, putJSON } from './lib/api';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
 import { buildManagedPinNodes } from './lib/mapOverlays';
@@ -70,6 +70,7 @@ import type {
   FuelType,
   EuroClass,
   HealthResponse,
+  HealthReadyResponse,
   IncidentSimulatorConfig,
   MetricsResponse,
   CacheStatsResponse,
@@ -100,6 +101,9 @@ import type {
   ParetoMethod,
   ParetoStreamEvent,
   ManagedStop,
+  LiveCallEntry,
+  LiveCallTraceResponse,
+  MapFailureOverlay,
   PinFocusRequest,
   PinSelectionId,
   RouteOption,
@@ -120,6 +124,289 @@ import { normaliseWeights, pickBestByWeightedSum, type WeightState } from './lib
 
 type MarkerKind = 'origin' | 'destination';
 type ProgressState = { done: number; total: number };
+type ComputeTraceLevel = 'info' | 'warn' | 'error' | 'success';
+type ComputeTraceEntry = {
+  id: number;
+  at: string;
+  elapsedMs: number;
+  level: ComputeTraceLevel;
+  step: string;
+  detail: string;
+  reasonCode?: string;
+  recoveries?: string[];
+  attempt?: number;
+  endpoint?: '/api/pareto/stream' | '/api/pareto' | '/api/route';
+  requestId?: string;
+  stage?: string;
+  stageDetail?: string;
+  backendElapsedMs?: number;
+  stageElapsedMs?: number;
+  alternativesUsed?: number;
+  timeoutMs?: number;
+  abortReason?: string;
+  candidateDiagnostics?: Record<string, unknown> | null;
+  failureChain?: Record<string, unknown> | null;
+};
+
+type ComputeSession = {
+  seq: number;
+  startedAt: string;
+  mode: ComputeMode;
+  scenario: ScenarioMode;
+  vehicle: string;
+  waypointCount: number;
+  maxAlternatives: number;
+  streamStallTimeoutMs: number;
+  origin: LatLng;
+  destination: LatLng;
+  attemptTimeoutMs: number;
+  routeFallbackTimeoutMs: number;
+  degradeSteps: number[];
+};
+
+function inferComputeRecoveryHints(message: string): string[] {
+  const lower = message.toLowerCase();
+  const hints: string[] = [];
+
+  if (
+    lower.includes('econnreset') ||
+    lower.includes('fetch failed') ||
+    lower.includes('body timeout') ||
+    lower.includes('und_err_body_timeout') ||
+    lower.includes('streaming response stalled')
+  ) {
+    hints.push('Network stream dropped between frontend and backend. Try stream mode again or keep JSON mode.');
+    hints.push('Check backend logs for provider timeouts while the route was computing.');
+    hints.push('Use JSON compute mode for large requests, or lower max alternatives for faster completion.');
+  }
+  if (lower.includes('backend_pareto_unreachable')) {
+    hints.push('Pareto JSON request likely exceeded proxy wait limits before backend returned headers.');
+    hints.push('Use stream mode for long runs or lower max alternatives.');
+  }
+  if (lower.includes('backend_headers_timeout')) {
+    hints.push('Backend did not return response headers within timeout budget.');
+    hints.push('Retry with fewer alternatives, or run stream mode with reduced candidate budget.');
+  }
+  if (lower.includes('backend_body_timeout')) {
+    hints.push('Backend started responding but body streaming timed out.');
+    hints.push('Retry with fewer alternatives or inspect backend logs for long-running stage stalls.');
+  }
+  if (lower.includes('backend_connection_reset')) {
+    hints.push('Connection to backend was reset mid-request. Check backend process stability and memory pressure.');
+  }
+  if (lower.includes('route_compute_timeout')) {
+    hints.push('Server-side route compute exceeded the bounded attempt timeout.');
+    hints.push('Retry with lower max alternatives or use smaller OD spans for interactive runs.');
+  }
+  if (lower.includes('routing_graph_warming_up')) {
+    hints.push('Routing graph is still warming up in memory.');
+    hints.push('Check GET /health/ready and retry when strict_route_ready=true.');
+  }
+  if (lower.includes('routing_graph_warmup_failed')) {
+    hints.push('Routing graph warmup failed. Rebuild routing_graph_uk.json and restart backend.');
+    hints.push('Use GET /health/ready to inspect warmup phase, timeout, and asset diagnostics.');
+  }
+  if (lower.includes('routing_graph_unavailable')) {
+    hints.push('Routing graph assets are unavailable for strict routing.');
+    hints.push('Rebuild/publish model assets and verify backend /health/ready before retrying.');
+  }
+  if (lower.includes('routing_graph_no_path')) {
+    hints.push('Routing graph search exhausted without a feasible strict path for this OD.');
+    hints.push('Tune adaptive hop budget or verify graph connectivity for this corridor before retrying.');
+  }
+  if (lower.includes('routing_graph_fragmented')) {
+    hints.push('Loaded route graph is fragmented under strict caps.');
+    hints.push('Rebuild routing graph artifacts and verify /health/ready largest_component_ratio is healthy.');
+  }
+  if (lower.includes('routing_graph_disconnected_od')) {
+    hints.push('Origin and destination are in different graph components in the loaded runtime graph.');
+    hints.push('Try a nearer OD pair or refresh/rebuild graph assets to restore long-corridor connectivity.');
+  }
+  if (lower.includes('routing_graph_coverage_gap')) {
+    hints.push('Nearest graph node is too far from origin/destination for strict routing.');
+    hints.push('Check graph coverage for this region or increase graph coverage quality before retrying.');
+  }
+  if (lower.includes('routing_graph_precheck_timeout')) {
+    hints.push('Route graph feasibility precheck timed out before candidate search could continue.');
+    hints.push('Increase ROUTE_GRAPH_OD_FEASIBILITY_TIMEOUT_MS for full graph OD checks, then retry.');
+  }
+  if (lower.includes('terrain_dem_coverage_insufficient')) {
+    hints.push('Terrain probe fetched a tile but sampling reported insufficient coverage for strict validation.');
+    hints.push('This is usually terrain sampling/coverage validation, not a live API outage. Check prefetch_failed_details for probe counts and points.');
+  }
+  const terrainGateFailure =
+    lower.includes('live_source_refresh_failed') &&
+    (lower.includes('terrain_live_tile') || lower.includes('terrain_dem_coverage_insufficient'));
+  const scenarioSemanticGateFailure =
+    lower.includes('live_source_refresh_failed') &&
+    lower.includes('scenario_live_context:scenario_profile_unavailable') &&
+    lower.includes('missing_expected_sources=none');
+  if (lower.includes('live_source_refresh_failed')) {
+    if (terrainGateFailure) {
+      hints.push('Strict live-refresh gate failed because terrain validation did not meet strict coverage thresholds.');
+      hints.push('Inspect Graph Diagnostics -> prefetch_failed_details/prefetch_rows_json for terrain probe coverage and sampled points.');
+    } else if (scenarioSemanticGateFailure) {
+      hints.push('Strict live-refresh failed on scenario semantic coverage, not transport reachability.');
+      hints.push('Expected source-family matrix is satisfied; inspect Scenario Coverage Gate for source_ok vs required thresholds.');
+      hints.push('When local observations are sparse, verify road-hint alignment and scenario_live_context waiver diagnostics.');
+    } else {
+      hints.push('Strict live-refresh gate failed before candidate search completed.');
+      hints.push('Check Live API calls panel for blocked/miss source families and upstream provider response errors.');
+    }
+  }
+  if (lower.includes('backend_route_unreachable')) {
+    hints.push('Single-route endpoint is unreachable. Verify backend is running and healthy on port 8000.');
+  }
+  if (lower.includes('stream_proxy_interrupted')) {
+    hints.push('Backend stream proxy was interrupted before final response; this is usually a long-running stream timeout.');
+    hints.push('Automatic fallback should now run. If it still fails, reduce max alternatives and retry.');
+  }
+  if (
+    lower.includes('scenario_profile_unavailable') ||
+    lower.includes('scenario coefficient payload is stale') ||
+    lower.includes('live scenario context incomplete')
+  ) {
+    const scenarioCoeffStale =
+      lower.includes('scenario coefficient payload is stale') ||
+      (lower.includes('as_of_utc') && lower.includes('max_age_minutes'));
+    if (scenarioCoeffStale) {
+      hints.push(
+        'Scenario coefficient payload is stale for strict mode; verify as_of_utc age against LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES.',
+      );
+      hints.push(
+        'Use backend preflight to confirm strict live readiness and check LIVE_SCENARIO_COEFFICIENT_URL points to the tracked main artifact.',
+      );
+    } else {
+      hints.push('Run strict preflight and check scenario_live_context result for missing live sources.');
+      hints.push(
+        'If a source is intermittently unavailable, tune LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT / LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT.',
+      );
+    }
+  }
+  if (lower.includes('toll_tariff_unavailable')) {
+    hints.push('Republish toll tariffs JSON artifact and confirm LIVE_TOLL_TARIFFS_URL points to JSON, not YAML.');
+  }
+  if (lower.includes('stochastic_calibration_unavailable')) {
+    hints.push('Rebuild stochastic residuals and stochastic_regimes_uk.json, then republish live artifacts.');
+  }
+  if (lower.includes('weights') && (lower.includes('money') || lower.includes('co2'))) {
+    hints.push('Use weights keys { time, money, co2 }. Backend also accepts { cost, emissions } now.');
+  }
+  if (lower.includes('osrm') || lower.includes('connection refused')) {
+    hints.push('Verify OSRM container is healthy and reachable on the configured backend URL.');
+  }
+  if (!hints.length) {
+    hints.push('Check backend logs around the same timestamp for the exact failure source.');
+    hints.push('Retry with compute mode set to JSON to avoid transport-stream instability.');
+  }
+
+  return hints;
+}
+
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function clampUnit(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function formatDurationCompactMs(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return 'n/a';
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes >= 10 || seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function warmupPhaseLabel(phaseRaw: string): string {
+  const phase = phaseRaw.trim().toLowerCase();
+  if (!phase) return 'Unknown phase';
+  if (phase === 'initializing') return 'Initializing loader';
+  if (phase === 'parsing_nodes') return 'Parsing graph nodes';
+  if (phase === 'parsing_edges') return 'Parsing graph edges';
+  if (phase === 'finalizing') return 'Finalizing graph index';
+  if (phase === 'ready') return 'Ready';
+  if (phase === 'failed') return 'Warmup failed';
+  return phase.replace(/_/g, ' ');
+}
+
+function safeJsonString(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function safeParseJsonObject(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseDegradeSteps(raw: string | undefined): number[] {
+  const source = (raw ?? '12,6,3').trim();
+  const parts = source
+    .split(',')
+    .map((token) => Number.parseInt(token.trim(), 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const unique = Array.from(new Set(parts));
+  return unique.length ? unique : [12, 6, 3];
+}
+
+function extractReasonCodeFromMessage(message: string): string | undefined {
+  const raw = String(message ?? '').trim();
+  if (!raw) return undefined;
+  const reasonMatch = raw.match(/reason_code[:=]\s*([a-z0-9_]+)/i);
+  if (reasonMatch?.[1]) return reasonMatch[1].toLowerCase();
+  const parenMatch = raw.match(/\(([a-z0-9_]+)\)(?:\s|$)/i);
+  if (parenMatch?.[1]) return parenMatch[1].toLowerCase();
+  return undefined;
+}
+
+function buildAlternativesSequence(requested: number, defaults: number[]): number[] {
+  const boundedRequested = Math.max(1, Math.floor(requested));
+  const boundedDefaults = defaults
+    .map((step) => Math.max(1, Math.min(boundedRequested, Math.floor(step))))
+    .filter((step) => Number.isFinite(step) && step > 0);
+  const seed = boundedDefaults[0] ?? boundedRequested;
+  const out: number[] = [seed];
+  for (const step of boundedDefaults.slice(1)) {
+    if (!out.includes(step)) out.push(step);
+    if (out.length >= 3) break;
+  }
+  while (out.length < 3) {
+    const next = Math.max(1, Math.floor(out[out.length - 1] / 2));
+    if (out.includes(next)) break;
+    out.push(next);
+  }
+  return out.slice(0, 3);
+}
 
 type MapViewProps = {
   origin: LatLng | null;
@@ -137,6 +424,7 @@ type MapViewProps = {
   fitAllRequestNonce?: number;
 
   route: RouteOption | null;
+  failureOverlay?: MapFailureOverlay | null;
   timeLapsePosition?: LatLng | null;
   dutyStops?: DutyChainRequest['stops'];
   showStopOverlay?: boolean;
@@ -748,6 +1036,14 @@ export default function Page() {
   const [appBootReady, setAppBootReady] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [computeTraceOpen, setComputeTraceOpen] = useState(false);
+  const [computeTrace, setComputeTrace] = useState<ComputeTraceEntry[]>([]);
+  const [computeSession, setComputeSession] = useState<ComputeSession | null>(null);
+  const [computeLiveCallsByAttempt, setComputeLiveCallsByAttempt] = useState<
+    Record<number, LiveCallTraceResponse>
+  >({});
+  const [computeRequestIdByAttempt, setComputeRequestIdByAttempt] = useState<Record<number, string>>({});
+  const [computeTraceNowMs, setComputeTraceNowMs] = useState(() => Date.now());
   const [showWarnings, setShowWarnings] = useState(false);
   const [scenarioCompare, setScenarioCompare] = useState<ScenarioCompareResponse | null>(null);
   const [scenarioCompareLoading, setScenarioCompareLoading] = useState(false);
@@ -778,6 +1074,7 @@ export default function Page() {
   const [oracleError, setOracleError] = useState<string | null>(null);
   const [oracleLatestCheck, setOracleLatestCheck] = useState<OracleFeedCheckRecord | null>(null);
   const [opsHealth, setOpsHealth] = useState<HealthResponse | null>(null);
+  const [opsHealthReady, setOpsHealthReady] = useState<HealthReadyResponse | null>(null);
   const [opsMetrics, setOpsMetrics] = useState<MetricsResponse | null>(null);
   const [opsCacheStats, setOpsCacheStats] = useState<CacheStatsResponse | null>(null);
   const [opsLoading, setOpsLoading] = useState(false);
@@ -837,7 +1134,11 @@ export default function Page() {
   const [isPending, startTransition] = useTransition();
 
   const abortRef = useRef<AbortController | null>(null);
+  const activeAttemptAbortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
+  const computeTraceSeqRef = useRef(0);
+  const computeStartedAtMsRef = useRef<number | null>(null);
+  const progressRef = useRef<ProgressState | null>(null);
   const routeBufferRef = useRef<RouteOption[]>([]);
   const flushTimerRef = useRef<number | null>(null);
   const tutorialBootstrappedRef = useRef(false);
@@ -1959,9 +2260,39 @@ export default function Page() {
       abortRef.current.abort();
       abortRef.current = null;
     }
+    if (activeAttemptAbortRef.current) {
+      activeAttemptAbortRef.current.abort();
+      activeAttemptAbortRef.current = null;
+    }
     routeBufferRef.current = [];
     clearFlushTimer();
   }, [clearFlushTimer]);
+
+  const resetComputeTrace = useCallback(() => {
+    computeTraceSeqRef.current = 0;
+    computeStartedAtMsRef.current = null;
+    setComputeTrace([]);
+    setComputeSession(null);
+    setComputeLiveCallsByAttempt({});
+    setComputeRequestIdByAttempt({});
+  }, []);
+
+  const appendComputeTrace = useCallback(
+    (entry: Omit<ComputeTraceEntry, 'id' | 'at' | 'elapsedMs'>) => {
+      computeTraceSeqRef.current += 1;
+      const row: ComputeTraceEntry = {
+        ...entry,
+        id: computeTraceSeqRef.current,
+        at: new Date().toISOString(),
+        elapsedMs: computeStartedAtMsRef.current ? Date.now() - computeStartedAtMsRef.current : 0,
+      };
+      setComputeTrace((prev) => {
+        const next = [...prev, row];
+        return next.length > 300 ? next.slice(next.length - 300) : next;
+      });
+    },
+    [],
+  );
 
   const clearComputed = useCallback(() => {
     requestSeqRef.current += 1;
@@ -1988,7 +2319,9 @@ export default function Page() {
     setDutyChainError(null);
     setTimeLapsePosition(null);
     setAdvancedError(null);
-  }, [abortActiveCompute]);
+    setComputeTraceOpen(false);
+    resetComputeTrace();
+  }, [abortActiveCompute, resetComputeTrace]);
 
   const clearComputedFromUi = useCallback(() => {
     markTutorialAction('pref.clear_results_click');
@@ -2016,7 +2349,12 @@ export default function Page() {
     abortActiveCompute();
     setLoading(false);
     setProgress(null);
-  }, [abortActiveCompute]);
+    appendComputeTrace({
+      level: 'warn',
+      step: 'Compute cancelled',
+      detail: 'User cancelled the in-flight route computation.',
+    });
+  }, [abortActiveCompute, appendComputeTrace]);
 
   useEffect(() => {
     return () => {
@@ -2053,6 +2391,15 @@ export default function Page() {
       refreshCustomVehicles(),
     ]);
   }, []);
+
+  useEffect(() => {
+    const warmupState = String(opsHealthReady?.route_graph?.state ?? '').trim().toLowerCase();
+    const pollMs = warmupState === 'loading' ? 1_500 : 5_000;
+    const timer = window.setInterval(() => {
+      void refreshRouteReadiness();
+    }, pollMs);
+    return () => window.clearInterval(timer);
+  }, [opsHealthReady?.route_graph?.state]);
 
   useEffect(() => {
     if (depWindowStartLocal || depWindowEndLocal) return;
@@ -3154,14 +3501,378 @@ export default function Page() {
   const selectedLabel = selectedRoute ? labelsById[selectedRoute.id] ?? selectedRoute.id : null;
 
   const busy = loading || isPending;
-  const canCompute = Boolean(origin && destination) && !busy;
+  const routeGraphWarmup = opsHealthReady?.route_graph ?? null;
+  const routeGraphState = String(routeGraphWarmup?.state ?? '').trim().toLowerCase();
+  const routeGraphPhase = String(routeGraphWarmup?.phase ?? '').trim().toLowerCase();
+  const strictRouteReady = opsHealthReady?.strict_route_ready === true;
+  const routeWarmupBaselineMs = Math.max(
+    60_000,
+    parsePositiveIntEnv(process.env.NEXT_PUBLIC_ROUTE_GRAPH_WARMUP_BASELINE_MS, 900_000),
+  );
+  const routeGraphElapsedMs = toFiniteNumber(routeGraphWarmup?.elapsed_ms);
+  const routeGraphNodesSeen = Math.max(0, Math.floor(toFiniteNumber(routeGraphWarmup?.nodes_seen) ?? 0));
+  const routeGraphNodesKept = Math.max(0, Math.floor(toFiniteNumber(routeGraphWarmup?.nodes_kept) ?? 0));
+  const routeGraphEdgesSeen = Math.max(0, Math.floor(toFiniteNumber(routeGraphWarmup?.edges_seen) ?? 0));
+  const routeGraphEdgesKept = Math.max(0, Math.floor(toFiniteNumber(routeGraphWarmup?.edges_kept) ?? 0));
+  const routeWarmupPhaseLabel = warmupPhaseLabel(routeGraphPhase || routeGraphState);
+  const routeWarmupProgressFraction = strictRouteReady
+    ? 1
+    : routeGraphState === 'loading' && routeGraphElapsedMs !== null
+      ? clampUnit(routeGraphElapsedMs / routeWarmupBaselineMs)
+      : routeGraphState === 'failed'
+        ? 1
+        : 0;
+  const routeWarmupProgressPct = strictRouteReady
+    ? 100
+    : routeGraphState === 'loading'
+      ? Math.max(1, Math.min(100, Math.round(routeWarmupProgressFraction * 100)))
+      : 0;
+  const routeWarmupBaselineRemainingMs =
+    routeGraphState === 'loading' && routeGraphElapsedMs !== null
+      ? Math.max(0, routeWarmupBaselineMs - routeGraphElapsedMs)
+      : null;
+  const routeWarmupOverrunMs =
+    routeGraphState === 'loading' &&
+    routeGraphElapsedMs !== null &&
+    routeGraphElapsedMs > routeWarmupBaselineMs
+      ? routeGraphElapsedMs - routeWarmupBaselineMs
+      : null;
+  const routeWarmupElapsedLabel = formatDurationCompactMs(routeGraphElapsedMs);
+  const routeWarmupBaselineLabel = formatDurationCompactMs(routeWarmupBaselineMs);
+  const routeWarmupRemainingLabel =
+    routeGraphState !== 'loading'
+      ? 'n/a'
+      : routeWarmupOverrunMs !== null
+        ? '0s (baseline reached)'
+        : routeWarmupBaselineRemainingMs !== null
+          ? `${formatDurationCompactMs(routeWarmupBaselineRemainingMs)} (baseline)`
+          : `${routeWarmupBaselineLabel} (baseline)`;
+  const routeWarmupOverrunLabel =
+    routeWarmupOverrunMs !== null
+      ? `Over baseline by ${formatDurationCompactMs(routeWarmupOverrunMs)}`
+      : null;
+  const routeWarmupShowCard = !strictRouteReady;
+  const routeReadinessCardClassName =
+    routeGraphState === 'failed'
+      ? 'routeReadinessCard isFailed'
+      : routeGraphState === 'loading'
+        ? 'routeReadinessCard isLoading'
+        : 'routeReadinessCard';
+  const routeReadinessReasonCode =
+    routeGraphState === 'failed'
+      ? 'routing_graph_warmup_failed'
+      : routeGraphState === 'loading'
+        ? 'routing_graph_warming_up'
+        : undefined;
+  const routeReadinessSummary = strictRouteReady
+    ? 'Ready'
+    : routeGraphState === 'failed'
+      ? 'Warmup failed'
+      : routeGraphState === 'loading'
+        ? 'Warming up route graph...'
+        : 'Checking route graph readiness...';
+  const routeReadinessDetail = strictRouteReady
+    ? 'strict_route_ready=true'
+    : routeGraphState === 'failed'
+      ? String(routeGraphWarmup?.last_error ?? 'unknown warmup failure')
+      : routeGraphState === 'loading'
+        ? `phase=${routeWarmupPhaseLabel}; progress~${routeWarmupProgressPct}% (${routeWarmupBaselineLabel} baseline); elapsed=${routeWarmupElapsedLabel}; remaining~${routeWarmupRemainingLabel}${routeWarmupOverrunLabel ? `; ${routeWarmupOverrunLabel.toLowerCase()}` : ''}`
+        : `state=${routeGraphWarmup?.state ?? 'unknown'}; phase=${routeGraphWarmup?.phase ?? 'unknown'}`;
+  const canCompute = Boolean(origin && destination) && !busy && strictRouteReady;
 
-  const progressText = progress
-    ? `${formatNumber(Math.min(progress.done, progress.total), locale, {
-        maximumFractionDigits: 0,
-      })}/${formatNumber(progress.total, locale, { maximumFractionDigits: 0 })}`
-    : null;
   const normalisedWeights = useMemo(() => normaliseWeights(weights), [weights]);
+  const latestTraceEntry = computeTrace.length ? computeTrace[computeTrace.length - 1] : null;
+  const computeElapsedSeconds = latestTraceEntry ? (latestTraceEntry.elapsedMs / 1000).toFixed(1) : null;
+  const traceEntriesByAttempt = useMemo(() => {
+    const groups = new Map<number, ComputeTraceEntry[]>();
+    for (const entry of computeTrace) {
+      const key = entry.attempt ?? 0;
+      const bucket = groups.get(key);
+      if (bucket) {
+        bucket.push(entry);
+      } else {
+        groups.set(key, [entry]);
+      }
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([attempt, entries]) => ({ attempt, entries }));
+  }, [computeTrace]);
+  const activeAttemptEntry = useMemo(
+    () =>
+      [...computeTrace]
+        .reverse()
+        .find((entry) => typeof entry.attempt === 'number' && entry.attempt > 0) ?? null,
+    [computeTrace],
+  );
+  const activeAttemptLiveCallTrace = useMemo(() => {
+    const attempt = activeAttemptEntry?.attempt;
+    if (!attempt) return null;
+    return computeLiveCallsByAttempt[attempt] ?? null;
+  }, [activeAttemptEntry?.attempt, computeLiveCallsByAttempt]);
+  const liveCallFailureHints = useMemo(() => {
+    if (!error || !activeAttemptLiveCallTrace) return [];
+    const blocked = (activeAttemptLiveCallTrace.expected_rollup ?? [])
+      .filter((row) => row.status === 'blocked' || row.blocked)
+      .slice(0, 4)
+      .map((row) => {
+        const why = row.blocked_reason || 'blocked';
+        const where = row.blocked_stage ? ` at ${row.blocked_stage}` : '';
+        return `Live source not attempted: ${row.source_key} (${why}${where}).`;
+      });
+    const failures = (activeAttemptLiveCallTrace.observed_calls ?? [])
+      .filter((row) => row.requested && !row.success)
+      .slice(0, 4)
+      .map((row) => {
+        const why = row.fetch_error || (typeof row.status_code === 'number' ? `status ${row.status_code}` : 'unknown');
+        return `Live source failed: ${row.source_key} -> ${row.url} (${why}).`;
+      });
+    return [...blocked, ...failures];
+  }, [activeAttemptLiveCallTrace, error]);
+  const latestDiagnosticEntry = useMemo(
+    () =>
+      [...computeTrace]
+        .reverse()
+        .find((entry) => Boolean(entry.candidateDiagnostics || entry.failureChain)) ?? null,
+    [computeTrace],
+  );
+  const diagnosticAwareHints = useMemo(() => {
+    const hints: string[] = [];
+    if (!error) return hints;
+    const diag = (latestDiagnosticEntry?.candidateDiagnostics ?? null) as Record<string, unknown> | null;
+    const reasonCode = (
+      latestDiagnosticEntry?.reasonCode ??
+      extractReasonCodeFromMessage(error) ??
+      ''
+    ).trim();
+    if (reasonCode === 'routing_graph_precheck_timeout' && diag) {
+      const prefetchSuccess = Number(diag.prefetch_success_sources ?? 0);
+      const precheckGateAction = String(diag.precheck_gate_action ?? '').trim();
+      if (Number.isFinite(prefetchSuccess) && prefetchSuccess > 0) {
+        hints.push('Live-source prefetch completed before the precheck timeout; this is a graph precheck bottleneck.');
+      }
+      if (precheckGateAction) {
+        hints.push(`Precheck gate action for this run: ${precheckGateAction}.`);
+      }
+    }
+    if (diag) {
+      const retryAttempted = Boolean(diag.graph_retry_attempted ?? false);
+      const retryOutcome = String(diag.graph_retry_outcome ?? '').trim();
+      const retryBudget = Number(diag.graph_retry_state_budget ?? 0);
+      if (retryAttempted) {
+        hints.push(
+          `Graph retry pass executed (outcome=${retryOutcome || 'unknown'}; state_budget=${Number.isFinite(retryBudget) ? retryBudget : 0}).`,
+        );
+      }
+      const rescueAttempted = Boolean(diag.graph_rescue_attempted ?? false);
+      const rescueOutcome = String(diag.graph_rescue_outcome ?? '').trim();
+      const rescueMode = String(diag.graph_rescue_mode ?? '').trim();
+      const rescueBudget = Number(diag.graph_rescue_state_budget ?? 0);
+      if (rescueAttempted) {
+        hints.push(
+          `Graph rescue pass executed (mode=${rescueMode || 'reduced'}; outcome=${rescueOutcome || 'unknown'}; state_budget=${Number.isFinite(rescueBudget) ? rescueBudget : 0}).`,
+        );
+      }
+    }
+    return hints;
+  }, [error, latestDiagnosticEntry]);
+  const computeErrorHints = useMemo(() => {
+    const base = error ? inferComputeRecoveryHints(error) : [];
+    const merged = [...liveCallFailureHints, ...diagnosticAwareHints, ...base];
+    return Array.from(new Set(merged));
+  }, [diagnosticAwareHints, error, liveCallFailureHints]);
+  const mapFailureOverlay = useMemo<MapFailureOverlay | null>(() => {
+    if (!error || loading || !origin || !destination || selectedRoute) return null;
+    const reasonCode =
+      latestDiagnosticEntry?.reasonCode ??
+      extractReasonCodeFromMessage(error) ??
+      'route_compute_failed';
+    const message = String(latestDiagnosticEntry?.detail || error).trim() || 'Route computation failed.';
+    return {
+      reason_code: reasonCode,
+      message,
+      stage: latestDiagnosticEntry?.stage ?? null,
+      stage_detail: latestDiagnosticEntry?.stageDetail ?? null,
+    };
+  }, [destination, error, latestDiagnosticEntry, loading, origin, selectedRoute]);
+  const latestAiDiagnosticBundle = useMemo(() => {
+    const attempt =
+      typeof latestDiagnosticEntry?.attempt === 'number' && latestDiagnosticEntry.attempt > 0
+        ? latestDiagnosticEntry.attempt
+        : null;
+    const liveTrace = attempt ? computeLiveCallsByAttempt[attempt] ?? null : null;
+    const requestId = attempt
+      ? (computeRequestIdByAttempt[attempt] ?? liveTrace?.request_id ?? null)
+      : null;
+    const observed = [...(liveTrace?.observed_calls ?? [])];
+    const slowestObserved = observed
+      .sort((a, b) => Number(b.duration_ms ?? 0) - Number(a.duration_ms ?? 0))
+      .slice(0, 6);
+    if (!latestDiagnosticEntry && !liveTrace && !error) return null;
+    return {
+      attempt,
+      endpoint: latestDiagnosticEntry?.endpoint ?? null,
+      request_id: requestId,
+      latest_reason_code:
+        latestDiagnosticEntry?.reasonCode ??
+        (error ? extractReasonCodeFromMessage(error) ?? null : null),
+      message: error ?? null,
+      summary: liveTrace?.summary ?? null,
+      expected_rollup: liveTrace?.expected_rollup ?? null,
+      slowest_calls: slowestObserved,
+      candidate_diagnostics: latestDiagnosticEntry?.candidateDiagnostics ?? null,
+      failure_chain: latestDiagnosticEntry?.failureChain ?? null,
+    };
+  }, [computeLiveCallsByAttempt, computeRequestIdByAttempt, error, latestDiagnosticEntry]);
+  const progressText = useMemo(() => {
+    if (!progress) return null;
+    const fallbackTotal =
+      typeof activeAttemptEntry?.alternativesUsed === 'number' && activeAttemptEntry.alternativesUsed > 0
+        ? activeAttemptEntry.alternativesUsed
+        : progress.total;
+    const total = Math.max(1, fallbackTotal);
+    const done = Math.max(0, Math.min(progress.done, total));
+    return `${formatNumber(done, locale, {
+      maximumFractionDigits: 0,
+    })}/${formatNumber(total, locale, { maximumFractionDigits: 0 })}`;
+  }, [activeAttemptEntry?.alternativesUsed, locale, progress]);
+  const activeAttemptNumberForTrace =
+    typeof activeAttemptEntry?.attempt === 'number' && activeAttemptEntry.attempt > 0
+      ? activeAttemptEntry.attempt
+      : null;
+  const latestBackendMetaEntry = useMemo(
+    () => {
+      if (activeAttemptNumberForTrace === null) return null;
+      return (
+        [...computeTrace]
+          .reverse()
+          .find(
+            (entry) =>
+              entry.attempt === activeAttemptNumberForTrace &&
+              entry.endpoint === '/api/pareto/stream' &&
+              typeof entry.backendElapsedMs === 'number' &&
+              typeof entry.requestId === 'string',
+          ) ?? null
+      );
+    },
+    [activeAttemptNumberForTrace, computeTrace],
+  );
+  const lastBackendHeartbeatAgeSec = latestBackendMetaEntry
+    ? ((computeTraceNowMs - Date.parse(latestBackendMetaEntry.at)) / 1000).toFixed(1)
+    : null;
+
+  const copyComputeDiagnostics = useCallback(async () => {
+    const header = computeSession
+      ? [
+          `seq=${computeSession.seq}`,
+          `started_at=${computeSession.startedAt}`,
+          `mode=${computeSession.mode}`,
+          `scenario=${computeSession.scenario}`,
+          `vehicle=${computeSession.vehicle}`,
+          `max_alternatives=${computeSession.maxAlternatives}`,
+          `waypoints=${computeSession.waypointCount}`,
+          `origin=${computeSession.origin.lat},${computeSession.origin.lon}`,
+          `destination=${computeSession.destination.lat},${computeSession.destination.lon}`,
+          `stream_stall_timeout_ms=${computeSession.streamStallTimeoutMs}`,
+          `attempt_timeout_ms=${computeSession.attemptTimeoutMs}`,
+          `route_fallback_timeout_ms=${computeSession.routeFallbackTimeoutMs}`,
+          `degrade_steps=${computeSession.degradeSteps.join('->')}`,
+        ].join('\n')
+      : 'no active compute session';
+    const body = computeTrace
+      .map(
+        (entry) =>
+          `[${entry.level.toUpperCase()}] ${entry.at} (+${(entry.elapsedMs / 1000).toFixed(1)}s) ${entry.step} :: ${entry.detail}${
+            entry.reasonCode ? ` | reason_code=${entry.reasonCode}` : ''
+          }${
+            typeof entry.attempt === 'number' ? ` | attempt=${entry.attempt}` : ''
+          }${
+            entry.endpoint ? ` | endpoint=${entry.endpoint}` : ''
+          }${
+            entry.requestId ? ` | request_id=${entry.requestId}` : ''
+          }${
+            entry.stage ? ` | stage=${entry.stage}` : ''
+          }${
+            entry.stageDetail ? ` | stage_detail=${entry.stageDetail}` : ''
+          }${
+            typeof entry.backendElapsedMs === 'number' ? ` | backend_elapsed_ms=${entry.backendElapsedMs}` : ''
+          }${
+            typeof entry.stageElapsedMs === 'number' ? ` | stage_elapsed_ms=${entry.stageElapsedMs}` : ''
+          }${
+            typeof entry.alternativesUsed === 'number' ? ` | alternatives=${entry.alternativesUsed}` : ''
+          }${
+            typeof entry.timeoutMs === 'number' ? ` | timeout_ms=${entry.timeoutMs}` : ''
+          }${
+            entry.candidateDiagnostics ? ` | candidate_diagnostics=${safeJsonString(entry.candidateDiagnostics)}` : ''
+          }${
+            entry.failureChain ? ` | failure_chain=${safeJsonString(entry.failureChain)}` : ''
+          }`,
+      )
+      .join('\n');
+    const liveCallsText = Object.entries(computeLiveCallsByAttempt)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([attemptKey, trace]) => {
+        const requestId = computeRequestIdByAttempt[Number(attemptKey)] ?? trace.request_id;
+        return `Attempt ${attemptKey} request_id=${requestId}\n${JSON.stringify(trace, null, 2)}`;
+      })
+      .join('\n\n');
+    const text = `# Compute Session\n${header}\n\n# Trace\n${body}\n\n# Live API Calls\n${
+      liveCallsText || 'No live-call trace rows captured.'
+    }`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      setError('Failed to copy diagnostics to clipboard.');
+    }
+  }, [computeLiveCallsByAttempt, computeRequestIdByAttempt, computeSession, computeTrace]);
+
+  const copyLiveCallJson = useCallback(async () => {
+    const payload = {
+      request_ids: computeRequestIdByAttempt,
+      traces: computeLiveCallsByAttempt,
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      appendComputeTrace({
+        level: 'info',
+        step: 'Live-call JSON copied',
+        detail: `Copied ${Object.keys(computeLiveCallsByAttempt).length} attempt trace payload(s).`,
+      });
+    } catch {
+      setError('Failed to copy live-call JSON to clipboard.');
+    }
+  }, [appendComputeTrace, computeLiveCallsByAttempt, computeRequestIdByAttempt]);
+  const copyLatestAiDiagnosticBundle = useCallback(async () => {
+    if (!latestAiDiagnosticBundle) {
+      setError('No diagnostic bundle is available yet.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(latestAiDiagnosticBundle, null, 2));
+      appendComputeTrace({
+        level: 'info',
+        step: 'Diagnostic bundle copied',
+        detail: 'Copied latest AI diagnostic bundle JSON to clipboard.',
+      });
+    } catch {
+      setError('Failed to copy AI diagnostic bundle to clipboard.');
+    }
+  }, [appendComputeTrace, latestAiDiagnosticBundle]);
+
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
+
+  useEffect(() => {
+    if (!computeTraceOpen) return;
+    if (!loading && latestBackendMetaEntry === null) return;
+    const timer = window.setInterval(() => {
+      setComputeTraceNowMs(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [computeTraceOpen, latestBackendMetaEntry, loading]);
 
   useEffect(() => {
     if (!loading) return;
@@ -4015,6 +4726,93 @@ export default function Page() {
       setError('Click the map to set Start, then End.');
       return;
     }
+    let readinessSnapshot: HealthReadyResponse | null = null;
+    try {
+      readinessSnapshot = await getJSON<HealthReadyResponse>('/api/health/ready');
+      setOpsHealthReady(readinessSnapshot);
+    } catch (e: unknown) {
+      const cause = e instanceof Error ? e.message : 'Unable to reach backend /health/ready endpoint.';
+      const reasonCode = 'backend_unreachable';
+      const blockedMessage = `Unable to reach backend /health/ready endpoint. (${reasonCode}) cause=${cause}`;
+      setOpsHealthReady({
+        status: 'not_ready',
+        strict_route_ready: false,
+        recommended_action: 'retry',
+        route_graph: {
+          ok: false,
+          state: 'failed',
+          phase: 'backend_unreachable',
+          last_error: blockedMessage,
+        },
+      });
+      setError(blockedMessage);
+      resetComputeTrace();
+      computeStartedAtMsRef.current = Date.now();
+      setComputeTraceOpen(true);
+      appendComputeTrace({
+        level: 'warn',
+        step: 'Compute blocked',
+        detail: blockedMessage,
+        reasonCode,
+        recoveries: inferComputeRecoveryHints(blockedMessage),
+      });
+      return;
+    }
+    const strictLive = readinessSnapshot?.strict_live;
+    if (strictLive && strictLive.ok === false) {
+      const strictLiveStatus = String(strictLive.status ?? '').trim().toLowerCase();
+      const reasonCode = String(strictLive.reason_code ?? 'scenario_profile_unavailable').trim() || 'scenario_profile_unavailable';
+      const asOf = String(strictLive.as_of_utc ?? '').trim();
+      const ageMinutes = toFiniteNumber(strictLive.age_minutes);
+      const maxAgeMinutes = toFiniteNumber(strictLive.max_age_minutes);
+      const staleDetailParts: string[] = [];
+      if (asOf) staleDetailParts.push(`as_of_utc=${asOf}`);
+      if (ageMinutes !== null) staleDetailParts.push(`age_minutes=${ageMinutes.toFixed(2)}`);
+      if (maxAgeMinutes !== null) staleDetailParts.push(`max_age_minutes=${Math.round(maxAgeMinutes)}`);
+      const staleDetail = staleDetailParts.length ? ` (${staleDetailParts.join('; ')})` : '';
+      const blockedMessage =
+        strictLiveStatus === 'stale'
+          ? `Strict live scenario coefficients are stale${staleDetail}. Refresh live scenario coefficients before retrying.`
+          : String(strictLive.message ?? 'Strict live source readiness failed.').trim() ||
+            'Strict live source readiness failed.';
+      setError(blockedMessage);
+      resetComputeTrace();
+      computeStartedAtMsRef.current = Date.now();
+      setComputeTraceOpen(true);
+      appendComputeTrace({
+        level: 'warn',
+        step: 'Compute blocked',
+        detail: blockedMessage,
+        reasonCode,
+        recoveries: inferComputeRecoveryHints(`${reasonCode} ${blockedMessage}`),
+      });
+      return;
+    }
+    if (!readinessSnapshot || readinessSnapshot.strict_route_ready !== true) {
+      const routeGraph = readinessSnapshot?.route_graph ?? {};
+      const routeGraphStateNow = String(routeGraph.state ?? '').trim().toLowerCase();
+      const routeGraphPhaseNow = String(routeGraph.phase ?? '').trim().toLowerCase();
+      const elapsedLabel = formatDurationCompactMs(toFiniteNumber(routeGraph.elapsed_ms));
+      const phaseLabel = warmupPhaseLabel(routeGraphPhaseNow || routeGraphStateNow);
+      const reasonCode =
+        routeGraphStateNow === 'failed' ? 'routing_graph_warmup_failed' : 'routing_graph_warming_up';
+      const blockedMessage =
+        reasonCode === 'routing_graph_warmup_failed'
+          ? `Routing graph warmup failed: ${String(routeGraph.last_error ?? 'unknown warmup failure')}`
+          : `Routing graph is still warming up (${phaseLabel}; elapsed=${elapsedLabel}). Retry when GET /health/ready reports strict_route_ready=true.`;
+      setError(blockedMessage);
+      resetComputeTrace();
+      computeStartedAtMsRef.current = Date.now();
+      setComputeTraceOpen(true);
+      appendComputeTrace({
+        level: 'warn',
+        step: 'Compute blocked',
+        detail: blockedMessage,
+        reasonCode,
+        recoveries: inferComputeRecoveryHints(reasonCode),
+      });
+      return;
+    }
     markTutorialAction('pref.compute_pareto_click');
 
     const seq = requestSeqRef.current + 1;
@@ -4022,8 +4820,34 @@ export default function Page() {
 
     abortActiveCompute();
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const runController = new AbortController();
+    abortRef.current = runController;
+    const streamStallTimeoutMs = 90_000;
+    const attemptTimeoutMs = parsePositiveIntEnv(process.env.NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS, 1_200_000);
+    const routeFallbackTimeoutMs = parsePositiveIntEnv(
+      process.env.NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS,
+      900_000,
+    );
+    const degradeDefaults = parseDegradeSteps(process.env.NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS);
+    let heartbeatTimer: number | null = null;
+    let activeAttemptNumber: number | null = null;
+    let activeAttemptEndpoint: '/api/pareto/stream' | '/api/pareto' | '/api/route' | null = null;
+    let activeAttemptAlternatives = 0;
+    let activeAttemptTimeoutMs = 0;
+    const liveCallPollTimers = new Map<number, number>();
+    const liveCallRequestByAttempt = new Map<number, string>();
+    const liveCallSummaryByAttempt = new Map<number, string>();
+
+    resetComputeTrace();
+    setComputeLiveCallsByAttempt({});
+    setComputeRequestIdByAttempt({});
+    computeStartedAtMsRef.current = Date.now();
+    setComputeTraceOpen(true);
+    appendComputeTrace({
+      level: 'info',
+      step: 'Compute initialised',
+      detail: `seq=${seq}; mode=${computeMode}; scenario=${scenarioMode}; vehicle=${vehicleType}; origin=(${origin.lat.toFixed(5)},${origin.lon.toFixed(5)}); destination=(${destination.lat.toFixed(5)},${destination.lon.toFixed(5)})`,
+    });
 
     routeBufferRef.current = [];
     clearFlushTimer();
@@ -4043,148 +4867,986 @@ export default function Page() {
     setScenarioCompareLoading(false);
     setAdvancedError(null);
 
+    heartbeatTimer = window.setInterval(() => {
+      const latestProgress = progressRef.current;
+      appendComputeTrace({
+        level: 'info',
+        step: 'Compute heartbeat',
+        detail: `Still running; mode=${computeMode}; attempt=${activeAttemptNumber ?? 0}; endpoint=${activeAttemptEndpoint ?? 'n/a'}; alternatives=${activeAttemptAlternatives || 'n/a'}; timeout_ms=${activeAttemptTimeoutMs || 'n/a'}; progress=${latestProgress ? `${latestProgress.done}/${latestProgress.total}` : 'n/a'}`,
+        attempt: activeAttemptNumber ?? undefined,
+        endpoint: activeAttemptEndpoint ?? undefined,
+        alternativesUsed: activeAttemptAlternatives || undefined,
+        timeoutMs: activeAttemptTimeoutMs || undefined,
+      });
+    }, 15_000);
+
     let advancedPatch: RoutingAdvancedPatch;
     let maxAlternatives = 5;
+    let alternativesSequence: number[] = [maxAlternatives];
     try {
       const parsed = buildAdvancedRequestPatch();
       advancedPatch = parsed.advancedPatch;
       maxAlternatives = parsed.maxAlternatives;
+      alternativesSequence = buildAlternativesSequence(maxAlternatives, degradeDefaults);
+      appendComputeTrace({
+        level: 'info',
+        step: 'Advanced parameters validated',
+        detail: `max_alternatives=${maxAlternatives}; degradation=${alternativesSequence.join('->')}`,
+      });
+      setComputeSession({
+        seq,
+        startedAt: new Date().toISOString(),
+        mode: computeMode,
+        scenario: scenarioMode,
+        vehicle: vehicleType,
+        waypointCount: requestWaypoints.length,
+        maxAlternatives,
+        streamStallTimeoutMs,
+        origin,
+        destination,
+        attemptTimeoutMs,
+        routeFallbackTimeoutMs,
+        degradeSteps: alternativesSequence,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Invalid advanced parameter values.';
+      appendComputeTrace({
+        level: 'error',
+        step: 'Advanced parameter validation failed',
+        detail: msg,
+        recoveries: inferComputeRecoveryHints(msg),
+      });
       setAdvancedError(msg);
       setError(msg);
       setLoading(false);
       abortRef.current = null;
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer);
+      }
       return;
     }
 
-    const paretoBody = buildParetoRequest({
-      origin,
-      destination,
-      waypoints: requestWaypoints,
-      vehicle_type: vehicleType,
-      scenario_mode: scenarioMode,
-      max_alternatives: maxAlternatives,
-      weights: {
-        time: weights.time,
-        money: weights.money,
-        co2: weights.co2,
-      },
-      advanced: advancedPatch,
-    });
-    const routeBody = buildRouteRequest({
-      origin,
-      destination,
-      waypoints: requestWaypoints,
-      vehicle_type: vehicleType,
-      scenario_mode: scenarioMode,
-      max_alternatives: maxAlternatives,
-      weights: {
-        time: weights.time,
-        money: weights.money,
-        co2: weights.co2,
-      },
-      advanced: advancedPatch,
+    const buildParetoBody = (alternatives: number): ParetoRequest =>
+      buildParetoRequest({
+        origin,
+        destination,
+        waypoints: requestWaypoints,
+        vehicle_type: vehicleType,
+        scenario_mode: scenarioMode,
+        max_alternatives: alternatives,
+        weights: {
+          time: weights.time,
+          money: weights.money,
+          co2: weights.co2,
+        },
+        advanced: advancedPatch,
+      });
+    const buildRouteBody = (alternatives: number): RouteRequest =>
+      buildRouteRequest({
+        origin,
+        destination,
+        waypoints: requestWaypoints,
+        vehicle_type: vehicleType,
+        scenario_mode: scenarioMode,
+        max_alternatives: alternatives,
+        weights: {
+          time: weights.time,
+          money: weights.money,
+          co2: weights.co2,
+        },
+        advanced: advancedPatch,
+      });
+    appendComputeTrace({
+      level: 'info',
+      step: 'Payload prepared',
+      detail: `weights(time=${weights.time}, money=${weights.money}, co2=${weights.co2}); normalised(time=${normalisedWeights.time.toFixed(3)}, money=${normalisedWeights.money.toFixed(3)}, co2=${normalisedWeights.co2.toFixed(3)}); waypoints=${requestWaypoints.length}; attempt_timeout_ms=${attemptTimeoutMs}; route_fallback_timeout_ms=${routeFallbackTimeoutMs}`,
     });
 
-    let sawDone = false;
+    type AttemptPlan = {
+      attempt: number;
+      kind: ComputeMode;
+      endpoint: '/api/pareto/stream' | '/api/pareto' | '/api/route';
+      alternatives: number;
+      timeoutMs: number;
+    };
+    type AttemptRuntime = {
+      controller: AbortController;
+      signal: AbortSignal;
+      timeoutTriggered: () => boolean;
+      cleanup: () => void;
+    };
+    type AttemptResult = {
+      ok: boolean;
+      aborted: boolean;
+      message?: string;
+      reasonCode?: string;
+      statusCode?: number;
+    };
+
+    const stopAttemptLiveCallPolling = (attemptNumber: number) => {
+      const timer = liveCallPollTimers.get(attemptNumber);
+      if (typeof timer === 'number') {
+        window.clearInterval(timer);
+        liveCallPollTimers.delete(attemptNumber);
+      }
+    };
+
+    const stopAllLiveCallPolling = () => {
+      liveCallPollTimers.forEach((timer) => {
+        window.clearInterval(timer);
+      });
+      liveCallPollTimers.clear();
+    };
+
+    const isIgnorableLiveCallError = (message: string): boolean => {
+      const lower = message.toLowerCase();
+      return (
+        lower.includes('no live-call trace found') ||
+        lower.includes('debug live-call diagnostics are disabled')
+      );
+    };
+
+    const syncAttemptLiveCalls = async (
+      attempt: AttemptPlan,
+      requestId: string,
+      opts?: { step?: string; forceTrace?: boolean; traceErrors?: boolean },
+    ): Promise<LiveCallTraceResponse | null> => {
+      if (seq !== requestSeqRef.current || runController.signal.aborted) return null;
+      try {
+        const payload = await getJSON<LiveCallTraceResponse>(
+          `/api/debug/live-calls/${encodeURIComponent(requestId)}`,
+        );
+        if (seq !== requestSeqRef.current || runController.signal.aborted) return null;
+        setComputeLiveCallsByAttempt((prev) => ({ ...prev, [attempt.attempt]: payload }));
+        const summary = payload.summary;
+        const summaryKey = `${summary?.total_calls ?? 0}|${summary?.failed_calls ?? 0}|${summary?.expected_satisfied ?? 0}|${summary?.expected_miss_count ?? 0}|${summary?.expected_blocked_count ?? 0}|${payload.status}`;
+        const changed = liveCallSummaryByAttempt.get(attempt.attempt) !== summaryKey;
+        if (changed || opts?.forceTrace) {
+          liveCallSummaryByAttempt.set(attempt.attempt, summaryKey);
+          const blockedExpected = (payload.expected_rollup ?? []).filter((row) => row.status === 'blocked').length;
+          const notReachedExpected = (payload.expected_rollup ?? []).filter((row) => row.status === 'not_reached').length;
+          const missedExpected = (payload.expected_rollup ?? []).filter((row) => row.status === 'miss').length;
+          appendComputeTrace({
+            level: 'info',
+            step: opts?.step ?? 'Live API trace update',
+            detail: `request_id=${requestId}; calls=${summary?.total_calls ?? 0}; requested=${summary?.requested_calls ?? 0}; success=${summary?.successful_calls ?? 0}; failed=${summary?.failed_calls ?? 0}; blocked=${blockedExpected}; not_reached=${notReachedExpected}; miss=${missedExpected}; cache_hits=${summary?.cache_hit_calls ?? 0}; expected=${summary?.expected_satisfied ?? 0}/${summary?.expected_total ?? 0}`,
+            attempt: attempt.attempt,
+            endpoint: attempt.endpoint,
+            requestId,
+            alternativesUsed: attempt.alternatives,
+            timeoutMs: attempt.timeoutMs,
+          });
+        }
+        return payload;
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Failed to fetch live-call diagnostics.';
+        if (isIgnorableLiveCallError(message)) return null;
+        if (opts?.traceErrors === false) return null;
+        const errorKey = `error:${message}`;
+        if (liveCallSummaryByAttempt.get(attempt.attempt) === errorKey) return null;
+        liveCallSummaryByAttempt.set(attempt.attempt, errorKey);
+        appendComputeTrace({
+          level: 'warn',
+          step: 'Live API trace unavailable',
+          detail: message,
+          attempt: attempt.attempt,
+          endpoint: attempt.endpoint,
+          requestId,
+          alternativesUsed: attempt.alternatives,
+          timeoutMs: attempt.timeoutMs,
+        });
+        return null;
+      }
+    };
+
+    const attachAttemptRequestId = (attempt: AttemptPlan, requestIdRaw: string | null | undefined) => {
+      const requestId = String(requestIdRaw || '').trim();
+      if (!requestId) return;
+      const existing = liveCallRequestByAttempt.get(attempt.attempt);
+      if (existing === requestId) return;
+      liveCallRequestByAttempt.set(attempt.attempt, requestId);
+      setComputeRequestIdByAttempt((prev) => ({ ...prev, [attempt.attempt]: requestId }));
+      appendComputeTrace({
+        level: 'info',
+        step: 'Attempt request correlated',
+        detail: `Captured backend request_id for live-call tracing.`,
+        attempt: attempt.attempt,
+        endpoint: attempt.endpoint,
+        requestId,
+        alternativesUsed: attempt.alternatives,
+        timeoutMs: attempt.timeoutMs,
+      });
+
+      stopAttemptLiveCallPolling(attempt.attempt);
+      const pollLiveCalls = async () => {
+        await syncAttemptLiveCalls(attempt, requestId, { step: 'Live API trace update' });
+      };
+
+      void pollLiveCalls();
+      const timer = window.setInterval(() => {
+        void pollLiveCalls();
+      }, 1500);
+      liveCallPollTimers.set(attempt.attempt, timer);
+    };
+
+    const applyParetoPayload = (
+      payload: ParetoResponse,
+      source: 'pareto_json' | 'stream_done' | 'stream_fallback',
+      attempt: AttemptPlan,
+    ) => {
+      if (seq !== requestSeqRef.current) return;
+      const finalRoutes = sortRoutesDeterministic(payload.routes ?? []);
+      startTransition(() => {
+        setParetoRoutes(finalRoutes);
+      });
+      setProgress({ done: finalRoutes.length, total: finalRoutes.length });
+      if (payload.warnings?.length) {
+        const payloadWarnings = payload.warnings ?? [];
+        setWarnings((prev) => dedupeWarnings([...prev, ...payloadWarnings]));
+      }
+      markTutorialAction('pref.compute_pareto_done');
+      appendComputeTrace({
+        level: 'success',
+        step:
+          source === 'pareto_json'
+            ? 'JSON compute complete'
+            : source === 'stream_done'
+              ? 'Stream compute complete'
+              : 'Fallback JSON compute complete',
+        detail: `routes=${finalRoutes.length}`,
+        attempt: attempt.attempt,
+        endpoint: attempt.endpoint,
+        alternativesUsed: attempt.alternatives,
+        timeoutMs: attempt.timeoutMs,
+      });
+    };
+
+    const applyRoutePayload = (
+      payload: RouteResponse,
+      source: 'route_single' | 'json_fallback_single' | 'stream_fallback_single',
+      attempt: AttemptPlan,
+    ) => {
+      if (seq !== requestSeqRef.current) return;
+      const routeMap = new Map<string, RouteOption>();
+      [payload.selected, ...(payload.candidates ?? [])].forEach((route) => routeMap.set(route.id, route));
+      const finalRoutes = sortRoutesDeterministic(Array.from(routeMap.values()));
+      startTransition(() => {
+        setParetoRoutes(finalRoutes);
+      });
+      setSelectedId(payload.selected.id);
+      setProgress({ done: finalRoutes.length, total: finalRoutes.length });
+      markTutorialAction('pref.compute_pareto_done');
+      appendComputeTrace({
+        level: 'success',
+        step:
+          source === 'route_single'
+            ? 'Single-route compute complete'
+            : source === 'json_fallback_single'
+              ? 'JSON fallback converted to single-route complete'
+              : 'Stream fallback converted to single-route complete',
+        detail: `selected=${payload.selected.id}; candidates=${finalRoutes.length}`,
+        attempt: attempt.attempt,
+        endpoint: attempt.endpoint,
+        alternativesUsed: attempt.alternatives,
+        timeoutMs: attempt.timeoutMs,
+      });
+    };
+
+    const startAttemptRuntime = (attempt: AttemptPlan): AttemptRuntime => {
+      const controller = new AbortController();
+      let timeoutTriggered = false;
+      const onRunAbort = () => {
+        try {
+          controller.abort(runController.signal.reason ?? new Error('compute_run_aborted'));
+        } catch {
+          controller.abort();
+        }
+      };
+      if (runController.signal.aborted) {
+        onRunAbort();
+      } else {
+        runController.signal.addEventListener('abort', onRunAbort, { once: true });
+      }
+      const timeoutId = window.setTimeout(() => {
+        timeoutTriggered = true;
+        try {
+          controller.abort(new Error(`attempt_timeout:${attempt.timeoutMs}`));
+        } catch {
+          controller.abort();
+        }
+      }, attempt.timeoutMs);
+      activeAttemptAbortRef.current = controller;
+      return {
+        controller,
+        signal: controller.signal,
+        timeoutTriggered: () => timeoutTriggered,
+        cleanup: () => {
+          window.clearTimeout(timeoutId);
+          runController.signal.removeEventListener('abort', onRunAbort);
+          stopAttemptLiveCallPolling(attempt.attempt);
+          if (activeAttemptAbortRef.current === controller) {
+            activeAttemptAbortRef.current = null;
+          }
+        },
+      };
+    };
+
+    const transitionDetail = (from: AttemptPlan, to: AttemptPlan): string => {
+      const alternativesNote =
+        from.alternatives === to.alternatives
+          ? `alternatives=${to.alternatives}`
+          : `degraded alternatives ${from.alternatives} -> ${to.alternatives}`;
+      return `Switching from ${from.endpoint} to ${to.endpoint}; ${alternativesNote}; timeout_ms=${to.timeoutMs}.`;
+    };
+
+    const attemptPlans: AttemptPlan[] =
+      computeMode === 'pareto_stream'
+        ? [
+            {
+              attempt: 1,
+              kind: 'pareto_stream',
+              endpoint: '/api/pareto/stream',
+              alternatives: alternativesSequence[0] ?? Math.max(1, maxAlternatives),
+              timeoutMs: attemptTimeoutMs,
+            },
+            {
+              attempt: 2,
+              kind: 'pareto_json',
+              endpoint: '/api/pareto',
+              alternatives: alternativesSequence[1] ?? alternativesSequence[0] ?? Math.max(1, maxAlternatives),
+              timeoutMs: attemptTimeoutMs,
+            },
+            {
+              attempt: 3,
+              kind: 'route_single',
+              endpoint: '/api/route',
+              alternatives:
+                alternativesSequence[2] ??
+                alternativesSequence[1] ??
+                alternativesSequence[0] ??
+                Math.max(1, maxAlternatives),
+              timeoutMs: routeFallbackTimeoutMs,
+            },
+          ]
+        : computeMode === 'pareto_json'
+          ? [
+              {
+                attempt: 1,
+                kind: 'pareto_json',
+                endpoint: '/api/pareto',
+                alternatives: alternativesSequence[0] ?? Math.max(1, maxAlternatives),
+                timeoutMs: attemptTimeoutMs,
+              },
+              {
+                attempt: 2,
+                kind: 'route_single',
+                endpoint: '/api/route',
+                alternatives: alternativesSequence[1] ?? alternativesSequence[0] ?? Math.max(1, maxAlternatives),
+                timeoutMs: routeFallbackTimeoutMs,
+              },
+            ]
+          : [
+              {
+                attempt: 1,
+                kind: 'route_single',
+                endpoint: '/api/route',
+                alternatives: alternativesSequence[0] ?? Math.max(1, maxAlternatives),
+                timeoutMs: routeFallbackTimeoutMs,
+              },
+            ];
 
     try {
-      if (computeMode === 'pareto_stream') {
-        await postNDJSON<ParetoStreamEvent>('/api/pareto/stream', paretoBody, {
-          signal: controller.signal,
-          onEvent: (event) => {
-            if (seq !== requestSeqRef.current) return;
+      let succeeded = false;
+      let finalFailure: AttemptResult | null = null;
 
-            switch (event.type) {
-              case 'meta': {
-                setProgress({ done: 0, total: event.total });
-                return;
-              }
+      for (let idx = 0; idx < attemptPlans.length; idx += 1) {
+        const attempt = attemptPlans[idx];
+        if (seq !== requestSeqRef.current || runController.signal.aborted) return;
 
-              case 'route': {
-                routeBufferRef.current.push(event.route);
-                scheduleRouteFlush(seq);
-                setProgress({ done: event.done, total: event.total });
-                return;
-              }
+        const runtime = startAttemptRuntime(attempt);
+        activeAttemptNumber = attempt.attempt;
+        activeAttemptEndpoint = attempt.endpoint;
+        activeAttemptAlternatives = attempt.alternatives;
+        activeAttemptTimeoutMs = attempt.timeoutMs;
+        setProgress({ done: 0, total: Math.max(1, attempt.alternatives) });
+        setComputeTraceNowMs(Date.now());
 
-              case 'error': {
-                setProgress({ done: event.done, total: event.total });
-                setWarnings((prev) => dedupeWarnings([...prev, event.message]));
-                return;
-              }
-
-              case 'fatal': {
-                setError(event.message || 'Route computation failed.');
-                return;
-              }
-
-              case 'done': {
-                sawDone = true;
-                flushRouteBufferNow(seq);
-                markTutorialAction('pref.compute_pareto_done');
-
-                const finalRoutes = sortRoutesDeterministic(event.routes ?? []);
-                startTransition(() => {
-                  setParetoRoutes(finalRoutes);
-                });
-
-                setProgress({ done: event.done, total: event.total });
-                const doneWarnings = event.warnings ?? [];
-                if (doneWarnings.length) {
-                  setWarnings((prev) => dedupeWarnings([...prev, ...doneWarnings]));
-                }
-                return;
-              }
-
-              default:
-                return;
-            }
-          },
+        appendComputeTrace({
+          level: 'info',
+          step: 'Attempt started',
+          detail: `attempt=${attempt.attempt}; endpoint=${attempt.endpoint}; alternatives=${attempt.alternatives}; timeout_ms=${attempt.timeoutMs}`,
+          attempt: attempt.attempt,
+          endpoint: attempt.endpoint,
+          alternativesUsed: attempt.alternatives,
+          timeoutMs: attempt.timeoutMs,
         });
 
-        if (seq === requestSeqRef.current) {
-          flushRouteBufferNow(seq);
-          if (!sawDone) {
-            startTransition(() => {
-              setParetoRoutes((prev) => sortRoutesDeterministic(prev));
+        const runAttempt = async (): Promise<AttemptResult> => {
+          if (attempt.kind === 'pareto_stream') {
+            let sawDone = false;
+            let streamFatalMessage: string | null = null;
+            let streamFatalReasonCode: string | undefined;
+            let previousMetaStage = '';
+            let previousMetaDetail = '';
+            let previousMetaHeartbeat = -1;
+            let previousMetaDone = -1;
+            let previousMetaTotal = -1;
+
+            appendComputeTrace({
+              level: 'info',
+              step: 'Starting stream request',
+              detail: `POST /api/pareto/stream; idle_timeout_ms=${streamStallTimeoutMs}`,
+              attempt: attempt.attempt,
+              endpoint: attempt.endpoint,
+              alternativesUsed: attempt.alternatives,
+              timeoutMs: attempt.timeoutMs,
             });
+
+            try {
+              await postNDJSON<ParetoStreamEvent>('/api/pareto/stream', buildParetoBody(attempt.alternatives), {
+                signal: runtime.signal,
+                stallTimeoutMs: streamStallTimeoutMs,
+                onEvent: (event) => {
+                  if (seq !== requestSeqRef.current) return;
+                  if (runController.signal.aborted) return;
+
+                  switch (event.type) {
+                    case 'meta': {
+                      const done =
+                        typeof event.candidate_done === 'number'
+                          ? event.candidate_done
+                          : typeof event.done === 'number'
+                            ? event.done
+                            : 0;
+                      const total =
+                        typeof event.candidate_total === 'number' && event.candidate_total > 0
+                          ? event.candidate_total
+                          : event.total;
+                      setProgress({ done, total });
+                      const stage = event.stage ?? 'collecting_candidates';
+                      const stageDetail = event.stage_detail ?? 'n/a';
+                      const heartbeat = typeof event.heartbeat === 'number' ? event.heartbeat : -1;
+                      const requestId = event.request_id;
+                      if (requestId) {
+                        attachAttemptRequestId(attempt, requestId);
+                      }
+                      const shouldTrace =
+                        stage !== previousMetaStage ||
+                        stageDetail !== previousMetaDetail ||
+                        heartbeat !== previousMetaHeartbeat ||
+                        done !== previousMetaDone ||
+                        total !== previousMetaTotal;
+                      if (shouldTrace) {
+                        appendComputeTrace({
+                          level: 'info',
+                          step: heartbeat > 0 ? 'Compute heartbeat' : 'Stream metadata received',
+                          detail:
+                            `stage=${stage}; stage_detail=${stageDetail}; heartbeat=${Math.max(0, heartbeat)}; progress=${done}/${total}` +
+                            (requestId ? `; request_id=${requestId}` : ''),
+                          attempt: attempt.attempt,
+                          endpoint: attempt.endpoint,
+                          requestId,
+                          stage,
+                          stageDetail,
+                          backendElapsedMs: event.elapsed_ms,
+                          stageElapsedMs: event.stage_elapsed_ms,
+                          candidateDiagnostics: event.candidate_diagnostics ?? null,
+                          alternativesUsed: attempt.alternatives,
+                          timeoutMs: attempt.timeoutMs,
+                        });
+                        previousMetaStage = stage;
+                        previousMetaDetail = stageDetail;
+                        previousMetaHeartbeat = heartbeat;
+                        previousMetaDone = done;
+                        previousMetaTotal = total;
+                      }
+                      return;
+                    }
+
+                    case 'route': {
+                      routeBufferRef.current.push(event.route);
+                      scheduleRouteFlush(seq);
+                      setProgress({ done: event.done, total: event.total });
+                      appendComputeTrace({
+                        level: 'info',
+                        step: `Candidate route ${event.done}/${event.total}`,
+                        detail: `${event.route.id} duration=${event.route.metrics.duration_s.toFixed(1)}s cost=${event.route.metrics.monetary_cost.toFixed(2)} co2=${event.route.metrics.emissions_kg.toFixed(3)}kg`,
+                        attempt: attempt.attempt,
+                        endpoint: attempt.endpoint,
+                        alternativesUsed: attempt.alternatives,
+                        timeoutMs: attempt.timeoutMs,
+                      });
+                      return;
+                    }
+
+                    case 'error': {
+                      setProgress({ done: event.done, total: event.total });
+                      setWarnings((prev) => dedupeWarnings([...prev, event.message]));
+                      appendComputeTrace({
+                        level: 'warn',
+                        step: `Candidate warning ${event.done}/${event.total}`,
+                        detail: event.message,
+                        attempt: attempt.attempt,
+                        endpoint: attempt.endpoint,
+                        alternativesUsed: attempt.alternatives,
+                        timeoutMs: attempt.timeoutMs,
+                      });
+                      return;
+                    }
+
+                    case 'fatal': {
+                      const fatalMessage = event.message || 'Route computation failed.';
+                      streamFatalMessage = fatalMessage;
+                      streamFatalReasonCode = event.reason_code;
+                      if (event.request_id) {
+                        attachAttemptRequestId(attempt, event.request_id);
+                      }
+                      setWarnings((prev) =>
+                        dedupeWarnings([
+                          ...prev,
+                          `Stream returned fatal event (${event.reason_code ?? 'unknown'}): ${fatalMessage}`,
+                        ]),
+                      );
+                      appendComputeTrace({
+                        level: 'error',
+                        step: 'Stream fatal error',
+                        detail: fatalMessage,
+                        reasonCode: event.reason_code,
+                        recoveries: inferComputeRecoveryHints(fatalMessage),
+                        attempt: attempt.attempt,
+                        endpoint: attempt.endpoint,
+                        requestId: event.request_id,
+                        stage: event.stage,
+                        stageDetail: event.stage_detail,
+                        backendElapsedMs: event.elapsed_ms,
+                        stageElapsedMs: event.stage_elapsed_ms,
+                        candidateDiagnostics: event.candidate_diagnostics ?? null,
+                        failureChain: event.failure_chain ?? null,
+                        alternativesUsed: attempt.alternatives,
+                        timeoutMs: attempt.timeoutMs,
+                      });
+                      return;
+                    }
+
+                    case 'done': {
+                      sawDone = true;
+                      flushRouteBufferNow(seq);
+                      if (seq !== requestSeqRef.current) return;
+                      setProgress({ done: event.done, total: event.total });
+                      const doneWarnings = event.warnings ?? [];
+                      if (doneWarnings.length) {
+                        setWarnings((prev) => dedupeWarnings([...prev, ...doneWarnings]));
+                      }
+                      applyParetoPayload(
+                        { routes: event.routes ?? [], warnings: doneWarnings },
+                        'stream_done',
+                        attempt,
+                      );
+                      if (event.candidate_diagnostics) {
+                        appendComputeTrace({
+                          level: 'info',
+                          step: 'Stream diagnostics snapshot',
+                          detail: `Graph and prefetch diagnostics captured for ${event.done}/${event.total} routes.`,
+                          attempt: attempt.attempt,
+                          endpoint: attempt.endpoint,
+                          candidateDiagnostics: event.candidate_diagnostics,
+                          alternativesUsed: attempt.alternatives,
+                          timeoutMs: attempt.timeoutMs,
+                        });
+                      }
+                      return;
+                    }
+
+                    default:
+                      return;
+                  }
+                },
+              });
+
+              if (seq !== requestSeqRef.current || runController.signal.aborted) {
+                return { ok: false, aborted: true };
+              }
+              flushRouteBufferNow(seq);
+              if (streamFatalMessage !== null) {
+                return {
+                  ok: false,
+                  aborted: false,
+                  message: streamFatalMessage,
+                  reasonCode: streamFatalReasonCode,
+                };
+              }
+              if (!sawDone) {
+                return {
+                  ok: false,
+                  aborted: false,
+                  message: 'Streaming ended without a terminal done event.',
+                  reasonCode: 'stream_incomplete',
+                };
+              }
+              return { ok: true, aborted: false };
+            } catch (streamError: unknown) {
+              if (seq !== requestSeqRef.current || runController.signal.aborted) {
+                return { ok: false, aborted: true };
+              }
+              const streamMessage = runtime.timeoutTriggered()
+                ? `Stream attempt timed out after ${attempt.timeoutMs}ms`
+                : streamError instanceof Error
+                  ? streamError.message
+                  : 'Unknown streaming error';
+              const streamReasonCode = extractReasonCodeFromMessage(streamMessage);
+              appendComputeTrace({
+                level: 'error',
+                step: 'Stream transport failed',
+                detail: streamMessage,
+                reasonCode: streamReasonCode,
+                recoveries: inferComputeRecoveryHints(streamMessage),
+                attempt: attempt.attempt,
+                endpoint: attempt.endpoint,
+                alternativesUsed: attempt.alternatives,
+                timeoutMs: attempt.timeoutMs,
+              });
+              return {
+                ok: false,
+                aborted: false,
+                message: streamMessage,
+                reasonCode: streamReasonCode,
+              };
+            }
           }
+
+          if (attempt.kind === 'pareto_json') {
+            appendComputeTrace({
+              level: 'info',
+              step: 'Starting JSON Pareto request',
+              detail: 'POST /api/pareto',
+              attempt: attempt.attempt,
+              endpoint: attempt.endpoint,
+              alternativesUsed: attempt.alternatives,
+              timeoutMs: attempt.timeoutMs,
+            });
+            try {
+              const { data: payload, response: rawResponse } = await postJSONWithMeta<ParetoResponse>(
+                '/api/pareto',
+                buildParetoBody(attempt.alternatives),
+                runtime.signal,
+              );
+              const requestId = rawResponse.headers.get('x-route-request-id');
+              if (requestId) {
+                attachAttemptRequestId(attempt, requestId);
+              }
+              if (seq !== requestSeqRef.current || runController.signal.aborted) {
+                return { ok: false, aborted: true };
+              }
+              applyParetoPayload(payload, 'pareto_json', attempt);
+              return { ok: true, aborted: false };
+            } catch (jsonError: unknown) {
+              if (seq !== requestSeqRef.current || runController.signal.aborted) {
+                return { ok: false, aborted: true };
+              }
+              const jsonResponse =
+                jsonError &&
+                typeof jsonError === 'object' &&
+                'response' in jsonError &&
+                (jsonError as { response?: Response }).response instanceof Response
+                  ? (jsonError as { response: Response }).response
+                  : null;
+              const jsonRequestId = jsonResponse?.headers.get('x-route-request-id');
+              const jsonStatusCode = jsonResponse?.status;
+              if (jsonRequestId) {
+                attachAttemptRequestId(attempt, jsonRequestId);
+              }
+              const jsonMessage = runtime.timeoutTriggered()
+                ? `JSON attempt timed out after ${attempt.timeoutMs}ms`
+                : jsonError instanceof Error
+                  ? jsonError.message
+                  : 'Unknown JSON compute error';
+              const jsonReasonCode = extractReasonCodeFromMessage(jsonMessage);
+              appendComputeTrace({
+                level: 'error',
+                step: 'JSON Pareto request failed',
+                detail: jsonMessage,
+                reasonCode: jsonReasonCode,
+                recoveries: inferComputeRecoveryHints(jsonMessage),
+                attempt: attempt.attempt,
+                endpoint: attempt.endpoint,
+                alternativesUsed: attempt.alternatives,
+                timeoutMs: attempt.timeoutMs,
+              });
+              return {
+                ok: false,
+                aborted: false,
+                message: jsonMessage,
+                reasonCode: jsonReasonCode,
+                statusCode: jsonStatusCode,
+              };
+            }
+          }
+
+          appendComputeTrace({
+            level: 'info',
+            step: 'Starting single-route request',
+            detail: 'POST /api/route',
+            attempt: attempt.attempt,
+            endpoint: attempt.endpoint,
+            alternativesUsed: attempt.alternatives,
+            timeoutMs: attempt.timeoutMs,
+          });
+          try {
+            const { data: payload, response: rawResponse } = await postJSONWithMeta<RouteResponse>(
+              '/api/route',
+              buildRouteBody(attempt.alternatives),
+              runtime.signal,
+            );
+            const requestId = rawResponse.headers.get('x-route-request-id');
+            if (requestId) {
+              attachAttemptRequestId(attempt, requestId);
+            }
+            if (seq !== requestSeqRef.current || runController.signal.aborted) {
+              return { ok: false, aborted: true };
+            }
+            applyRoutePayload(payload, 'route_single', attempt);
+            return { ok: true, aborted: false };
+          } catch (routeError: unknown) {
+            if (seq !== requestSeqRef.current || runController.signal.aborted) {
+              return { ok: false, aborted: true };
+            }
+            const routeResponse =
+              routeError &&
+              typeof routeError === 'object' &&
+              'response' in routeError &&
+              (routeError as { response?: Response }).response instanceof Response
+                ? (routeError as { response: Response }).response
+                : null;
+            const routeRequestId = routeResponse?.headers.get('x-route-request-id');
+            const routeStatusCode = routeResponse?.status;
+            if (routeRequestId) {
+              attachAttemptRequestId(attempt, routeRequestId);
+            }
+            const routeMessage = runtime.timeoutTriggered()
+              ? `Single-route attempt timed out after ${attempt.timeoutMs}ms`
+              : routeError instanceof Error
+                ? routeError.message
+                : 'Unknown single-route compute error';
+            const routeReasonCode = extractReasonCodeFromMessage(routeMessage);
+            appendComputeTrace({
+              level: 'error',
+              step: 'Single-route request failed',
+              detail: routeMessage,
+              reasonCode: routeReasonCode,
+              recoveries: inferComputeRecoveryHints(routeMessage),
+              attempt: attempt.attempt,
+              endpoint: attempt.endpoint,
+              alternativesUsed: attempt.alternatives,
+              timeoutMs: attempt.timeoutMs,
+            });
+            return {
+              ok: false,
+              aborted: false,
+              message: routeMessage,
+              reasonCode: routeReasonCode,
+              statusCode: routeStatusCode,
+            };
+          }
+        };
+
+        const result = await runAttempt();
+
+        if (!result.ok && !result.aborted && idx < attemptPlans.length - 1) {
+          if (!runtime.signal.aborted) {
+            try {
+              runtime.controller.abort(new Error('fallback_transition'));
+            } catch {
+              runtime.controller.abort();
+            }
+          }
+          appendComputeTrace({
+            level: 'warn',
+            step: 'Attempt aborted before fallback',
+            detail: `Cancelled attempt ${attempt.attempt} (${attempt.endpoint}) before starting fallback.`,
+            attempt: attempt.attempt,
+            endpoint: attempt.endpoint,
+            alternativesUsed: attempt.alternatives,
+            timeoutMs: attempt.timeoutMs,
+            abortReason: 'fallback_transition',
+          });
         }
-      } else if (computeMode === 'pareto_json') {
-        const payload = await postJSON<ParetoResponse>('/api/pareto', paretoBody, controller.signal);
-        if (seq !== requestSeqRef.current) return;
-        const finalRoutes = sortRoutesDeterministic(payload.routes ?? []);
-        startTransition(() => {
-          setParetoRoutes(finalRoutes);
-        });
-        setProgress({ done: finalRoutes.length, total: finalRoutes.length });
-        if (payload.warnings?.length) {
-          setWarnings(dedupeWarnings(payload.warnings));
+
+        const attemptRequestId = liveCallRequestByAttempt.get(attempt.attempt) ?? null;
+        if (attemptRequestId) {
+          await syncAttemptLiveCalls(attempt, attemptRequestId, {
+            step: 'Live API trace final sync',
+            forceTrace: true,
+            traceErrors: false,
+          });
         }
-        markTutorialAction('pref.compute_pareto_done');
-      } else {
-        const payload = await postJSON<RouteResponse>('/api/route', routeBody, controller.signal);
-        if (seq !== requestSeqRef.current) return;
-        const routeMap = new Map<string, RouteOption>();
-        [payload.selected, ...(payload.candidates ?? [])].forEach((route) => routeMap.set(route.id, route));
-        const finalRoutes = sortRoutesDeterministic(Array.from(routeMap.values()));
-        startTransition(() => {
-          setParetoRoutes(finalRoutes);
-        });
-        setSelectedId(payload.selected.id);
-        setProgress({ done: finalRoutes.length, total: finalRoutes.length });
-        markTutorialAction('pref.compute_pareto_done');
+        runtime.cleanup();
+
+        if (result.ok) {
+          succeeded = true;
+          break;
+        }
+        if (result.aborted) {
+          return;
+        }
+
+        finalFailure = result;
+        const transportReasonCodes = new Set([
+          'backend_headers_timeout',
+          'backend_body_timeout',
+          'backend_connection_reset',
+          'backend_unreachable',
+          'stream_incomplete',
+        ]);
+        const isStrictBusiness4xx =
+          typeof result.statusCode === 'number' &&
+          result.statusCode >= 400 &&
+          result.statusCode < 500 &&
+          !(
+            typeof result.reasonCode === 'string' &&
+            transportReasonCodes.has(result.reasonCode)
+          );
+        if (isStrictBusiness4xx) {
+          const strictDetail = `Strict business failure returned HTTP ${result.statusCode}${
+            result.reasonCode ? ` (reason_code=${result.reasonCode})` : ''
+          }; skipping additional fallback attempts.`;
+          appendComputeTrace({
+            level: 'warn',
+            step: 'Fallback halted (strict business failure)',
+            detail: strictDetail,
+            reasonCode: result.reasonCode,
+            recoveries: inferComputeRecoveryHints(result.reasonCode ?? strictDetail),
+            attempt: attempt.attempt,
+            endpoint: attempt.endpoint,
+            alternativesUsed: attempt.alternatives,
+            timeoutMs: attempt.timeoutMs,
+          });
+          break;
+        }
+        const stopFallbackReasonCodes = new Set([
+          'routing_graph_no_path',
+          'routing_graph_unavailable',
+          'routing_graph_fragmented',
+          'routing_graph_disconnected_od',
+          'routing_graph_coverage_gap',
+          'routing_graph_precheck_timeout',
+          'routing_graph_warming_up',
+          'routing_graph_warmup_failed',
+          'live_source_refresh_failed',
+          'scenario_profile_unavailable',
+          'scenario_profile_invalid',
+        ]);
+        if (result.reasonCode && stopFallbackReasonCodes.has(result.reasonCode)) {
+          const haltDetail =
+            result.reasonCode === 'routing_graph_warming_up'
+              ? 'Routing graph warmup is still in progress; skipping additional fallback attempts.'
+              : result.reasonCode === 'routing_graph_warmup_failed'
+                ? 'Routing graph warmup failed; skipping additional fallback attempts.'
+                : result.reasonCode === 'routing_graph_fragmented'
+                  ? 'Routing graph is fragmented under strict caps; skipping additional fallback attempts.'
+                  : result.reasonCode === 'routing_graph_disconnected_od'
+                    ? 'Origin and destination are disconnected in the loaded graph; skipping additional fallback attempts.'
+                    : result.reasonCode === 'routing_graph_coverage_gap'
+                      ? 'Graph coverage gap detected near origin/destination; skipping additional fallback attempts.'
+                      : result.reasonCode === 'routing_graph_precheck_timeout'
+                        ? 'Graph feasibility precheck timed out; skipping additional fallback attempts.'
+                      : result.reasonCode === 'routing_graph_no_path'
+                        ? 'Routing graph search exhausted without a feasible path; skipping additional fallback attempts.'
+                      : result.reasonCode === 'routing_graph_unavailable'
+                        ? 'Routing graph assets are unavailable; skipping additional fallback attempts.'
+                      : result.reasonCode === 'live_source_refresh_failed'
+                        ? 'Strict live-source refresh gate failed; skipping additional fallback attempts.'
+                : 'Strict live scenario data is unavailable/invalid; skipping additional fallback attempts.';
+          appendComputeTrace({
+            level: 'warn',
+            step: 'Fallback halted',
+            detail: haltDetail,
+            reasonCode: result.reasonCode,
+            recoveries: inferComputeRecoveryHints(result.reasonCode),
+            attempt: attempt.attempt,
+            endpoint: attempt.endpoint,
+            alternativesUsed: attempt.alternatives,
+            timeoutMs: attempt.timeoutMs,
+          });
+          break;
+        }
+        if (idx < attemptPlans.length - 1) {
+          const nextAttempt = attemptPlans[idx + 1];
+          appendComputeTrace({
+            level: 'warn',
+            step:
+              nextAttempt.kind === 'pareto_json'
+                ? 'Retrying with JSON fallback'
+                : nextAttempt.kind === 'route_single'
+                  ? 'Retrying with single-route fallback'
+                  : 'Retrying stream attempt',
+            detail: transitionDetail(attempt, nextAttempt),
+            attempt: nextAttempt.attempt,
+            endpoint: nextAttempt.endpoint,
+            alternativesUsed: nextAttempt.alternatives,
+            timeoutMs: nextAttempt.timeoutMs,
+          });
+        }
+      }
+
+      if (!succeeded) {
+        if (finalFailure?.message) {
+          const tagged = finalFailure.reasonCode
+            ? `${finalFailure.message} (${finalFailure.reasonCode})`
+            : finalFailure.message;
+          throw new Error(tagged);
+        }
+        throw new Error('Route computation failed after all fallback attempts.');
       }
     } catch (e: unknown) {
       if (seq !== requestSeqRef.current) return;
-      if (controller.signal.aborted) return;
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      if (runController.signal.aborted) return;
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      const reasonCode = extractReasonCodeFromMessage(message);
+      const recoveries = inferComputeRecoveryHints(message);
+      appendComputeTrace({
+        level: 'error',
+        step: 'Compute failed',
+        detail: message,
+        reasonCode,
+        recoveries,
+        attempt: activeAttemptNumber ?? undefined,
+        endpoint: activeAttemptEndpoint ?? undefined,
+        alternativesUsed: activeAttemptAlternatives || undefined,
+        timeoutMs: activeAttemptTimeoutMs || undefined,
+      });
+      setError(message);
     } finally {
+      stopAllLiveCallPolling();
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer);
+      }
+      const finalAttempt =
+        typeof activeAttemptNumber === 'number' && activeAttemptNumber > 0
+          ? attemptPlans.find((item) => item.attempt === activeAttemptNumber) ?? null
+          : null;
+      if (finalAttempt) {
+        const finalRequestId = liveCallRequestByAttempt.get(finalAttempt.attempt) ?? null;
+        if (finalRequestId) {
+          await syncAttemptLiveCalls(finalAttempt, finalRequestId, {
+            step: 'Live API trace terminal sync',
+            forceTrace: true,
+            traceErrors: false,
+          });
+        }
+      }
       if (seq === requestSeqRef.current) {
         abortRef.current = null;
+        activeAttemptAbortRef.current = null;
         setLoading(false);
+        appendComputeTrace({
+          level: 'info',
+          step: 'Compute finished',
+          detail: `Request lifecycle ended; aborted=${runController.signal.aborted}`,
+          attempt: activeAttemptNumber ?? undefined,
+          endpoint: activeAttemptEndpoint ?? undefined,
+          alternativesUsed: activeAttemptAlternatives || undefined,
+          timeoutMs: activeAttemptTimeoutMs || undefined,
+        });
       }
     }
   }
@@ -4442,18 +6104,40 @@ export default function Page() {
     setOpsLoading(true);
     setOpsError(null);
     try {
-      const [health, metrics, cacheStats] = await Promise.all([
+      const [health, healthReady, metrics, cacheStats] = await Promise.all([
         getJSON<HealthResponse>('/api/health'),
+        getJSON<HealthReadyResponse>('/api/health/ready'),
         getJSON<MetricsResponse>('/api/metrics'),
         getJSON<CacheStatsResponse>('/api/cache/stats'),
       ]);
       setOpsHealth(health);
+      setOpsHealthReady(healthReady);
       setOpsMetrics(metrics);
       setOpsCacheStats(cacheStats);
     } catch (e: unknown) {
       setOpsError(e instanceof Error ? e.message : 'Failed to load ops diagnostics.');
     } finally {
       setOpsLoading(false);
+    }
+  }
+
+  async function refreshRouteReadiness() {
+    try {
+      const readiness = await getJSON<HealthReadyResponse>('/api/health/ready');
+      setOpsHealthReady(readiness);
+    } catch (e: unknown) {
+      const cause = e instanceof Error ? e.message : 'Unable to reach backend /health/ready endpoint.';
+      setOpsHealthReady({
+        status: 'not_ready',
+        strict_route_ready: false,
+        recommended_action: 'retry',
+        route_graph: {
+          ok: false,
+          state: 'failed',
+          phase: 'backend_unreachable',
+          last_error: cause,
+        },
+      });
     }
   }
 
@@ -5105,6 +6789,7 @@ export default function Page() {
           focusPinRequest={focusPinRequest}
           fitAllRequestNonce={fitAllRequestNonce}
           route={selectedRoute}
+          failureOverlay={mapFailureOverlay}
           timeLapsePosition={timeLapsePosition}
           dutyStops={dutyStopsForOverlay}
           showStopOverlay={showStopOverlay}
@@ -5143,6 +6828,39 @@ export default function Page() {
             }
           }}
         />
+        {mapFailureOverlay ? (
+          <section className="mapFailureCard" role="status" aria-live="polite" aria-label="Route compute failure">
+            <div className="mapFailureCard__title">Route compute failed</div>
+            <div className="mapFailureCard__reason">reason_code={mapFailureOverlay.reason_code}</div>
+            {mapFailureOverlay.stage ? (
+              <div className="mapFailureCard__stage">
+                stage={mapFailureOverlay.stage}
+                {mapFailureOverlay.stage_detail ? `; detail=${mapFailureOverlay.stage_detail}` : ''}
+              </div>
+            ) : null}
+            <div className="mapFailureCard__message">{mapFailureOverlay.message}</div>
+            <div className="mapFailureCard__actions">
+              <button
+                type="button"
+                className="ghostButton"
+                onClick={() => {
+                  setComputeTraceOpen((prev) => !prev);
+                }}
+              >
+                {computeTraceOpen ? 'Hide compute log' : 'Show compute log'}
+              </button>
+              <button
+                type="button"
+                className="ghostButton"
+                onClick={() => {
+                  void copyLatestAiDiagnosticBundle();
+                }}
+              >
+                Copy diagnostic bundle
+              </button>
+            </div>
+          </section>
+        ) : null}
       </div>
 
       {!tutorialRunning ? (
@@ -5442,6 +7160,72 @@ export default function Page() {
                   onChange={setComputeMode}
                 />
 
+                {routeWarmupShowCard && (
+                  <div className={routeReadinessCardClassName} role="status" aria-live="polite">
+                    <div className="routeReadinessCard__head">
+                      <span className="routeReadinessCard__title">Route Graph Warmup</span>
+                      <span className="routeReadinessCard__state">{routeReadinessSummary}</span>
+                    </div>
+                    <div className="routeReadinessCard__phase">
+                      Phase: {routeWarmupPhaseLabel}
+                    </div>
+                    {routeGraphState === 'loading' && (
+                      <>
+                        <div
+                          className="routeReadinessCard__meter"
+                          role="progressbar"
+                          aria-label="Route graph warmup progress"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={routeWarmupProgressPct}
+                        >
+                          <span
+                            className="routeReadinessCard__meterFill"
+                            style={{ width: `${routeWarmupProgressPct}%` }}
+                          />
+                        </div>
+                        <div className="routeReadinessCard__meta">
+                          <div>
+                            <div className="routeReadinessCard__metaLabel">Progress</div>
+                            <div className="routeReadinessCard__metaValue">{routeWarmupProgressPct}%</div>
+                          </div>
+                          <div>
+                            <div className="routeReadinessCard__metaLabel">Elapsed</div>
+                            <div className="routeReadinessCard__metaValue">{routeWarmupElapsedLabel}</div>
+                          </div>
+                          <div>
+                            <div className="routeReadinessCard__metaLabel">Remaining</div>
+                            <div className="routeReadinessCard__metaValue">{routeWarmupRemainingLabel}</div>
+                          </div>
+                          <div>
+                            <div className="routeReadinessCard__metaLabel">Baseline</div>
+                            <div className="routeReadinessCard__metaValue">{routeWarmupBaselineLabel}</div>
+                          </div>
+                        </div>
+                        {routeWarmupOverrunLabel && (
+                          <div className="routeReadinessCard__overrun">{routeWarmupOverrunLabel}</div>
+                        )}
+                      </>
+                    )}
+                    <div className="routeReadinessCard__diag">
+                      nodes_seen={formatNumber(routeGraphNodesSeen, locale, { maximumFractionDigits: 0 })}; nodes_kept=
+                      {formatNumber(routeGraphNodesKept, locale, { maximumFractionDigits: 0 })}; edges_seen=
+                      {formatNumber(routeGraphEdgesSeen, locale, { maximumFractionDigits: 0 })}; edges_kept=
+                      {formatNumber(routeGraphEdgesKept, locale, { maximumFractionDigits: 0 })}
+                    </div>
+                    {routeGraphState === 'failed' && (
+                      <div className="routeReadinessCard__error">
+                        {String(routeGraphWarmup?.last_error ?? 'unknown warmup failure')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="tiny u-mt8">
+                  Route readiness: {routeReadinessSummary}
+                  {routeReadinessDetail ? ` | ${routeReadinessDetail}` : ''}
+                </div>
+
                 <div className="actionGrid u-mt10">
                   <button type="button"
                     className="primary"
@@ -5477,6 +7261,17 @@ export default function Page() {
                       Cancel
                     </button>
                   )}
+                </div>
+
+                <div className="u-mt8">
+                  <button
+                    type="button"
+                    className="ghostButton"
+                    onClick={() => setComputeTraceOpen((prev) => !prev)}
+                    disabled={!loading && computeTrace.length === 0}
+                  >
+                    {computeTraceOpen ? 'Hide compute log' : 'Show compute log'}
+                  </button>
                 </div>
 
                 <div className="tiny">
@@ -5988,7 +7783,7 @@ export default function Page() {
             sectionControl={tutorialSectionControl.experiments}
           />
 
-          <CollapsibleCard title="Dev Tools" hint={SIDEBAR_SECTION_HINTS.devTools} isOpen={true}>
+          <CollapsibleCard title="Dev Tools" hint={SIDEBAR_SECTION_HINTS.devTools} defaultCollapsed={true}>
             <OpsDiagnosticsPanel
               health={opsHealth}
               metrics={opsMetrics}
@@ -6076,6 +7871,528 @@ export default function Page() {
           </CollapsibleCard>
             </div>
       </aside>
+
+      {computeTraceOpen && (
+        <div className="computeTraceOverlay" role="dialog" aria-modal="false" aria-labelledby="compute-trace-title">
+          <button
+            type="button"
+            className="computeTraceOverlay__backdrop"
+            aria-label="Close compute diagnostics"
+            onClick={() => setComputeTraceOpen(false)}
+          />
+          <section className="computeTraceOverlay__panel">
+            <header className="computeTraceOverlay__header">
+              <div>
+                <h2 id="compute-trace-title" className="computeTraceOverlay__title">
+                  Route compute diagnostics
+                </h2>
+                <p className="computeTraceOverlay__subtitle">
+                  Live execution trace, fallback attempts, and recovery suggestions.
+                </p>
+              </div>
+              <div className="computeTraceOverlay__headerActions">
+                {loading ? (
+                  <span className="statusPill">
+                    <span className="spinner spinner--inline" /> Running
+                  </span>
+                ) : (
+                  <span className="statusPill">Idle</span>
+                )}
+                <button
+                  type="button"
+                  className="ghostButton"
+                  onClick={() => {
+                    resetComputeTrace();
+                  }}
+                  disabled={loading || computeTrace.length === 0}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="ghostButton"
+                  onClick={() => {
+                    void copyComputeDiagnostics();
+                  }}
+                  disabled={computeTrace.length === 0}
+                >
+                  Copy log
+                </button>
+                <button
+                  type="button"
+                  className="ghostButton"
+                  onClick={() => {
+                    void copyLiveCallJson();
+                  }}
+                  disabled={Object.keys(computeLiveCallsByAttempt).length === 0}
+                >
+                  Copy live JSON
+                </button>
+                <button type="button" className="ghostButton" onClick={() => setComputeTraceOpen(false)}>
+                  Close
+                </button>
+              </div>
+            </header>
+
+            <div className="computeTraceOverlay__meta">
+              <span>Mode: {computeMode}</span>
+              <span>Entries: {computeTrace.length}</span>
+              {computeElapsedSeconds ? <span>Elapsed: {computeElapsedSeconds}s</span> : null}
+              {progressText ? <span>Progress: {progressText}</span> : null}
+              {activeAttemptEntry ? (
+                <span>
+                  Active attempt: #{activeAttemptEntry.attempt} {activeAttemptEntry.endpoint ?? ''}
+                </span>
+              ) : null}
+              {activeAttemptEntry?.stage ? <span>Active stage: {activeAttemptEntry.stage}</span> : null}
+              {activeAttemptEntry?.stageDetail ? <span>Stage detail: {activeAttemptEntry.stageDetail}</span> : null}
+              {lastBackendHeartbeatAgeSec ? <span>Last backend heartbeat age: {lastBackendHeartbeatAgeSec}s</span> : null}
+            </div>
+
+            {computeSession ? (
+              <section className="computeTraceOverlay__session" aria-label="Session details">
+                <div className="computeTraceOverlay__sessionGrid">
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Session</span>
+                    <span className="computeTraceOverlay__sessionValue">#{computeSession.seq}</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Started</span>
+                    <span className="computeTraceOverlay__sessionValue">{computeSession.startedAt}</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Scenario</span>
+                    <span className="computeTraceOverlay__sessionValue">{computeSession.scenario}</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Vehicle</span>
+                    <span className="computeTraceOverlay__sessionValue">{computeSession.vehicle}</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Max alternatives</span>
+                    <span className="computeTraceOverlay__sessionValue">{computeSession.maxAlternatives}</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Waypoints</span>
+                    <span className="computeTraceOverlay__sessionValue">{computeSession.waypointCount}</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Origin</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {computeSession.origin.lat.toFixed(5)}, {computeSession.origin.lon.toFixed(5)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Destination</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {computeSession.destination.lat.toFixed(5)}, {computeSession.destination.lon.toFixed(5)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Stream idle timeout</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {computeSession.streamStallTimeoutMs} ms
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Attempt timeout</span>
+                    <span className="computeTraceOverlay__sessionValue">{computeSession.attemptTimeoutMs} ms</span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Route fallback timeout</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {computeSession.routeFallbackTimeoutMs} ms
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Degrade steps</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {computeSession.degradeSteps.join(' -> ')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Active attempt</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {activeAttemptEntry
+                        ? `#${activeAttemptEntry.attempt} ${activeAttemptEntry.endpoint ?? ''} alt=${activeAttemptEntry.alternativesUsed ?? 'n/a'}`
+                        : 'none'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Backend heartbeat age</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {lastBackendHeartbeatAgeSec ? `${lastBackendHeartbeatAgeSec}s` : 'n/a'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="computeTraceOverlay__sessionLabel">Last event</span>
+                    <span className="computeTraceOverlay__sessionValue">
+                      {latestTraceEntry ? `${latestTraceEntry.step} (${latestTraceEntry.level})` : 'none'}
+                    </span>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {error && computeErrorHints.length > 0 ? (
+              <section className="computeTraceOverlay__hints" aria-label="Recovery suggestions">
+                <div className="computeTraceOverlay__hintsTitle">Suggested recovery steps</div>
+                <ul className="computeTraceOverlay__hintsList">
+                  {computeErrorHints.map((hint) => (
+                    <li key={hint}>{hint}</li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            <div className="computeTraceOverlay__log" role="log" aria-live="polite" aria-relevant="additions text">
+              {computeTrace.length === 0 ? (
+                <div className="computeTraceOverlay__empty">No compute events yet.</div>
+              ) : (
+                [...traceEntriesByAttempt].reverse().map((group) => {
+                  const headerEntry = [...group.entries]
+                    .reverse()
+                    .find((entry) => entry.endpoint || typeof entry.alternativesUsed === 'number');
+                  const liveTrace = group.attempt > 0 ? computeLiveCallsByAttempt[group.attempt] ?? null : null;
+                  const liveTraceRequestId =
+                    (group.attempt > 0 ? computeRequestIdByAttempt[group.attempt] : null) ??
+                    liveTrace?.request_id ??
+                    null;
+                  const liveObserved = (liveTrace?.observed_calls ?? []) as LiveCallEntry[];
+                  const expectedRows = liveTrace?.expected_rollup ?? [];
+                  const blockedExpectedRows = expectedRows.filter(
+                    (row) => row.status === 'blocked' || row.blocked,
+                  );
+                  const notReachedExpectedRows = expectedRows.filter((row) => row.status === 'not_reached');
+                  const missedExpectedRows = expectedRows.filter(
+                    (row) => row.status === 'miss' || (!row.satisfied && row.status !== 'blocked' && row.status !== 'not_reached'),
+                  );
+                  const okExpectedRows = expectedRows.filter((row) => row.status === 'ok' || row.satisfied);
+                  const slowestObserved = [...liveObserved]
+                    .sort((a, b) => (Number(b.duration_ms ?? 0) - Number(a.duration_ms ?? 0)))
+                    .slice(0, 6);
+                  const latestDiagEntry =
+                    [...group.entries]
+                      .reverse()
+                      .find((entry) => entry.candidateDiagnostics || entry.failureChain) ?? null;
+                  const candidateDiagnostics = latestDiagEntry?.candidateDiagnostics ?? null;
+                  const failureChain = latestDiagEntry?.failureChain ?? null;
+                  const scenarioGateSignal = safeParseJsonObject(
+                    candidateDiagnostics?.scenario_gate_source_signal_json,
+                  );
+                  const scenarioGateReachability = safeParseJsonObject(
+                    candidateDiagnostics?.scenario_gate_source_reachability_json,
+                  );
+                  const scenarioGateRequiredConfigured = Number(
+                    candidateDiagnostics?.scenario_gate_required_configured ?? 0,
+                  );
+                  const scenarioGateRequiredEffective = Number(
+                    candidateDiagnostics?.scenario_gate_required_effective ?? 0,
+                  );
+                  const scenarioGateSourceOkCount = Number(
+                    candidateDiagnostics?.scenario_gate_source_ok_count ?? 0,
+                  );
+                  const scenarioGateWaiverApplied = Boolean(
+                    candidateDiagnostics?.scenario_gate_waiver_applied ?? false,
+                  );
+                  const scenarioGateWaiverReason = String(
+                    candidateDiagnostics?.scenario_gate_waiver_reason ?? '',
+                  ).trim();
+                  const scenarioGateRoadHint = String(candidateDiagnostics?.scenario_gate_road_hint ?? '').trim();
+                  const scenarioGate =
+                    scenarioGateRequiredConfigured > 0 ||
+                    scenarioGateRequiredEffective > 0 ||
+                    scenarioGateSourceOkCount > 0 ||
+                    scenarioGateWaiverApplied ||
+                    Boolean(scenarioGateWaiverReason) ||
+                    Boolean(scenarioGateRoadHint) ||
+                    Boolean(scenarioGateSignal) ||
+                    Boolean(scenarioGateReachability)
+                      ? {
+                          source_ok_count: Number.isFinite(scenarioGateSourceOkCount)
+                            ? scenarioGateSourceOkCount
+                            : 0,
+                          required_configured: Number.isFinite(scenarioGateRequiredConfigured)
+                            ? scenarioGateRequiredConfigured
+                            : 0,
+                          required_effective: Number.isFinite(scenarioGateRequiredEffective)
+                            ? scenarioGateRequiredEffective
+                            : 0,
+                          waiver_applied: scenarioGateWaiverApplied,
+                          waiver_reason: scenarioGateWaiverReason || null,
+                          road_hint: scenarioGateRoadHint || null,
+                          source_signal_set: scenarioGateSignal,
+                          source_reachability_set: scenarioGateReachability,
+                        }
+                      : null;
+                  const aiDiagnosticBundle = {
+                    attempt: group.attempt,
+                    endpoint: headerEntry?.endpoint ?? 'n/a',
+                    request_id: liveTraceRequestId ?? null,
+                    trace_status: liveTrace?.status ?? 'unavailable',
+                    latest_reason_code:
+                      [...group.entries]
+                        .reverse()
+                        .find((entry) => Boolean(entry.reasonCode))
+                        ?.reasonCode ?? null,
+                    summary: liveTrace?.summary ?? null,
+                    expected_rollup: expectedRows,
+                    slowest_calls: slowestObserved,
+                    candidate_diagnostics: candidateDiagnostics,
+                    scenario_gate: scenarioGate,
+                    failure_chain: failureChain,
+                  };
+                  return (
+                    <section key={`attempt-${group.attempt}`} className="computeTraceAttempt">
+                      <header className="computeTraceAttempt__header">
+                        <span className="computeTraceAttempt__title">
+                          Attempt {group.attempt > 0 ? `#${group.attempt}` : 'unscoped'}
+                        </span>
+                        <span className="computeTraceAttempt__meta">
+                          endpoint={headerEntry?.endpoint ?? 'n/a'}; alternatives=
+                          {typeof headerEntry?.alternativesUsed === 'number'
+                            ? headerEntry.alternativesUsed
+                            : 'n/a'}
+                          ; timeout_ms={typeof headerEntry?.timeoutMs === 'number' ? headerEntry.timeoutMs : 'n/a'}
+                        </span>
+                      </header>
+                      {[...group.entries].reverse().map((entry) => (
+                        <article
+                          key={entry.id}
+                          className={`computeTraceItem computeTraceItem--${entry.level}`}
+                          aria-label={`${entry.level} ${entry.step}`}
+                        >
+                          <div className="computeTraceItem__row">
+                            <span className="computeTraceItem__level">
+                              #{entry.id} {entry.level.toUpperCase()}
+                            </span>
+                            <span className="computeTraceItem__time">
+                              +{(entry.elapsedMs / 1000).toFixed(1)}s | {entry.at}
+                            </span>
+                          </div>
+                          <div className="computeTraceItem__step">{entry.step}</div>
+                          <div className="computeTraceItem__detail">{entry.detail}</div>
+                          <div className="computeTraceItem__reason">
+                            attempt={entry.attempt ?? 'n/a'}; endpoint={entry.endpoint ?? 'n/a'}
+                            {entry.requestId ? `; request_id=${entry.requestId}` : ''}
+                            {entry.stage ? `; stage=${entry.stage}` : ''}
+                            {entry.stageDetail ? `; stage_detail=${entry.stageDetail}` : ''}
+                            {typeof entry.backendElapsedMs === 'number'
+                              ? `; backend_elapsed_ms=${entry.backendElapsedMs}`
+                              : ''}
+                            {typeof entry.stageElapsedMs === 'number'
+                              ? `; stage_elapsed_ms=${entry.stageElapsedMs}`
+                              : ''}
+                            {typeof entry.alternativesUsed === 'number'
+                              ? `; alternatives=${entry.alternativesUsed}`
+                              : ''}
+                            {typeof entry.timeoutMs === 'number' ? `; timeout_ms=${entry.timeoutMs}` : ''}
+                            {entry.abortReason ? `; abort_reason=${entry.abortReason}` : ''}
+                            {entry.reasonCode ? `; reason_code=${entry.reasonCode}` : ''}
+                          </div>
+                          {entry.recoveries?.length ? (
+                            <ul className="computeTraceItem__recoveryList">
+                              {entry.recoveries.map((item) => (
+                                <li key={`${entry.id}-${item}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </article>
+                      ))}
+                      {group.attempt > 0 ? (
+                        <section className="computeTraceLiveCalls" aria-label={`Live API calls for attempt ${group.attempt}`}>
+                          <header className="computeTraceLiveCalls__header">
+                            <span className="computeTraceLiveCalls__title">Live API calls</span>
+                            <span className="computeTraceLiveCalls__meta">
+                              request_id={liveTraceRequestId ?? 'pending'}
+                            </span>
+                          </header>
+                          {liveTrace ? (
+                            <>
+                              <div className="computeTraceLiveCalls__summary">
+                                <span>calls={liveTrace.summary?.total_calls ?? 0}</span>
+                                <span>requested={liveTrace.summary?.requested_calls ?? 0}</span>
+                                <span>success={liveTrace.summary?.successful_calls ?? 0}</span>
+                                <span>failed={liveTrace.summary?.failed_calls ?? 0}</span>
+                                <span>blocked={blockedExpectedRows.length}</span>
+                                <span>not_reached={notReachedExpectedRows.length}</span>
+                                <span>miss={missedExpectedRows.length}</span>
+                                <span>cache_hits={liveTrace.summary?.cache_hit_calls ?? 0}</span>
+                                <span>expected={liveTrace.summary?.expected_satisfied ?? 0}/{liveTrace.summary?.expected_total ?? 0}</span>
+                              </div>
+                              {blockedExpectedRows.length > 0 && liveObserved.length === 0 ? (
+                                <div className="computeTraceLiveCalls__blockedHint">
+                                  Expected sources were blocked before execution could reach their phase.
+                                </div>
+                              ) : null}
+                              {liveTrace.expected_rollup?.length ? (
+                                <div className="computeTraceLiveCalls__expected">
+                                  {liveTrace.expected_rollup.map((row) => (
+                                    <div key={`${group.attempt}-${row.source_key}-${row.url}`} className="computeTraceLiveCalls__expectedRow">
+                                      <span
+                                        className={`computeTraceLiveCalls__badge ${
+                                          row.status === 'blocked' || row.blocked
+                                            ? 'is-blocked'
+                                            : row.status === 'not_reached'
+                                              ? 'is-not-reached'
+                                              : row.status === 'ok' || row.satisfied
+                                                ? 'is-ok'
+                                                : 'is-fail'
+                                        }`}
+                                      >
+                                        {row.status === 'blocked' || row.blocked
+                                          ? 'BLOCKED'
+                                          : row.status === 'not_reached'
+                                            ? 'NOT_REACHED'
+                                            : row.status === 'ok' || row.satisfied
+                                              ? 'OK'
+                                              : 'MISS'}
+                                      </span>
+                                      <span>{row.source_key}</span>
+                                      <span className="computeTraceLiveCalls__url">{row.url}</span>
+                                      <span>
+                                        observed={row.observed_calls}; success={row.success_count}; failure={row.failure_count}
+                                        {row.phase ? `; phase=${row.phase}` : ''}
+                                        {row.gate ? `; gate=${row.gate}` : ''}
+                                        {row.blocked_reason ? `; blocked_reason=${row.blocked_reason}` : ''}
+                                        {row.blocked_stage ? `; blocked_stage=${row.blocked_stage}` : ''}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {failureChain ? (
+                                <section className="computeTraceDiagCard" aria-label="Failure chain">
+                                  <div className="computeTraceDiagCard__title">Failure Chain</div>
+                                  <pre className="computeTraceDiagCard__code">
+                                    {safeJsonString(failureChain)}
+                                  </pre>
+                                </section>
+                              ) : null}
+                              {candidateDiagnostics ? (
+                                <section className="computeTraceDiagCard" aria-label="Graph diagnostics">
+                                  <div className="computeTraceDiagCard__title">Graph Diagnostics</div>
+                                  <pre className="computeTraceDiagCard__code">
+                                    {safeJsonString(candidateDiagnostics)}
+                                  </pre>
+                                </section>
+                              ) : null}
+                              {scenarioGate ? (
+                                <section className="computeTraceDiagCard" aria-label="Scenario coverage gate">
+                                  <div className="computeTraceDiagCard__title">Scenario Coverage Gate</div>
+                                  <pre className="computeTraceDiagCard__code">
+                                    {safeJsonString(scenarioGate)}
+                                  </pre>
+                                </section>
+                              ) : null}
+                              {expectedRows.length > 0 ? (
+                                <section className="computeTraceDiagCard" aria-label="Live refresh gate matrix">
+                                  <div className="computeTraceDiagCard__title">Live Refresh Gate Matrix</div>
+                                  <div className="computeTraceGateMatrix">
+                                    <span>ok={okExpectedRows.length}</span>
+                                    <span>blocked={blockedExpectedRows.length}</span>
+                                    <span>not_reached={notReachedExpectedRows.length}</span>
+                                    <span>miss={missedExpectedRows.length}</span>
+                                  </div>
+                                </section>
+                              ) : null}
+                              {slowestObserved.length > 0 ? (
+                                <section className="computeTraceDiagCard" aria-label="Slowest calls">
+                                  <div className="computeTraceDiagCard__title">Slowest Calls</div>
+                                  <div className="computeTraceDiagRows">
+                                    {slowestObserved.map((row) => (
+                                      <div key={`${group.attempt}-slow-${row.entry_id}`} className="computeTraceDiagRows__row">
+                                        <span>{row.source_key}</span>
+                                        <span>{typeof row.duration_ms === 'number' ? `${row.duration_ms.toFixed(2)}ms` : '-'}</span>
+                                        <span>{row.status_code ?? '-'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </section>
+                              ) : null}
+                              <section className="computeTraceDiagCard" aria-label="AI diagnostic bundle">
+                                <div className="computeTraceDiagCard__title">AI Diagnostic Bundle</div>
+                                <pre className="computeTraceDiagCard__code">
+                                  {safeJsonString(aiDiagnosticBundle)}
+                                </pre>
+                              </section>
+                              <div className="computeTraceLiveCalls__tableWrap">
+                                <table className="computeTraceLiveCalls__table">
+                                  <thead>
+                                    <tr>
+                                      <th>#</th>
+                                      <th>Source</th>
+                                      <th>URL</th>
+                                      <th>Requested</th>
+                                      <th>Success</th>
+                                      <th>Status</th>
+                                      <th>Error</th>
+                                      <th>Cache</th>
+                                      <th>Retries</th>
+                                      <th>Duration</th>
+                                      <th>Req Headers</th>
+                                      <th>Resp Headers</th>
+                                      <th>Resp Body</th>
+                                      <th>Extra</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...liveObserved].reverse().map((row) => (
+                                      <tr key={`${group.attempt}-${row.entry_id}`}>
+                                        <td>{row.entry_id}</td>
+                                        <td>{row.source_key}</td>
+                                        <td className="computeTraceLiveCalls__urlCell">{row.url}</td>
+                                        <td>{row.requested ? 'yes' : 'no'}</td>
+                                        <td>{row.success ? 'yes' : 'no'}</td>
+                                        <td>{typeof row.status_code === 'number' ? row.status_code : '-'}</td>
+                                        <td>{row.fetch_error || '-'}</td>
+                                        <td>
+                                          hit={row.cache_hit ? '1' : '0'}; stale={row.stale_cache_used ? '1' : '0'}
+                                        </td>
+                                        <td>
+                                          attempts={row.retry_attempts ?? 0}; count={row.retry_count ?? 0}; backoff_ms=
+                                          {row.retry_total_backoff_ms ?? 0}
+                                        </td>
+                                        <td>{typeof row.duration_ms === 'number' ? `${row.duration_ms.toFixed(2)}ms` : '-'}</td>
+                                        <td className="computeTraceLiveCalls__jsonCell">
+                                          {row.request_headers_raw
+                                            ? safeJsonString(row.request_headers_raw)
+                                            : row.headers
+                                              ? safeJsonString(row.headers)
+                                              : '-'}
+                                        </td>
+                                        <td className="computeTraceLiveCalls__jsonCell">
+                                          {row.response_headers_raw ? safeJsonString(row.response_headers_raw) : '-'}
+                                        </td>
+                                        <td className="computeTraceLiveCalls__jsonCell">
+                                          {row.response_body_raw
+                                            ? row.response_body_raw
+                                            : typeof row.response_body_bytes === 'number'
+                                              ? `bytes=${row.response_body_bytes}; content_type=${row.response_body_content_type ?? 'n/a'}`
+                                              : '-'}
+                                        </td>
+                                        <td className="computeTraceLiveCalls__jsonCell">
+                                          {row.extra ? safeJsonString(row.extra) : '-'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="computeTraceLiveCalls__empty">Waiting for backend live-call trace rows...</div>
+                          )}
+                        </section>
+                      ) : null}
+                    </section>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       <TutorialOverlay
         open={appBootReady && tutorialOpen}

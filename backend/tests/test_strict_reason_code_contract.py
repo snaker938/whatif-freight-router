@@ -112,6 +112,27 @@ async def _collect_scenario_profile_failure(**_: Any) -> tuple[list[Any], list[s
     )
 
 
+async def _collect_graph_no_path_failure(**_: Any) -> tuple[list[Any], list[str], int, TerrainDiagnostics]:
+    return (
+        [],
+        [
+            "route_graph: routing_graph_no_path "
+            "(no path; explored_states=23859, generated_paths=0, emitted_paths=0, engine_reason=no_path)."
+        ],
+        0,
+        TerrainDiagnostics(),
+    )
+
+
+async def _collect_live_refresh_failure(**_: Any) -> tuple[list[Any], list[str], int, TerrainDiagnostics]:
+    return (
+        [],
+        ["route_live_prefetch: live_source_refresh_failed (mock strict refresh gate failure)"],
+        0,
+        TerrainDiagnostics(),
+    )
+
+
 def test_route_strict_error_uses_reason_code(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module, "_collect_route_options", _collect_toll_failure)
     response = client.post("/route", json=_base_od_payload())
@@ -194,6 +215,16 @@ def test_route_strict_error_uses_scenario_profile_reason_code(
     assert detail["reason_code"] == "scenario_profile_unavailable"
 
 
+def test_route_strict_error_uses_routing_graph_no_path_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_graph_no_path_failure)
+    response = client.post("/route", json=_base_od_payload())
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["reason_code"] == "routing_graph_no_path"
+
+
 def test_pareto_stream_multileg_fatal_has_reason_code(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -240,6 +271,38 @@ def test_pareto_stream_direct_fatal_has_scenario_profile_reason_code(
     events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
     fatal = next(event for event in events if event.get("type") == "fatal")
     assert fatal["reason_code"] == "scenario_profile_unavailable"
+
+
+def test_pareto_stream_direct_fatal_has_routing_graph_no_path_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_graph_no_path_failure)
+    response = client.post("/api/pareto/stream", json=_base_od_payload())
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    fatal = next(event for event in events if event.get("type") == "fatal")
+    assert fatal["reason_code"] == "routing_graph_no_path"
+
+
+def test_route_strict_error_uses_live_source_refresh_failed_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_live_refresh_failure)
+    response = client.post("/route", json=_base_od_payload())
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["reason_code"] == "live_source_refresh_failed"
+
+
+def test_pareto_stream_direct_fatal_has_live_source_refresh_failed_reason_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_collect_route_options", _collect_live_refresh_failure)
+    response = client.post("/api/pareto/stream", json=_base_od_payload())
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    fatal = next(event for event in events if event.get("type") == "fatal")
+    assert fatal["reason_code"] == "live_source_refresh_failed"
 
 
 def test_departure_optimize_surfaces_strict_reason_code(

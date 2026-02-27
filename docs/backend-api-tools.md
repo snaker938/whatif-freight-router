@@ -115,10 +115,10 @@ Endpoint-specific:
     "reason_code": "terrain_dem_coverage_insufficient",
     "message": "Terrain DEM coverage below threshold.",
     "warnings": [
-      "Coverage 0.91 < required 0.98"
+      "Coverage 0.91 < required 0.96"
     ],
     "terrain_dem_version": "uk_dem_v1",
-    "terrain_coverage_required": 0.98,
+    "terrain_coverage_required": 0.96,
     "terrain_coverage_min_observed": 0.91
   }
 }

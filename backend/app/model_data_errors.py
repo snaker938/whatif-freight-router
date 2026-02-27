@@ -6,6 +6,15 @@ from typing import Any
 FROZEN_REASON_CODES: frozenset[str] = frozenset(
     {
         "routing_graph_unavailable",
+        "routing_graph_fragmented",
+        "routing_graph_disconnected_od",
+        "routing_graph_coverage_gap",
+        "routing_graph_no_path",
+        "routing_graph_precheck_timeout",
+        "routing_graph_warming_up",
+        "routing_graph_warmup_failed",
+        "live_source_refresh_failed",
+        "route_compute_timeout",
         "departure_profile_unavailable",
         "holiday_data_unavailable",
         "stochastic_calibration_unavailable",

@@ -90,6 +90,13 @@ export type PinFocusRequest = {
   openPopup?: boolean;
 };
 
+export type MapFailureOverlay = {
+  reason_code: string;
+  message: string;
+  stage?: string | null;
+  stage_detail?: string | null;
+};
+
 export type TutorialGuideTarget = {
   lat: number;
   lon: number;
@@ -235,6 +242,16 @@ export type ParetoResponse = {
 export type ParetoStreamMetaEvent = {
   type: 'meta';
   total: number;
+  done?: number;
+  request_id?: string;
+  stage?: string;
+  stage_detail?: string;
+  elapsed_ms?: number;
+  stage_elapsed_ms?: number;
+  heartbeat?: number;
+  candidate_done?: number;
+  candidate_total?: number;
+  candidate_diagnostics?: Record<string, unknown> | null;
 };
 
 export type ParetoStreamRouteEvent = {
@@ -251,11 +268,32 @@ export type ParetoStreamErrorEvent = {
   message: string;
 };
 
+export type StrictReasonCode =
+  | 'routing_graph_no_path'
+  | 'routing_graph_unavailable'
+  | 'routing_graph_fragmented'
+  | 'routing_graph_disconnected_od'
+  | 'routing_graph_coverage_gap'
+  | 'routing_graph_precheck_timeout'
+  | 'routing_graph_warming_up'
+  | 'routing_graph_warmup_failed'
+  | 'live_source_refresh_failed'
+  | (string & {});
+
 export type ParetoStreamFatalEvent = {
   type: 'fatal';
   message: string;
-  reason_code?: string;
+  reason_code?: StrictReasonCode;
   warnings?: string[];
+  request_id?: string;
+  stage?: string;
+  stage_detail?: string;
+  elapsed_ms?: number;
+  stage_elapsed_ms?: number;
+  candidate_done?: number;
+  candidate_total?: number;
+  candidate_diagnostics?: Record<string, unknown> | null;
+  failure_chain?: Record<string, unknown> | null;
 };
 
 export type ParetoStreamDoneEvent = {
@@ -265,6 +303,7 @@ export type ParetoStreamDoneEvent = {
   routes: RouteOption[];
   warning_count?: number;
   warnings?: string[];
+  candidate_diagnostics?: Record<string, unknown> | null;
 };
 
 export type ParetoStreamEvent =
@@ -369,6 +408,7 @@ export type RouteRequest = {
   waypoints?: Waypoint[];
   vehicle_type?: string;
   scenario_mode?: ScenarioMode;
+  max_alternatives?: number;
   weights?: { time: number; money: number; co2: number };
   cost_toggles?: CostToggles;
   terrain_profile?: TerrainProfile;
@@ -573,6 +613,131 @@ export type HealthResponse = {
   status: string;
 };
 
+export type HealthReadyResponse = {
+  status: 'ready' | 'not_ready';
+  strict_route_ready: boolean;
+  recommended_action?: 'wait' | 'retry' | 'ready' | 'rebuild_graph' | 'refresh_live_sources' | string;
+  route_graph: {
+    ok?: boolean;
+    status?: string;
+    state?: 'idle' | 'loading' | 'ready' | 'failed' | string;
+    phase?: string;
+    elapsed_ms?: number | null;
+    timeout_s?: number | null;
+    timed_out?: boolean;
+    last_error?: string | null;
+    asset_path?: string | null;
+    asset_exists?: boolean;
+    asset_size_mb?: number | null;
+    nodes_seen?: number;
+    nodes_kept?: number;
+    edges_seen?: number;
+    edges_kept?: number;
+    thread_alive?: boolean;
+    cache_loaded?: boolean;
+    [key: string]: unknown;
+  };
+  strict_live?: {
+    ok: boolean;
+    status?: 'ok' | 'stale' | 'unavailable' | 'disabled' | string;
+    reason_code?: string;
+    message?: string;
+    as_of_utc?: string | null;
+    age_minutes?: number | null;
+    max_age_minutes?: number | null;
+    checked_at_utc?: string | null;
+    [key: string]: unknown;
+  };
+};
+
+export type LiveCallEntry = {
+  entry_id: number;
+  request_id: string;
+  at_utc: string;
+  source_key: string;
+  source_family?: string;
+  component: string;
+  url: string;
+  method: string;
+  requested: boolean;
+  success: boolean;
+  status_code?: number | null;
+  fetch_error?: string | null;
+  cache_hit?: boolean;
+  stale_cache_used?: boolean;
+  retry_attempts?: number;
+  retry_count?: number;
+  retry_total_backoff_ms?: number;
+  retry_last_error?: string | null;
+  retry_last_status_code?: number | null;
+  retry_deadline_exceeded?: boolean;
+  duration_ms?: number | null;
+  headers?: Record<string, unknown> | null;
+  request_headers_raw?: Record<string, unknown> | null;
+  response_headers_raw?: Record<string, unknown> | null;
+  response_body_raw?: string | null;
+  response_body_truncated?: boolean;
+  response_body_content_type?: string | null;
+  response_body_bytes?: number | null;
+  extra?: Record<string, unknown> | null;
+};
+
+export type LiveCallExpectedRow = {
+  source_key: string;
+  source_family?: string;
+  component: string;
+  url: string;
+  method: string;
+  required: boolean;
+  description?: string | null;
+  phase?: string | null;
+  gate?: string | null;
+};
+
+export type LiveCallExpectedRollup = LiveCallExpectedRow & {
+  observed_calls: number;
+  requested_calls: number;
+  success_count: number;
+  failure_count: number;
+  last_status_code?: number | null;
+  last_fetch_error?: string | null;
+  blocked?: boolean;
+  blocked_reason?: string | null;
+  blocked_stage?: string | null;
+  blocked_detail?: string | null;
+  satisfied: boolean;
+  status?: 'ok' | 'blocked' | 'not_reached' | 'miss' | string;
+};
+
+export type LiveCallTraceSummary = {
+  total_calls: number;
+  requested_calls: number;
+  successful_calls: number;
+  failed_calls: number;
+  cache_hit_calls: number;
+  stale_cache_calls: number;
+  expected_total: number;
+  expected_satisfied: number;
+  expected_ok_count?: number;
+  expected_blocked_count?: number;
+  expected_not_reached_count?: number;
+  expected_miss_count?: number;
+  dropped_entries: number;
+};
+
+export type LiveCallTraceResponse = {
+  request_id: string;
+  endpoint: string;
+  status: string;
+  error_reason?: string | null;
+  started_at_utc: string;
+  finished_at_utc?: string | null;
+  expected_calls: LiveCallExpectedRow[];
+  expected_rollup: LiveCallExpectedRollup[];
+  observed_calls: LiveCallEntry[];
+  summary: LiveCallTraceSummary;
+};
+
 export type CacheStatsResponse = {
   hits: number;
   misses: number;
@@ -628,7 +793,7 @@ export type RunArtifactsListResponse = {
 };
 
 export type StrictErrorDetail = {
-  reason_code?: string;
+  reason_code?: StrictReasonCode;
   message?: string;
   warnings?: string[];
   [key: string]: unknown;

@@ -1,7 +1,7 @@
 {
   "version": "uk_tariffs_v5_empirical_proxy",
   "source": "proxy_from_labeled_toll_fixture_corpus_v1",
-  "as_of_utc": "2026-02-24T00:26:38Z",
+  "as_of_utc": "2026-02-27T00:07:14Z",
   "rules": [
     {
       "id": "proxy_rule_price_0000_00",

@@ -202,3 +202,50 @@ def test_live_fuel_prices_includes_retry_diagnostics(monkeypatch) -> None:
     assert isinstance(live_diag, dict)
     assert live_diag.get("retry_attempts") == 3
     assert live_diag.get("retry_count") == 2
+
+
+def test_live_fuel_prices_records_trace_for_network_and_cache_paths(monkeypatch) -> None:
+    live_data_sources.clear_live_data_source_cache()
+    _set_retry_defaults(monkeypatch)
+    monkeypatch.setattr(settings, "live_fuel_price_url", "https://api.example.com/fuel")
+    monkeypatch.setattr(settings, "live_fuel_allowed_hosts", "api.example.com")
+    monkeypatch.setattr(settings, "live_fuel_auth_token", "")
+    monkeypatch.setattr(settings, "live_fuel_api_key", "")
+    monkeypatch.setattr(settings, "live_data_cache_ttl_s", 600)
+    trace_rows: list[dict[str, Any]] = []
+    monkeypatch.setattr(live_data_sources, "_trace_live_call", lambda **kwargs: trace_rows.append(dict(kwargs)))
+    retry_result = live_data_sources._RetryResult(
+        payload={
+            "as_of_utc": "2026-02-23T12:00:00Z",
+            "source": "live:test",
+            "prices_gbp_per_l": {"diesel": 1.55},
+            "grid_price_gbp_per_kwh": 0.30,
+            "regional_multipliers": {"uk_default": 1.0},
+        },
+        status_code=200,
+        attempt_count=1,
+        retry_count=0,
+        retry_total_backoff_ms=0,
+        last_error_name=None,
+        last_error_status=None,
+        deadline_exceeded=False,
+    )
+    monkeypatch.setattr(live_data_sources, "_request_json_with_bounded_retry", lambda **kwargs: retry_result)
+
+    first_payload = live_data_sources.live_fuel_prices(None)
+    second_payload = live_data_sources.live_fuel_prices(None)
+
+    assert isinstance(first_payload, dict)
+    assert isinstance(second_payload, dict)
+    assert any(
+        row.get("source_key") == "fuel_prices"
+        and row.get("requested") is True
+        and row.get("success") is True
+        for row in trace_rows
+    )
+    assert any(
+        row.get("source_key") == "fuel_prices"
+        and row.get("requested") is False
+        and row.get("cache_hit") is True
+        for row in trace_rows
+    )

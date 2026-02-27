@@ -5,8 +5,13 @@ import math
 import pytest
 
 import app.terrain_dem as terrain_dem
-from app.settings import settings
+from app.settings import Settings, settings
 from app.terrain_dem import TerrainCoverageError, estimate_terrain_summary
+
+
+def test_terrain_coverage_default_is_calibrated_for_strict_runtime() -> None:
+    default_value = Settings.model_fields["terrain_dem_coverage_min_uk"].default
+    assert float(default_value) == pytest.approx(0.96, abs=1e-9)
 
 
 def test_uk_fail_closed_raises_when_dem_coverage_too_low(monkeypatch: pytest.MonkeyPatch) -> None:

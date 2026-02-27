@@ -16,6 +16,7 @@ EXPECTED_APP_FILES = {
     "fuel_energy_model.py",
     "incident_simulator.py",
     "k_shortest.py",
+    "live_call_trace.py",
     "live_data_sources.py",
     "logging_utils.py",
     "main.py",

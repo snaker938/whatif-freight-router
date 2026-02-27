@@ -25,6 +25,32 @@ def _departure_profile_payload(now_iso: str) -> dict[str, object]:
     }
 
 
+def _contextual_departure_profile_payload(now_iso: str) -> dict[str, object]:
+    return {
+        "version": "departure_live_test_v2_contextual",
+        "calibration_basis": "empirical",
+        "as_of_utc": now_iso,
+        "profiles": {
+            "west_midlands": {
+                "mixed": {
+                    "weekday": [1.02] * 1440,
+                    "weekend": [0.93] * 1440,
+                    "holiday": [0.89] * 1440,
+                }
+            }
+        },
+        "envelopes": {
+            "west_midlands": {
+                "mixed": {
+                    "weekday": {"low": [0.95] * 1440, "high": [1.08] * 1440},
+                    "weekend": {"low": [0.88] * 1440, "high": [0.98] * 1440},
+                    "holiday": {"low": [0.84] * 1440, "high": [0.95] * 1440},
+                }
+            }
+        },
+    }
+
+
 def _bank_holidays_payload(now_iso: str) -> dict[str, object]:
     return {
         "as_of_utc": now_iso,
@@ -58,3 +84,18 @@ def test_departure_profile_is_timezone_aware_and_deterministic() -> None:
     assert a.multiplier == b.multiplier
     assert a.local_time_iso == b.local_time_iso
     assert a.profile_source
+
+
+def test_departure_profile_parser_accepts_contextual_region_payload_without_uk_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now_iso = _now_iso()
+    monkeypatch.setattr(calibration_loader, "live_departure_profiles", lambda: _contextual_departure_profile_payload(now_iso))
+    calibration_loader.load_departure_profile.cache_clear()
+
+    profile = calibration_loader.load_departure_profile()
+    assert profile.contextual is not None
+    assert "west_midlands" in profile.contextual
+    assert len(profile.weekday) == 1440
+    assert len(profile.weekend) == 1440
+    assert len(profile.holiday) == 1440

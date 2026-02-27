@@ -1,22 +1,51 @@
 import { NextResponse } from 'next/server';
 
+import {
+  classifyBackendTransportError,
+  computeRouteFallbackTimeoutMs,
+  fetchBackend,
+} from '../../lib/backendFetch';
+
 export async function POST(req: Request) {
-  const backendBase =
-    process.env.BACKEND_INTERNAL_URL ??
-    process.env.NEXT_PUBLIC_BACKEND_URL ??
-    'http://localhost:8000';
   const body = await req.text();
 
-  const resp = await fetch(`${backendBase}/route`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body,
-    cache: 'no-store',
-  });
+  let resp: Response;
+  try {
+    resp = await fetchBackend('/route', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      requestSignal: req.signal,
+      timeoutMs: computeRouteFallbackTimeoutMs(),
+    });
+  } catch (error: unknown) {
+    const classified = classifyBackendTransportError(error);
+    return new NextResponse(
+      JSON.stringify({
+        detail: {
+          message: 'Unable to reach backend /route endpoint.',
+          reason_code: classified.reasonCode,
+          cause: classified.cause || classified.detail,
+        },
+      }),
+      {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }
 
   const text = await resp.text();
+  const outHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+  };
+  const requestId = resp.headers.get('x-route-request-id');
+  if (requestId) {
+    outHeaders['x-route-request-id'] = requestId;
+  }
   return new NextResponse(text, {
     status: resp.status,
-    headers: { 'content-type': 'application/json' },
+    headers: outHeaders,
   });
 }

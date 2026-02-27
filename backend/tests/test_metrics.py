@@ -284,6 +284,10 @@ def _carbon_schedule_payload(now_iso: str) -> dict[str, Any]:
 @pytest.fixture(autouse=True)
 def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("STRICT_RUNTIME_TEST_BYPASS", "1")
+    monkeypatch.setattr(settings, "strict_live_data_required", False)
+    monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
+    monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
+    monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
     now_iso = _now_iso()
     monkeypatch.setattr(settings, "scenario_require_signature", False)
     monkeypatch.setattr(settings, "live_fuel_require_signature", False)
@@ -295,7 +299,7 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "live_stochastic_regimes_url", "https://live.example/stochastic")
     monkeypatch.setattr(settings, "live_carbon_schedule_url", "https://live.example/carbon")
     monkeypatch.setattr(calibration_loader, "live_scenario_profiles", lambda: _scenario_profiles_payload(now_iso))
-    monkeypatch.setattr(calibration_loader, "live_scenario_context", lambda _ctx: _scenario_context_payload(now_iso))
+    monkeypatch.setattr(calibration_loader, "live_scenario_context", lambda _ctx, **_kwargs: _scenario_context_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_departure_profiles", lambda: _departure_profile_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_bank_holidays", lambda: _bank_holidays_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_fuel_prices", lambda _as_of: _fuel_payload(now_iso))
@@ -305,6 +309,10 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(carbon_model, "live_carbon_schedule", lambda: _carbon_schedule_payload(now_iso))
     monkeypatch.setattr(settings, "route_graph_scenario_separability_fail", False)
     monkeypatch.setattr(main_module, "route_graph_status", lambda: (True, "ok"))
+    async def _fake_graph_precheck(**_kwargs: Any) -> dict[str, Any]:
+        return {"ok": True, "reason_code": "ok", "origin_node_id": "pytest_origin", "destination_node_id": "pytest_destination"}
+
+    monkeypatch.setattr(main_module, "_route_graph_od_feasibility_async", _fake_graph_precheck)
 
     def _fake_graph_candidates(**kwargs: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
         budget = int(kwargs.get("max_paths", 1))

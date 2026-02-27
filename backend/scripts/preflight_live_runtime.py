@@ -18,6 +18,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 from app.calibration_loader import (
     load_departure_profile,
     load_fuel_price_snapshot,
+    load_live_scenario_context,
     load_scenario_profiles,
     load_stochastic_regimes,
     load_toll_segments_seed,
@@ -65,6 +66,35 @@ def _departure_profile_details() -> dict[str, Any]:
     }
 
 
+def _scenario_live_context_details() -> dict[str, Any]:
+    scenario_profiles = load_scenario_profiles()
+    transform_params_json: str | None = None
+    if isinstance(getattr(scenario_profiles, "transform_params", None), dict):
+        transform_params_json = json.dumps(
+            scenario_profiles.transform_params,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+    context = load_live_scenario_context(
+        corridor_bucket="gcqrs",
+        road_mix_bucket="mixed",
+        vehicle_class="rigid_hgv",
+        day_kind="weekday",
+        hour_slot_local=12,
+        weather_bucket="clear",
+        centroid_lat=52.4862,
+        centroid_lon=-1.8904,
+        road_hint="M6",
+        transform_params_json=transform_params_json,
+    )
+    return {
+        "as_of_utc": str(context.as_of_utc),
+        "coverage": dict(context.coverage),
+        "source_set": dict(context.source_set),
+    }
+
+
 def _run_required_checks() -> list[dict[str, Any]]:
     now = datetime.now(UTC)
     checks: list[tuple[str, Any]] = [
@@ -75,6 +105,10 @@ def _run_required_checks() -> list[dict[str, Any]]:
                 "source": load_scenario_profiles().source,
                 "contexts": len(load_scenario_profiles().contexts),
             },
+        ),
+        (
+            "scenario_live_context",
+            _scenario_live_context_details,
         ),
         (
             "fuel_snapshot",

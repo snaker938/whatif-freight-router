@@ -55,3 +55,5 @@ def test_yen_k_shortest_returns_empty_when_unreachable() -> None:
 
     assert paths == ()
     assert stats["generated_candidates"] == 0
+    assert stats["termination_reason"] == "no_initial_path"
+    assert stats["no_path_reason"] in {"no_path", "path_search_exhausted"}

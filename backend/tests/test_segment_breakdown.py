@@ -289,7 +289,7 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "live_stochastic_regimes_url", "https://live.example/stochastic")
     monkeypatch.setattr(settings, "live_carbon_schedule_url", "https://live.example/carbon")
     monkeypatch.setattr(calibration_loader, "live_scenario_profiles", lambda: _scenario_profiles_payload(now_iso))
-    monkeypatch.setattr(calibration_loader, "live_scenario_context", lambda _ctx: _scenario_context_payload(now_iso))
+    monkeypatch.setattr(calibration_loader, "live_scenario_context", lambda _ctx, **_kwargs: _scenario_context_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_departure_profiles", lambda: _departure_profile_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_bank_holidays", lambda: _bank_holidays_payload(now_iso))
     monkeypatch.setattr(calibration_loader, "live_fuel_prices", lambda _as_of: _fuel_payload(now_iso))

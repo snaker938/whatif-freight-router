@@ -1,6 +1,6 @@
 # Documentation Index
 
-Last Updated: 2026-02-23  
+Last Updated: 2026-02-25  
 Applies To: `backend/` + `frontend/` (strict v2 runtime)
 
 This is the source-of-truth index for all project documentation.  

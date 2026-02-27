@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import heapq
+import time
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from math import inf
@@ -32,6 +33,7 @@ def _dijkstra_shortest_path(
     max_repeat_per_node: int = 1,
     max_cost_limit: float | None = None,
     transition_state_fn: TransitionStateFn | None = None,
+    deadline_monotonic_s: float | None = None,
 ) -> PathResult:
     banned_nodes = banned_nodes or set()
     banned_edges = banned_edges or set()
@@ -41,6 +43,8 @@ def _dijkstra_shortest_path(
     heap: list[tuple[float, int, str, tuple[str, ...], Hashable]] = [(0.0, 0, start, (start,), initial_state)]
     best_cost_by_state: dict[tuple[str, Hashable], float] = {(start, initial_state): 0.0}
     while heap:
+        if deadline_monotonic_s is not None and time.monotonic() >= float(deadline_monotonic_s):
+            raise PathNotFoundError("search deadline exceeded")
         if max_state_budget is not None and max_state_budget > 0 and explored_counter is not None:
             if explored_counter[0] >= max_state_budget:
                 raise PathNotFoundError("state budget exceeded")
@@ -92,12 +96,21 @@ def yen_k_shortest_paths_with_stats(
     max_detour_ratio: float | None = None,
     max_candidate_pool: int | None = None,
     transition_state_fn: TransitionStateFn | None = None,
-) -> tuple[tuple[PathResult, ...], dict[str, int]]:
+    deadline_monotonic_s: float | None = None,
+) -> tuple[tuple[PathResult, ...], dict[str, int | str]]:
     if k <= 0:
-        return (), {"explored_states": 0, "generated_candidates": 0, "pruned_constraints": 0}
+        return (), {
+            "explored_states": 0,
+            "generated_candidates": 0,
+            "pruned_constraints": 0,
+            "termination_reason": "invalid_k",
+            "no_path_reason": "invalid_k",
+            "first_error": "",
+        }
     explored_counter = [0]
     generated_candidates = 0
     pruned_constraints = 0
+    first_error = ""
     try:
         first = _dijkstra_shortest_path(
             adjacency=adjacency,
@@ -110,12 +123,17 @@ def yen_k_shortest_paths_with_stats(
             max_state_budget=max_state_budget,
             max_repeat_per_node=max_repeat_per_node,
             transition_state_fn=transition_state_fn,
+            deadline_monotonic_s=deadline_monotonic_s,
         )
-    except PathNotFoundError:
+    except PathNotFoundError as exc:
+        first_error = str(exc).strip() or "no path"
         return (), {
             "explored_states": explored_counter[0],
             "generated_candidates": 0,
             "pruned_constraints": 0,
+            "termination_reason": "no_initial_path",
+            "no_path_reason": normalize_no_path_reason(first_error),
+            "first_error": first_error,
         }
 
     shortest: list[PathResult] = [first]
@@ -126,6 +144,7 @@ def yen_k_shortest_paths_with_stats(
         if max_detour_ratio is not None and max_detour_ratio > 0
         else inf
     )
+    termination_reason = "k_paths_collected"
 
     for _ in range(1, k):
         previous = shortest[-1]
@@ -154,6 +173,7 @@ def yen_k_shortest_paths_with_stats(
                     max_state_budget=max_state_budget,
                     max_repeat_per_node=max_repeat_per_node,
                     transition_state_fn=transition_state_fn,
+                    deadline_monotonic_s=deadline_monotonic_s,
                     max_cost_limit=(
                         None
                         if transition_state_fn is not None
@@ -170,7 +190,9 @@ def yen_k_shortest_paths_with_stats(
                         )
                     ),
                 )
-            except PathNotFoundError:
+            except PathNotFoundError as exc:
+                if not first_error:
+                    first_error = str(exc).strip() or "no path"
                 continue
 
             total_nodes = (*root_path[:-1], *spur.nodes)
@@ -197,14 +219,37 @@ def yen_k_shortest_paths_with_stats(
                 heapq.heapify(candidates)
 
         if not candidates:
+            termination_reason = "candidate_pool_exhausted"
             break
         best_cost, best_nodes = heapq.heappop(candidates)
         shortest.append(PathResult(nodes=best_nodes, cost=best_cost))
+    if len(shortest) >= int(max(1, k)):
+        termination_reason = "k_paths_collected"
     return tuple(shortest), {
         "explored_states": int(explored_counter[0]),
         "generated_candidates": int(generated_candidates),
         "pruned_constraints": int(pruned_constraints),
+        "termination_reason": termination_reason,
+        "no_path_reason": (
+            ""
+            if shortest
+            else normalize_no_path_reason(first_error or termination_reason)
+        ),
+        "first_error": first_error,
     }
+
+
+def normalize_no_path_reason(message: str) -> str:
+    lowered = str(message or "").strip().lower()
+    if "state budget" in lowered:
+        return "state_budget_exceeded"
+    if "start/goal blocked" in lowered:
+        return "start_or_goal_blocked"
+    if "search deadline exceeded" in lowered:
+        return "path_search_exhausted"
+    if "no path" in lowered:
+        return "no_path"
+    return "path_search_exhausted"
 
 
 def yen_k_shortest_paths(
@@ -219,6 +264,7 @@ def yen_k_shortest_paths(
     max_detour_ratio: float | None = None,
     max_candidate_pool: int | None = None,
     transition_state_fn: TransitionStateFn | None = None,
+    deadline_monotonic_s: float | None = None,
 ) -> tuple[PathResult, ...]:
     paths, _stats = yen_k_shortest_paths_with_stats(
         adjacency=adjacency,
@@ -231,5 +277,6 @@ def yen_k_shortest_paths(
         max_detour_ratio=max_detour_ratio,
         max_candidate_pool=max_candidate_pool,
         transition_state_fn=transition_state_fn,
+        deadline_monotonic_s=deadline_monotonic_s,
     )
     return paths

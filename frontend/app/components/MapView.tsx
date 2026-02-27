@@ -31,6 +31,7 @@ import type {
   DutyChainStop,
   IncidentEventType,
   LatLng,
+  MapFailureOverlay,
   ManagedStop,
   PinFocusRequest,
   PinSelectionId,
@@ -57,6 +58,7 @@ type Props = {
   fitAllRequestNonce?: number;
 
   route: RouteOption | null;
+  failureOverlay?: MapFailureOverlay | null;
   timeLapsePosition?: LatLng | null;
   dutyStops?: DutyChainStop[];
   showStopOverlay?: boolean;
@@ -1276,6 +1278,7 @@ export default function MapView({
   focusPinRequest = null,
   fitAllRequestNonce = 0,
   route,
+  failureOverlay = null,
   timeLapsePosition,
   dutyStops = [],
   showStopOverlay = true,
@@ -1564,6 +1567,21 @@ export default function MapView({
     const slim = downsamplePolyline(coords);
     return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
   }, [route]);
+  const failureLinePositions: LatLngExpression[] = useMemo(() => {
+    if (!failureOverlay || !effectiveOrigin || !effectiveDestination) return [];
+    return [
+      [effectiveOrigin.lat, effectiveOrigin.lon] as [number, number],
+      [effectiveDestination.lat, effectiveDestination.lon] as [number, number],
+    ];
+  }, [effectiveDestination, effectiveOrigin, failureOverlay]);
+  const failureMidpoint = useMemo(() => {
+    if (!failureOverlay || !effectiveOrigin || !effectiveDestination) return null;
+    return {
+      lat: (effectiveOrigin.lat + effectiveDestination.lat) / 2,
+      lon: (effectiveOrigin.lon + effectiveDestination.lon) / 2,
+    };
+  }, [effectiveDestination, effectiveOrigin, failureOverlay]);
+  const failureOverlayActive = Boolean(failureOverlay && failureLinePositions.length >= 2);
 
   const stopOverlayPoints = useMemo(() => {
     if (!showStopOverlay) return [];
@@ -2537,7 +2555,7 @@ export default function MapView({
           </Marker>
         ) : null}
 
-        {!suppressRoutePath && polylinePositions.length > 0 && (
+        {!suppressRoutePath && !failureOverlayActive && polylinePositions.length > 0 && (
           <>
             <Polyline
               positions={polylinePositions}
@@ -2561,6 +2579,54 @@ export default function MapView({
             />
           </>
         )}
+        {failureOverlayActive && failureOverlay ? (
+          <>
+            <Polyline
+              positions={failureLinePositions}
+              pathOptions={{
+                className: 'routeFailurePath',
+                color: 'rgba(239, 68, 68, 0.96)',
+                weight: 4,
+                opacity: 0.95,
+                lineCap: 'round',
+                lineJoin: 'round',
+                dashArray: '10 8',
+              }}
+            />
+            {failureMidpoint ? (
+              <CircleMarker
+                center={[failureMidpoint.lat, failureMidpoint.lon]}
+                radius={7}
+                pathOptions={{
+                  className: 'routeFailureBadge',
+                  color: 'rgba(255, 255, 255, 0.95)',
+                  weight: 1.5,
+                  fillColor: 'rgba(239, 68, 68, 0.96)',
+                  fillOpacity: 0.98,
+                }}
+              >
+                <Tooltip
+                  direction="top"
+                  offset={[0, -6]}
+                  opacity={1}
+                  className="routeFailureTooltip"
+                  permanent={false}
+                >
+                  <div className="routeFailureTooltip__title">Route compute failed</div>
+                  <div className="routeFailureTooltip__row">reason_code={failureOverlay.reason_code}</div>
+                  <div className="routeFailureTooltip__row">
+                    {failureOverlay.stage
+                      ? `stage=${failureOverlay.stage}${
+                          failureOverlay.stage_detail ? `; detail=${failureOverlay.stage_detail}` : ''
+                        }`
+                      : 'No route candidate selected'}
+                  </div>
+                  <div className="routeFailureTooltip__row">{failureOverlay.message}</div>
+                </Tooltip>
+              </CircleMarker>
+            ) : null}
+          </>
+        ) : null}
 
         {segmentBuckets.map((bucket) => {
           const positions = bucket.coordinates.map(([lon, lat]) => [lat, lon] as [number, number]);
@@ -2614,7 +2680,7 @@ export default function MapView({
           );
         })}
 
-        {showPreviewConnector && previewDotSegments.map((segment) => (
+        {showPreviewConnector && !failureOverlayActive && previewDotSegments.map((segment) => (
           <Polyline
             key={segment.id}
             positions={[

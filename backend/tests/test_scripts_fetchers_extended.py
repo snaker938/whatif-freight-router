@@ -265,7 +265,7 @@ def test_fetch_scenario_live_load_match_and_snapshot(tmp_path: Path, monkeypatch
     monkeypatch.setattr(
         fetch_scenario_live_uk,
         "live_scenario_context",
-        lambda route_context, allow_partial_sources=False: {
+        lambda route_context, allow_partial_sources=False, **_kwargs: {
             "coverage": {"overall": 1.0},
             "source_coverage": {"webtris": 1.0, "traffic_england": 1.0, "dft": 1.0, "open_meteo": 1.0},
             "as_of_utc": "2026-02-01T12:00:00Z",
@@ -706,8 +706,8 @@ def test_collect_scenario_mode_outcomes_proxy_builds_projected_rows(tmp_path: Pa
     rows = [json.loads(line) for line in output_jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 1
     row = rows[0]
-    assert row["mode_observation_source"] == "empirical_proxy_public_feeds_v1"
-    assert row["mode_is_projected"] is True
+    assert row["mode_observation_source"] == "empirical_outcome_public_feeds_v1"
+    assert row["mode_is_projected"] is False
     no_mode = row["modes"]["no_sharing"]
     partial_mode = row["modes"]["partial_sharing"]
     full_mode = row["modes"]["full_sharing"]
