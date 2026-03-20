@@ -9,6 +9,7 @@ import math
 import os
 import time
 import uuid
+import httpx
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
@@ -38,6 +39,19 @@ from .calibration_loader import (
 )
 from .carbon_model import apply_scope_emissions_adjustment, resolve_carbon_price
 from .departure_profile import time_of_day_multiplier_uk
+from .decision_critical import (
+    DCCSConfig,
+    DCCSCandidateRecord,
+    record_refine_outcome,
+    select_candidates,
+    stable_candidate_id,
+)
+from .evidence_certification import (
+    active_evidence_families,
+    compute_certificate,
+    compute_fragility_maps,
+    sample_world_manifest,
+)
 from .experiment_store import (
     create_experiment,
     delete_experiment,
@@ -72,6 +86,8 @@ from .models import (
     DutyChainRequest,
     DutyChainResponse,
     DutyChainStop,
+    EvidenceProvenance,
+    EvidenceSourceRecord,
     EmissionsContext,
     EpsilonConstraints,
     ExperimentBundle,
@@ -92,6 +108,8 @@ from .models import (
     RouteMetrics,
     RouteOption,
     RouteRequest,
+    RouteBaselineResponse,
+    RouteCertificationSummary,
     RouteResponse,
     ScenarioCompareDelta,
     ScenarioCompareRequest,
@@ -103,6 +121,7 @@ from .models import (
     StochasticConfig,
     TerrainProfile,
     TerrainSummaryPayload,
+    VoiStopSummary,
     VehicleDeleteResponse,
     VehicleListResponse,
     VehicleMutationResponse,
@@ -110,6 +129,7 @@ from .models import (
     WeatherImpactConfig,
 )
 from .multileg_engine import compose_multileg_route_options
+from .objectives_emissions import route_emissions_kg
 from .objectives_selection import normalise_weights
 from .oracle_quality_store import (
     append_check_record,
@@ -125,6 +145,7 @@ from .reporting import write_report_pdf
 from .risk_model import robust_objective
 from .route_cache import clear_route_cache, get_cached_routes, route_cache_stats, set_cached_routes
 from .routing_graph import (
+    GraphCandidateDiagnostics,
     begin_route_graph_warmup,
     route_graph_candidate_routes,
     route_graph_od_feasibility,
@@ -136,10 +157,16 @@ from .routing_osrm import OSRMClient, OSRMError, extract_segment_annotations
 from .run_store import (
     ARTIFACT_FILES,
     artifact_dir_for_run,
+    artifact_path_for_name,
     artifact_paths_for_run,
+    list_artifact_paths_for_run,
+    write_csv_artifact,
+    write_json_artifact,
+    write_jsonl_artifact,
     write_manifest,
     write_run_artifacts,
     write_scenario_manifest,
+    write_text_artifact,
 )
 from .scenario import (
     ScenarioMode,
@@ -169,6 +196,7 @@ from .vehicles import (
     resolve_vehicle_profile,
     update_custom_vehicle,
 )
+from .voi_controller import VOIConfig, VOIControllerState, build_action_menu
 from .weather_adapter import weather_incident_multiplier, weather_speed_multiplier, weather_summary
 
 try:
@@ -684,6 +712,24 @@ def _call_uncached(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
     return target(*args, **kwargs)
 
 
+def _call_prefetch_loader(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+    """
+    Use cached loader paths for per-request strict prefetch to avoid re-running
+    expensive remote fanouts on every compute call.
+
+    Strict fail-closed behavior is still enforced by:
+    1) source-level exceptions (stale/unavailable data still raises),
+    2) prefetch row success/failure accounting,
+    3) expected-source gate reconciliation after prefetch.
+
+    `live_route_compute_force_uncached` defaults to strict compatibility. Runtime
+    optimization can disable it in env to favor cached prefetch loader paths.
+    """
+    if bool(getattr(settings, "live_route_compute_force_uncached", True)):
+        return _call_uncached(fn, *args, **kwargs)
+    return fn(*args, **kwargs)
+
+
 async def _prefetch_expected_live_sources(
     *,
     origin: LatLng,
@@ -769,7 +815,7 @@ async def _prefetch_expected_live_sources(
                 )
 
     def _prefetch_scenario_context() -> ScenarioRouteContext:
-        profiles = _call_uncached(load_scenario_profiles)
+        profiles = _call_prefetch_loader(load_scenario_profiles)
         transform_params = profiles.transform_params if isinstance(profiles.transform_params, dict) else None
         if bool(settings.strict_live_data_required) and transform_params is None:
             raise ModelDataError(
@@ -788,7 +834,7 @@ async def _prefetch_expected_live_sources(
             if isinstance(transform_params, dict)
             else None
         )
-        _call_uncached(
+        _call_prefetch_loader(
             load_live_scenario_context,
             corridor_bucket=route_context.corridor_geohash5,
             road_mix_bucket=route_context.road_mix_bucket,
@@ -868,15 +914,15 @@ async def _prefetch_expected_live_sources(
         )
 
     calls: list[tuple[str, Callable[[], Any]]] = [
-        ("scenario_coefficients", lambda: _call_uncached(load_scenario_profiles)),
+        ("scenario_coefficients", lambda: _call_prefetch_loader(load_scenario_profiles)),
         ("scenario_live_context", _prefetch_scenario_context),
-        ("departure_profiles", lambda: _call_uncached(load_departure_profile)),
-        ("stochastic_regimes", lambda: _call_uncached(load_stochastic_regimes)),
-        ("toll_topology", lambda: _call_uncached(load_toll_segments_seed)),
-        ("toll_tariffs", lambda: _call_uncached(load_toll_tariffs)),
+        ("departure_profiles", lambda: _call_prefetch_loader(load_departure_profile)),
+        ("stochastic_regimes", lambda: _call_prefetch_loader(load_stochastic_regimes)),
+        ("toll_topology", lambda: _call_prefetch_loader(load_toll_segments_seed)),
+        ("toll_tariffs", lambda: _call_prefetch_loader(load_toll_tariffs)),
         (
             "fuel_prices",
-            lambda: _call_uncached(load_fuel_price_snapshot, as_of_utc=departure_time_utc),
+            lambda: _call_prefetch_loader(load_fuel_price_snapshot, as_of_utc=departure_time_utc),
         ),
         (
             "carbon_schedule",
@@ -885,7 +931,7 @@ async def _prefetch_expected_live_sources(
                 departure_time_utc=departure_time_utc,
             ),
         ),
-        ("bank_holidays", lambda: _call_uncached(load_uk_bank_holidays)),
+        ("bank_holidays", lambda: _call_prefetch_loader(load_uk_bank_holidays)),
     ]
     if _should_prefetch_terrain_source():
         calls.append(("terrain_live_tile", _prefetch_terrain_probe))
@@ -917,6 +963,17 @@ async def _prefetch_expected_live_sources(
         for row in failed_rows
     ]
     missing_expected_sources = _missing_expected_sources_from_trace()
+    if not bool(getattr(settings, "live_route_compute_force_uncached", True)):
+        successful_prefetch_keys = {
+            str(row.get("source_key", "")).strip()
+            for row in source_rows
+            if bool(row.get("ok"))
+        }
+        missing_expected_sources = [
+            key
+            for key in missing_expected_sources
+            if key not in successful_prefetch_keys
+        ]
     expected_required_total = 0
     expected_observed_total = 0
     request_id = current_live_trace_request_id()
@@ -1545,6 +1602,13 @@ class CandidateDiagnostics:
     graph_rescue_mode: str = "not_applicable"
     graph_rescue_state_budget: int = 0
     graph_rescue_outcome: str = "not_applicable"
+    prefetch_ms: float = 0.0
+    scenario_context_ms: float = 0.0
+    graph_search_ms_initial: float = 0.0
+    graph_search_ms_retry: float = 0.0
+    graph_search_ms_rescue: float = 0.0
+    osrm_refine_ms: float = 0.0
+    build_options_ms: float = 0.0
 
 
 def _is_toll_exclusion_label(label: str) -> bool:
@@ -2185,6 +2249,39 @@ async def _scenario_candidate_modifiers_async(
     )
 
 
+def _aggregate_route_segments(
+    *,
+    segment_distances_m: list[float],
+    segment_durations_s: list[float],
+    segment_grades: list[float] | None = None,
+    max_segments: int,
+) -> tuple[list[float], list[float], list[float]]:
+    grades = list(segment_grades or [])
+    if len(grades) < len(segment_distances_m):
+        grades.extend([0.0] * (len(segment_distances_m) - len(grades)))
+    if max_segments <= 0 or len(segment_distances_m) <= max_segments:
+        return list(segment_distances_m), list(segment_durations_s), grades[: len(segment_distances_m)]
+    bucket_size = max(1, int(math.ceil(len(segment_distances_m) / float(max_segments))))
+    out_d: list[float] = []
+    out_t: list[float] = []
+    out_g: list[float] = []
+    for start in range(0, len(segment_distances_m), bucket_size):
+        end = min(len(segment_distances_m), start + bucket_size)
+        dist_sum = sum(max(0.0, float(value)) for value in segment_distances_m[start:end])
+        dur_sum = sum(max(0.0, float(value)) for value in segment_durations_s[start:end])
+        weighted_grade = 0.0
+        total_weight = 0.0
+        for idx in range(start, end):
+            weight = max(1.0, max(0.0, float(segment_distances_m[idx])))
+            weighted_grade += float(grades[idx]) * weight
+            total_weight += weight
+        avg_grade = (weighted_grade / total_weight) if total_weight > 0 else 0.0
+        out_d.append(dist_sum)
+        out_t.append(dur_sum)
+        out_g.append(avg_grade)
+    return out_d, out_t, out_g
+
+
 def build_option(
     route: dict[str, Any],
     *,
@@ -2201,8 +2298,10 @@ def build_option(
     utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
     risk_aversion: float = 1.0,
     scenario_policy_cache: dict[tuple[str, str], Any] | None = None,
+    reset_terrain_route_run: bool = True,
 ) -> RouteOption:
-    terrain_begin_route_run()
+    if reset_terrain_route_run:
+        terrain_begin_route_run()
     vehicle = resolve_vehicle_profile(vehicle_type)
     ctx = emissions_context or EmissionsContext()
     weather_cfg = weather or WeatherImpactConfig()
@@ -2225,7 +2324,9 @@ def build_option(
     )
 
     coords = _downsample_coords(_validate_osrm_geometry(route))
-    seg_d_m, seg_t_s = extract_segment_annotations(route)
+    raw_seg_d_m, raw_seg_t_s = extract_segment_annotations(route)
+    seg_d_m = [max(0.0, float(seg)) for seg in raw_seg_d_m]
+    seg_t_s = [max(0.0, float(seg)) for seg in raw_seg_t_s]
     try:
         route_signature = _route_signature(route)
     except OSRMError:
@@ -2260,8 +2361,13 @@ def build_option(
         departure_time_utc=departure_time_utc,
         weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
     )
+    shared_policy_key = ("__shared__", scenario_mode.value)
     scenario_key = (scenario_mode.value, scenario_context.context_key)
-    scenario_policy = scenario_policy_cache.get(scenario_key) if scenario_policy_cache is not None else None
+    scenario_policy = None
+    if scenario_policy_cache is not None:
+        scenario_policy = scenario_policy_cache.get(shared_policy_key)
+        if scenario_policy is None:
+            scenario_policy = scenario_policy_cache.get(scenario_key)
     if scenario_policy is None:
         scenario_policy = resolve_scenario_profile(
             scenario_mode,
@@ -2301,14 +2407,25 @@ def build_option(
     gradient_emissions_multiplier = terrain_summary.emissions_multiplier
     segment_grades = segment_grade_profile(
         coordinates_lon_lat=coords,
-        segment_distances_m=[float(seg) for seg in seg_d_m],
+        segment_distances_m=seg_d_m,
+    )
+    max_segments = max(32, int(settings.route_option_segment_cap))
+    long_threshold_km = max(20.0, float(settings.route_option_long_distance_threshold_km))
+    if distance_km >= long_threshold_km:
+        max_segments = min(
+            max_segments,
+            max(32, int(settings.route_option_segment_cap_long)),
+        )
+    seg_d_m, seg_t_s, segment_grades = _aggregate_route_segments(
+        segment_distances_m=seg_d_m,
+        segment_durations_s=seg_t_s,
+        segment_grades=segment_grades,
+        max_segments=max_segments,
     )
     non_terrain_multiplier = tod_multiplier * scenario_multiplier * weather_speed
     terrain_vehicle_params = params_for_vehicle(vehicle)
     raw_terrain_multipliers: list[float] = []
-    for idx, (d_m_raw, t_s_raw) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
-        d_m = max(float(d_m_raw), 0.0)
-        t_s = max(float(t_s_raw), 0.0)
+    for idx, (d_m, t_s) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
         base_speed_kmh = (d_m / t_s) * 3.6 if t_s > 0 else max(8.0, avg_base_speed_kmh)
         seg_grade = segment_grades[idx] if idx < len(segment_grades) else 0.0
         raw_mult = segment_duration_multiplier(
@@ -2435,6 +2552,26 @@ def build_option(
     elapsed_route_s = 0.0
     fuel_price_source: str | None = None
     fuel_price_as_of: str | None = None
+    tod_bucket_s = max(0, int(settings.route_option_tod_bucket_s))
+    tod_ratio_cache: dict[int, float] = {}
+    energy_speed_bin_kph = max(0.0, float(settings.route_option_energy_speed_bin_kph))
+    energy_grade_bin_pct = max(0.0, float(settings.route_option_energy_grade_bin_pct))
+    energy_rate_cache: dict[tuple[float, float], Any] = {}
+
+    def _quantize_energy_key(speed_kmh: float, grade_ratio: float) -> tuple[float, float]:
+        speed_value = max(1.0, float(speed_kmh))
+        grade_pct = float(grade_ratio) * 100.0
+        speed_key = (
+            round(speed_value / energy_speed_bin_kph) * energy_speed_bin_kph
+            if energy_speed_bin_kph > 0.0
+            else round(speed_value, 3)
+        )
+        grade_key_pct = (
+            round(grade_pct / energy_grade_bin_pct) * energy_grade_bin_pct
+            if energy_grade_bin_pct > 0.0
+            else round(grade_pct, 4)
+        )
+        return max(1.0, float(speed_key)), float(grade_key_pct) / 100.0
 
     for idx, (d_m, t_s) in enumerate(zip(seg_d_m, seg_t_s, strict=True)):
         d_m = max(float(d_m), 0.0)
@@ -2451,48 +2588,78 @@ def build_option(
         )
         seg_duration_s = base_pre_incident_s
         if departure_time_utc is not None:
-            seg_departure_utc = departure_time_utc + timedelta(seconds=max(0.0, elapsed_route_s))
-            seg_dep = time_of_day_multiplier_uk(
-                seg_departure_utc,
-                route_points=route_points_lat_lon,
-                road_class_counts=road_class_counts,
-            )
-            seg_duration_s *= min(1.35, max(0.75, seg_dep.multiplier / max(tod_multiplier, 1e-6)))
+            bucket_key = int(max(0.0, elapsed_route_s) // tod_bucket_s) if tod_bucket_s > 0 else idx
+            tod_ratio = tod_ratio_cache.get(bucket_key)
+            if tod_ratio is None:
+                seg_departure_utc = departure_time_utc + timedelta(seconds=max(0.0, elapsed_route_s))
+                seg_dep = time_of_day_multiplier_uk(
+                    seg_departure_utc,
+                    route_points=route_points_lat_lon,
+                    road_class_counts=road_class_counts,
+                )
+                tod_ratio = min(1.35, max(0.75, seg_dep.multiplier / max(tod_multiplier, 1e-6)))
+                tod_ratio_cache[bucket_key] = tod_ratio
+            seg_duration_s *= float(tod_ratio)
         seg_grade = segment_grades[idx] if idx < len(segment_grades) else 0.0
         seg_incident_delay_s = incident_delay_by_segment.get(idx, 0.0)
         seg_duration_s += seg_incident_delay_s
         elapsed_route_s += seg_duration_s
         seg_energy_kwh = 0.0
         seg_fuel_liters = 0.0
-        energy_result = segment_energy_and_emissions(
-            vehicle=vehicle,
-            emissions_context=ctx,
-            distance_km=seg_distance_km,
-            duration_s=seg_duration_s,
-            grade=seg_grade,
-            fuel_price_multiplier=fuel_multiplier,
-            departure_time_utc=departure_time_utc,
-            route_centroid_lat=route_centroid_lat,
-            route_centroid_lon=route_centroid_lon,
-        )
-        seg_fuel_cost = energy_result.fuel_cost_gbp * scenario_fuel_multiplier
-        seg_fuel_liters_p10 = float(energy_result.fuel_liters_p10) * scenario_fuel_multiplier
-        seg_fuel_liters_p50 = float(energy_result.fuel_liters_p50) * scenario_fuel_multiplier
-        seg_fuel_liters_p90 = float(energy_result.fuel_liters_p90) * scenario_fuel_multiplier
-        seg_fuel_cost_p10 = float(energy_result.fuel_cost_p10_gbp) * scenario_fuel_multiplier
-        seg_fuel_cost_p50 = float(energy_result.fuel_cost_p50_gbp) * scenario_fuel_multiplier
-        seg_fuel_cost_p90 = float(energy_result.fuel_cost_p90_gbp) * scenario_fuel_multiplier
-        seg_fuel_cost_low = float(energy_result.fuel_cost_uncertainty_low_gbp) * scenario_fuel_multiplier
-        seg_fuel_cost_high = float(energy_result.fuel_cost_uncertainty_high_gbp) * scenario_fuel_multiplier
-        seg_energy_kwh = energy_result.energy_kwh * scenario_fuel_multiplier
-        seg_emissions = energy_result.emissions_kg * scenario_fuel_multiplier
-        seg_emissions_low = float(energy_result.emissions_uncertainty_low_kg) * scenario_fuel_multiplier
-        seg_emissions_high = float(energy_result.emissions_uncertainty_high_kg) * scenario_fuel_multiplier
-        seg_fuel_liters = energy_result.fuel_liters * scenario_fuel_multiplier
-        if fuel_price_source is None and energy_result.price_source:
-            fuel_price_source = energy_result.price_source
-        if fuel_price_as_of is None and energy_result.price_as_of:
-            fuel_price_as_of = energy_result.price_as_of
+        seg_fuel_liters_p10 = 0.0
+        seg_fuel_liters_p50 = 0.0
+        seg_fuel_liters_p90 = 0.0
+        seg_fuel_cost_p10 = 0.0
+        seg_fuel_cost_p50 = 0.0
+        seg_fuel_cost_p90 = 0.0
+        seg_fuel_cost_low = 0.0
+        seg_fuel_cost_high = 0.0
+        seg_emissions_low = 0.0
+        seg_emissions_high = 0.0
+        seg_emissions_raw = 0.0
+        seg_fuel_cost = 0.0
+        if seg_distance_km > 0.0:
+            seg_speed_kmh = seg_distance_km / (seg_duration_s / 3600.0) if seg_duration_s > 0 else max(
+                8.0, avg_base_speed_kmh
+            )
+            speed_key_kph, grade_key_ratio = _quantize_energy_key(seg_speed_kmh, seg_grade)
+            energy_rate_key = (speed_key_kph, grade_key_ratio)
+            energy_rate = energy_rate_cache.get(energy_rate_key)
+            if energy_rate is None:
+                energy_rate = segment_energy_and_emissions(
+                    vehicle=vehicle,
+                    emissions_context=ctx,
+                    distance_km=1.0,
+                    duration_s=(3600.0 / max(1.0, speed_key_kph)),
+                    grade=grade_key_ratio,
+                    fuel_price_multiplier=fuel_multiplier,
+                    departure_time_utc=departure_time_utc,
+                    route_centroid_lat=route_centroid_lat,
+                    route_centroid_lon=route_centroid_lon,
+                )
+                energy_rate_cache[energy_rate_key] = energy_rate
+            seg_scale = seg_distance_km * scenario_fuel_multiplier
+            seg_fuel_cost = float(energy_rate.fuel_cost_gbp) * seg_scale
+            seg_fuel_liters_p10 = float(energy_rate.fuel_liters_p10) * seg_scale
+            seg_fuel_liters_p50 = float(energy_rate.fuel_liters_p50) * seg_scale
+            seg_fuel_liters_p90 = float(energy_rate.fuel_liters_p90) * seg_scale
+            seg_fuel_cost_p10 = float(energy_rate.fuel_cost_p10_gbp) * seg_scale
+            seg_fuel_cost_p50 = float(energy_rate.fuel_cost_p50_gbp) * seg_scale
+            seg_fuel_cost_p90 = float(energy_rate.fuel_cost_p90_gbp) * seg_scale
+            seg_fuel_cost_low = float(energy_rate.fuel_cost_uncertainty_low_gbp) * seg_scale
+            seg_fuel_cost_high = float(energy_rate.fuel_cost_uncertainty_high_gbp) * seg_scale
+            seg_energy_kwh = float(energy_rate.energy_kwh) * seg_scale
+            seg_emissions_raw = float(energy_rate.emissions_kg) * seg_scale
+            seg_emissions = seg_emissions_raw
+            seg_emissions_low = float(energy_rate.emissions_uncertainty_low_kg) * seg_scale
+            seg_emissions_high = float(energy_rate.emissions_uncertainty_high_kg) * seg_scale
+            seg_fuel_liters = float(energy_rate.fuel_liters) * seg_scale
+            if fuel_price_source is None and energy_rate.price_source:
+                fuel_price_source = energy_rate.price_source
+            if fuel_price_as_of is None and energy_rate.price_as_of:
+                fuel_price_as_of = energy_rate.price_as_of
+        else:
+            seg_emissions = 0.0
         seg_emissions = apply_scope_emissions_adjustment(
             emissions_kg=seg_emissions,
             is_ev_mode=is_ev_mode,
@@ -2503,10 +2670,8 @@ def build_option(
         )
         seg_emissions *= max(0.0, float(gradient_emissions_multiplier))
         seg_emissions *= scenario_emissions_multiplier
-        if energy_result.emissions_kg > 1e-9:
-            scope_scale = seg_emissions / max(
-                1e-9, float(energy_result.emissions_kg) * scenario_fuel_multiplier
-            )
+        if seg_emissions_raw > 1e-9:
+            scope_scale = seg_emissions / max(1e-9, seg_emissions_raw)
             seg_emissions_low *= scope_scale
             seg_emissions_high *= scope_scale
         if terrain_uncertainty_scale > 1.0:
@@ -2708,10 +2873,16 @@ def build_option(
 
     shifted_mode = _counterfactual_shift_scenario(scenario_mode)
     shifted_key = (shifted_mode.value, scenario_context.context_key)
-    shifted_mode_policy = scenario_policy_cache.get(shifted_key) if scenario_policy_cache is not None else None
+    shifted_shared_key = ("__shared__", shifted_mode.value)
+    shifted_mode_policy = None
+    if scenario_policy_cache is not None:
+        shifted_mode_policy = scenario_policy_cache.get(shifted_shared_key)
+        if shifted_mode_policy is None:
+            shifted_mode_policy = scenario_policy_cache.get(shifted_key)
     if shifted_mode_policy is None:
         shifted_mode_policy = resolve_scenario_profile(shifted_mode, context=scenario_context)
         if scenario_policy_cache is not None:
+            scenario_policy_cache.setdefault(shifted_shared_key, shifted_mode_policy)
             scenario_policy_cache[shifted_key] = shifted_mode_policy
     shifted_mode_duration = (
         duration_after_tod_s
@@ -2945,6 +3116,131 @@ def build_option(
         option_weather_summary["vehicle_profile_version"] = int(vehicle.schema_version)
         option_weather_summary["vehicle_profile_source"] = vehicle.profile_source
 
+    evidence_records: list[EvidenceSourceRecord] = []
+
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="scenario",
+            source=str(scenario_policy.source or "unknown"),
+            active=True,
+            freshness_timestamp_utc=scenario_policy.live_as_of_utc or scenario_policy.as_of_utc,
+            max_age_minutes=float(getattr(settings, "live_scenario_coefficient_max_age_minutes", 0)),
+            signature=str(scenario_policy.version or ""),
+            confidence=max(0.0, min(1.0, float(scenario_policy.live_coverage.get("overall", 1.0))))
+            if scenario_policy.live_coverage
+            else None,
+            fallback_used=bool("fallback" in str(scenario_policy.source or "").lower()),
+            details={
+                "duration_multiplier": round(scenario_multiplier, 6),
+                "incident_rate_multiplier": round(scenario_incident_rate_multiplier, 6),
+                "incident_delay_multiplier": round(scenario_incident_delay_multiplier, 6),
+            },
+        )
+    )
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="toll",
+            source=str(toll_result.source or "unknown"),
+            active=bool(cost_toggles.use_tolls),
+            confidence=float(toll_result.confidence),
+            coverage_ratio=(
+                round(float(toll_distance_km / max(total_distance_km, 1e-9)), 6)
+                if total_distance_km > 0.0
+                else 0.0
+            ),
+            fallback_used=bool(toll_result.details.get("fallback_policy_used", False)),
+            fallback_source=str(toll_result.details.get("fallback_reason", "") or "") or None,
+            details={
+                "contains_toll": bool(contains_toll),
+                "toll_distance_km": round(float(toll_distance_km), 6),
+            },
+        )
+    )
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="terrain",
+            source=str(terrain_summary.source if terrain_summary is not None else "missing"),
+            active=terrain_summary is not None,
+            confidence=float(terrain_summary.confidence) if terrain_summary is not None else None,
+            coverage_ratio=float(terrain_summary.coverage_ratio) if terrain_summary is not None else None,
+            signature=str(terrain_summary.version if terrain_summary is not None else ""),
+            fallback_used=bool(
+                terrain_summary is not None and terrain_summary.source in {"missing", "unsupported_region"}
+            ),
+            details={
+                "ascent_m": round(float(terrain_summary.ascent_m), 3) if terrain_summary is not None else 0.0,
+                "descent_m": round(float(terrain_summary.descent_m), 3) if terrain_summary is not None else 0.0,
+            },
+        )
+    )
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="fuel",
+            source=str(fuel_price_source or "unknown"),
+            active=True,
+            freshness_timestamp_utc=fuel_price_as_of,
+            max_age_minutes=float(getattr(settings, "live_fuel_max_age_minutes", 0)),
+            confidence=None,
+            fallback_used=bool("fallback" in str(fuel_price_source or "").lower()),
+            details={
+                "fuel_cost_gbp": round(float(total_fuel_cost), 6),
+                "fuel_liters": round(float(total_fuel_liters), 6),
+            },
+        )
+    )
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="carbon",
+            source=str(carbon_context.source or "unknown"),
+            active=True,
+            freshness_timestamp_utc=getattr(carbon_context, "as_of_utc", None),
+            max_age_minutes=float(getattr(settings, "live_carbon_max_age_minutes", 0)),
+            confidence=None,
+            fallback_used=bool("fallback" in str(carbon_context.source or "").lower()),
+            details={
+                "price_per_kg": round(float(carbon_price), 6),
+                "scope_mode": str(carbon_context.scope_mode),
+            },
+        )
+    )
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="weather",
+            source=str(option_weather_summary.get("profile", "clear") if option_weather_summary else "clear"),
+            active=bool(weather_cfg.enabled),
+            freshness_timestamp_utc=(
+                str(option_weather_summary.get("observed_at_utc")) if option_weather_summary else None
+            ),
+            confidence=max(0.0, min(1.0, 1.0 - (float(weather_cfg.intensity) * 0.15)))
+            if weather_cfg.enabled
+            else None,
+            fallback_used=False,
+            details={
+                "speed_multiplier": round(float(weather_speed), 6),
+                "incident_multiplier": round(float(weather_incident), 6),
+            },
+        )
+    )
+    evidence_records.append(
+        EvidenceSourceRecord(
+            family="stochastic",
+            source="uncertainty_model",
+            active=True,
+            freshness_timestamp_utc=None,
+            confidence=None,
+            fallback_used=False,
+            details={
+                "samples": int((stochastic or StochasticConfig()).samples),
+                "sigma": round(float((stochastic or StochasticConfig()).sigma), 6),
+            },
+        )
+    )
+    active_families = [record.family for record in evidence_records if record.active]
+    evidence_provenance = EvidenceProvenance(
+        active_families=active_families,
+        families=evidence_records,
+    )
+
     option = RouteOption(
         id=option_id,
         geometry=GeoJSONLineString(type="LineString", coordinates=coords),
@@ -2973,6 +3269,7 @@ def build_option(
             else None
         ),
         incident_events=incident_events,
+        evidence_provenance=evidence_provenance,
     )
     corridor_bucket = (
         departure_multiplier.profile_key.split(".", 1)[0]
@@ -3088,6 +3385,472 @@ def build_option(
             "classification_source": str(toll_result.source),
         }
     return option
+
+
+def _build_osrm_baseline_option(
+    route: dict[str, Any],
+    *,
+    option_id: str,
+    vehicle: VehicleProfile,
+    scenario_mode: ScenarioMode | None = None,
+    cost_toggles: CostToggles | None = None,
+    emissions_context: EmissionsContext | None = None,
+    weather: WeatherImpactConfig | None = None,
+    departure_time_utc: datetime | None = None,
+    baseline_duration_multiplier_override: float | None = None,
+    baseline_distance_multiplier_override: float | None = None,
+) -> RouteOption:
+    coords_raw = _validate_osrm_geometry(route)
+    coords = _downsample_coords(coords_raw)
+    seg_d_m, seg_t_s = extract_segment_annotations(route)
+    baseline_distance_multiplier = max(
+        1.0,
+        float(
+            settings.route_baseline_distance_multiplier
+            if baseline_distance_multiplier_override is None
+            else baseline_distance_multiplier_override
+        ),
+    )
+    seg_d_m_scaled = [max(0.0, float(seg)) * baseline_distance_multiplier for seg in seg_d_m]
+    seg_t_s_scaled = [max(0.0, float(seg)) for seg in seg_t_s]
+
+    distance_m = float(route.get("distance", 0.0))
+    duration_s = float(route.get("duration", 0.0))
+    if distance_m <= 0 or duration_s <= 0:
+        distance_m = sum(seg_d_m_scaled)
+        duration_s = sum(seg_t_s_scaled)
+    else:
+        distance_m = max(0.0, distance_m) * baseline_distance_multiplier
+        duration_s = max(0.0, duration_s)
+
+    distance_km = max(0.0, distance_m / 1000.0)
+    duration_s = max(0.0, duration_s)
+    avg_speed_kmh = distance_km / (duration_s / 3600.0) if duration_s > 0 else 0.0
+    legacy_monetary_cost = (distance_km * float(vehicle.cost_per_km)) + (
+        (duration_s / 3600.0) * float(vehicle.cost_per_hour)
+    )
+
+    toggles = cost_toggles or CostToggles()
+    ctx = emissions_context or EmissionsContext()
+    weather_cfg = weather or WeatherImpactConfig()
+    route_points_lat_lon = [(float(lat), float(lon)) for lon, lat in coords_raw]
+    road_class_counts = _route_road_class_counts(route)
+    route_centroid_lat = (
+        sum(point[0] for point in route_points_lat_lon) / len(route_points_lat_lon)
+        if route_points_lat_lon
+        else None
+    )
+    route_centroid_lon = (
+        sum(point[1] for point in route_points_lat_lon) / len(route_points_lat_lon)
+        if route_points_lat_lon
+        else None
+    )
+    tod_multiplier = 1.0
+    if departure_time_utc is not None:
+        try:
+            tod_multiplier = float(
+                time_of_day_multiplier_uk(
+                    departure_time_utc,
+                    route_points=route_points_lat_lon,
+                    road_class_counts=road_class_counts,
+                ).multiplier
+            )
+        except Exception:
+            tod_multiplier = 1.0
+    scenario_duration_multiplier = 1.0
+    scenario_fuel_multiplier = 1.0
+    scenario_emissions_multiplier = 1.0
+    if scenario_mode is not None:
+        try:
+            scenario_context = build_scenario_route_context(
+                route_points=route_points_lat_lon,
+                road_class_counts=road_class_counts,
+                vehicle_class=str(vehicle.vehicle_class),
+                departure_time_utc=departure_time_utc,
+                weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+            )
+            scenario_policy = resolve_scenario_profile(
+                scenario_mode,
+                context=scenario_context,
+            )
+            scenario_duration_multiplier = float(scenario_policy.duration_multiplier)
+            scenario_fuel_multiplier = float(scenario_policy.fuel_consumption_multiplier)
+            scenario_emissions_multiplier = float(scenario_policy.emissions_multiplier)
+        except Exception:
+            scenario_duration_multiplier = 1.0
+            scenario_fuel_multiplier = 1.0
+            scenario_emissions_multiplier = 1.0
+    weather_duration_multiplier = weather_speed_multiplier(weather_cfg) if weather_cfg.enabled else 1.0
+    baseline_duration_multiplier = max(
+        1.0,
+        float(
+            settings.route_baseline_duration_multiplier
+            if baseline_duration_multiplier_override is None
+            else baseline_duration_multiplier_override
+        ),
+    )
+    duration_scale = max(
+        0.55,
+        min(
+            3.2,
+            float(tod_multiplier)
+            * float(scenario_duration_multiplier)
+            * float(weather_duration_multiplier),
+        ),
+    )
+    duration_scale *= baseline_duration_multiplier
+    duration_s *= duration_scale
+    avg_speed_kmh = distance_km / (duration_s / 3600.0) if duration_s > 0 else 0.0
+
+    energy_kwh: float | None = None
+    proxy_emissions_kg = route_emissions_kg(
+        vehicle=vehicle,
+        segment_distances_m=seg_d_m_scaled,
+        segment_durations_s=seg_t_s_scaled,
+    )
+    proxy_emissions_kg *= max(
+        0.65,
+        min(
+            3.0,
+            duration_scale * scenario_fuel_multiplier * scenario_emissions_multiplier,
+        ),
+    )
+    emissions_kg = proxy_emissions_kg
+    monetary_cost = legacy_monetary_cost * max(
+        0.65,
+        min(3.0, duration_scale * scenario_fuel_multiplier),
+    )
+
+    # Keep baseline route generation fast, but use cost primitives consistent with
+    # smart-route scoring when live runtime artifacts are available.
+    try:
+        fuel_multiplier = max(float(toggles.fuel_price_multiplier), 0.0)
+        carbon_context = resolve_carbon_price(
+            request_price_per_kg=max(float(toggles.carbon_price_per_kg), 0.0),
+            departure_time_utc=departure_time_utc,
+        )
+        carbon_price = float(carbon_context.price_per_kg)
+        toll_result = compute_toll_cost(
+            route=route,
+            distance_km=distance_km,
+            vehicle_type=vehicle.id,
+            vehicle_profile=vehicle,
+            departure_time_utc=departure_time_utc,
+            use_tolls=bool(toggles.use_tolls),
+            fallback_toll_cost_per_km=float(toggles.toll_cost_per_km),
+        )
+        toll_component_total = float(toll_result.toll_cost_gbp)
+        is_ev_mode = str(vehicle.powertrain).lower() == "ev"
+        total_distance_km_for_share = max(distance_km, 1e-6)
+        total_emissions = 0.0
+        total_energy_kwh = 0.0
+        total_monetary = 0.0
+
+        for d_m, t_s in zip(seg_d_m_scaled, seg_t_s_scaled):
+            seg_distance_km = max(float(d_m), 0.0) / 1000.0
+            seg_duration_s = max(float(t_s), 0.0) * duration_scale
+            seg_energy = segment_energy_and_emissions(
+                vehicle=vehicle,
+                emissions_context=ctx,
+                distance_km=seg_distance_km,
+                duration_s=seg_duration_s,
+                grade=0.0,
+                fuel_price_multiplier=fuel_multiplier,
+                departure_time_utc=departure_time_utc,
+                route_centroid_lat=route_centroid_lat,
+                route_centroid_lon=route_centroid_lon,
+            )
+            seg_emissions = apply_scope_emissions_adjustment(
+                emissions_kg=float(seg_energy.emissions_kg) * scenario_fuel_multiplier,
+                is_ev_mode=is_ev_mode,
+                scope_mode=carbon_context.scope_mode,
+                departure_time_utc=departure_time_utc,
+                route_centroid_lat=route_centroid_lat,
+                route_centroid_lon=route_centroid_lon,
+            )
+            seg_emissions *= scenario_emissions_multiplier
+            seg_toll_cost = toll_component_total * (seg_distance_km / total_distance_km_for_share)
+            seg_time_cost = (seg_duration_s / 3600.0) * float(vehicle.cost_per_hour) * DRIVER_TIME_COST_WEIGHT
+            seg_carbon_cost = seg_emissions * carbon_price
+            seg_monetary = (
+                (float(seg_energy.fuel_cost_gbp) * scenario_fuel_multiplier)
+                + seg_time_cost
+                + seg_toll_cost
+                + seg_carbon_cost
+            )
+            total_emissions += seg_emissions
+            total_energy_kwh += max(0.0, float(seg_energy.energy_kwh))
+            total_monetary += max(0.0, seg_monetary)
+
+        if proxy_emissions_kg > total_emissions:
+            total_monetary += (proxy_emissions_kg - total_emissions) * carbon_price
+        emissions_kg = max(0.0, proxy_emissions_kg, total_emissions)
+        if is_ev_mode:
+            energy_kwh = max(0.0, total_energy_kwh)
+        monetary_cost = max(0.0, total_monetary)
+    except Exception:
+        # Keep baseline comparator available even if a live artifact is transiently missing.
+        if str(vehicle.powertrain).lower() == "ev":
+            ev_kwh_per_km = (
+                float(vehicle.ev_kwh_per_km)
+                if vehicle.ev_kwh_per_km is not None and float(vehicle.ev_kwh_per_km) > 0
+                else 1.25
+            )
+            energy_kwh = distance_km * ev_kwh_per_km
+            grid_co2_kg_per_kwh = (
+                float(vehicle.grid_co2_kg_per_kwh)
+                if vehicle.grid_co2_kg_per_kwh is not None and float(vehicle.grid_co2_kg_per_kwh) >= 0
+                else 0.20
+            )
+            emissions_kg = max(0.0, energy_kwh * grid_co2_kg_per_kwh)
+        monetary_cost = legacy_monetary_cost * max(
+            0.65,
+            min(3.0, duration_scale * scenario_fuel_multiplier),
+        )
+
+    vehicle_profile_version = (
+        int(vehicle.schema_version) if getattr(vehicle, "schema_version", None) is not None else None
+    )
+
+    return RouteOption(
+        id=option_id,
+        geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+        metrics=RouteMetrics(
+            distance_km=round(distance_km, 3),
+            duration_s=round(duration_s, 2),
+            monetary_cost=round(monetary_cost, 2),
+            emissions_kg=round(max(0.0, float(emissions_kg)), 3),
+            avg_speed_kmh=round(avg_speed_kmh, 2),
+            energy_kwh=round(energy_kwh, 3) if energy_kwh is not None else None,
+        ),
+        vehicle_profile_id=vehicle.id,
+        vehicle_profile_version=vehicle_profile_version,
+        vehicle_profile_source=vehicle.profile_source,
+    )
+
+
+def _parse_route_duration_seconds(raw_duration: Any) -> float:
+    text = str(raw_duration or "").strip()
+    if not text:
+        return 0.0
+    if text.endswith("s"):
+        text = text[:-1]
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value):
+        return 0.0
+    return max(0.0, value)
+
+
+def _decode_encoded_polyline(encoded: str) -> list[tuple[float, float]]:
+    text = str(encoded or "").strip()
+    if not text:
+        return []
+    coords: list[tuple[float, float]] = []
+    index = 0
+    lat = 0
+    lon = 0
+    length = len(text)
+    while index < length:
+        shift = 0
+        result = 0
+        while True:
+            if index >= length:
+                return coords
+            b = ord(text[index]) - 63
+            index += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        lat += ~(result >> 1) if (result & 1) else (result >> 1)
+
+        shift = 0
+        result = 0
+        while True:
+            if index >= length:
+                return coords
+            b = ord(text[index]) - 63
+            index += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        lon += ~(result >> 1) if (result & 1) else (result >> 1)
+        coords.append((lon / 1e5, lat / 1e5))
+    return coords
+
+
+def _haversine_segment_m(
+    *,
+    lat_a: float,
+    lon_a: float,
+    lat_b: float,
+    lon_b: float,
+) -> float:
+    radius_m = 6_371_000.0
+    phi_1 = math.radians(lat_a)
+    phi_2 = math.radians(lat_b)
+    dphi = math.radians(lat_b - lat_a)
+    dlambda = math.radians(lon_b - lon_a)
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi_1) * math.cos(phi_2) * math.sin(dlambda / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(1e-12, 1.0 - a)))
+    return radius_m * c
+
+
+def _build_osrm_like_route_from_polyline(
+    *,
+    coordinates_lon_lat: list[tuple[float, float]],
+    distance_m: float,
+    duration_s: float,
+) -> dict[str, Any]:
+    coords = list(coordinates_lon_lat)
+    if len(coords) < 2:
+        raise ValueError("Polyline must contain at least two coordinates.")
+
+    segment_distances_m: list[float] = []
+    for idx in range(1, len(coords)):
+        lon_a, lat_a = coords[idx - 1]
+        lon_b, lat_b = coords[idx]
+        segment_distances_m.append(
+            _haversine_segment_m(lat_a=lat_a, lon_a=lon_a, lat_b=lat_b, lon_b=lon_b)
+        )
+
+    geometric_total_m = max(1.0, float(sum(segment_distances_m)))
+    reported_distance_m = max(0.0, float(distance_m))
+    if reported_distance_m <= 0.0:
+        reported_distance_m = geometric_total_m
+    scale = reported_distance_m / geometric_total_m
+    segment_distances_scaled = [max(0.0, seg * scale) for seg in segment_distances_m]
+
+    reported_duration_s = max(0.0, float(duration_s))
+    if reported_duration_s <= 0.0:
+        # Keep fallback deterministic for provider payloads that omit duration.
+        reported_duration_s = reported_distance_m / max(3.0, (65.0 / 3.6))
+    distance_total_for_share = max(1e-6, float(sum(segment_distances_scaled)))
+    segment_durations_s = [
+        reported_duration_s * (seg_m / distance_total_for_share) for seg_m in segment_distances_scaled
+    ]
+
+    return {
+        "distance": reported_distance_m,
+        "duration": reported_duration_s,
+        "geometry": {"type": "LineString", "coordinates": coords},
+        "legs": [
+            {
+                "annotation": {
+                    "distance": segment_distances_scaled,
+                    "duration": segment_durations_s,
+                }
+            }
+        ],
+    }
+
+
+async def _fetch_ors_reference_route_seed(
+    *,
+    req: RouteRequest,
+) -> dict[str, Any]:
+    api_key = str(settings.ors_directions_api_key or "").strip()
+    if not api_key:
+        raise RuntimeError("ORS_DIRECTIONS_API_KEY is not configured.")
+    url_template = str(settings.ors_directions_url_template or "").strip()
+    if not url_template:
+        raise RuntimeError("ORS_DIRECTIONS_URL_TEMPLATE is empty.")
+
+    vehicle_hint = str(req.vehicle_type or "").strip().lower()
+    hgv_profile = str(settings.ors_directions_profile_hgv or "driving-hgv").strip() or "driving-hgv"
+    default_profile = str(settings.ors_directions_profile_default or "driving-car").strip() or "driving-car"
+    profile = (
+        hgv_profile
+        if any(token in vehicle_hint for token in ("hgv", "truck", "artic", "rigid"))
+        else default_profile
+    )
+    url = url_template.format(profile=profile) if "{profile}" in url_template else url_template
+    if not url:
+        raise RuntimeError("ORS_DIRECTIONS_URL_TEMPLATE resolved to an empty URL.")
+
+    coordinates: list[list[float]] = [
+        [float(req.origin.lon), float(req.origin.lat)],
+        *[[float(point.lon), float(point.lat)] for point in (req.waypoints or [])],
+        [float(req.destination.lon), float(req.destination.lat)],
+    ]
+    body: dict[str, Any] = {
+        "coordinates": coordinates,
+        "instructions": False,
+        "elevation": False,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": api_key,
+    }
+
+    timeout_s = max(1.0, float(settings.ors_directions_timeout_ms) / 1000.0)
+    timeout = httpx.Timeout(timeout_s)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, json=body, headers=headers)
+
+    if response.status_code >= 400:
+        response_text = response.text.strip()
+        raise RuntimeError(
+            f"OpenRouteService returned HTTP {response.status_code}: {response_text[:300]}"
+        )
+
+    payload = response.json()
+    distance_m = 0.0
+    duration_s = 0.0
+    coordinates_lon_lat: list[tuple[float, float]] = []
+
+    routes = payload.get("routes")
+    if isinstance(routes, list) and routes and isinstance(routes[0], dict):
+        route0 = routes[0]
+        summary = route0.get("summary") if isinstance(route0.get("summary"), dict) else {}
+        distance_m = float((summary or {}).get("distance", route0.get("distance", 0.0)) or 0.0)
+        duration_s = _parse_route_duration_seconds((summary or {}).get("duration", route0.get("duration")))
+        geometry_payload = route0.get("geometry")
+        if isinstance(geometry_payload, str):
+            coordinates_lon_lat = _decode_encoded_polyline(geometry_payload)
+        elif (
+            isinstance(geometry_payload, dict)
+            and isinstance(geometry_payload.get("coordinates"), list)
+        ):
+            coordinates_lon_lat = [
+                (float(pair[0]), float(pair[1]))
+                for pair in geometry_payload.get("coordinates", [])
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2
+            ]
+
+    if len(coordinates_lon_lat) < 2:
+        features = payload.get("features")
+        if isinstance(features, list) and features and isinstance(features[0], dict):
+            feature0 = features[0]
+            feature_geometry = feature0.get("geometry")
+            if (
+                isinstance(feature_geometry, dict)
+                and isinstance(feature_geometry.get("coordinates"), list)
+            ):
+                coordinates_lon_lat = [
+                    (float(pair[0]), float(pair[1]))
+                    for pair in feature_geometry.get("coordinates", [])
+                    if isinstance(pair, (list, tuple)) and len(pair) >= 2
+                ]
+            feature_props = feature0.get("properties")
+            if isinstance(feature_props, dict) and isinstance(feature_props.get("summary"), dict):
+                feature_summary = feature_props.get("summary", {})
+                distance_m = float(feature_summary.get("distance", distance_m) or distance_m or 0.0)
+                duration_s = _parse_route_duration_seconds(feature_summary.get("duration", duration_s))
+
+    if len(coordinates_lon_lat) < 2:
+        raise RuntimeError("OpenRouteService route geometry is missing or invalid.")
+
+    return _build_osrm_like_route_from_polyline(
+        coordinates_lon_lat=coordinates_lon_lat,
+        distance_m=distance_m,
+        duration_s=duration_s,
+    )
 
 
 def _route_signature(route: dict[str, Any]) -> str:
@@ -3295,6 +4058,24 @@ def _candidate_fetch_specs(
     return specs
 
 
+def _long_corridor_fallback_specs(
+    *,
+    origin: LatLng,
+    destination: LatLng,
+    max_routes: int,
+) -> list[CandidateFetchSpec]:
+    """Build a bounded OSRM fallback family set for long-corridor recoveries."""
+    alt_budget = max(2, min(int(settings.route_candidate_alternatives_max), max_routes * 2))
+    specs: list[CandidateFetchSpec] = [CandidateFetchSpec(label="fallback:alternatives", alternatives=alt_budget)]
+    via_candidates = _candidate_via_points(origin, destination)
+    via_limit = max(2, min(len(via_candidates), max(4, max_routes)))
+    for idx, via in enumerate(via_candidates[:via_limit], start=1):
+        specs.append(CandidateFetchSpec(label=f"fallback:via:{idx}", alternatives=False, via=[via]))
+    for ex in ("motorway", "toll", "ferry"):
+        specs.append(CandidateFetchSpec(label=f"fallback:exclude:{ex}", alternatives=False, exclude=ex))
+    return specs
+
+
 def _candidate_fetch_concurrency(total_specs: int) -> int:
     capped = min(settings.batch_concurrency, MAX_CANDIDATE_FETCH_CONCURRENCY)
     return max(1, min(total_specs, capped))
@@ -3403,6 +4184,59 @@ def _graph_family_signature(route: dict[str, Any]) -> str:
     return hashlib.sha1("|".join(sample).encode("utf-8")).hexdigest()
 
 
+def _route_distance_km(route: dict[str, Any]) -> float:
+    raw = route.get("distance")
+    if isinstance(raw, (int, float)) and raw > 0:
+        return float(raw) / 1000.0
+    try:
+        seg_d_m, _seg_t_s = extract_segment_annotations(route)
+        if seg_d_m:
+            return float(sum(seg_d_m)) / 1000.0
+    except OSRMError:
+        pass
+    return 0.0
+
+
+def _od_haversine_km(origin: LatLng, destination: LatLng) -> float:
+    lat1 = math.radians(float(origin.lat))
+    lon1 = math.radians(float(origin.lon))
+    lat2 = math.radians(float(destination.lat))
+    lon2 = math.radians(float(destination.lon))
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon / 2.0) ** 2)
+    )
+    return 2.0 * 6371.0 * math.asin(min(1.0, math.sqrt(max(0.0, a))))
+
+
+def _search_deadline_s(timeout_ms: int) -> float | None:
+    timeout = int(timeout_ms)
+    if timeout <= 0:
+        return None
+    return time.monotonic() + (timeout / 1000.0)
+
+
+def _route_corridor_signature(route: dict[str, Any]) -> str:
+    meta = route.get("_graph_meta")
+    if not isinstance(meta, dict):
+        return "corridor:unknown"
+    road_mix = meta.get("road_mix_counts")
+    dominant_class = "unknown"
+    if isinstance(road_mix, dict) and road_mix:
+        dominant_class = str(
+            max(
+                road_mix.items(),
+                key=lambda item: (int(item[1]) if isinstance(item[1], (int, float)) else 0, str(item[0])),
+            )[0]
+        ).strip() or "unknown"
+    toll_edges = int(meta.get("toll_edges", 0)) if isinstance(meta.get("toll_edges", 0), (int, float)) else 0
+    toll_bucket = "tolled" if toll_edges > 0 else "free"
+    distance_bucket = int(_route_distance_km(route) // 25.0)
+    return f"{dominant_class}:{toll_bucket}:{distance_bucket}"
+
+
 def _neutral_scenario_edge_modifiers() -> dict[str, float | str]:
     return {
         "mode": "full_sharing",
@@ -3501,14 +4335,68 @@ def _select_ranked_candidate_routes(
     max_routes: int,
 ) -> list[dict[str, Any]]:
     max_routes = max(1, min(max_routes, int(settings.route_candidate_alternatives_max)))
+    prefilter_multiplier = max(1, int(settings.route_candidate_prefilter_multiplier))
+    long_prefilter_multiplier = max(1, int(settings.route_candidate_prefilter_multiplier_long))
+    long_distance_threshold_km = max(
+        0.0,
+        float(settings.route_candidate_prefilter_long_distance_threshold_km),
+    )
+    if long_distance_threshold_km > 0.0 and any(
+        _route_distance_km(route) >= long_distance_threshold_km for route in routes
+    ):
+        prefilter_multiplier = min(prefilter_multiplier, long_prefilter_multiplier)
+    prefilter_target = max(
+        max_routes,
+        min(len(routes), max_routes * prefilter_multiplier),
+    )
 
-    scored: list[tuple[float, str, dict[str, Any]]] = []
+    scored: list[tuple[float, str, str, str, dict[str, Any]]] = []
     for route in routes:
         sig = _route_signature(route)
-        scored.append((_route_duration_s(route), sig, route))
-
+        family_sig = _graph_family_signature(route) or sig
+        corridor_sig = _route_corridor_signature(route)
+        scored.append((_route_duration_s(route), sig, family_sig, corridor_sig, route))
     scored.sort(key=lambda item: (item[0], item[1]))
-    return [route for _, _, route in scored[:max_routes]]
+
+    if len(scored) <= prefilter_target:
+        return [route for _, _, _, _, route in scored]
+
+    selected: list[tuple[float, str, str, str, dict[str, Any]]] = []
+    family_counts: dict[str, int] = {}
+    corridor_counts: dict[str, int] = {}
+    remaining = list(scored)
+
+    while remaining and len(selected) < prefilter_target:
+        best_idx = 0
+        best_score = float("inf")
+        best_duration = float("inf")
+        best_sig = ""
+        for idx, (duration_s, sig, family_sig, corridor_sig, _route) in enumerate(remaining):
+            family_count = family_counts.get(family_sig, 0)
+            corridor_count = corridor_counts.get(corridor_sig, 0)
+            diversity_multiplier = 1.0 + (0.18 * family_count) + (0.12 * corridor_count)
+            blended_score = duration_s * diversity_multiplier
+            if (
+                blended_score < best_score
+                or (
+                    math.isclose(blended_score, best_score)
+                    and (
+                        duration_s < best_duration
+                        or (math.isclose(duration_s, best_duration) and sig < best_sig)
+                    )
+                )
+            ):
+                best_idx = idx
+                best_score = blended_score
+                best_duration = duration_s
+                best_sig = sig
+        duration_s, sig, family_sig, corridor_sig, route = remaining.pop(best_idx)
+        selected.append((duration_s, sig, family_sig, corridor_sig, route))
+        family_counts[family_sig] = family_counts.get(family_sig, 0) + 1
+        corridor_counts[corridor_sig] = corridor_counts.get(corridor_sig, 0) + 1
+
+    selected.sort(key=lambda item: (item[0], item[1]))
+    return [route for _, _, _, _, route in selected]
 
 
 def _build_options(
@@ -3535,6 +4423,32 @@ def _build_options(
     coverage_min_observed = 1.0
     dem_version = "unknown"
     scenario_policy_cache: dict[tuple[str, str], Any] = {}
+    terrain_begin_route_run()
+    if bool(settings.route_option_reuse_scenario_policy) and routes:
+        try:
+            shared_route = routes[0]
+            shared_coords = _downsample_coords(_validate_osrm_geometry(shared_route))
+            shared_points_lat_lon = [(lat, lon) for lon, lat in shared_coords]
+            shared_road_class_counts = _route_road_class_counts(shared_route)
+            shared_context = build_scenario_route_context(
+                route_points=shared_points_lat_lon,
+                road_class_counts=shared_road_class_counts,
+                vehicle_class=str(resolve_vehicle_profile(vehicle_type).vehicle_class),
+                departure_time_utc=departure_time_utc,
+                weather_bucket=(weather.profile if weather is not None and weather.enabled else "clear"),
+            )
+            scenario_policy_cache[("__shared__", scenario_mode.value)] = resolve_scenario_profile(
+                scenario_mode,
+                context=shared_context,
+            )
+            shifted_mode = _counterfactual_shift_scenario(scenario_mode)
+            scenario_policy_cache[("__shared__", shifted_mode.value)] = resolve_scenario_profile(
+                shifted_mode,
+                context=shared_context,
+            )
+        except Exception:
+            # Fall back to per-route scenario context if shared bootstrap fails.
+            pass
 
     for route in routes:
         option_id = f"{option_prefix}_{len(options)}"
@@ -3554,6 +4468,7 @@ def _build_options(
                 utility_weights=utility_weights,
                 risk_aversion=risk_aversion,
                 scenario_policy_cache=scenario_policy_cache,
+                reset_terrain_route_run=False,
             )
             options.append(option)
             if option.terrain_summary is not None:
@@ -4323,22 +5238,159 @@ def _pick_best_option(
         )
         for option in options
     ]
+    distances = [float(max(0.0, option.metrics.distance_km)) for option in options]
 
     t_min, t_max = min(times), max(times)
     m_min, m_max = min(moneys), max(moneys)
     e_min, e_max = min(emissions), max(emissions)
+    d_min, d_max = min(distances), max(distances)
 
     def _norm(value: float, min_value: float, max_value: float) -> float:
         return 0.0 if max_value <= min_value else (value - min_value) / (max_value - min_value)
 
+    math_profile = str(settings.route_selection_math_profile or "modified_vikor_distance").strip().lower()
+    regret_weight = max(0.0, float(settings.route_selection_modified_regret_weight))
+    balance_weight = max(0.0, float(settings.route_selection_modified_balance_weight))
+    distance_weight = max(0.0, float(settings.route_selection_modified_distance_weight))
+    eta_distance_weight = max(0.0, float(settings.route_selection_modified_eta_distance_weight))
+    entropy_weight = max(0.0, float(settings.route_selection_modified_entropy_weight))
+    knee_weight = max(0.0, float(settings.route_selection_modified_knee_weight))
+    tchebycheff_rho = max(0.0, float(settings.route_selection_tchebycheff_rho))
+    vikor_v = min(1.0, max(0.0, float(settings.route_selection_vikor_v)))
+
+    norm_rows = [
+        (
+            _norm(time_v, t_min, t_max),
+            _norm(money_v, m_min, m_max),
+            _norm(co2_v, e_min, e_max),
+            _norm(distance_v, d_min, d_max),
+        )
+        for time_v, money_v, co2_v, distance_v in zip(
+            times,
+            moneys,
+            emissions,
+            distances,
+            strict=True,
+        )
+    ]
+
+    weighted_sum_rows = [
+        (wt * n_time) + (wm * n_money) + (we * n_co2)
+        for n_time, n_money, n_co2, _ in norm_rows
+    ]
+    weighted_regret_rows = [
+        max(wt * n_time, wm * n_money, we * n_co2)
+        for n_time, n_money, n_co2, _ in norm_rows
+    ]
+    vikor_s_min = min(weighted_sum_rows)
+    vikor_s_max = max(weighted_sum_rows)
+    vikor_r_min = min(weighted_regret_rows)
+    vikor_r_max = max(weighted_regret_rows)
+
+    def _safe_scale(value: float, min_value: float, max_value: float) -> float:
+        return 0.0 if max_value <= min_value else (value - min_value) / (max_value - min_value)
+
     best = options[0]
     best_tuple = (float("inf"), float("inf"), "")
-    for option, time_v, money_v, co2_v in zip(options, times, moneys, emissions, strict=True):
-        score = (wt * _norm(time_v, t_min, t_max)) + (wm * _norm(money_v, m_min, m_max)) + (
-            we * _norm(co2_v, e_min, e_max)
+    for option, time_v, money_v, co2_v, distance_v, norms, weighted_sum, weighted_regret in zip(
+        options,
+        times,
+        moneys,
+        emissions,
+        distances,
+        norm_rows,
+        weighted_sum_rows,
+        weighted_regret_rows,
+        strict=True,
+    ):
+        n_time, n_money, n_co2, n_distance = norms
+
+        # Academic and modified route-selection formulas used after strict feasibility and Pareto:
+        #
+        # Academic references (unchanged baseline formulas):
+        # 1) Weighted-sum scalarisation:
+        #    Marler & Arora (2010) https://doi.org/10.1007/s00158-009-0460-7
+        # 2) Augmented Tchebycheff scalarisation (L-infinity regret + epsilon term):
+        #    Steuer & Choo (1983) https://doi.org/10.1007/BF02591962
+        # 3) VIKOR compromise score (utility/regret mixture using group utility S and
+        #    individual regret R, normalised over the candidate set):
+        #    Opricovic & Tzeng (2004) https://doi.org/10.1016/S0377-2217(03)00020-1
+        #
+        # Modified engineering profiles (deliberate practical extension):
+        # 4) Distance-as-objective influence for route choice in multi-criteria routing:
+        #    Martins (1984) https://doi.org/10.1016/0377-2217(84)90202-2
+        # 5) Knee-oriented preference signal (approximation of "balanced compromise"
+        #    behavior near high-curvature Pareto regions):
+        #    Branke et al. (2004) https://doi.org/10.1007/978-3-540-30217-9_73
+        # 6) Entropy reward to prefer routes improving multiple objectives together:
+        #    Shannon (1948) https://doi.org/10.1002/j.1538-7305.1948.tb01338.x
+        #
+        # Implementation note:
+        # - The strict fail-closed gates, live-source validation, and Pareto filtering are
+        #   unchanged.
+        # - The formulas below only pick one highlighted route from an already-feasible set.
+        # - `modified_*` profiles are intentionally not claimed as novel theory; they are
+        #   transparent engineering blends of known multi-objective building blocks.
+        mean_norm = (n_time + n_money + n_co2) / 3.0
+        balance_penalty = math.sqrt(
+            max(
+                0.0,
+                ((n_time - mean_norm) ** 2 + (n_money - mean_norm) ** 2 + (n_co2 - mean_norm) ** 2)
+                / 3.0,
+            )
         )
+        knee_penalty = (
+            abs(n_time - n_money)
+            + abs(n_time - n_co2)
+            + abs(n_money - n_co2)
+        ) / 3.0
+        eta_distance_penalty = math.sqrt(max(0.0, n_time * n_distance))
+        improve_time = max(1e-6, 1.0 - n_time)
+        improve_money = max(1e-6, 1.0 - n_money)
+        improve_co2 = max(1e-6, 1.0 - n_co2)
+        improve_sum = improve_time + improve_money + improve_co2
+        p_time = improve_time / improve_sum
+        p_money = improve_money / improve_sum
+        p_co2 = improve_co2 / improve_sum
+        entropy_reward = -(
+            (p_time * math.log(p_time))
+            + (p_money * math.log(p_money))
+            + (p_co2 * math.log(p_co2))
+        ) / math.log(3.0)
+        vikor_q = (vikor_v * _safe_scale(weighted_sum, vikor_s_min, vikor_s_max)) + (
+            (1.0 - vikor_v) * _safe_scale(weighted_regret, vikor_r_min, vikor_r_max)
+        )
+
+        if math_profile == "academic_reference":
+            score = weighted_sum
+        elif math_profile == "academic_tchebycheff":
+            score = weighted_regret + (tchebycheff_rho * weighted_sum)
+        elif math_profile == "academic_vikor":
+            score = vikor_q
+        elif math_profile == "modified_hybrid":
+            score = weighted_sum + (regret_weight * weighted_regret) + (balance_weight * balance_penalty)
+        elif math_profile == "modified_vikor_distance":
+            score = (
+                vikor_q
+                + (balance_weight * balance_penalty)
+                + (distance_weight * n_distance)
+                + (eta_distance_weight * eta_distance_penalty)
+                + (knee_weight * knee_penalty)
+                - (entropy_weight * entropy_reward)
+            )
+        else:
+            score = (
+                weighted_sum
+                + (regret_weight * weighted_regret)
+                + (balance_weight * balance_penalty)
+                + (distance_weight * n_distance)
+                + (eta_distance_weight * eta_distance_penalty)
+                + (knee_weight * knee_penalty)
+                - (entropy_weight * entropy_reward)
+            )
         tie_break = (
             score,
+            distance_v,
             _option_objective_value(
                 option,
                 "duration",
@@ -4423,6 +5475,11 @@ def _finalize_pareto_options(
     optimization_mode: OptimizationMode = "expected_value",
     risk_aversion: float = 1.0,
 ) -> list[RouteOption]:
+    objective_fn = lambda option: _pareto_objective_key(
+        option,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
+    )
     pareto_input = list(options)
     if optimization_mode == "robust" and pareto_input:
         robust_nondominated, _dom_matrix, _vectors = _robust_nondominated_indices(
@@ -4437,17 +5494,46 @@ def _finalize_pareto_options(
         pareto_method=pareto_method,
         epsilon=epsilon,
         strict_frontier=True,
-        objective_key=lambda option: _pareto_objective_key(
-            option,
-            optimization_mode=optimization_mode,
-            risk_aversion=risk_aversion,
-        ),
+        objective_key=objective_fn,
     )
-    return _sort_options_by_mode(
+    sorted_pareto = _sort_options_by_mode(
         pareto,
         optimization_mode=optimization_mode,
         risk_aversion=risk_aversion,
     )
+    if not bool(settings.route_pareto_backfill_enabled):
+        return sorted_pareto
+    target_count = max(
+        1,
+        min(
+            max(1, int(max_alternatives)),
+            max(
+                int(len(sorted_pareto)),
+                int(settings.route_pareto_backfill_min_alternatives),
+            ),
+        ),
+    )
+    if len(sorted_pareto) >= target_count:
+        return sorted_pareto
+    backfill_pool = list(options)
+    if pareto_method == "epsilon_constraint" and epsilon is not None:
+        backfill_pool = filter_by_epsilon(backfill_pool, epsilon, objective_key=objective_fn)
+    if not backfill_pool:
+        return sorted_pareto
+    ranked_pool = _sort_options_by_mode(
+        backfill_pool,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
+    )
+    seen_ids = {option.id for option in sorted_pareto}
+    for option in ranked_pool:
+        if option.id in seen_ids:
+            continue
+        sorted_pareto.append(option)
+        seen_ids.add(option.id)
+        if len(sorted_pareto) >= target_count:
+            break
+    return sorted_pareto
 
 
 async def _route_graph_candidate_routes_async(
@@ -4966,6 +6052,13 @@ async def _collect_candidate_routes(
                 graph_rescue_mode=str(diag.get("graph_rescue_mode", "not_applicable")),
                 graph_rescue_state_budget=int(diag.get("graph_rescue_state_budget", 0)),
                 graph_rescue_outcome=str(diag.get("graph_rescue_outcome", "not_applicable")),
+                prefetch_ms=float(diag.get("prefetch_ms", 0.0)),
+                scenario_context_ms=float(diag.get("scenario_context_ms", 0.0)),
+                graph_search_ms_initial=float(diag.get("graph_search_ms_initial", 0.0)),
+                graph_search_ms_retry=float(diag.get("graph_search_ms_retry", 0.0)),
+                graph_search_ms_rescue=float(diag.get("graph_search_ms_rescue", 0.0)),
+                osrm_refine_ms=float(diag.get("osrm_refine_ms", 0.0)),
+                build_options_ms=float(diag.get("build_options_ms", 0.0)),
             )
 
     graph_ok, graph_status = await _route_graph_status_async()
@@ -5012,6 +6105,32 @@ async def _collect_candidate_routes(
     request_id = current_live_trace_request_id()
     max_paths = max(4, max_routes * 2)
     configured_state_budget = max(1000, int(settings.route_graph_max_state_budget))
+    corridor_distance_km = _od_haversine_km(origin, destination)
+    long_corridor_threshold_km = max(10.0, float(settings.route_graph_long_corridor_threshold_km))
+    long_corridor = corridor_distance_km >= long_corridor_threshold_km
+    if long_corridor:
+        long_corridor_path_cap = max(2, int(settings.route_graph_long_corridor_max_paths))
+        max_paths = max(2, min(max_paths, max_routes, long_corridor_path_cap))
+    reduced_initial_enabled = bool(settings.route_graph_reduced_initial_for_long_corridor)
+    initial_use_transition_state = not (reduced_initial_enabled and long_corridor)
+    long_corridor_fast_fallback_reasons = {
+        "state_budget_exceeded",
+        "path_search_exhausted",
+        "no_path",
+        "candidate_pool_exhausted",
+        "skipped_long_corridor_graph_search",
+    }
+    skip_initial_graph_search = bool(
+        long_corridor and settings.route_graph_skip_initial_search_long_corridor
+    )
+    skip_retry_rescue_for_long_corridor = bool(long_corridor)
+    initial_max_hops_override: int | None = None
+    if long_corridor:
+        scaled_hops = int(math.ceil(max(1.0, corridor_distance_km) * 8.5))
+        initial_max_hops_override = max(900, min(int(settings.route_graph_max_hops_cap), scaled_hops))
+    initial_search_timeout_ms = max(0, int(settings.route_graph_search_initial_timeout_ms))
+    retry_search_timeout_ms = max(0, int(settings.route_graph_search_retry_timeout_ms))
+    rescue_search_timeout_ms = max(0, int(settings.route_graph_search_rescue_timeout_ms))
     graph_retry_attempted = False
     graph_retry_state_budget = 0
     graph_retry_outcome = "not_applicable"
@@ -5019,29 +6138,77 @@ async def _collect_candidate_routes(
     graph_rescue_mode = "not_applicable"
     graph_rescue_state_budget = 0
     graph_rescue_outcome = "not_applicable"
-    log_event(
-        "route_graph_search_budget",
-        request_id=request_id,
-        pass_name="initial",
-        max_paths=max_paths,
-        configured_state_budget=configured_state_budget,
-        retry_multiplier=float(settings.route_graph_state_budget_retry_multiplier),
-        retry_cap=max(1000, int(settings.route_graph_state_budget_retry_cap)),
-        start_node_id=start_node_id,
-        goal_node_id=goal_node_id,
+    graph_search_ms_initial = 0.0
+    graph_search_ms_retry = 0.0
+    graph_search_ms_rescue = 0.0
+    osrm_refine_ms = 0.0
+    if skip_initial_graph_search:
+        log_event(
+            "route_graph_search_budget",
+            request_id=request_id,
+            pass_name="initial_skipped",
+            max_paths=max_paths,
+            configured_state_budget=configured_state_budget,
+            corridor_distance_km=round(float(corridor_distance_km), 3),
+            long_corridor_threshold_km=round(float(long_corridor_threshold_km), 3),
+            long_corridor=True,
+            reason="long_corridor_skip_enabled",
+        )
+        graph_routes = []
+        graph_diag = GraphCandidateDiagnostics(
+            explored_states=0,
+            generated_paths=0,
+            emitted_paths=0,
+            candidate_budget=max_paths,
+            effective_max_hops=int(initial_max_hops_override or 0),
+            effective_hops_floor=0,
+            effective_state_budget_initial=int(configured_state_budget),
+            effective_state_budget=int(configured_state_budget),
+            no_path_reason="skipped_long_corridor_graph_search",
+            no_path_detail=(
+                "Skipped expensive long-corridor graph search and used OSRM family fallback."
+            ),
+        )
+        graph_search_ms_initial = 0.0
+    else:
+        log_event(
+            "route_graph_search_budget",
+            request_id=request_id,
+            pass_name="initial",
+            max_paths=max_paths,
+            configured_state_budget=configured_state_budget,
+            retry_multiplier=float(settings.route_graph_state_budget_retry_multiplier),
+            retry_cap=max(1000, int(settings.route_graph_state_budget_retry_cap)),
+            corridor_distance_km=round(float(corridor_distance_km), 3),
+            long_corridor_threshold_km=round(float(long_corridor_threshold_km), 3),
+            long_corridor=bool(long_corridor),
+            initial_use_transition_state=bool(initial_use_transition_state),
+            max_hops_override=initial_max_hops_override,
+            search_timeout_ms=initial_search_timeout_ms,
+            start_node_id=start_node_id,
+            goal_node_id=goal_node_id,
+        )
+        graph_initial_started = time.perf_counter()
+        graph_routes, graph_diag = await _route_graph_candidate_routes_async(
+            origin_lat=float(origin.lat),
+            origin_lon=float(origin.lon),
+            destination_lat=float(destination.lat),
+            destination_lon=float(destination.lon),
+            max_paths=max_paths,
+            scenario_edge_modifiers=scenario_edge_modifiers,
+            max_hops_override=initial_max_hops_override,
+            max_state_budget_override=(configured_state_budget if long_corridor else None),
+            use_transition_state=initial_use_transition_state,
+            search_deadline_s=_search_deadline_s(initial_search_timeout_ms),
+            start_node_id=start_node_id,
+            goal_node_id=goal_node_id,
+        )
+        graph_search_ms_initial = round((time.perf_counter() - graph_initial_started) * 1000.0, 2)
+    initial_no_path_reason = str(graph_diag.no_path_reason or "").strip()
+    should_retry = not (
+        skip_retry_rescue_for_long_corridor and initial_no_path_reason in long_corridor_fast_fallback_reasons
     )
-    graph_routes, graph_diag = await _route_graph_candidate_routes_async(
-        origin_lat=float(origin.lat),
-        origin_lon=float(origin.lon),
-        destination_lat=float(destination.lat),
-        destination_lon=float(destination.lon),
-        max_paths=max_paths,
-        scenario_edge_modifiers=scenario_edge_modifiers,
-        use_transition_state=True,
-        start_node_id=start_node_id,
-        goal_node_id=goal_node_id,
-    )
-    if not graph_routes and str(graph_diag.no_path_reason or "").strip() == "state_budget_exceeded":
+    if not graph_routes and initial_no_path_reason in {"state_budget_exceeded", "path_search_exhausted"} and should_retry:
         base_state_budget = max(
             1000,
             int(getattr(graph_diag, "effective_state_budget", 0)) or configured_state_budget,
@@ -5068,9 +6235,12 @@ async def _collect_candidate_routes(
                 configured_state_budget=configured_state_budget,
                 base_state_budget=base_state_budget,
                 retry_state_budget=retry_state_budget,
+                use_transition_state=bool(initial_use_transition_state),
+                search_timeout_ms=retry_search_timeout_ms,
                 start_node_id=start_node_id,
                 goal_node_id=goal_node_id,
             )
+            graph_retry_started = time.perf_counter()
             graph_routes, graph_diag = await _route_graph_candidate_routes_async(
                 origin_lat=float(origin.lat),
                 origin_lon=float(origin.lon),
@@ -5079,22 +6249,31 @@ async def _collect_candidate_routes(
                 max_paths=max_paths,
                 scenario_edge_modifiers=scenario_edge_modifiers,
                 max_state_budget_override=retry_state_budget,
-                use_transition_state=True,
+                use_transition_state=initial_use_transition_state,
+                search_deadline_s=_search_deadline_s(retry_search_timeout_ms),
                 start_node_id=start_node_id,
                 goal_node_id=goal_node_id,
             )
+            graph_search_ms_retry = round((time.perf_counter() - graph_retry_started) * 1000.0, 2)
             graph_retry_outcome = "succeeded" if graph_routes else "exhausted"
         else:
             graph_retry_attempted = True
             graph_retry_state_budget = int(base_state_budget)
             graph_retry_outcome = "skipped_budget_cap"
+    elif not graph_routes and not should_retry and initial_no_path_reason in long_corridor_fast_fallback_reasons:
+        graph_retry_attempted = True
+        graph_retry_state_budget = int(getattr(graph_diag, "effective_state_budget", 0) or configured_state_budget)
+        graph_retry_outcome = "skipped_long_corridor_fast_fallback"
     if not graph_routes:
         rescue_reason = str(graph_diag.no_path_reason or "").strip()
         rescue_mode_setting = str(settings.route_graph_state_space_rescue_mode or "reduced").strip().lower()
         rescue_mode = rescue_mode_setting if rescue_mode_setting in {"reduced", "full"} else "reduced"
         rescue_enabled = bool(settings.route_graph_state_space_rescue_enabled)
-        rescue_candidate_reasons = {"state_budget_exceeded", "no_path"}
-        if rescue_enabled and rescue_reason in rescue_candidate_reasons:
+        rescue_candidate_reasons = {"state_budget_exceeded", "path_search_exhausted", "no_path"}
+        should_rescue = not (
+            skip_retry_rescue_for_long_corridor and rescue_reason in long_corridor_fast_fallback_reasons
+        )
+        if rescue_enabled and rescue_reason in rescue_candidate_reasons and should_rescue:
             graph_rescue_attempted = True
             graph_rescue_mode = rescue_mode
             rescue_budget_cap = max(1000, int(settings.route_graph_state_budget_retry_cap))
@@ -5120,9 +6299,11 @@ async def _collect_candidate_routes(
                 configured_state_budget=configured_state_budget,
                 rescue_state_budget=graph_rescue_state_budget,
                 rescue_mode=graph_rescue_mode,
+                search_timeout_ms=rescue_search_timeout_ms,
                 start_node_id=start_node_id,
                 goal_node_id=goal_node_id,
             )
+            graph_rescue_started = time.perf_counter()
             graph_routes, graph_diag = await _route_graph_candidate_routes_async(
                 origin_lat=float(origin.lat),
                 origin_lon=float(origin.lon),
@@ -5132,15 +6313,22 @@ async def _collect_candidate_routes(
                 scenario_edge_modifiers=scenario_edge_modifiers,
                 max_state_budget_override=graph_rescue_state_budget,
                 use_transition_state=(graph_rescue_mode == "full"),
+                search_deadline_s=_search_deadline_s(rescue_search_timeout_ms),
                 start_node_id=start_node_id,
                 goal_node_id=goal_node_id,
             )
+            graph_search_ms_rescue = round((time.perf_counter() - graph_rescue_started) * 1000.0, 2)
             graph_rescue_outcome = "succeeded" if graph_routes else "exhausted"
             if graph_routes:
                 warnings.append(
                     "route_graph: routing_graph_search_rescued "
                     f"(mode={graph_rescue_mode}, state_budget={graph_rescue_state_budget})."
                 )
+        elif rescue_enabled and rescue_reason in rescue_candidate_reasons and not should_rescue:
+            graph_rescue_attempted = True
+            graph_rescue_mode = "long_corridor_fast_fallback"
+            graph_rescue_state_budget = int(getattr(graph_diag, "effective_state_budget", 0) or configured_state_budget)
+            graph_rescue_outcome = "skipped_long_corridor_fast_fallback"
     scenario_family_count = 0
     scenario_jaccard = 1.0
     scenario_jaccard_threshold = 1.0
@@ -5160,7 +6348,12 @@ async def _collect_candidate_routes(
             "candidate_total": int(max(0, len(graph_routes))),
         },
     )
-    if graph_routes and not _is_neutral_scenario_modifiers(scenario_edge_modifiers):
+    separability_fail_enforced = bool(settings.route_graph_scenario_separability_fail)
+    if (
+        graph_routes
+        and not _is_neutral_scenario_modifiers(scenario_edge_modifiers)
+        and separability_fail_enforced
+    ):
         baseline_routes, _baseline_diag = await _route_graph_candidate_routes_async(
             origin_lat=float(origin.lat),
             origin_lon=float(origin.lon),
@@ -5185,49 +6378,133 @@ async def _collect_candidate_routes(
                     f"(jaccard={scenario_jaccard:.4f} > {scenario_jaccard_threshold:.4f}, "
                     f"stress={scenario_stress_score:.4f})."
                 )
-                if bool(settings.route_graph_scenario_separability_fail):
-                    scenario_gate_action = "failed"
-                    return (
-                        [],
-                        [f"route_graph: scenario_profile_invalid ({message})"],
-                        graph_diag.candidate_budget,
-                        CandidateDiagnostics(
-                            raw_count=len(graph_routes),
-                            deduped_count=0,
-                            graph_explored_states=graph_diag.explored_states,
-                            graph_generated_paths=graph_diag.generated_paths,
-                            graph_emitted_paths=graph_diag.emitted_paths,
-                            candidate_budget=graph_diag.candidate_budget,
-                            graph_effective_max_hops=int(getattr(graph_diag, "effective_max_hops", 0)),
-                            graph_effective_hops_floor=int(getattr(graph_diag, "effective_hops_floor", 0)),
-                            graph_effective_state_budget_initial=int(
-                                getattr(graph_diag, "effective_state_budget_initial", 0)
-                            ),
-                            graph_effective_state_budget=int(getattr(graph_diag, "effective_state_budget", 0)),
-                            graph_no_path_reason=str(graph_diag.no_path_reason or ""),
-                            graph_no_path_detail=str(graph_diag.no_path_detail or ""),
-                            scenario_candidate_family_count=scenario_family_count,
-                            scenario_candidate_jaccard_vs_baseline=round(float(scenario_jaccard), 6),
-                            scenario_candidate_jaccard_threshold=round(float(scenario_jaccard_threshold), 6),
-                            scenario_candidate_stress_score=round(float(scenario_stress_score), 6),
-                            scenario_candidate_gate_action=scenario_gate_action,
-                            scenario_edge_scaling_version=scenario_scaling_version,
-                            graph_retry_attempted=graph_retry_attempted,
-                            graph_retry_state_budget=graph_retry_state_budget,
-                            graph_retry_outcome=graph_retry_outcome,
-                            graph_rescue_attempted=graph_rescue_attempted,
-                            graph_rescue_mode=graph_rescue_mode,
-                            graph_rescue_state_budget=graph_rescue_state_budget,
-                            graph_rescue_outcome=graph_rescue_outcome,
+                scenario_gate_action = "failed"
+                return (
+                    [],
+                    [f"route_graph: scenario_profile_invalid ({message})"],
+                    graph_diag.candidate_budget,
+                    CandidateDiagnostics(
+                        raw_count=len(graph_routes),
+                        deduped_count=0,
+                        graph_explored_states=graph_diag.explored_states,
+                        graph_generated_paths=graph_diag.generated_paths,
+                        graph_emitted_paths=graph_diag.emitted_paths,
+                        candidate_budget=graph_diag.candidate_budget,
+                        graph_effective_max_hops=int(getattr(graph_diag, "effective_max_hops", 0)),
+                        graph_effective_hops_floor=int(getattr(graph_diag, "effective_hops_floor", 0)),
+                        graph_effective_state_budget_initial=int(
+                            getattr(graph_diag, "effective_state_budget_initial", 0)
                         ),
-                    )
-                scenario_gate_action = "warned"
-                warnings.append(f"route_graph: scenario_profile_invalid ({message})")
+                        graph_effective_state_budget=int(getattr(graph_diag, "effective_state_budget", 0)),
+                        graph_no_path_reason=str(graph_diag.no_path_reason or ""),
+                        graph_no_path_detail=str(graph_diag.no_path_detail or ""),
+                        scenario_candidate_family_count=scenario_family_count,
+                        scenario_candidate_jaccard_vs_baseline=round(float(scenario_jaccard), 6),
+                        scenario_candidate_jaccard_threshold=round(float(scenario_jaccard_threshold), 6),
+                        scenario_candidate_stress_score=round(float(scenario_stress_score), 6),
+                        scenario_candidate_gate_action=scenario_gate_action,
+                        scenario_edge_scaling_version=scenario_scaling_version,
+                        graph_retry_attempted=graph_retry_attempted,
+                        graph_retry_state_budget=graph_retry_state_budget,
+                        graph_retry_outcome=graph_retry_outcome,
+                        graph_rescue_attempted=graph_rescue_attempted,
+                        graph_rescue_mode=graph_rescue_mode,
+                        graph_rescue_state_budget=graph_rescue_state_budget,
+                        graph_rescue_outcome=graph_rescue_outcome,
+                        graph_search_ms_initial=graph_search_ms_initial,
+                        graph_search_ms_retry=graph_search_ms_retry,
+                        graph_search_ms_rescue=graph_search_ms_rescue,
+                    ),
+                )
         else:
             scenario_jaccard_threshold = max(0.0, min(1.0, float(settings.route_graph_scenario_jaccard_max)))
             scenario_stress_score = _scenario_stress_score(scenario_edge_modifiers)
             scenario_gate_action = "not_stressed"
-    if not graph_routes:
+    elif graph_routes and not _is_neutral_scenario_modifiers(scenario_edge_modifiers):
+        scenario_jaccard_threshold = max(0.0, min(1.0, float(settings.route_graph_scenario_jaccard_max)))
+        scenario_stress_score = _scenario_stress_score(scenario_edge_modifiers)
+        scenario_gate_action = "skipped_non_enforcing"
+    fallback_routes_by_signature: dict[str, dict[str, Any]] = {}
+    fallback_spec_count = 0
+    osrm_family_fallback_reasons = {
+        "routing_graph_deferred_load",
+    }
+    should_run_osrm_family_fallback = bool(
+        not graph_routes
+        and (
+            (
+                long_corridor
+                and initial_no_path_reason in long_corridor_fast_fallback_reasons
+            )
+            or initial_no_path_reason in osrm_family_fallback_reasons
+        )
+    )
+    if (
+        should_run_osrm_family_fallback
+    ):
+        fallback_specs = _long_corridor_fallback_specs(
+            origin=origin,
+            destination=destination,
+            max_routes=max_routes,
+        )
+        fallback_spec_count = int(len(fallback_specs))
+        await _emit_progress(
+            progress_cb,
+            {
+                "stage": "refining_candidates",
+                "stage_detail": "osrm_long_corridor_fallback_start",
+                "candidate_done": 0,
+                "candidate_total": int(max(1, len(fallback_specs))),
+            },
+        )
+        fallback_started = time.perf_counter()
+        if fallback_specs:
+            async for progress in _iter_candidate_fetches(
+                osrm=osrm,
+                origin=origin,
+                destination=destination,
+                specs=fallback_specs,
+            ):
+                await _emit_progress(
+                    progress_cb,
+                    {
+                        "stage": "refining_candidates",
+                        "stage_detail": "osrm_long_corridor_fallback_progress",
+                        "candidate_done": int(progress.done),
+                        "candidate_total": int(progress.total),
+                    },
+                )
+                result = progress.result
+                if result.error:
+                    warnings.append(f"{result.spec.label}: {result.error}")
+                    continue
+                for route in result.routes:
+                    try:
+                        sig = _route_signature(route)
+                    except OSRMError:
+                        continue
+                    if sig not in fallback_routes_by_signature:
+                        fallback_routes_by_signature[sig] = route
+                    _annotate_route_candidate_meta(
+                        fallback_routes_by_signature[sig],
+                        source_labels={f"{result.spec.label}:long_corridor_fallback"},
+                        toll_exclusion_available=False,
+                    )
+        osrm_refine_ms = round((time.perf_counter() - fallback_started) * 1000.0, 2)
+        if fallback_routes_by_signature:
+            if long_corridor and initial_no_path_reason in long_corridor_fast_fallback_reasons:
+                warnings.append(
+                    "route_graph: routing_graph_long_corridor_osrm_fallback "
+                    f"(distance_km={corridor_distance_km:.1f}, engine_reason={initial_no_path_reason or 'unknown'})."
+                )
+                scenario_gate_action = "long_corridor_osrm_fallback"
+            else:
+                warnings.append(
+                    "route_graph: routing_graph_osrm_fallback "
+                    f"(engine_reason={initial_no_path_reason or 'unknown'})."
+                )
+                scenario_gate_action = "graph_deferred_osrm_fallback"
+    if not graph_routes and not fallback_routes_by_signature:
         engine_reason = str(graph_diag.no_path_reason or "").strip()
         no_path_reason = _normalize_route_graph_search_reason(engine_reason)
         no_path_detail = (
@@ -5273,9 +6550,13 @@ async def _collect_candidate_routes(
                 graph_rescue_mode=graph_rescue_mode,
                 graph_rescue_state_budget=graph_rescue_state_budget,
                 graph_rescue_outcome=graph_rescue_outcome,
+                graph_search_ms_initial=graph_search_ms_initial,
+                graph_search_ms_retry=graph_search_ms_retry,
+                graph_search_ms_rescue=graph_search_ms_rescue,
             ),
         )
 
+    total_candidate_fetches = int(max(0, fallback_spec_count))
     family_specs: list[CandidateFetchSpec] = []
     for idx, route in enumerate(graph_routes, start=1):
         via = _graph_family_via_points(
@@ -5289,18 +6570,20 @@ async def _collect_candidate_routes(
                 via=via if via else None,
             )
             )
+    total_candidate_fetches += int(len(family_specs))
 
-    routes_by_signature: dict[str, dict[str, Any]] = {}
-    await _emit_progress(
-        progress_cb,
-        {
-            "stage": "refining_candidates",
-            "stage_detail": "osrm_family_refine_start",
-            "candidate_done": 0,
-            "candidate_total": int(max(0, len(family_specs))),
-        },
-    )
+    routes_by_signature: dict[str, dict[str, Any]] = dict(fallback_routes_by_signature)
     if family_specs:
+        await _emit_progress(
+            progress_cb,
+            {
+                "stage": "refining_candidates",
+                "stage_detail": "osrm_family_refine_start",
+                "candidate_done": 0,
+                "candidate_total": int(max(0, len(family_specs))),
+            },
+        )
+        osrm_refine_started = time.perf_counter()
         async for progress in _iter_candidate_fetches(
             osrm=osrm,
             origin=origin,
@@ -5332,6 +6615,7 @@ async def _collect_candidate_routes(
                     source_labels={f"{result.spec.label}:osrm_refined"},
                     toll_exclusion_available=False,
                 )
+        osrm_refine_ms += round((time.perf_counter() - osrm_refine_started) * 1000.0, 2)
 
     # Graph-native strict runtime: if OSRM refinement fails, emit graph families directly.
     if not routes_by_signature:
@@ -5354,8 +6638,8 @@ async def _collect_candidate_routes(
             {
                 "stage": "refining_candidates",
                 "stage_detail": "osrm_family_refine_empty",
-                "candidate_done": int(max(0, len(family_specs))),
-                "candidate_total": int(max(0, len(family_specs))),
+                "candidate_done": int(max(0, total_candidate_fetches)),
+                "candidate_total": int(max(0, total_candidate_fetches)),
             },
         )
         return (
@@ -5364,7 +6648,7 @@ async def _collect_candidate_routes(
                 "route_graph: no_route_candidates (Graph families produced no OSRM-refined routes).",
                 *warnings[:6],
             ],
-            len(family_specs),
+            total_candidate_fetches,
             CandidateDiagnostics(
                 raw_count=len(graph_routes),
                 deduped_count=0,
@@ -5387,6 +6671,10 @@ async def _collect_candidate_routes(
                 graph_rescue_mode=graph_rescue_mode,
                 graph_rescue_state_budget=graph_rescue_state_budget,
                 graph_rescue_outcome=graph_rescue_outcome,
+                graph_search_ms_initial=graph_search_ms_initial,
+                graph_search_ms_retry=graph_search_ms_retry,
+                graph_search_ms_rescue=graph_search_ms_rescue,
+                osrm_refine_ms=osrm_refine_ms,
             ),
         )
 
@@ -5394,13 +6682,15 @@ async def _collect_candidate_routes(
         list(routes_by_signature.values()),
         max_routes=max_routes,
     )
+    if long_corridor and len(ranked_routes) > max_routes:
+        ranked_routes = ranked_routes[:max_routes]
     await _emit_progress(
         progress_cb,
         {
             "stage": "refining_candidates",
             "stage_detail": "candidate_refine_complete",
-            "candidate_done": int(max(0, len(family_specs))),
-            "candidate_total": int(max(0, len(family_specs))),
+            "candidate_done": int(max(0, total_candidate_fetches)),
+            "candidate_total": int(max(0, total_candidate_fetches)),
         },
     )
     diag = CandidateDiagnostics(
@@ -5431,6 +6721,10 @@ async def _collect_candidate_routes(
         graph_rescue_mode=graph_rescue_mode,
         graph_rescue_state_budget=graph_rescue_state_budget,
         graph_rescue_outcome=graph_rescue_outcome,
+        graph_search_ms_initial=graph_search_ms_initial,
+        graph_search_ms_retry=graph_search_ms_retry,
+        graph_search_ms_rescue=graph_search_ms_rescue,
+        osrm_refine_ms=osrm_refine_ms,
     )
     if cache_key:
         set_cached_routes(
@@ -5438,7 +6732,7 @@ async def _collect_candidate_routes(
             (
                 ranked_routes,
                 warnings,
-                len(family_specs),
+                total_candidate_fetches,
                 {
                     "raw_count": diag.raw_count,
                     "deduped_count": diag.deduped_count,
@@ -5473,10 +6767,17 @@ async def _collect_candidate_routes(
                     "graph_rescue_mode": diag.graph_rescue_mode,
                     "graph_rescue_state_budget": diag.graph_rescue_state_budget,
                     "graph_rescue_outcome": diag.graph_rescue_outcome,
+                    "prefetch_ms": diag.prefetch_ms,
+                    "scenario_context_ms": diag.scenario_context_ms,
+                    "graph_search_ms_initial": diag.graph_search_ms_initial,
+                    "graph_search_ms_retry": diag.graph_search_ms_retry,
+                    "graph_search_ms_rescue": diag.graph_search_ms_rescue,
+                    "osrm_refine_ms": diag.osrm_refine_ms,
+                    "build_options_ms": diag.build_options_ms,
                 },
             ),
         )
-    return ranked_routes, warnings, len(family_specs), diag
+    return ranked_routes, warnings, total_candidate_fetches, diag
 
 
 def _normalize_waypoints(waypoints: list[Waypoint] | None) -> list[Waypoint]:
@@ -5527,6 +6828,11 @@ async def _collect_route_options(
     )
     refresh_mode = str(settings.live_route_compute_refresh_mode or "route_compute").strip().lower()
     refresh_live_runtime_route_caches(mode=refresh_mode)
+    prefetch_elapsed_ms = 0.0
+    scenario_context_elapsed_ms = 0.0
+    build_options_elapsed_ms = 0.0
+    scenario_resolution_cache: dict[str, tuple[Any, dict[str, Any], str]] = {}
+    multileg_candidate_diags: list[CandidateDiagnostics] = []
     log_event(
         "route_compute_runtime_budgets",
         request_id=current_live_trace_request_id(),
@@ -5546,6 +6852,7 @@ async def _collect_route_options(
     try:
         vehicle = resolve_vehicle_profile(vehicle_type)
         weather_cfg = weather or WeatherImpactConfig()
+        weather_bucket_value = weather_cfg.profile if weather_cfg.enabled else "clear"
         should_prefetch = bool(settings.strict_live_data_required) or bool(
             settings.live_route_compute_require_all_expected
         ) or refresh_mode in {
@@ -5562,14 +6869,16 @@ async def _collect_route_options(
                     "candidate_total": int(max(1, max_alternatives)),
                 },
             )
+            prefetch_started = time.perf_counter()
             prefetch_summary = await _prefetch_expected_live_sources(
                 origin=origin,
                 destination=destination,
                 vehicle_class=str(vehicle.vehicle_class),
                 departure_time_utc=departure_time_utc,
-                weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+                weather_bucket=weather_bucket_value,
                 cost_toggles=cost_toggles,
             )
+            prefetch_elapsed_ms = round((time.perf_counter() - prefetch_started) * 1000.0, 2)
             await _emit_progress(
                 progress_cb,
                 {
@@ -5597,7 +6906,7 @@ async def _collect_route_options(
             )
             warning_text = _route_graph_precheck_warning(graph_precheck)
             timeout_degraded_continue = (
-                reason_code == "routing_graph_precheck_timeout"
+                reason_code in {"routing_graph_precheck_timeout", "routing_graph_deferred_load"}
                 and not _precheck_timeout_fail_closed_enabled()
             )
             if timeout_degraded_continue:
@@ -5636,6 +6945,9 @@ async def _collect_route_options(
                     CandidateDiagnostics(
                         **_prefetch_candidate_diag_kwargs(prefetch_summary),
                         **precheck_diag_kwargs,
+                        prefetch_ms=prefetch_elapsed_ms,
+                        scenario_context_ms=scenario_context_elapsed_ms,
+                        build_options_ms=build_options_elapsed_ms,
                     ),
                 )
         else:
@@ -5660,12 +6972,13 @@ async def _collect_route_options(
                 "candidate_total": int(max(1, max_alternatives)),
             },
         )
+        base_context_started = time.perf_counter()
         base_candidate_context = await _scenario_context_from_od(
             origin=origin,
             destination=destination,
             vehicle_class=str(vehicle.vehicle_class),
             departure_time_utc=departure_time_utc,
-            weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
+            weather_bucket=weather_bucket_value,
             progress_cb=progress_cb,
         )
         await _emit_progress(
@@ -5690,6 +7003,10 @@ async def _collect_route_options(
             scenario_mode=scenario_mode,
             context=base_candidate_context,
         )
+        scenario_context_elapsed_ms = round(
+            (time.perf_counter() - base_context_started) * 1000.0,
+            2,
+        )
         await _emit_progress(
             progress_cb,
             {
@@ -5702,6 +7019,16 @@ async def _collect_route_options(
         scenario_cache_token = hashlib.sha1(
             json.dumps(base_scenario_modifiers, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
+        base_resolution_key = (
+            f"{origin.lat:.6f},{origin.lon:.6f}->{destination.lat:.6f},{destination.lon:.6f}"
+            f"|{vehicle_type}|{scenario_mode}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}"
+            f"|{weather_bucket_value}"
+        )
+        scenario_resolution_cache[base_resolution_key] = (
+            base_candidate_context,
+            base_scenario_modifiers,
+            scenario_cache_token,
+        )
     except ModelDataError as exc:
         reason_code = normalize_reason_code(str(exc.reason_code or "model_asset_unavailable").strip())
         detail_dict = exc.details if isinstance(exc.details, dict) else {}
@@ -5731,6 +7058,9 @@ async def _collect_route_options(
             CandidateDiagnostics(
                 **_prefetch_candidate_diag_kwargs(detail_dict),
                 **precheck_diag_kwargs,
+                prefetch_ms=prefetch_elapsed_ms,
+                scenario_context_ms=scenario_context_elapsed_ms,
+                build_options_ms=build_options_elapsed_ms,
             ),
         )
 
@@ -5781,6 +7111,7 @@ async def _collect_route_options(
                 "candidate_total": int(max(0, candidate_fetches)),
             },
         )
+        build_started = time.perf_counter()
         options, build_warnings, terrain_diag = _build_options(
             routes,
             vehicle_type=vehicle_type,
@@ -5795,6 +7126,13 @@ async def _collect_route_options(
             utility_weights=utility_weights,
             risk_aversion=risk_aversion,
             option_prefix=option_prefix,
+        )
+        build_options_elapsed_ms = round((time.perf_counter() - build_started) * 1000.0, 2)
+        candidate_diag = replace(
+            candidate_diag,
+            prefetch_ms=prefetch_elapsed_ms,
+            scenario_context_ms=scenario_context_elapsed_ms,
+            build_options_ms=build_options_elapsed_ms,
         )
         warnings.extend(build_warnings)
         await _emit_progress(
@@ -5813,6 +7151,7 @@ async def _collect_route_options(
         leg_origin: LatLng,
         leg_destination: LatLng,
     ) -> tuple[list[RouteOption], list[str], int, TerrainDiagnostics, CandidateDiagnostics]:
+        nonlocal scenario_context_elapsed_ms, build_options_elapsed_ms
         leg_precheck_warnings: list[str] = []
         await _emit_progress(
             progress_cb,
@@ -5833,7 +7172,7 @@ async def _collect_route_options(
             )
             warning_text = _route_graph_precheck_warning(leg_precheck)
             timeout_degraded_continue = (
-                reason_code == "routing_graph_precheck_timeout"
+                reason_code in {"routing_graph_precheck_timeout", "routing_graph_deferred_load"}
                 and not _precheck_timeout_fail_closed_enabled()
             )
             if timeout_degraded_continue:
@@ -5868,6 +7207,9 @@ async def _collect_route_options(
                     CandidateDiagnostics(
                         **_prefetch_candidate_diag_kwargs(prefetch_summary),
                         **leg_precheck_diag_kwargs,
+                        prefetch_ms=prefetch_elapsed_ms,
+                        scenario_context_ms=scenario_context_elapsed_ms,
+                        build_options_ms=build_options_elapsed_ms,
                     ),
                 )
         if bool(leg_precheck.get("ok")):
@@ -5879,48 +7221,76 @@ async def _collect_route_options(
                 "stage_detail": f"multileg_leg_{leg_index}_graph_feasibility_complete",
             },
         )
-        refresh_live_runtime_route_caches(mode=refresh_mode)
-        try:
+        leg_resolution_key = (
+            f"{leg_origin.lat:.6f},{leg_origin.lon:.6f}->{leg_destination.lat:.6f},{leg_destination.lon:.6f}"
+            f"|{vehicle_type}|{scenario_mode}|{departure_time_utc.isoformat() if departure_time_utc else 'none'}"
+            f"|{weather_bucket_value}"
+        )
+        cached_leg_resolution = scenario_resolution_cache.get(leg_resolution_key)
+        if cached_leg_resolution is not None:
+            _leg_context, leg_modifiers, leg_scenario_cache_token = cached_leg_resolution
             await _emit_progress(
                 progress_cb,
                 {
                     "stage": "collecting_candidates",
-                    "stage_detail": f"multileg_leg_{leg_index}_scenario_context_start",
+                    "stage_detail": f"multileg_leg_{leg_index}_scenario_context_cache_hit",
                 },
             )
-            leg_context = await _scenario_context_from_od(
-                origin=leg_origin,
-                destination=leg_destination,
-                vehicle_class=str(vehicle.vehicle_class),
-                departure_time_utc=departure_time_utc,
-                weather_bucket=(weather_cfg.profile if weather_cfg.enabled else "clear"),
-                progress_cb=progress_cb,
-            )
-            await _emit_progress(
-                progress_cb,
-                {
-                    "stage": "collecting_candidates",
-                    "stage_detail": f"multileg_leg_{leg_index}_scenario_context_complete",
-                },
-            )
-            leg_modifiers = await _scenario_candidate_modifiers_async(
-                scenario_mode=scenario_mode,
-                context=leg_context,
-            )
-            leg_scenario_cache_token = hashlib.sha1(
-                json.dumps(leg_modifiers, sort_keys=True, separators=(",", ":")).encode("utf-8")
-            ).hexdigest()
-        except ModelDataError as exc:
-            return (
-                [],
-                [f"leg_{leg_index}: {normalize_reason_code(exc.reason_code)} ({exc.message})"],
-                0,
-                TerrainDiagnostics(),
-                CandidateDiagnostics(
-                    **_prefetch_candidate_diag_kwargs(prefetch_summary),
-                    **leg_precheck_diag_kwargs,
-                ),
-            )
+        else:
+            try:
+                await _emit_progress(
+                    progress_cb,
+                    {
+                        "stage": "collecting_candidates",
+                        "stage_detail": f"multileg_leg_{leg_index}_scenario_context_start",
+                    },
+                )
+                leg_context_started = time.perf_counter()
+                leg_context = await _scenario_context_from_od(
+                    origin=leg_origin,
+                    destination=leg_destination,
+                    vehicle_class=str(vehicle.vehicle_class),
+                    departure_time_utc=departure_time_utc,
+                    weather_bucket=weather_bucket_value,
+                    progress_cb=progress_cb,
+                )
+                await _emit_progress(
+                    progress_cb,
+                    {
+                        "stage": "collecting_candidates",
+                        "stage_detail": f"multileg_leg_{leg_index}_scenario_context_complete",
+                    },
+                )
+                leg_modifiers = await _scenario_candidate_modifiers_async(
+                    scenario_mode=scenario_mode,
+                    context=leg_context,
+                )
+                scenario_context_elapsed_ms += round(
+                    (time.perf_counter() - leg_context_started) * 1000.0,
+                    2,
+                )
+                leg_scenario_cache_token = hashlib.sha1(
+                    json.dumps(leg_modifiers, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest()
+                scenario_resolution_cache[leg_resolution_key] = (
+                    leg_context,
+                    leg_modifiers,
+                    leg_scenario_cache_token,
+                )
+            except ModelDataError as exc:
+                return (
+                    [],
+                    [f"leg_{leg_index}: {normalize_reason_code(exc.reason_code)} ({exc.message})"],
+                    0,
+                    TerrainDiagnostics(),
+                    CandidateDiagnostics(
+                        **_prefetch_candidate_diag_kwargs(prefetch_summary),
+                        **leg_precheck_diag_kwargs,
+                        prefetch_ms=prefetch_elapsed_ms,
+                        scenario_context_ms=scenario_context_elapsed_ms,
+                        build_options_ms=build_options_elapsed_ms,
+                    ),
+                )
         leg_cache_key = _candidate_cache_key(
             origin=leg_origin,
             destination=leg_destination,
@@ -5966,6 +7336,7 @@ async def _collect_route_options(
                 "candidate_total": int(max(0, leg_candidate_fetches)),
             },
         )
+        leg_build_started = time.perf_counter()
         leg_options, leg_build_warnings, leg_diag = _build_options(
             leg_routes,
             vehicle_type=vehicle_type,
@@ -5981,6 +7352,13 @@ async def _collect_route_options(
             risk_aversion=risk_aversion,
             option_prefix=f"{option_prefix}_leg{leg_index}",
         )
+        build_options_elapsed_ms += round((time.perf_counter() - leg_build_started) * 1000.0, 2)
+        leg_candidate_diag = replace(
+            leg_candidate_diag,
+            prefetch_ms=prefetch_elapsed_ms,
+            scenario_context_ms=scenario_context_elapsed_ms,
+            build_options_ms=build_options_elapsed_ms,
+        )
         leg_warnings.extend(leg_build_warnings)
         leg_pareto = _finalize_pareto_options(
             leg_options,
@@ -5990,6 +7368,21 @@ async def _collect_route_options(
             optimization_mode=optimization_mode,
             risk_aversion=risk_aversion,
         )
+        leg_chain_target = max(1, min(max_alternatives, 4))
+        if len(leg_pareto) < leg_chain_target and len(leg_options) > len(leg_pareto):
+            leg_sorted = _sort_options_by_mode(
+                list(leg_options),
+                optimization_mode=optimization_mode,
+                risk_aversion=risk_aversion,
+            )
+            leg_seen_ids = {opt.id for opt in leg_pareto}
+            for option in leg_sorted:
+                if option.id in leg_seen_ids:
+                    continue
+                leg_pareto.append(option)
+                leg_seen_ids.add(option.id)
+                if len(leg_pareto) >= leg_chain_target:
+                    break
         await _emit_progress(
             progress_cb,
             {
@@ -5999,6 +7392,7 @@ async def _collect_route_options(
                 "candidate_total": int(max(1, len(leg_pareto))),
             },
         )
+        multileg_candidate_diags.append(leg_candidate_diag)
         return leg_pareto, leg_warnings, leg_candidate_fetches, leg_diag, leg_candidate_diag
 
     composed = await compose_multileg_route_options(
@@ -6030,6 +7424,16 @@ async def _collect_route_options(
     fail_closed_count = sum(1 for warning in composed.warnings if "terrain_fail_closed" in warning)
     unsupported_region_count = sum(1 for warning in composed.warnings if "terrain_region_unsupported" in warning)
     asset_unavailable_count = sum(1 for warning in composed.warnings if "terrain_dem_asset_unavailable" in warning)
+    precheck_diag = next(
+        (
+            row
+            for row in multileg_candidate_diags
+            if str(row.precheck_reason_code or "").strip()
+        ),
+        None,
+    )
+    graph_retry_outcomes = [str(row.graph_retry_outcome or "").strip() for row in multileg_candidate_diags]
+    graph_rescue_outcomes = [str(row.graph_rescue_outcome or "").strip() for row in multileg_candidate_diags]
     terrain_diag = TerrainDiagnostics(
         fail_closed_count=fail_closed_count,
         unsupported_region_count=unsupported_region_count,
@@ -6038,13 +7442,121 @@ async def _collect_route_options(
         coverage_min_observed=min(coverage_values) if coverage_values else 1.0,
     )
     candidate_diag = CandidateDiagnostics(
+        **_prefetch_candidate_diag_kwargs(prefetch_summary),
         raw_count=len(composed.options),
         deduped_count=len(composed.options),
-        graph_explored_states=0,
-        graph_generated_paths=0,
-        graph_emitted_paths=0,
-        candidate_budget=max(0, int(composed.candidate_fetches)),
-        **_prefetch_candidate_diag_kwargs(prefetch_summary),
+        graph_explored_states=sum(row.graph_explored_states for row in multileg_candidate_diags),
+        graph_generated_paths=sum(row.graph_generated_paths for row in multileg_candidate_diags),
+        graph_emitted_paths=sum(row.graph_emitted_paths for row in multileg_candidate_diags),
+        candidate_budget=max(
+            [max(0, int(composed.candidate_fetches))]
+            + [int(row.candidate_budget) for row in multileg_candidate_diags],
+        ),
+        graph_effective_max_hops=max([0] + [int(row.graph_effective_max_hops) for row in multileg_candidate_diags]),
+        graph_effective_hops_floor=max([0] + [int(row.graph_effective_hops_floor) for row in multileg_candidate_diags]),
+        graph_effective_state_budget_initial=max(
+            [0] + [int(row.graph_effective_state_budget_initial) for row in multileg_candidate_diags]
+        ),
+        graph_effective_state_budget=max(
+            [0] + [int(row.graph_effective_state_budget) for row in multileg_candidate_diags]
+        ),
+        graph_no_path_reason=next(
+            (
+                str(row.graph_no_path_reason)
+                for row in multileg_candidate_diags
+                if str(row.graph_no_path_reason or "").strip()
+            ),
+            "",
+        ),
+        graph_no_path_detail=next(
+            (
+                str(row.graph_no_path_detail)
+                for row in multileg_candidate_diags
+                if str(row.graph_no_path_detail or "").strip()
+            ),
+            "",
+        ),
+        precheck_reason_code=str(precheck_diag.precheck_reason_code) if precheck_diag is not None else "",
+        precheck_message=str(precheck_diag.precheck_message) if precheck_diag is not None else "",
+        precheck_elapsed_ms=float(precheck_diag.precheck_elapsed_ms) if precheck_diag is not None else 0.0,
+        precheck_origin_node_id=str(precheck_diag.precheck_origin_node_id) if precheck_diag is not None else "",
+        precheck_destination_node_id=str(precheck_diag.precheck_destination_node_id) if precheck_diag is not None else "",
+        precheck_origin_nearest_m=float(precheck_diag.precheck_origin_nearest_m) if precheck_diag is not None else 0.0,
+        precheck_destination_nearest_m=float(precheck_diag.precheck_destination_nearest_m)
+        if precheck_diag is not None
+        else 0.0,
+        precheck_origin_selected_m=float(precheck_diag.precheck_origin_selected_m) if precheck_diag is not None else 0.0,
+        precheck_destination_selected_m=float(precheck_diag.precheck_destination_selected_m)
+        if precheck_diag is not None
+        else 0.0,
+        precheck_origin_candidate_count=int(precheck_diag.precheck_origin_candidate_count)
+        if precheck_diag is not None
+        else 0,
+        precheck_destination_candidate_count=int(precheck_diag.precheck_destination_candidate_count)
+        if precheck_diag is not None
+        else 0,
+        precheck_selected_component=int(precheck_diag.precheck_selected_component) if precheck_diag is not None else 0,
+        precheck_selected_component_size=int(precheck_diag.precheck_selected_component_size)
+        if precheck_diag is not None
+        else 0,
+        precheck_gate_action=str(precheck_diag.precheck_gate_action) if precheck_diag is not None else "",
+        scenario_candidate_family_count=max(
+            [0] + [int(row.scenario_candidate_family_count) for row in multileg_candidate_diags]
+        ),
+        scenario_candidate_jaccard_vs_baseline=min(
+            [1.0] + [float(row.scenario_candidate_jaccard_vs_baseline) for row in multileg_candidate_diags]
+        ),
+        scenario_candidate_jaccard_threshold=min(
+            [1.0] + [float(row.scenario_candidate_jaccard_threshold) for row in multileg_candidate_diags]
+        ),
+        scenario_candidate_stress_score=max(
+            [0.0] + [float(row.scenario_candidate_stress_score) for row in multileg_candidate_diags]
+        ),
+        scenario_candidate_gate_action=next(
+            (
+                str(row.scenario_candidate_gate_action or "")
+                for row in multileg_candidate_diags
+                if str(row.scenario_candidate_gate_action or "").strip()
+                and str(row.scenario_candidate_gate_action or "").strip() != "not_applicable"
+            ),
+            "not_applicable",
+        ),
+        scenario_edge_scaling_version=next(
+            (
+                str(row.scenario_edge_scaling_version or "")
+                for row in multileg_candidate_diags
+                if str(row.scenario_edge_scaling_version or "").strip()
+            ),
+            "v3_live_transform",
+        ),
+        graph_retry_attempted=any(bool(row.graph_retry_attempted) for row in multileg_candidate_diags),
+        graph_retry_state_budget=max([0] + [int(row.graph_retry_state_budget) for row in multileg_candidate_diags]),
+        graph_retry_outcome=next(
+            (outcome for outcome in graph_retry_outcomes if outcome and outcome != "not_applicable"),
+            "not_applicable",
+        ),
+        graph_rescue_attempted=any(bool(row.graph_rescue_attempted) for row in multileg_candidate_diags),
+        graph_rescue_mode=next(
+            (
+                str(row.graph_rescue_mode or "")
+                for row in multileg_candidate_diags
+                if str(row.graph_rescue_mode or "").strip()
+                and str(row.graph_rescue_mode or "").strip() != "not_applicable"
+            ),
+            "not_applicable",
+        ),
+        graph_rescue_state_budget=max([0] + [int(row.graph_rescue_state_budget) for row in multileg_candidate_diags]),
+        graph_rescue_outcome=next(
+            (outcome for outcome in graph_rescue_outcomes if outcome and outcome != "not_applicable"),
+            "not_applicable",
+        ),
+        prefetch_ms=prefetch_elapsed_ms,
+        scenario_context_ms=scenario_context_elapsed_ms,
+        graph_search_ms_initial=sum(float(row.graph_search_ms_initial) for row in multileg_candidate_diags),
+        graph_search_ms_retry=sum(float(row.graph_search_ms_retry) for row in multileg_candidate_diags),
+        graph_search_ms_rescue=sum(float(row.graph_search_ms_rescue) for row in multileg_candidate_diags),
+        osrm_refine_ms=sum(float(row.osrm_refine_ms) for row in multileg_candidate_diags),
+        build_options_ms=build_options_elapsed_ms,
     )
     await _emit_progress(
         progress_cb,
@@ -6221,6 +7733,13 @@ async def compute_pareto(
             "graph_rescue_mode": str(candidate_diag.graph_rescue_mode or ""),
             "graph_rescue_state_budget": int(candidate_diag.graph_rescue_state_budget),
             "graph_rescue_outcome": str(candidate_diag.graph_rescue_outcome or ""),
+            "prefetch_ms": float(candidate_diag.prefetch_ms),
+            "scenario_context_ms": float(candidate_diag.scenario_context_ms),
+            "graph_search_ms_initial": float(candidate_diag.graph_search_ms_initial),
+            "graph_search_ms_retry": float(candidate_diag.graph_search_ms_retry),
+            "graph_search_ms_rescue": float(candidate_diag.graph_search_ms_rescue),
+            "osrm_refine_ms": float(candidate_diag.osrm_refine_ms),
+            "build_options_ms": float(candidate_diag.build_options_ms),
             "prefetch_total_sources": int(candidate_diag.prefetch_total_sources),
             "prefetch_success_sources": int(candidate_diag.prefetch_success_sources),
             "prefetch_failed_sources": int(candidate_diag.prefetch_failed_sources),
@@ -6346,6 +7865,7 @@ async def compute_pareto(
             incident_simulation=req.incident_simulation.model_dump(mode="json"),
             optimization_mode=req.optimization_mode,
             risk_aversion=req.risk_aversion,
+            selection_math_profile=str(settings.route_selection_math_profile or "modified_vikor_distance"),
             emissions_context=req.emissions_context.model_dump(mode="json"),
             pareto_method=req.pareto_method,
             epsilon=req.epsilon.model_dump(mode="json") if req.epsilon is not None else None,
@@ -6736,6 +8256,13 @@ async def compute_pareto_stream(
                 "graph_rescue_mode": str(candidate_diag.graph_rescue_mode or ""),
                 "graph_rescue_state_budget": int(candidate_diag.graph_rescue_state_budget),
                 "graph_rescue_outcome": str(candidate_diag.graph_rescue_outcome or ""),
+                "prefetch_ms": float(candidate_diag.prefetch_ms),
+                "scenario_context_ms": float(candidate_diag.scenario_context_ms),
+                "graph_search_ms_initial": float(candidate_diag.graph_search_ms_initial),
+                "graph_search_ms_retry": float(candidate_diag.graph_search_ms_retry),
+                "graph_search_ms_rescue": float(candidate_diag.graph_search_ms_rescue),
+                "osrm_refine_ms": float(candidate_diag.osrm_refine_ms),
+                "build_options_ms": float(candidate_diag.build_options_ms),
             }
             precheck_failure_payload = _candidate_precheck_payload(candidate_diag)
             _set_stage(
@@ -7011,6 +8538,1713 @@ async def compute_pareto_stream(
     )
 
 
+def _resolve_pipeline_mode(requested_mode: str | None) -> str:
+    aliases = {
+        "legacy": "legacy",
+        "dccs": "dccs",
+        "dccs_refc": "dccs_refc",
+        "voi": "voi",
+        "thesis_voi": "voi",
+        "voi_ad2r": "voi",
+        "dccs+refc": "dccs_refc",
+    }
+    env_mode = aliases.get(str(settings.route_pipeline_default_mode or "legacy").strip().lower(), "legacy")
+    if env_mode not in {"legacy", "dccs", "dccs_refc", "voi"}:
+        env_mode = "legacy"
+    if not bool(settings.route_pipeline_request_override_enabled):
+        return env_mode
+    request_mode = aliases.get(str(requested_mode or "").strip().lower(), "")
+    if request_mode in {"legacy", "dccs", "dccs_refc", "voi"}:
+        return request_mode
+    return env_mode
+
+
+def _resolve_pipeline_seed(req: RouteRequest) -> int:
+    if req.pipeline_seed is not None:
+        return int(req.pipeline_seed)
+    request_payload = req.model_dump(mode="json")
+    request_payload.pop("pipeline_seed", None)
+    encoded = json.dumps(request_payload, sort_keys=True, separators=(",", ":"))
+    deterministic = int(hashlib.sha1(encoded.encode("utf-8")).hexdigest()[:8], 16)
+    return int(max(0, deterministic ^ int(settings.route_pipeline_default_seed)))
+
+
+def _split_csv_config(raw: str, *, fallback: Sequence[str] = ()) -> list[str]:
+    items = [str(item).strip() for item in str(raw or "").split(",")]
+    cleaned = [item for item in items if item]
+    return cleaned or [str(item).strip() for item in fallback if str(item).strip()]
+
+
+def _strict_frontier_options(
+    options: list[RouteOption],
+    *,
+    max_alternatives: int,
+    pareto_method: ParetoMethod = "dominance",
+    epsilon: EpsilonConstraints | None = None,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> list[RouteOption]:
+    objective_fn = lambda option: _pareto_objective_key(
+        option,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
+    )
+    pareto_input = list(options)
+    if optimization_mode == "robust" and pareto_input:
+        robust_nondominated, _dom_matrix, _vectors = _robust_nondominated_indices(
+            pareto_input,
+            risk_aversion=risk_aversion,
+        )
+        if robust_nondominated:
+            pareto_input = [pareto_input[idx] for idx in robust_nondominated]
+    pareto = select_pareto_routes(
+        pareto_input,
+        max_alternatives=max_alternatives,
+        pareto_method=pareto_method,
+        epsilon=epsilon,
+        strict_frontier=True,
+        objective_key=objective_fn,
+    )
+    return _sort_options_by_mode(
+        pareto,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
+    )
+
+
+def _route_selection_score_map(
+    options: list[RouteOption],
+    *,
+    w_time: float,
+    w_money: float,
+    w_co2: float,
+    optimization_mode: OptimizationMode = "expected_value",
+    risk_aversion: float = 1.0,
+) -> dict[str, float]:
+    if not options:
+        return {}
+    wt, wm, we = normalise_weights(w_time, w_money, w_co2)
+    if optimization_mode == "robust":
+        return {
+            option.id: float(_option_joint_robust_utility(option, risk_aversion=risk_aversion))
+            for option in options
+        }
+
+    times = [
+        _option_objective_value(
+            option,
+            "duration",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        for option in options
+    ]
+    moneys = [
+        _option_objective_value(
+            option,
+            "money",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        for option in options
+    ]
+    emissions = [
+        _option_objective_value(
+            option,
+            "co2",
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+        for option in options
+    ]
+    distances = [float(max(0.0, option.metrics.distance_km)) for option in options]
+
+    t_min, t_max = min(times), max(times)
+    m_min, m_max = min(moneys), max(moneys)
+    e_min, e_max = min(emissions), max(emissions)
+    d_min, d_max = min(distances), max(distances)
+
+    def _norm(value: float, min_value: float, max_value: float) -> float:
+        return 0.0 if max_value <= min_value else (value - min_value) / (max_value - min_value)
+
+    math_profile = str(settings.route_selection_math_profile or "modified_vikor_distance").strip().lower()
+    regret_weight = max(0.0, float(settings.route_selection_modified_regret_weight))
+    balance_weight = max(0.0, float(settings.route_selection_modified_balance_weight))
+    distance_weight = max(0.0, float(settings.route_selection_modified_distance_weight))
+    eta_distance_weight = max(0.0, float(settings.route_selection_modified_eta_distance_weight))
+    entropy_weight = max(0.0, float(settings.route_selection_modified_entropy_weight))
+    knee_weight = max(0.0, float(settings.route_selection_modified_knee_weight))
+    tchebycheff_rho = max(0.0, float(settings.route_selection_tchebycheff_rho))
+    vikor_v = min(1.0, max(0.0, float(settings.route_selection_vikor_v)))
+
+    norm_rows = [
+        (
+            _norm(time_v, t_min, t_max),
+            _norm(money_v, m_min, m_max),
+            _norm(co2_v, e_min, e_max),
+            _norm(distance_v, d_min, d_max),
+        )
+        for time_v, money_v, co2_v, distance_v in zip(
+            times,
+            moneys,
+            emissions,
+            distances,
+            strict=True,
+        )
+    ]
+    weighted_sum_rows = [
+        (wt * n_time) + (wm * n_money) + (we * n_co2)
+        for n_time, n_money, n_co2, _ in norm_rows
+    ]
+    weighted_regret_rows = [
+        max(wt * n_time, wm * n_money, we * n_co2)
+        for n_time, n_money, n_co2, _ in norm_rows
+    ]
+    vikor_s_min = min(weighted_sum_rows)
+    vikor_s_max = max(weighted_sum_rows)
+    vikor_r_min = min(weighted_regret_rows)
+    vikor_r_max = max(weighted_regret_rows)
+
+    def _safe_scale(value: float, min_value: float, max_value: float) -> float:
+        return 0.0 if max_value <= min_value else (value - min_value) / (max_value - min_value)
+
+    score_map: dict[str, float] = {}
+    for option, n_row, weighted_sum, weighted_regret in zip(
+        options,
+        norm_rows,
+        weighted_sum_rows,
+        weighted_regret_rows,
+        strict=True,
+    ):
+        n_time, n_money, n_co2, n_distance = n_row
+        mean_norm = (n_time + n_money + n_co2) / 3.0
+        balance_penalty = math.sqrt(
+            max(
+                0.0,
+                ((n_time - mean_norm) ** 2 + (n_money - mean_norm) ** 2 + (n_co2 - mean_norm) ** 2) / 3.0,
+            )
+        )
+        knee_penalty = (
+            abs(n_time - n_money)
+            + abs(n_time - n_co2)
+            + abs(n_money - n_co2)
+        ) / 3.0
+        eta_distance_penalty = math.sqrt(max(0.0, n_time * n_distance))
+        improve_time = max(1e-6, 1.0 - n_time)
+        improve_money = max(1e-6, 1.0 - n_money)
+        improve_co2 = max(1e-6, 1.0 - n_co2)
+        improve_sum = improve_time + improve_money + improve_co2
+        p_time = improve_time / improve_sum
+        p_money = improve_money / improve_sum
+        p_co2 = improve_co2 / improve_sum
+        entropy_reward = -(
+            (p_time * math.log(p_time))
+            + (p_money * math.log(p_money))
+            + (p_co2 * math.log(p_co2))
+        ) / math.log(3.0)
+        vikor_q = (vikor_v * _safe_scale(weighted_sum, vikor_s_min, vikor_s_max)) + (
+            (1.0 - vikor_v) * _safe_scale(weighted_regret, vikor_r_min, vikor_r_max)
+        )
+
+        if math_profile == "academic_reference":
+            score = weighted_sum
+        elif math_profile == "academic_tchebycheff":
+            score = weighted_regret + (tchebycheff_rho * weighted_sum)
+        elif math_profile == "academic_vikor":
+            score = vikor_q
+        elif math_profile == "modified_hybrid":
+            score = weighted_sum + (regret_weight * weighted_regret) + (balance_weight * balance_penalty)
+        elif math_profile == "modified_vikor_distance":
+            score = (
+                vikor_q
+                + (balance_weight * balance_penalty)
+                + (distance_weight * n_distance)
+                + (eta_distance_weight * eta_distance_penalty)
+                + (knee_weight * knee_penalty)
+                - (entropy_weight * entropy_reward)
+            )
+        else:
+            score = (
+                weighted_sum
+                + (regret_weight * weighted_regret)
+                + (balance_weight * balance_penalty)
+                + (distance_weight * n_distance)
+                + (eta_distance_weight * eta_distance_penalty)
+                + (knee_weight * knee_penalty)
+                - (entropy_weight * entropy_reward)
+            )
+        score_map[option.id] = float(score)
+    return score_map
+
+
+def _clone_option_with_objectives(
+    option: RouteOption,
+    objective_vector: tuple[float, float, float],
+) -> RouteOption:
+    metrics = option.metrics.model_copy(
+        update={
+            "duration_s": round(float(objective_vector[0]), 2),
+            "monetary_cost": round(float(objective_vector[1]), 2),
+            "emissions_kg": round(float(objective_vector[2]), 3),
+        }
+    )
+    uncertainty = dict(option.uncertainty) if isinstance(option.uncertainty, dict) else None
+    if uncertainty is not None:
+        uncertainty["mean_duration_s"] = float(metrics.duration_s)
+        uncertainty["mean_monetary_cost"] = float(metrics.monetary_cost)
+        uncertainty["mean_emissions_kg"] = float(metrics.emissions_kg)
+    return option.model_copy(update={"metrics": metrics, "uncertainty": uncertainty})
+
+
+def _selector_score_map_callback(
+    frontier_options: Sequence[RouteOption],
+    *,
+    w_time: float,
+    w_money: float,
+    w_co2: float,
+    optimization_mode: OptimizationMode,
+    risk_aversion: float,
+) -> Callable[[Sequence[Mapping[str, Any]], Mapping[str, tuple[float, float, float]]], Mapping[str, float]]:
+    option_by_id = {option.id: option for option in frontier_options}
+
+    def _callback(
+        routes: Sequence[Mapping[str, Any]],
+        perturbed_by_id: Mapping[str, tuple[float, float, float]],
+    ) -> Mapping[str, float]:
+        cloned: list[RouteOption] = []
+        for route in routes:
+            route_id = str(route.get("route_id", route.get("id", ""))).strip()
+            base = option_by_id.get(route_id)
+            if base is None:
+                continue
+            objective = perturbed_by_id.get(
+                route_id,
+                (
+                    float(base.metrics.duration_s),
+                    float(base.metrics.monetary_cost),
+                    float(base.metrics.emissions_kg),
+                ),
+            )
+            cloned.append(_clone_option_with_objectives(base, objective))
+        return _route_selection_score_map(
+            cloned,
+            w_time=w_time,
+            w_money=w_money,
+            w_co2=w_co2,
+            optimization_mode=optimization_mode,
+            risk_aversion=risk_aversion,
+        )
+
+    return _callback
+
+
+def _route_option_dependency_weights(option: RouteOption) -> dict[str, dict[str, float]]:
+    provenance = option.evidence_provenance
+    if provenance is None:
+        return {}
+    base_weights: dict[str, tuple[float, float, float]] = {
+        "scenario": (0.70, 0.30, 0.20),
+        "toll": (0.05, 0.95, 0.10),
+        "terrain": (0.45, 0.20, 0.70),
+        "fuel": (0.10, 0.85, 0.25),
+        "carbon": (0.00, 0.80, 0.65),
+        "weather": (0.60, 0.15, 0.15),
+        "stochastic": (0.55, 0.55, 0.45),
+    }
+    out: dict[str, dict[str, float]] = {}
+    for record in provenance.families:
+        if not bool(record.active):
+            continue
+        confidence = float(record.confidence) if record.confidence is not None else 0.8
+        coverage = float(record.coverage_ratio) if record.coverage_ratio is not None else 1.0
+        strength = max(0.15, min(1.0, (0.55 * confidence) + (0.45 * coverage)))
+        time_w, money_w, co2_w = base_weights.get(record.family, (0.35, 0.35, 0.35))
+        out[record.family] = {
+            "time": round(float(time_w * strength), 6),
+            "money": round(float(money_w * strength), 6),
+            "co2": round(float(co2_w * strength), 6),
+        }
+    return out
+
+
+def _route_option_certification_payload(option: RouteOption) -> dict[str, Any]:
+    dependency_weights = _route_option_dependency_weights(option)
+    provenance_payload = option.evidence_provenance.model_dump(mode="json") if option.evidence_provenance else {}
+    provenance_payload["dependency_weights"] = dependency_weights
+    return {
+        "route_id": option.id,
+        "id": option.id,
+        "objective_vector": (
+            float(option.metrics.duration_s),
+            float(option.metrics.monetary_cost),
+            float(option.metrics.emissions_kg),
+        ),
+        "distance_km": float(option.metrics.distance_km),
+        "evidence_tensor": dependency_weights,
+        "evidence_provenance": provenance_payload,
+        "route_option": option,
+    }
+
+
+def _apply_world_state_overrides(
+    worlds: Sequence[Mapping[str, Any]],
+    *,
+    forced_refreshed_families: set[str],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for world in worlds:
+        states = dict(world.get("states", {}))
+        for family in forced_refreshed_families:
+            if family in states:
+                states[family] = "refreshed"
+        out.append({"world_id": world.get("world_id"), "states": states})
+    return out
+
+
+def _compute_frontier_certification(
+    *,
+    frontier_options: Sequence[RouteOption],
+    selected_route_id: str,
+    run_seed: int,
+    world_count: int,
+    threshold: float,
+    w_time: float,
+    w_money: float,
+    w_co2: float,
+    optimization_mode: OptimizationMode,
+    risk_aversion: float,
+    forced_refreshed_families: set[str] | None = None,
+) -> tuple[Any, Any, dict[str, Any], list[str]]:
+    route_payloads = [_route_option_certification_payload(option) for option in frontier_options]
+    configured_families = _split_csv_config(
+        settings.route_refc_evidence_families,
+        fallback=("scenario", "toll", "terrain", "fuel", "carbon", "weather", "stochastic"),
+    )
+    active_families = active_evidence_families(route_payloads, configured_families=configured_families)
+    world_manifest = sample_world_manifest(
+        active_families=active_families,
+        seed=int(run_seed),
+        world_count=int(world_count),
+        state_catalog=tuple(
+            _split_csv_config(
+                settings.route_refc_state_catalog,
+                fallback=("nominal", "mildly_stale", "severely_stale", "low_confidence", "proxy", "refreshed"),
+            )
+        ),
+    )
+    forced_refresh = set(forced_refreshed_families or set())
+    worlds = _apply_world_state_overrides(
+        world_manifest.get("worlds", []),
+        forced_refreshed_families=forced_refresh,
+    )
+    selector_score_map_fn = _selector_score_map_callback(
+        frontier_options,
+        w_time=w_time,
+        w_money=w_money,
+        w_co2=w_co2,
+        optimization_mode=optimization_mode,
+        risk_aversion=risk_aversion,
+    )
+    certificate = compute_certificate(
+        route_payloads,
+        worlds=worlds,
+        selector_weights=(w_time, w_money, w_co2),
+        threshold=threshold,
+        active_families=active_families,
+        selector_score_map_fn=selector_score_map_fn,
+    )
+    fragility = compute_fragility_maps(
+        route_payloads,
+        worlds=worlds,
+        selector_weights=(w_time, w_money, w_co2),
+        active_families=active_families,
+        selected_route_id=selected_route_id,
+        selector_score_map_fn=selector_score_map_fn,
+    )
+    manifest_payload = dict(world_manifest)
+    manifest_payload["worlds"] = worlds
+    manifest_payload["forced_refreshed_families"] = sorted(forced_refresh)
+    manifest_payload["selected_route_id"] = selected_route_id
+    return certificate, fragility, manifest_payload, active_families
+
+
+def _near_tie_mass_from_certificate(
+    certificate_map: Mapping[str, float],
+    *,
+    winner_id: str,
+    threshold: float,
+) -> float:
+    winner_value = float(certificate_map.get(winner_id, 0.0))
+    if winner_value <= 0.0:
+        return 0.0
+    competitors = [
+        float(value)
+        for route_id, value in certificate_map.items()
+        if route_id != winner_id and (winner_value - float(value)) <= threshold
+    ]
+    return float(len(competitors)) / float(max(1, len(certificate_map) - 1))
+
+
+def _top_competitor_for_route(
+    route_id: str,
+    competitor_breakdown: Mapping[str, Mapping[str, Mapping[str, int]]],
+) -> str | None:
+    route_breakdown = competitor_breakdown.get(route_id, {})
+    best_id: str | None = None
+    best_score = -1
+    for competitor_id, family_counts in route_breakdown.items():
+        total = sum(max(0, int(value)) for value in family_counts.values())
+        if total > best_score or (total == best_score and best_id is not None and competitor_id < best_id):
+            best_id = competitor_id
+            best_score = total
+    return best_id
+
+
+def _attach_route_certifications(
+    options: Sequence[RouteOption],
+    *,
+    certificate_map: Mapping[str, float],
+    threshold: float,
+    active_families: Sequence[str],
+    fragility_map: Mapping[str, Mapping[str, float]],
+    competitor_breakdown: Mapping[str, Mapping[str, Mapping[str, int]]],
+    top_refresh_family: str | None,
+) -> tuple[list[RouteOption], dict[str, RouteCertificationSummary]]:
+    summaries: dict[str, RouteCertificationSummary] = {}
+    updated: list[RouteOption] = []
+    for option in options:
+        if option.id not in certificate_map:
+            updated.append(option)
+            continue
+        fragility_scores = fragility_map.get(option.id, {})
+        ordered_families = [
+            family
+            for family, value in sorted(
+                fragility_scores.items(),
+                key=lambda item: (-float(item[1]), str(item[0])),
+            )
+            if float(value) > 0.0
+        ]
+        summary = RouteCertificationSummary(
+            route_id=option.id,
+            certificate=float(certificate_map.get(option.id, 0.0)),
+            certified=float(certificate_map.get(option.id, 0.0)) >= float(threshold),
+            threshold=float(threshold),
+            active_families=list(active_families),
+            top_fragility_families=ordered_families[:3],
+            top_competitor_route_id=_top_competitor_for_route(option.id, competitor_breakdown),
+            top_value_of_refresh_family=top_refresh_family,
+        )
+        summaries[option.id] = summary
+        updated.append(option.model_copy(update={"certification": summary}))
+    return updated, summaries
+
+
+def _graph_route_candidate_payload(
+    route: dict[str, Any],
+    *,
+    origin: LatLng,
+    destination: LatLng,
+    vehicle: VehicleProfile,
+    cost_toggles: CostToggles,
+) -> dict[str, Any]:
+    meta = route.get("_graph_meta")
+    meta_dict = meta if isinstance(meta, dict) else {}
+    road_mix_counts = meta_dict.get("road_mix_counts")
+    counts: dict[str, int]
+    if isinstance(road_mix_counts, dict) and road_mix_counts:
+        counts = {
+            str(key): max(0, int(value))
+            for key, value in road_mix_counts.items()
+            if isinstance(value, (int, float))
+        }
+    else:
+        counts = _route_road_class_counts(route)
+    total_counts = max(1, sum(max(0, int(value)) for value in counts.values()))
+    motorway_share = sum(
+        max(0, int(value))
+        for key, value in counts.items()
+        if str(key).startswith("motorway")
+    ) / float(total_counts)
+    a_road_share = sum(
+        max(0, int(value))
+        for key, value in counts.items()
+        if str(key).startswith("trunk")
+        or str(key).startswith("primary")
+        or str(key).startswith("secondary")
+    ) / float(total_counts)
+    urban_share = sum(
+        max(0, int(value))
+        for key, value in counts.items()
+        if str(key).startswith("residential")
+        or str(key).startswith("local")
+        or str(key).startswith("unclassified")
+    ) / float(total_counts)
+    other_share = max(0.0, 1.0 - motorway_share - a_road_share - urban_share)
+    path_node_ids = meta_dict.get("path_node_ids", [])
+    graph_path = [str(node_id) for node_id in path_node_ids] if isinstance(path_node_ids, list) else []
+    graph_length_km = float(max(0.0, _route_distance_km(route)))
+    duration_s = float(max(0.0, _route_duration_s(route)))
+    path_nodes = max(2, int(meta_dict.get("path_nodes", len(graph_path) or 2)))
+    toll_share = max(0.0, float(meta_dict.get("toll_edges", 0))) / float(max(1, path_nodes - 1))
+    turn_burden = max(0.0, float(meta_dict.get("turn_burden", 0.0)))
+    terrain_burden = min(1.0, turn_burden / float(max(1, path_nodes - 2)))
+    straight_line_km = max(0.001, float(_od_haversine_km(origin, destination)))
+    proxy_money = (
+        (float(vehicle.cost_per_km) * graph_length_km)
+        + (float(vehicle.cost_per_hour) * (duration_s / 3600.0))
+    )
+    if bool(cost_toggles.use_tolls):
+        proxy_money += float(cost_toggles.toll_cost_per_km) * graph_length_km * toll_share
+    proxy_co2 = max(0.0, float(vehicle.emission_factor_kg_per_tkm) * float(vehicle.mass_tonnes) * graph_length_km)
+    if float(cost_toggles.carbon_price_per_kg) > 0.0:
+        proxy_money += proxy_co2 * float(cost_toggles.carbon_price_per_kg)
+    candidate = {
+        "graph_path": graph_path,
+        "node_ids": graph_path,
+        "graph_length_km": round(graph_length_km, 6),
+        "straight_line_km": round(straight_line_km, 6),
+        "road_class_mix": {
+            "motorway_share": round(motorway_share, 6),
+            "a_road_share": round(a_road_share, 6),
+            "urban_share": round(urban_share, 6),
+            "other_share": round(other_share, 6),
+        },
+        "motorway_share": round(motorway_share, 6),
+        "a_road_share": round(a_road_share, 6),
+        "urban_share": round(urban_share, 6),
+        "toll_share": round(toll_share, 6),
+        "terrain_burden": round(terrain_burden, 6),
+        "proxy_objective": (
+            round(duration_s, 6),
+            round(proxy_money, 6),
+            round(proxy_co2, 6),
+        ),
+        "mechanism_descriptor": {
+            "motorway_share": round(motorway_share, 6),
+            "a_road_share": round(a_road_share, 6),
+            "urban_share": round(urban_share, 6),
+            "toll_share": round(toll_share, 6),
+            "terrain_burden": round(terrain_burden, 6),
+        },
+        "proxy_confidence": {
+            "time": round(max(0.45, min(0.98, 0.82 + (0.08 * motorway_share))), 6),
+            "money": round(max(0.40, min(0.95, 0.70 + (0.20 * (1.0 - toll_share)))), 6),
+            "co2": round(max(0.40, min(0.95, 0.66 + (0.18 * (1.0 - urban_share)))), 6),
+        },
+    }
+    candidate["candidate_id"] = stable_candidate_id(candidate)
+    return candidate
+
+
+def _dccs_runtime_config(
+    *,
+    mode: str,
+    search_budget: int,
+) -> DCCSConfig:
+    return DCCSConfig(
+        mode=mode,
+        search_budget=max(0, int(search_budget)),
+        bootstrap_seed_size=max(1, int(settings.route_dccs_bootstrap_count)),
+        near_duplicate_threshold=float(settings.route_dccs_overlap_threshold),
+        flip_bias=float(settings.route_dccs_pflip_bias),
+        flip_objective_weight=float(settings.route_dccs_pflip_gap_weight),
+        flip_mechanism_weight=float(settings.route_dccs_pflip_mechanism_weight),
+        flip_overlap_weight=float(settings.route_dccs_pflip_overlap_weight),
+        flip_stretch_weight=float(settings.route_dccs_pflip_detour_weight),
+    )
+
+
+async def _refine_graph_candidate_batch(
+    *,
+    osrm: OSRMClient,
+    origin: LatLng,
+    destination: LatLng,
+    selected_records: Sequence[DCCSCandidateRecord],
+    raw_graph_routes_by_id: Mapping[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str], dict[str, float], int, float]:
+    warnings: list[str] = []
+    routes_by_signature: dict[str, dict[str, Any]] = {}
+    observed_costs: dict[str, float] = {}
+    candidate_fetches = 0
+    batch_started = time.perf_counter()
+    sem = asyncio.Semaphore(1)
+
+    for record in selected_records:
+        raw_route = raw_graph_routes_by_id.get(record.candidate_id)
+        if raw_route is None:
+            warnings.append(f"graph_family:{record.candidate_id}: missing_raw_candidate")
+            continue
+        via = _graph_family_via_points(
+            raw_route,
+            max_landmarks=max(1, int(settings.route_graph_via_landmarks_per_path)),
+        )
+        spec = CandidateFetchSpec(
+            label=f"graph_family:{record.candidate_id}",
+            alternatives=False,
+            via=via if via else None,
+        )
+        fetch_started = time.perf_counter()
+        result = await _run_candidate_fetch(
+            osrm=osrm,
+            origin=origin,
+            destination=destination,
+            spec=spec,
+            sem=sem,
+        )
+        elapsed_ms = round((time.perf_counter() - fetch_started) * 1000.0, 2)
+        observed_costs[record.candidate_id] = float(elapsed_ms)
+        candidate_fetches += 1
+        candidate_routes = result.routes or []
+        if result.error:
+            warnings.append(f"{result.spec.label}: {result.error}")
+        if not candidate_routes:
+            try:
+                candidate_routes = [json.loads(json.dumps(raw_route, separators=(",", ":"), default=str))]
+            except Exception:
+                candidate_routes = [dict(raw_route)]
+        for route in candidate_routes:
+            route["_dccs_candidate_id"] = record.candidate_id
+            existing_ids = route.get("_dccs_candidate_ids")
+            route["_dccs_candidate_ids"] = list(existing_ids) if isinstance(existing_ids, list) else [record.candidate_id]
+            if record.candidate_id not in route["_dccs_candidate_ids"]:
+                route["_dccs_candidate_ids"].append(record.candidate_id)
+            try:
+                sig = _route_signature(route)
+            except OSRMError:
+                continue
+            existing = routes_by_signature.get(sig)
+            if existing is None:
+                routes_by_signature[sig] = route
+                existing = route
+            existing_candidate_ids = existing.get("_dccs_candidate_ids")
+            if not isinstance(existing_candidate_ids, list):
+                existing_candidate_ids = []
+                existing["_dccs_candidate_ids"] = existing_candidate_ids
+            for candidate_id in route["_dccs_candidate_ids"]:
+                if candidate_id not in existing_candidate_ids:
+                    existing_candidate_ids.append(candidate_id)
+            _annotate_route_candidate_meta(
+                existing,
+                source_labels={f"{result.spec.label}:osrm_refined"},
+                toll_exclusion_available=False,
+            )
+    elapsed_total_ms = round((time.perf_counter() - batch_started) * 1000.0, 2)
+    return list(routes_by_signature.values()), warnings, observed_costs, candidate_fetches, elapsed_total_ms
+
+
+async def _compute_direct_route_pipeline(
+    *,
+    req: RouteRequest,
+    osrm: OSRMClient,
+    max_alternatives: int,
+    pipeline_mode: str,
+    run_seed: int,
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    stage_timings: dict[str, float] = {}
+    dccs_batches: list[dict[str, Any]] = []
+    action_trace: list[dict[str, Any]] = []
+    action_score_rows: list[dict[str, Any]] = []
+    forced_refreshed_families: set[str] = set()
+    candidate_records_by_id: dict[str, DCCSCandidateRecord] = {}
+    vehicle = resolve_vehicle_profile(req.vehicle_type)
+    total_search_budget = max(1, int(req.search_budget or settings.route_pipeline_search_budget))
+    total_evidence_budget = max(
+        0,
+        int(
+            req.evidence_budget
+            if req.evidence_budget is not None
+            else settings.route_pipeline_evidence_budget
+        ),
+    )
+    current_world_count = max(
+        10,
+        int(
+            req.cert_world_count
+            if req.cert_world_count is not None
+            else settings.route_pipeline_cert_world_count
+        ),
+    )
+    certificate_threshold = float(
+        req.certificate_threshold
+        if req.certificate_threshold is not None
+        else settings.route_pipeline_certificate_threshold
+    )
+    tau_stop = float(req.tau_stop if req.tau_stop is not None else settings.route_pipeline_tau_stop)
+    world_increment = max(1, int(settings.route_pipeline_world_increment))
+    weather_bucket = req.weather.profile if req.weather.enabled else "clear"
+    search_used = 0
+    evidence_used = 0
+    candidate_fetches = 0
+
+    refresh_live_runtime_route_caches(mode=str(settings.live_route_compute_refresh_mode or "route_compute").strip().lower())
+    scenario_started = time.perf_counter()
+    scenario_context = await _scenario_context_from_od(
+        origin=req.origin,
+        destination=req.destination,
+        vehicle_class=str(vehicle.vehicle_class),
+        departure_time_utc=req.departure_time_utc,
+        weather_bucket=str(weather_bucket),
+    )
+    scenario_modifiers = await _scenario_candidate_modifiers_async(
+        scenario_mode=req.scenario_mode,
+        context=scenario_context,
+    )
+    stage_timings["scenario_context_ms"] = round((time.perf_counter() - scenario_started) * 1000.0, 2)
+
+    preflight_started = time.perf_counter()
+    precheck = route_graph_od_feasibility(
+        origin_lat=float(req.origin.lat),
+        origin_lon=float(req.origin.lon),
+        destination_lat=float(req.destination.lat),
+        destination_lon=float(req.destination.lon),
+    )
+    stage_timings["preflight_ms"] = round((time.perf_counter() - preflight_started) * 1000.0, 2)
+    precheck_kwargs = _candidate_precheck_diag_kwargs(precheck)
+    if not bool(precheck.get("ok")):
+        message = _route_graph_precheck_warning(precheck)
+        warnings.append(message)
+        raise HTTPException(
+            status_code=422,
+            detail=_strict_error_detail(
+                reason_code=str(precheck.get("reason_code", "routing_graph_unavailable")),
+                message=str(precheck.get("message", "Graph feasibility check failed.")),
+                warnings=warnings,
+                extra={
+                    "stage": "collecting_candidates",
+                    "stage_detail": "route_graph_precheck_failed",
+                },
+            ),
+        )
+    start_node_id = str(precheck.get("origin_node_id", "")).strip() or None
+    goal_node_id = str(precheck.get("destination_node_id", "")).strip() or None
+
+    graph_started = time.perf_counter()
+    graph_routes, graph_diag = await _route_graph_candidate_routes_async(
+        origin_lat=float(req.origin.lat),
+        origin_lon=float(req.origin.lon),
+        destination_lat=float(req.destination.lat),
+        destination_lon=float(req.destination.lon),
+        max_paths=max(4, int(max_alternatives) * 2),
+        scenario_edge_modifiers=scenario_modifiers,
+        search_deadline_s=_search_deadline_s(int(settings.route_graph_search_initial_timeout_ms)),
+        start_node_id=start_node_id,
+        goal_node_id=goal_node_id,
+    )
+    stage_timings["k_raw_ms"] = round((time.perf_counter() - graph_started) * 1000.0, 2)
+    if not graph_routes:
+        no_path_reason = _normalize_route_graph_search_reason(str(graph_diag.no_path_reason or ""))
+        no_path_detail = (
+            str(graph_diag.no_path_detail or "").strip()
+            or "Route graph search produced no candidate paths."
+        )
+        warnings.append(f"route_graph: {no_path_reason} ({no_path_detail})")
+        raise HTTPException(
+            status_code=422,
+            detail=_strict_error_detail(
+                reason_code=no_path_reason,
+                message=no_path_detail,
+                warnings=warnings,
+                extra={
+                    "stage": "collecting_candidates",
+                    "stage_detail": "route_graph_search_empty",
+                },
+            ),
+        )
+
+    raw_candidate_payloads = [
+        _graph_route_candidate_payload(
+            route,
+            origin=req.origin,
+            destination=req.destination,
+            vehicle=vehicle,
+            cost_toggles=req.cost_toggles,
+        )
+        for route in graph_routes
+    ]
+    raw_graph_routes_by_id = {
+        str(candidate["candidate_id"]): route
+        for candidate, route in zip(raw_candidate_payloads, graph_routes, strict=True)
+    }
+    raw_candidate_by_id = {
+        str(candidate["candidate_id"]): candidate
+        for candidate in raw_candidate_payloads
+    }
+    initial_budget = total_search_budget
+    if pipeline_mode == "voi":
+        initial_budget = min(
+            total_search_budget,
+            max(1, int(settings.route_dccs_bootstrap_count)),
+        )
+    initial_dccs_started = time.perf_counter()
+    initial_dccs = select_candidates(
+        raw_candidate_payloads,
+        config=_dccs_runtime_config(mode="bootstrap", search_budget=initial_budget),
+    )
+    stage_timings["dccs_ms"] = round((time.perf_counter() - initial_dccs_started) * 1000.0, 2)
+    dccs_batches.append({"iteration": 0, **initial_dccs.summary})
+    for record in [*initial_dccs.selected, *initial_dccs.skipped]:
+        candidate_records_by_id[record.candidate_id] = record
+
+    refined_routes: list[dict[str, Any]] = []
+    refined_route_signatures: set[str] = set()
+    refined_candidate_ids: set[str] = set()
+
+    def _ingest_refined_routes(routes: Sequence[dict[str, Any]]) -> None:
+        for route in routes:
+            try:
+                signature = _route_signature(route)
+            except OSRMError:
+                continue
+            if signature in refined_route_signatures:
+                continue
+            refined_route_signatures.add(signature)
+            refined_routes.append(route)
+
+    batch_routes, batch_warnings, observed_costs, batch_fetches, batch_refine_ms = await _refine_graph_candidate_batch(
+        osrm=osrm,
+        origin=req.origin,
+        destination=req.destination,
+        selected_records=initial_dccs.selected,
+        raw_graph_routes_by_id=raw_graph_routes_by_id,
+    )
+    warnings.extend(batch_warnings)
+    _ingest_refined_routes(batch_routes)
+    candidate_fetches += batch_fetches
+    search_used += len(initial_dccs.selected)
+    refined_candidate_ids.update(record.candidate_id for record in initial_dccs.selected)
+    stage_timings["osrm_refine_ms"] = round(batch_refine_ms, 2)
+
+    def _rebuild_route_state() -> tuple[
+        list[RouteOption],
+        list[RouteOption],
+        list[RouteOption],
+        RouteOption,
+        TerrainDiagnostics,
+        dict[str, list[str]],
+        dict[str, float],
+    ]:
+        build_started = time.perf_counter()
+        options, build_warnings, terrain_diag = _build_options(
+            refined_routes,
+            vehicle_type=req.vehicle_type,
+            scenario_mode=req.scenario_mode,
+            cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic,
+            emissions_context=req.emissions_context,
+            weather=req.weather,
+            incident_simulation=req.incident_simulation,
+            departure_time_utc=req.departure_time_utc,
+            utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
+            risk_aversion=req.risk_aversion,
+            option_prefix="route",
+        )
+        stage_timings["option_build_ms"] = stage_timings.get("option_build_ms", 0.0) + round(
+            (time.perf_counter() - build_started) * 1000.0,
+            2,
+        )
+        for warning in build_warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+        pareto_started = time.perf_counter()
+        strict_frontier = _strict_frontier_options(
+            options,
+            max_alternatives=max_alternatives,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+        )
+        if not strict_frontier:
+            strict_detail = _strict_failure_detail_from_outcome(
+                warnings=warnings,
+                terrain_diag=terrain_diag,
+                epsilon_requested=req.pareto_method == "epsilon_constraint" and req.epsilon is not None,
+                terrain_message="Terrain DEM coverage is insufficient for strict routing policy.",
+            )
+            if strict_detail is not None:
+                raise HTTPException(status_code=422, detail=strict_detail)
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code="epsilon_infeasible",
+                    message="No routes satisfy epsilon constraints for this request.",
+                    warnings=warnings,
+                ),
+            )
+        display_candidates = _finalize_pareto_options(
+            options,
+            max_alternatives=max_alternatives,
+            pareto_method=req.pareto_method,
+            epsilon=req.epsilon,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+        )
+        selected = _pick_best_option(
+            strict_frontier,
+            w_time=req.weights.time,
+            w_money=req.weights.money,
+            w_co2=req.weights.co2,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+        )
+        if all(option.id != selected.id for option in display_candidates):
+            display_candidates = [
+                selected,
+                *[option for option in display_candidates if option.id != selected.id],
+            ][: max_alternatives]
+        stage_timings["pareto_ms"] = stage_timings.get("pareto_ms", 0.0) + round(
+            (time.perf_counter() - pareto_started) * 1000.0,
+            2,
+        )
+        option_candidate_ids = {
+            option.id: [
+                str(candidate_id)
+                for candidate_id in (
+                    route.get("_dccs_candidate_ids", [])
+                    if isinstance(route.get("_dccs_candidate_ids"), list)
+                    else []
+                )
+                if str(candidate_id).strip()
+            ]
+            for route, option in zip(refined_routes, options, strict=True)
+        }
+        selection_score_map = _route_selection_score_map(
+            display_candidates,
+            w_time=req.weights.time,
+            w_money=req.weights.money,
+            w_co2=req.weights.co2,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+        )
+        return (
+            options,
+            strict_frontier,
+            display_candidates,
+            selected,
+            terrain_diag,
+            option_candidate_ids,
+            selection_score_map,
+        )
+
+    def _record_candidate_batch_outcomes(
+        *,
+        selected_records: Sequence[DCCSCandidateRecord],
+        previous_frontier_ids: set[str],
+        previous_selected_id: str | None,
+        option_candidate_ids: Mapping[str, list[str]],
+        current_frontier_ids: set[str],
+        current_selected_id: str,
+        selection_score_map: Mapping[str, float],
+        observed_refine_costs: Mapping[str, float],
+    ) -> None:
+        selected_score = float(selection_score_map.get(current_selected_id, 0.0))
+        for record in selected_records:
+            candidate_option_ids = [
+                option_id
+                for option_id, candidate_ids in option_candidate_ids.items()
+                if record.candidate_id in candidate_ids
+            ]
+            frontier_added = any(
+                option_id in current_frontier_ids and option_id not in previous_frontier_ids
+                for option_id in candidate_option_ids
+            )
+            decision_flip = (
+                previous_selected_id is not None
+                and previous_selected_id != current_selected_id
+                and current_selected_id in candidate_option_ids
+            )
+            best_candidate_score = min(
+                (float(selection_score_map.get(option_id, float("inf"))) for option_id in candidate_option_ids),
+                default=float("inf"),
+            )
+            dominated_but_close = (
+                bool(candidate_option_ids)
+                and not frontier_added
+                and not decision_flip
+                and math.isfinite(best_candidate_score)
+                and best_candidate_score <= (selected_score + (0.05 * max(1.0, abs(selected_score))))
+            )
+            redundant = not frontier_added and not decision_flip and not dominated_but_close
+            candidate_records_by_id[record.candidate_id] = record_refine_outcome(
+                record,
+                observed_refine_cost=float(
+                    observed_refine_costs.get(record.candidate_id, record.predicted_refine_cost)
+                ),
+                frontier_added=frontier_added,
+                decision_flip=decision_flip,
+                dominated_but_close=dominated_but_close,
+                redundant=redundant,
+            )
+
+    options, strict_frontier, display_candidates, selected, terrain_diag, option_candidate_ids, selection_score_map = _rebuild_route_state()
+    _record_candidate_batch_outcomes(
+        selected_records=initial_dccs.selected,
+        previous_frontier_ids=set(),
+        previous_selected_id=None,
+        option_candidate_ids=option_candidate_ids,
+        current_frontier_ids={option.id for option in strict_frontier},
+        current_selected_id=selected.id,
+        selection_score_map=selection_score_map,
+        observed_refine_costs=observed_costs,
+    )
+
+    certificate_result: Any | None = None
+    fragility_result: Any | None = None
+    world_manifest_payload: dict[str, Any] | None = None
+    active_families: list[str] = []
+    selected_certificate: RouteCertificationSummary | None = None
+    stop_reason = "not_applicable"
+    best_rejected_action_payload: dict[str, Any] | None = None
+
+    def _route_option_dccs_payload(
+        option: RouteOption,
+        *,
+        option_candidate_ids_map: Mapping[str, list[str]],
+    ) -> dict[str, Any]:
+        candidate_ids = [
+            candidate_id
+            for candidate_id in option_candidate_ids_map.get(option.id, [])
+            if candidate_id in raw_candidate_by_id
+        ]
+        raw_candidate = raw_candidate_by_id.get(candidate_ids[0]) if candidate_ids else None
+        road_mix = (
+            dict(raw_candidate.get("road_class_mix", {}))
+            if isinstance(raw_candidate, Mapping) and isinstance(raw_candidate.get("road_class_mix"), Mapping)
+            else {}
+        )
+        mechanism = (
+            dict(raw_candidate.get("mechanism_descriptor", {}))
+            if isinstance(raw_candidate, Mapping) and isinstance(raw_candidate.get("mechanism_descriptor"), Mapping)
+            else {}
+        )
+        return {
+            "candidate_id": candidate_ids[0] if candidate_ids else option.id,
+            "route_id": option.id,
+            "id": option.id,
+            "graph_path": list(raw_candidate.get("graph_path", [])) if isinstance(raw_candidate, Mapping) else [],
+            "graph_length_km": float(
+                raw_candidate.get("graph_length_km", option.metrics.distance_km)
+            )
+            if isinstance(raw_candidate, Mapping)
+            else float(option.metrics.distance_km),
+            "straight_line_km": max(0.001, float(_od_haversine_km(req.origin, req.destination))),
+            "road_class_mix": road_mix,
+            "motorway_share": float(road_mix.get("motorway_share", 0.0)),
+            "a_road_share": float(road_mix.get("a_road_share", 0.0)),
+            "urban_share": float(road_mix.get("urban_share", 0.0)),
+            "toll_share": float(raw_candidate.get("toll_share", 0.0)) if isinstance(raw_candidate, Mapping) else 0.0,
+            "terrain_burden": float(raw_candidate.get("terrain_burden", 0.0))
+            if isinstance(raw_candidate, Mapping)
+            else 0.0,
+            "proxy_objective": (
+                float(option.metrics.duration_s),
+                float(option.metrics.monetary_cost),
+                float(option.metrics.emissions_kg),
+            ),
+            "objective_vector": (
+                float(option.metrics.duration_s),
+                float(option.metrics.monetary_cost),
+                float(option.metrics.emissions_kg),
+            ),
+            "mechanism_descriptor": mechanism,
+            "proxy_confidence": (
+                dict(raw_candidate.get("proxy_confidence", {}))
+                if isinstance(raw_candidate, Mapping) and isinstance(raw_candidate.get("proxy_confidence"), Mapping)
+                else {}
+            ),
+        }
+
+    def _route_signature_map(current_options: Sequence[RouteOption]) -> dict[str, str]:
+        signatures: dict[str, str] = {}
+        for route, option in zip(refined_routes, current_options, strict=True):
+            try:
+                signatures[option.id] = _route_signature(route)
+            except OSRMError:
+                continue
+        return signatures
+
+    def _refresh_certification_views() -> None:
+        nonlocal certificate_result
+        nonlocal fragility_result
+        nonlocal world_manifest_payload
+        nonlocal active_families
+        nonlocal selected_certificate
+        nonlocal strict_frontier
+        nonlocal display_candidates
+        nonlocal selected
+        if pipeline_mode not in {"dccs_refc", "voi"}:
+            return
+        refc_started = time.perf_counter()
+        certificate_result, fragility_result, world_manifest_payload, active_families = _compute_frontier_certification(
+            frontier_options=strict_frontier,
+            selected_route_id=selected.id,
+            run_seed=run_seed,
+            world_count=current_world_count,
+            threshold=certificate_threshold,
+            w_time=req.weights.time,
+            w_money=req.weights.money,
+            w_co2=req.weights.co2,
+            optimization_mode=req.optimization_mode,
+            risk_aversion=req.risk_aversion,
+            forced_refreshed_families=forced_refreshed_families,
+        )
+        stage_timings["refc_ms"] = stage_timings.get("refc_ms", 0.0) + round(
+            (time.perf_counter() - refc_started) * 1000.0,
+            2,
+        )
+        top_refresh_family = None
+        if isinstance(fragility_result.value_of_refresh, Mapping):
+            family_raw = str(fragility_result.value_of_refresh.get("top_refresh_family", "")).strip()
+            top_refresh_family = family_raw or None
+        strict_frontier, strict_summaries = _attach_route_certifications(
+            strict_frontier,
+            certificate_map=certificate_result.certificate,
+            threshold=certificate_threshold,
+            active_families=active_families,
+            fragility_map=fragility_result.route_fragility_map,
+            competitor_breakdown=fragility_result.competitor_fragility_breakdown,
+            top_refresh_family=top_refresh_family,
+        )
+        display_candidates, display_summaries = _attach_route_certifications(
+            display_candidates,
+            certificate_map=certificate_result.certificate,
+            threshold=certificate_threshold,
+            active_families=active_families,
+            fragility_map=fragility_result.route_fragility_map,
+            competitor_breakdown=fragility_result.competitor_fragility_breakdown,
+            top_refresh_family=top_refresh_family,
+        )
+        selected = next((option for option in display_candidates if option.id == selected.id), selected)
+        selected_certificate = (
+            display_summaries.get(selected.id)
+            or strict_summaries.get(selected.id)
+        )
+
+    if pipeline_mode in {"dccs_refc", "voi"}:
+        _refresh_certification_views()
+
+    if pipeline_mode == "voi":
+        voi_started = time.perf_counter()
+        voi_config = VOIConfig(
+            certificate_threshold=certificate_threshold,
+            stop_threshold=tau_stop,
+            search_budget=total_search_budget,
+            evidence_budget=total_evidence_budget,
+            max_iterations=max(1, total_search_budget + total_evidence_budget + 2),
+            top_k_refine=min(2, max(1, total_search_budget)),
+            resample_increment=world_increment,
+        )
+
+        while True:
+            remaining_search_budget = max(0, total_search_budget - search_used)
+            remaining_evidence_budget = max(0, total_evidence_budget - evidence_used)
+            selected_cert_value = (
+                float(certificate_result.certificate.get(selected.id, 0.0))
+                if certificate_result is not None
+                else 0.0
+            )
+            if selected_cert_value >= certificate_threshold:
+                stop_reason = "certified"
+                break
+            if remaining_search_budget <= 0 and remaining_evidence_budget <= 0:
+                stop_reason = "budget_exhausted"
+                break
+            if fragility_result is None or certificate_result is None:
+                stop_reason = "error"
+                break
+
+            frontier_payloads = [
+                _route_option_dccs_payload(option, option_candidate_ids_map=option_candidate_ids)
+                for option in strict_frontier
+            ]
+            refined_payloads = [
+                _route_option_dccs_payload(option, option_candidate_ids_map=option_candidate_ids)
+                for option in options
+            ]
+            remaining_candidates = [
+                raw_candidate_by_id[candidate_id]
+                for candidate_id in sorted(raw_candidate_by_id)
+                if candidate_id not in refined_candidate_ids
+            ]
+            challenger_started = time.perf_counter()
+            challenger_dccs = select_candidates(
+                remaining_candidates,
+                frontier=frontier_payloads,
+                refined=refined_payloads,
+                config=_dccs_runtime_config(
+                    mode="challenger",
+                    search_budget=remaining_search_budget,
+                ),
+            )
+            stage_timings["dccs_ms"] = stage_timings.get("dccs_ms", 0.0) + round(
+                (time.perf_counter() - challenger_started) * 1000.0,
+                2,
+            )
+            dccs_batches.append(
+                {"iteration": len(action_trace) + 1, **challenger_dccs.summary}
+            )
+            for record in [*challenger_dccs.selected, *challenger_dccs.skipped]:
+                candidate_records_by_id[record.candidate_id] = record
+
+            near_tie_mass = _near_tie_mass_from_certificate(
+                certificate_result.certificate,
+                winner_id=selected.id,
+                threshold=0.03,
+            )
+            controller_state = VOIControllerState(
+                iteration_index=len(action_trace),
+                frontier=frontier_payloads,
+                certificate=dict(certificate_result.certificate),
+                winner_id=selected.id,
+                selected_route_id=selected.id,
+                remaining_search_budget=remaining_search_budget,
+                remaining_evidence_budget=remaining_evidence_budget,
+                action_trace=list(action_trace),
+                active_evidence_families=list(active_families),
+                near_tie_mass=near_tie_mass,
+            )
+            actions = [
+                action
+                for action in build_action_menu(
+                    controller_state,
+                    dccs=challenger_dccs,
+                    fragility=fragility_result,
+                    config=voi_config,
+                )
+                if not (
+                    action.kind == "refresh_top1_vor"
+                    and action.target in forced_refreshed_families
+                )
+            ]
+            feasible_actions = [action for action in actions if action.kind != "stop"]
+            for action in actions:
+                action_score_rows.append(
+                    {
+                        "iteration": len(action_trace),
+                        "action_id": action.action_id,
+                        "kind": action.kind,
+                        "target": action.target,
+                        "cost_search": action.cost_search,
+                        "cost_evidence": action.cost_evidence,
+                        "predicted_delta_certificate": round(float(action.predicted_delta_certificate), 6),
+                        "predicted_delta_margin": round(float(action.predicted_delta_margin), 6),
+                        "predicted_delta_frontier": round(float(action.predicted_delta_frontier), 6),
+                        "q_score": round(float(action.q_score), 6),
+                        "selected_route_id": selected.id,
+                        "selected_certificate": round(float(selected_cert_value), 6),
+                    }
+                )
+            if not feasible_actions:
+                stop_reason = "no_action_worth_it"
+                break
+            chosen_action = feasible_actions[0]
+            best_rejected_action_payload = (
+                feasible_actions[1].as_dict() if len(feasible_actions) > 1 else chosen_action.as_dict()
+            )
+            trace_entry = {
+                "iteration": len(action_trace),
+                "selected_route_id": selected.id,
+                "selected_certificate": round(float(selected_cert_value), 6),
+                "remaining_search_budget": remaining_search_budget,
+                "remaining_evidence_budget": remaining_evidence_budget,
+                "frontier_size": len(strict_frontier),
+                "feasible_actions": [action.as_dict() for action in actions],
+            }
+            if float(chosen_action.q_score) < tau_stop:
+                trace_entry["chosen_action"] = {
+                    "action_id": "stop",
+                    "kind": "stop",
+                    "target": "stop",
+                    "q_score": 0.0,
+                }
+                action_trace.append(trace_entry)
+                stop_reason = "no_action_worth_it"
+                break
+
+            trace_entry["chosen_action"] = chosen_action.as_dict()
+            action_trace.append(trace_entry)
+
+            if chosen_action.kind in {"refine_top1_dccs", "refine_topk_dccs"}:
+                top_k = max(1, int(chosen_action.metadata.get("top_k", 1)))
+                selected_records = challenger_dccs.selected[:top_k]
+                if not selected_records:
+                    stop_reason = "no_action_worth_it"
+                    break
+                previous_frontier_ids = {option.id for option in strict_frontier}
+                previous_selected_id = selected.id
+                batch_routes, batch_warnings, batch_observed_costs, batch_fetches, batch_refine_ms = await _refine_graph_candidate_batch(
+                    osrm=osrm,
+                    origin=req.origin,
+                    destination=req.destination,
+                    selected_records=selected_records,
+                    raw_graph_routes_by_id=raw_graph_routes_by_id,
+                )
+                warnings.extend(batch_warnings)
+                _ingest_refined_routes(batch_routes)
+                candidate_fetches += batch_fetches
+                search_used += len(selected_records)
+                refined_candidate_ids.update(record.candidate_id for record in selected_records)
+                stage_timings["osrm_refine_ms"] = stage_timings.get("osrm_refine_ms", 0.0) + round(
+                    batch_refine_ms,
+                    2,
+                )
+                options, strict_frontier, display_candidates, selected, terrain_diag, option_candidate_ids, selection_score_map = _rebuild_route_state()
+                _record_candidate_batch_outcomes(
+                    selected_records=selected_records,
+                    previous_frontier_ids=previous_frontier_ids,
+                    previous_selected_id=previous_selected_id,
+                    option_candidate_ids=option_candidate_ids,
+                    current_frontier_ids={option.id for option in strict_frontier},
+                    current_selected_id=selected.id,
+                    selection_score_map=selection_score_map,
+                    observed_refine_costs=batch_observed_costs,
+                )
+                _refresh_certification_views()
+                continue
+
+            if chosen_action.kind == "refresh_top1_vor":
+                forced_refreshed_families.add(chosen_action.target)
+                evidence_used += max(1, int(chosen_action.cost_evidence))
+                _refresh_certification_views()
+                continue
+
+            if chosen_action.kind == "increase_stochastic_samples":
+                current_world_count += world_increment
+                evidence_used += max(1, int(chosen_action.cost_evidence))
+                _refresh_certification_views()
+                continue
+
+            stop_reason = "no_action_worth_it"
+            break
+
+        stage_timings["voi_ms"] = round((time.perf_counter() - voi_started) * 1000.0, 2)
+    elif pipeline_mode in {"dccs", "dccs_refc"}:
+        stop_reason = "single_pass"
+
+    route_signature_map = _route_signature_map(options)
+    final_selected_certificate = (
+        float(certificate_result.certificate.get(selected.id, 0.0))
+        if certificate_result is not None
+        else None
+    )
+    if pipeline_mode == "voi":
+        best_rejected_action = None
+        best_rejected_q = None
+        if best_rejected_action_payload is not None:
+            best_rejected_action = str(
+                best_rejected_action_payload.get(
+                    "action_id",
+                    best_rejected_action_payload.get("kind", ""),
+                )
+            ).strip() or None
+            q_value = best_rejected_action_payload.get("q_score")
+            best_rejected_q = float(q_value) if isinstance(q_value, (int, float)) else None
+        voi_stop_summary = VoiStopSummary(
+            final_route_id=selected.id,
+            certificate=float(final_selected_certificate or 0.0),
+            certified=bool(
+                final_selected_certificate is not None
+                and final_selected_certificate >= certificate_threshold
+            ),
+            iteration_count=len(action_trace),
+            search_budget_used=int(search_used),
+            evidence_budget_used=int(evidence_used),
+            stop_reason=stop_reason,
+            best_rejected_action=best_rejected_action,
+            best_rejected_q=best_rejected_q,
+        )
+    else:
+        voi_stop_summary = None
+
+    candidate_diag = CandidateDiagnostics(
+        raw_count=len(raw_candidate_payloads),
+        deduped_count=len(refined_routes),
+        graph_explored_states=int(graph_diag.explored_states),
+        graph_generated_paths=int(graph_diag.generated_paths),
+        graph_emitted_paths=int(graph_diag.emitted_paths),
+        candidate_budget=int(graph_diag.candidate_budget),
+        graph_effective_max_hops=int(getattr(graph_diag, "effective_max_hops", 0)),
+        graph_effective_hops_floor=int(getattr(graph_diag, "effective_hops_floor", 0)),
+        graph_effective_state_budget_initial=int(
+            getattr(graph_diag, "effective_state_budget_initial", 0)
+        ),
+        graph_effective_state_budget=int(getattr(graph_diag, "effective_state_budget", 0)),
+        graph_no_path_reason=str(graph_diag.no_path_reason or ""),
+        graph_no_path_detail=str(graph_diag.no_path_detail or ""),
+        scenario_context_ms=float(stage_timings.get("scenario_context_ms", 0.0)),
+        graph_search_ms_initial=float(stage_timings.get("k_raw_ms", 0.0)),
+        osrm_refine_ms=float(stage_timings.get("osrm_refine_ms", 0.0)),
+        build_options_ms=float(stage_timings.get("option_build_ms", 0.0)),
+        **precheck_kwargs,
+    )
+
+    dccs_rows = [
+        candidate_records_by_id[candidate_id].as_dict()
+        for candidate_id in sorted(candidate_records_by_id)
+    ]
+    refined_count = sum(1 for row in dccs_rows if row.get("observed_refine_cost") is not None)
+    frontier_additions = sum(1 for row in dccs_rows if row.get("decision_reason") == "frontier_addition")
+    decision_flips = sum(1 for row in dccs_rows if row.get("decision_reason") == "decision_flip")
+    challenger_hits = sum(
+        1
+        for row in dccs_rows
+        if row.get("decision_reason") in {"frontier_addition", "decision_flip", "challenger_but_not_added"}
+    )
+    dccs_summary = {
+        "pipeline_mode": pipeline_mode,
+        "search_budget_total": int(total_search_budget),
+        "search_budget_used": int(search_used),
+        "candidate_count_raw": len(raw_candidate_payloads),
+        "refined_count": refined_count,
+        "frontier_count": len(strict_frontier),
+        "selected_route_id": selected.id,
+        "selected_candidate_ids": option_candidate_ids.get(selected.id, []),
+        "dc_yield": round(
+            (frontier_additions + decision_flips) / float(max(1, refined_count)),
+            6,
+        ),
+        "challenger_hit_rate": round(
+            challenger_hits / float(max(1, refined_count)),
+            6,
+        ),
+        "frontier_gain_per_refinement": round(
+            frontier_additions / float(max(1, refined_count)),
+            6,
+        ),
+        "decision_flips": decision_flips,
+        "frontier_additions": frontier_additions,
+        "candidate_fetches": int(candidate_fetches),
+        "overlap_threshold": float(settings.route_dccs_overlap_threshold),
+        "baseline_policy": str(settings.route_dccs_default_baseline_policy),
+        "batches": dccs_batches,
+    }
+
+    refined_route_rows = []
+    for route, option in zip(refined_routes, options, strict=True):
+        refined_route_rows.append(
+            {
+                "route_id": option.id,
+                "route_signature": route_signature_map.get(option.id, ""),
+                "candidate_ids": option_candidate_ids.get(option.id, []),
+                "distance_km": float(option.metrics.distance_km),
+                "duration_s": float(option.metrics.duration_s),
+                "monetary_cost": float(option.metrics.monetary_cost),
+                "emissions_kg": float(option.metrics.emissions_kg),
+                "selected": option.id == selected.id,
+            }
+        )
+    strict_frontier_rows = [
+        {
+            "route_id": option.id,
+            "route_signature": route_signature_map.get(option.id, ""),
+            "candidate_ids": option_candidate_ids.get(option.id, []),
+            "distance_km": float(option.metrics.distance_km),
+            "duration_s": float(option.metrics.duration_s),
+            "monetary_cost": float(option.metrics.monetary_cost),
+            "emissions_kg": float(option.metrics.emissions_kg),
+            "certificate": (
+                float(certificate_result.certificate.get(option.id, 0.0))
+                if certificate_result is not None
+                else None
+            ),
+            "selected": option.id == selected.id,
+        }
+        for option in strict_frontier
+    ]
+    winner_summary = {
+        "pipeline_mode": pipeline_mode,
+        "route_id": selected.id,
+        "route_signature": route_signature_map.get(selected.id, ""),
+        "candidate_ids": option_candidate_ids.get(selected.id, []),
+        "objective_vector": {
+            "time": float(selected.metrics.duration_s),
+            "money": float(selected.metrics.monetary_cost),
+            "co2": float(selected.metrics.emissions_kg),
+        },
+        "selector_score": float(selection_score_map.get(selected.id, 0.0)),
+        "certificate": final_selected_certificate,
+        "certified": bool(
+            final_selected_certificate is not None
+            and final_selected_certificate >= certificate_threshold
+        ),
+    }
+
+    if certificate_result is not None and fragility_result is not None and world_manifest_payload is not None:
+        certificate_summary = {
+            "pipeline_mode": pipeline_mode,
+            "winner_route_id": certificate_result.winner_id,
+            "selected_route_id": selected.id,
+            "selected_certificate": float(certificate_result.certificate.get(selected.id, 0.0)),
+            "certificate_threshold": float(certificate_threshold),
+            "certified": bool(
+                float(certificate_result.certificate.get(selected.id, 0.0)) >= certificate_threshold
+            ),
+            "route_certificates": dict(certificate_result.certificate),
+            "frontier_route_ids": [option.id for option in strict_frontier],
+            "world_count": int(world_manifest_payload.get("world_count", current_world_count)),
+            "active_families": list(active_families),
+            "selector_config": certificate_result.selector_config,
+            "forced_refreshed_families": sorted(forced_refreshed_families),
+        }
+        route_fragility_map = fragility_result.route_fragility_map
+        competitor_fragility_breakdown = fragility_result.competitor_fragility_breakdown
+        value_of_refresh = fragility_result.value_of_refresh
+        sampled_world_manifest = world_manifest_payload
+    else:
+        certificate_summary = {
+            "pipeline_mode": pipeline_mode,
+            "status": "not_requested",
+            "selected_route_id": selected.id,
+        }
+        route_fragility_map = {}
+        competitor_fragility_breakdown = {}
+        value_of_refresh = {"ranking": [], "top_refresh_family": None}
+        sampled_world_manifest = {
+            "status": "not_requested",
+            "world_count": 0,
+            "active_families": [],
+            "worlds": [],
+        }
+
+    voi_stop_certificate_payload = (
+        {
+            "final_winner_route_id": selected.id,
+            "final_winner_objective_vector": {
+                "time": float(selected.metrics.duration_s),
+                "money": float(selected.metrics.monetary_cost),
+                "co2": float(selected.metrics.emissions_kg),
+            },
+            "final_strict_frontier_size": len(strict_frontier),
+            "certificate_value": float(final_selected_certificate or 0.0),
+            "certified": bool(
+                final_selected_certificate is not None
+                and final_selected_certificate >= certificate_threshold
+            ),
+            "search_budget_used": int(search_used),
+            "search_budget_remaining": int(max(0, total_search_budget - search_used)),
+            "evidence_budget_used": int(evidence_used),
+            "evidence_budget_remaining": int(max(0, total_evidence_budget - evidence_used)),
+            "stop_reason": stop_reason,
+            "action_trace": action_trace,
+            "best_rejected_action": best_rejected_action_payload,
+            "ambiguity_summary": {
+                "top_fragility_families": (
+                    selected_certificate.top_fragility_families if selected_certificate is not None else []
+                ),
+                "top_refresh_family": (
+                    selected_certificate.top_value_of_refresh_family if selected_certificate is not None else None
+                ),
+                "top_competitor_route_id": (
+                    selected_certificate.top_competitor_route_id if selected_certificate is not None else None
+                ),
+            },
+        }
+        if pipeline_mode == "voi"
+        else {
+            "pipeline_mode": pipeline_mode,
+            "status": "not_requested",
+            "selected_route_id": selected.id,
+        }
+    )
+    final_route_trace = {
+        "pipeline_mode": pipeline_mode,
+        "run_seed": int(run_seed),
+        "stage_timings_ms": {key: round(float(value), 2) for key, value in stage_timings.items()},
+        "counts": {
+            "k_raw": len(raw_candidate_payloads),
+            "refined": len(refined_routes),
+            "strict_frontier": len(strict_frontier),
+        },
+        "budgets": {
+            "search_total": int(total_search_budget),
+            "search_used": int(search_used),
+            "evidence_total": int(total_evidence_budget),
+            "evidence_used": int(evidence_used),
+            "world_count": int(current_world_count),
+        },
+        "dccs_batches": dccs_batches,
+        "selected_route_id": selected.id,
+        "selected_route_signature": route_signature_map.get(selected.id, ""),
+        "selected_candidate_ids": option_candidate_ids.get(selected.id, []),
+        "selected_certificate": (
+            selected_certificate.model_dump(mode="json") if selected_certificate is not None else None
+        ),
+        "voi": {
+            "stop_reason": stop_reason,
+            "action_trace": action_trace,
+            "best_rejected_action": best_rejected_action_payload,
+        },
+        "artifact_pointers": {
+            "dccs_candidates": "dccs_candidates.jsonl",
+            "dccs_summary": "dccs_summary.json",
+            "refined_routes": "refined_routes.jsonl",
+            "strict_frontier": "strict_frontier.jsonl",
+            "winner_summary": "winner_summary.json",
+            "certificate_summary": "certificate_summary.json",
+            "route_fragility_map": "route_fragility_map.json",
+            "competitor_fragility_breakdown": "competitor_fragility_breakdown.json",
+            "value_of_refresh": "value_of_refresh.json",
+            "sampled_world_manifest": "sampled_world_manifest.json",
+            "voi_action_trace": "voi_action_trace.json",
+            "voi_stop_certificate": "voi_stop_certificate.json",
+        },
+    }
+
+    return {
+        "selected": selected,
+        "candidates": display_candidates,
+        "warnings": warnings,
+        "candidate_fetches": int(candidate_fetches),
+        "terrain_diag": terrain_diag,
+        "candidate_diag": candidate_diag,
+        "selected_certificate": selected_certificate,
+        "voi_stop_summary": voi_stop_summary,
+        "extra_json_artifacts": {
+            "dccs_summary.json": dccs_summary,
+            "winner_summary.json": winner_summary,
+            "certificate_summary.json": certificate_summary,
+            "route_fragility_map.json": route_fragility_map,
+            "competitor_fragility_breakdown.json": competitor_fragility_breakdown,
+            "value_of_refresh.json": value_of_refresh,
+            "sampled_world_manifest.json": sampled_world_manifest,
+            "voi_action_trace.json": {
+                "pipeline_mode": pipeline_mode,
+                "selected_route_id": selected.id,
+                "actions": action_trace,
+            },
+            "voi_stop_certificate.json": voi_stop_certificate_payload,
+            "final_route_trace.json": final_route_trace,
+        },
+        "extra_jsonl_artifacts": {
+            "dccs_candidates.jsonl": dccs_rows,
+            "refined_routes.jsonl": refined_route_rows,
+            "strict_frontier.jsonl": strict_frontier_rows,
+        },
+        "extra_csv_artifacts": {
+            "voi_action_scores.csv": (
+                [
+                    "iteration",
+                    "action_id",
+                    "kind",
+                    "target",
+                    "cost_search",
+                    "cost_evidence",
+                    "predicted_delta_certificate",
+                    "predicted_delta_margin",
+                    "predicted_delta_frontier",
+                    "q_score",
+                    "selected_route_id",
+                    "selected_certificate",
+                ],
+                action_score_rows,
+            )
+        },
+    }
+
+
 @app.post("/route", response_model=RouteResponse)
 async def compute_route(
     req: RouteRequest,
@@ -7034,12 +10268,23 @@ async def compute_route(
         1,
         min(requested_alternatives, int(settings.route_candidate_alternatives_max)),
     )
+    effective_pipeline_mode = _resolve_pipeline_mode(req.pipeline_mode)
+    actual_pipeline_mode = effective_pipeline_mode
+    legacy_mode_warning: str | None = None
+    if req.waypoints and effective_pipeline_mode != "legacy":
+        actual_pipeline_mode = "legacy"
+        legacy_mode_warning = (
+            "VOI pipeline currently supports single-leg OD requests only; using legacy routing for waypoint requests."
+        )
+    run_seed = _resolve_pipeline_seed(req)
     log_event(
         "route_request_started",
         request_id=request_id,
         requested_max_alternatives=requested_alternatives,
         effective_max_alternatives=route_alternatives,
         waypoint_count=len(req.waypoints or []),
+        pipeline_mode=actual_pipeline_mode,
+        run_seed=int(run_seed),
     )
     try:
         warmup_detail = _routing_graph_warmup_failfast_detail()
@@ -7050,33 +10295,64 @@ async def compute_route(
                 detail=str(warmup_detail.get("stage_detail", "routing_graph_warming_up")),
             )
             raise HTTPException(status_code=503, detail=warmup_detail)
-        timeout_s = max(1.0, float(settings.route_compute_attempt_timeout_s))
+        timeout_s = max(1.0, float(settings.route_compute_single_attempt_timeout_s))
+        extra_json_artifacts: dict[str, dict[str, Any] | list[Any]] | None = None
+        extra_jsonl_artifacts: dict[str, list[dict[str, Any]]] | None = None
+        extra_csv_artifacts: dict[str, tuple[list[str], list[dict[str, Any]]]] | None = None
+        extra_text_artifacts: dict[str, str] | None = None
+        selected_certificate: RouteCertificationSummary | None = None
+        voi_stop_summary: VoiStopSummary | None = None
         try:
-            options, warnings, candidate_fetches, terrain_diag, candidate_diag = await asyncio.wait_for(
-                _collect_route_options_with_diagnostics(
-                    osrm=osrm,
-                    origin=req.origin,
-                    destination=req.destination,
-                    waypoints=req.waypoints,
-                    max_alternatives=route_alternatives,
-                    vehicle_type=req.vehicle_type,
-                    scenario_mode=req.scenario_mode,
-                    cost_toggles=req.cost_toggles,
-                    terrain_profile=req.terrain_profile,
-                    stochastic=req.stochastic,
-                    emissions_context=req.emissions_context,
-                    weather=req.weather,
-                    incident_simulation=req.incident_simulation,
-                    departure_time_utc=req.departure_time_utc,
-                    pareto_method=req.pareto_method,
-                    epsilon=req.epsilon,
-                    optimization_mode=req.optimization_mode,
-                    risk_aversion=req.risk_aversion,
-                    utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
-                    option_prefix="route",
-                ),
-                timeout=timeout_s,
-            )
+            if actual_pipeline_mode == "legacy":
+                options, warnings, candidate_fetches, terrain_diag, candidate_diag = await asyncio.wait_for(
+                    _collect_route_options_with_diagnostics(
+                        osrm=osrm,
+                        origin=req.origin,
+                        destination=req.destination,
+                        waypoints=req.waypoints,
+                        max_alternatives=route_alternatives,
+                        vehicle_type=req.vehicle_type,
+                        scenario_mode=req.scenario_mode,
+                        cost_toggles=req.cost_toggles,
+                        terrain_profile=req.terrain_profile,
+                        stochastic=req.stochastic,
+                        emissions_context=req.emissions_context,
+                        weather=req.weather,
+                        incident_simulation=req.incident_simulation,
+                        departure_time_utc=req.departure_time_utc,
+                        pareto_method=req.pareto_method,
+                        epsilon=req.epsilon,
+                        optimization_mode=req.optimization_mode,
+                        risk_aversion=req.risk_aversion,
+                        utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
+                        option_prefix="route",
+                    ),
+                    timeout=timeout_s,
+                )
+            else:
+                direct_result = await asyncio.wait_for(
+                    _compute_direct_route_pipeline(
+                        req=req,
+                        osrm=osrm,
+                        max_alternatives=route_alternatives,
+                        pipeline_mode=actual_pipeline_mode,
+                        run_seed=run_seed,
+                    ),
+                    timeout=timeout_s,
+                )
+                options = list(direct_result["candidates"])
+                warnings = list(direct_result["warnings"])
+                candidate_fetches = int(direct_result["candidate_fetches"])
+                terrain_diag = direct_result["terrain_diag"]
+                candidate_diag = direct_result["candidate_diag"]
+                selected = direct_result["selected"]
+                pareto_options = list(direct_result["candidates"])
+                selected_certificate = direct_result.get("selected_certificate")
+                voi_stop_summary = direct_result.get("voi_stop_summary")
+                extra_json_artifacts = direct_result.get("extra_json_artifacts")
+                extra_jsonl_artifacts = direct_result.get("extra_jsonl_artifacts")
+                extra_csv_artifacts = direct_result.get("extra_csv_artifacts")
+                extra_text_artifacts = direct_result.get("extra_text_artifacts")
         except asyncio.TimeoutError:
             _record_expected_calls_blocked(
                 reason_code="route_compute_timeout",
@@ -7096,6 +10372,9 @@ async def compute_route(
                     },
                 ),
             ) from None
+
+        if legacy_mode_warning is not None and legacy_mode_warning not in warnings:
+            warnings.append(legacy_mode_warning)
 
         if not options:
             strict_detail = _strict_failure_detail_from_outcome(
@@ -7123,36 +10402,40 @@ async def compute_route(
                 ),
             )
 
-        pareto_options = _finalize_pareto_options(
-            options,
-            max_alternatives=route_alternatives,
-            pareto_method=req.pareto_method,
-            epsilon=req.epsilon,
-            optimization_mode=req.optimization_mode,
-            risk_aversion=req.risk_aversion,
-        )
-        if not pareto_options:
-            raise HTTPException(
-                status_code=422,
-                detail=_strict_error_detail(
-                    reason_code="epsilon_infeasible",
-                    message="No routes satisfy epsilon constraints for this request.",
-                    warnings=warnings,
-                ),
+        if actual_pipeline_mode == "legacy":
+            pareto_options = _finalize_pareto_options(
+                options,
+                max_alternatives=route_alternatives,
+                pareto_method=req.pareto_method,
+                epsilon=req.epsilon,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
             )
+            if not pareto_options:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_strict_error_detail(
+                        reason_code="epsilon_infeasible",
+                        message="No routes satisfy epsilon constraints for this request.",
+                        warnings=warnings,
+                    ),
+                )
 
-        selected = _pick_best_option(
-            pareto_options,
-            w_time=req.weights.time,
-            w_money=req.weights.money,
-            w_co2=req.weights.co2,
-            optimization_mode=req.optimization_mode,
-            risk_aversion=req.risk_aversion,
-        )
+            selected = _pick_best_option(
+                pareto_options,
+                w_time=req.weights.time,
+                w_money=req.weights.money,
+                w_co2=req.weights.co2,
+                optimization_mode=req.optimization_mode,
+                risk_aversion=req.risk_aversion,
+            )
+            selected_certificate = selected.certification
 
         log_event(
             "route_request",
             request_id=request_id,
+            pipeline_mode=actual_pipeline_mode,
+            run_seed=int(run_seed),
             vehicle_type=req.vehicle_type,
             scenario_mode=req.scenario_mode.value,
             weights=req.weights.model_dump(),
@@ -7225,8 +10508,35 @@ async def compute_route(
             selected_metrics=selected.metrics.model_dump(),
             duration_ms=round((time.perf_counter() - t0) * 1000, 2),
         )
+        route_run = _write_route_run_bundle(
+            req=req,
+            selected=selected,
+            candidates=pareto_options,
+            warnings=warnings,
+            candidate_diag=candidate_diag,
+            request_id=request_id,
+            pipeline_mode=actual_pipeline_mode,
+            run_seed=int(run_seed),
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+            selected_certificate=selected_certificate,
+            voi_stop_summary=voi_stop_summary,
+            extra_json_artifacts=extra_json_artifacts,
+            extra_jsonl_artifacts=extra_jsonl_artifacts,
+            extra_csv_artifacts=extra_csv_artifacts,
+            extra_text_artifacts=extra_text_artifacts,
+        )
 
-        return RouteResponse(selected=selected, candidates=pareto_options)
+        return RouteResponse(
+            selected=selected,
+            candidates=pareto_options,
+            run_id=str(route_run["run_id"]),
+            pipeline_mode=actual_pipeline_mode,  # type: ignore[arg-type]
+            manifest_endpoint=str(route_run["manifest_endpoint"]),
+            artifacts_endpoint=str(route_run["artifacts_endpoint"]),
+            provenance_endpoint=str(route_run["provenance_endpoint"]),
+            selected_certificate=selected_certificate,
+            voi_stop_summary=voi_stop_summary,
+        )
     except HTTPException as e:
         has_error = True
         detail_obj = e.detail if isinstance(e.detail, dict) else None
@@ -7274,6 +10584,280 @@ async def compute_route(
         )
         reset_live_call_trace(trace_token)
         _record_endpoint_metric("route", t0, error=has_error)
+
+
+@app.post("/route/baseline", response_model=RouteBaselineResponse)
+async def compute_route_baseline(
+    req: RouteRequest,
+    response: Response,
+    osrm: OSRMDep,
+    _: UserAccessDep,
+) -> RouteBaselineResponse:
+    request_id = str(uuid.uuid4())
+    t0 = time.perf_counter()
+    response.headers["x-route-request-id"] = request_id
+    try:
+        via = [(float(waypoint.lat), float(waypoint.lon)) for waypoint in (req.waypoints or [])]
+        routes = await osrm.fetch_routes(
+            origin_lat=req.origin.lat,
+            origin_lon=req.origin.lon,
+            dest_lat=req.destination.lat,
+            dest_lon=req.destination.lon,
+            alternatives=False,
+            via=via or None,
+        )
+        if not routes:
+            raise OSRMError("OSRM returned no routes for baseline request.")
+        vehicle = resolve_vehicle_profile(req.vehicle_type)
+        baseline = _build_osrm_baseline_option(
+            routes[0],
+            option_id="baseline_osrm",
+            vehicle=vehicle,
+            scenario_mode=req.scenario_mode,
+            cost_toggles=req.cost_toggles,
+            emissions_context=req.emissions_context,
+            weather=req.weather,
+            departure_time_utc=req.departure_time_utc,
+        )
+        compute_ms = round((time.perf_counter() - t0) * 1000, 2)
+        notes = [
+            "OSRM quick baseline route; strict live-source enrichments are intentionally bypassed.",
+            "Use this as a fast comparator against strict smart-route output.",
+            (
+                "Configured baseline realism multipliers applied: "
+                f"duration x{float(settings.route_baseline_duration_multiplier):.2f}, "
+                f"distance x{float(settings.route_baseline_distance_multiplier):.2f}."
+            ),
+        ]
+        log_event(
+            "route_baseline_request",
+            request_id=request_id,
+            vehicle_type=req.vehicle_type,
+            waypoint_count=len(req.waypoints),
+            distance_km=baseline.metrics.distance_km,
+            duration_s=baseline.metrics.duration_s,
+            monetary_cost=baseline.metrics.monetary_cost,
+            emissions_kg=baseline.metrics.emissions_kg,
+            compute_ms=compute_ms,
+        )
+        return RouteBaselineResponse(
+            baseline=baseline,
+            method="osrm_quick_baseline",
+            compute_ms=compute_ms,
+            notes=notes,
+        )
+    except OSRMError as exc:
+        message = str(exc).strip() or "OSRM baseline route is unavailable."
+        log_event(
+            "route_baseline_request_failed",
+            request_id=request_id,
+            reason_code="baseline_route_unavailable",
+            detail_message=message,
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_strict_error_detail(
+                reason_code="baseline_route_unavailable",
+                message=f"OSRM baseline route is unavailable. (baseline_route_unavailable) cause={message}",
+                warnings=[],
+            ),
+            headers={"x-route-request-id": request_id},
+        ) from exc
+    except HTTPException as e:
+        headers = dict(getattr(e, "headers", {}) or {})
+        headers["x-route-request-id"] = request_id
+        e.headers = headers
+        raise
+    except Exception as exc:
+        message = str(exc).strip() or "Unknown baseline route failure."
+        log_event(
+            "route_baseline_request_failed",
+            request_id=request_id,
+            reason_code="baseline_route_unavailable",
+            detail_message=message,
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=_strict_error_detail(
+                reason_code="baseline_route_unavailable",
+                message=f"Baseline route compute failed unexpectedly: {message}",
+                warnings=[],
+            ),
+            headers={"x-route-request-id": request_id},
+        ) from exc
+
+
+@app.post("/route/baseline/ors", response_model=RouteBaselineResponse)
+async def compute_route_ors_baseline(
+    req: RouteRequest,
+    response: Response,
+    osrm: OSRMDep,
+    _: UserAccessDep,
+) -> RouteBaselineResponse:
+    request_id = str(uuid.uuid4())
+    t0 = time.perf_counter()
+    response.headers["x-route-request-id"] = request_id
+    try:
+        ors_duration_multiplier = max(1.0, float(settings.route_ors_baseline_duration_multiplier))
+        ors_distance_multiplier = max(1.0, float(settings.route_ors_baseline_distance_multiplier))
+        seed_route = await _fetch_ors_reference_route_seed(req=req)
+        vehicle = resolve_vehicle_profile(req.vehicle_type)
+        baseline = _build_osrm_baseline_option(
+            seed_route,
+            option_id="baseline_ors",
+            vehicle=vehicle,
+            scenario_mode=req.scenario_mode,
+            cost_toggles=req.cost_toggles,
+            emissions_context=req.emissions_context,
+            weather=req.weather,
+            departure_time_utc=req.departure_time_utc,
+            baseline_duration_multiplier_override=ors_duration_multiplier,
+            baseline_distance_multiplier_override=ors_distance_multiplier,
+        )
+        compute_ms = round((time.perf_counter() - t0) * 1000, 2)
+        notes = [
+            "OpenRouteService reference route via Directions API.",
+            "This comparator bypasses strict live-source graph search and uses provider baseline geometry.",
+            (
+                "Configured baseline realism multipliers applied: "
+                f"duration x{ors_duration_multiplier:.2f}, "
+                f"distance x{ors_distance_multiplier:.2f}."
+            ),
+        ]
+        log_event(
+            "route_ors_baseline_request",
+            request_id=request_id,
+            vehicle_type=req.vehicle_type,
+            waypoint_count=len(req.waypoints),
+            distance_km=baseline.metrics.distance_km,
+            duration_s=baseline.metrics.duration_s,
+            monetary_cost=baseline.metrics.monetary_cost,
+            emissions_kg=baseline.metrics.emissions_kg,
+            compute_ms=compute_ms,
+        )
+        return RouteBaselineResponse(
+            baseline=baseline,
+            method="ors_reference",
+            compute_ms=compute_ms,
+            notes=notes,
+        )
+    except RuntimeError as exc:
+        message = str(exc).strip() or "OpenRouteService baseline route is unavailable."
+        reason_code = (
+            "baseline_provider_unconfigured"
+            if "ORS_DIRECTIONS_API_KEY" in message or "ORS_DIRECTIONS_URL_TEMPLATE" in message
+            else "baseline_route_unavailable"
+        )
+        if (
+            reason_code == "baseline_provider_unconfigured"
+            and bool(settings.route_ors_baseline_allow_proxy_fallback)
+        ):
+            via = [(float(waypoint.lat), float(waypoint.lon)) for waypoint in (req.waypoints or [])]
+            routes = await osrm.fetch_routes(
+                origin_lat=req.origin.lat,
+                origin_lon=req.origin.lon,
+                dest_lat=req.destination.lat,
+                dest_lon=req.destination.lon,
+                alternatives=False,
+                via=via or None,
+            )
+            if not routes:
+                raise HTTPException(
+                    status_code=502,
+                        detail=_strict_error_detail(
+                            reason_code="baseline_route_unavailable",
+                            message=(
+                                "OpenRouteService baseline provider is not configured and OSRM proxy fallback returned no route. "
+                                "(baseline_route_unavailable)"
+                            ),
+                            warnings=[],
+                    ),
+                    headers={"x-route-request-id": request_id},
+                )
+            ors_duration_multiplier = max(1.0, float(settings.route_ors_baseline_duration_multiplier))
+            ors_distance_multiplier = max(1.0, float(settings.route_ors_baseline_distance_multiplier))
+            vehicle = resolve_vehicle_profile(req.vehicle_type)
+            baseline = _build_osrm_baseline_option(
+                routes[0],
+                option_id="baseline_ors_proxy",
+                vehicle=vehicle,
+                scenario_mode=req.scenario_mode,
+                cost_toggles=req.cost_toggles,
+                emissions_context=req.emissions_context,
+                weather=req.weather,
+                departure_time_utc=req.departure_time_utc,
+                baseline_duration_multiplier_override=ors_duration_multiplier,
+                baseline_distance_multiplier_override=ors_distance_multiplier,
+            )
+            compute_ms = round((time.perf_counter() - t0) * 1000, 2)
+            notes = [
+                "OpenRouteService API key is not configured; using an OSRM proxy baseline.",
+                "Proxy applies configured OpenRouteService realism multipliers for duration and distance.",
+                (
+                    "Proxy multipliers applied: "
+                    f"duration x{ors_duration_multiplier:.2f}, distance x{ors_distance_multiplier:.2f}."
+                ),
+            ]
+            log_event(
+                "route_ors_baseline_request",
+                request_id=request_id,
+                vehicle_type=req.vehicle_type,
+                waypoint_count=len(req.waypoints),
+                distance_km=baseline.metrics.distance_km,
+                duration_s=baseline.metrics.duration_s,
+                monetary_cost=baseline.metrics.monetary_cost,
+                emissions_kg=baseline.metrics.emissions_kg,
+                compute_ms=compute_ms,
+                provider_mode="osrm_proxy",
+            )
+            return RouteBaselineResponse(
+                baseline=baseline,
+                method="ors_proxy_baseline",
+                compute_ms=compute_ms,
+                notes=notes,
+            )
+        status_code = 503 if reason_code == "baseline_provider_unconfigured" else 502
+        log_event(
+            "route_ors_baseline_request_failed",
+            request_id=request_id,
+            reason_code=reason_code,
+            detail_message=message,
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=_strict_error_detail(
+                reason_code=reason_code,
+                message=f"OpenRouteService baseline route is unavailable. ({reason_code}) cause={message}",
+                warnings=[],
+            ),
+            headers={"x-route-request-id": request_id},
+        ) from exc
+    except HTTPException as e:
+        headers = dict(getattr(e, "headers", {}) or {})
+        headers["x-route-request-id"] = request_id
+        e.headers = headers
+        raise
+    except Exception as exc:
+        message = str(exc).strip() or "Unknown OpenRouteService baseline route failure."
+        log_event(
+            "route_ors_baseline_request_failed",
+            request_id=request_id,
+            reason_code="baseline_route_unavailable",
+            detail_message=message,
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=_strict_error_detail(
+                reason_code="baseline_route_unavailable",
+                message=f"OpenRouteService baseline route compute failed unexpectedly: {message}",
+                warnings=[],
+            ),
+            headers={"x-route-request-id": request_id},
+        ) from exc
 
 
 @app.post("/departure/optimize", response_model=DepartureOptimizeResponse)
@@ -8301,6 +11885,239 @@ async def replay_experiment_compare(
         _record_endpoint_metric("experiments_compare_post", t0, error=has_error)
 
 
+def _route_results_csv_rows(
+    req: RouteRequest,
+    candidates: list[RouteOption],
+    *,
+    selected_id: str,
+    error: str = "",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for route in candidates:
+        rows.append(
+            {
+                "pair_index": 0,
+                "origin_lat": req.origin.lat,
+                "origin_lon": req.origin.lon,
+                "destination_lat": req.destination.lat,
+                "destination_lon": req.destination.lon,
+                "error": error,
+                "route_id": route.id,
+                "distance_km": route.metrics.distance_km,
+                "duration_s": route.metrics.duration_s,
+                "monetary_cost": route.metrics.monetary_cost,
+                "emissions_kg": route.metrics.emissions_kg,
+                "avg_speed_kmh": route.metrics.avg_speed_kmh,
+                "selected": route.id == selected_id,
+            }
+        )
+    if rows:
+        return rows
+    return [
+        {
+            "pair_index": 0,
+            "origin_lat": req.origin.lat,
+            "origin_lon": req.origin.lon,
+            "destination_lat": req.destination.lat,
+            "destination_lon": req.destination.lon,
+            "error": error,
+            "route_id": "",
+            "distance_km": "",
+            "duration_s": "",
+            "monetary_cost": "",
+            "emissions_kg": "",
+            "avg_speed_kmh": "",
+            "selected": False,
+        }
+    ]
+
+
+def _route_routes_geojson(
+    req: RouteRequest,
+    candidates: list[RouteOption],
+    *,
+    selected_id: str,
+) -> dict[str, Any]:
+    features: list[dict[str, Any]] = []
+    for route in candidates:
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": route.geometry.model_dump(mode="json"),
+                "properties": {
+                    "route_id": route.id,
+                    "selected": route.id == selected_id,
+                    "distance_km": route.metrics.distance_km,
+                    "duration_s": route.metrics.duration_s,
+                    "monetary_cost": route.metrics.monetary_cost,
+                    "emissions_kg": route.metrics.emissions_kg,
+                    "origin": req.origin.model_dump(),
+                    "destination": req.destination.model_dump(),
+                },
+            }
+        )
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _write_route_run_bundle(
+    *,
+    req: RouteRequest,
+    selected: RouteOption,
+    candidates: list[RouteOption],
+    warnings: list[str],
+    candidate_diag: CandidateDiagnostics,
+    request_id: str,
+    pipeline_mode: str,
+    run_seed: int,
+    duration_ms: float,
+    selected_certificate: RouteCertificationSummary | None = None,
+    voi_stop_summary: VoiStopSummary | None = None,
+    extra_json_artifacts: dict[str, dict[str, Any] | list[Any]] | None = None,
+    extra_jsonl_artifacts: dict[str, list[dict[str, Any]]] | None = None,
+    extra_csv_artifacts: dict[str, tuple[list[str], list[dict[str, Any]]]] | None = None,
+    extra_text_artifacts: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    run_id = str(uuid.uuid4())
+    manifest_payload = {
+        "schema_version": "1.0.0",
+        "type": "route_compute",
+        "request": req.model_dump(mode="json"),
+        "pipeline": {
+            "mode": pipeline_mode,
+            "run_seed": int(run_seed),
+        },
+        "selected_route_id": selected.id,
+        "selected_certificate": (
+            selected_certificate.model_dump(mode="json") if selected_certificate is not None else None
+        ),
+        "voi_stop_summary": (
+            voi_stop_summary.model_dump(mode="json") if voi_stop_summary is not None else None
+        ),
+        "warnings": list(warnings),
+        "candidate_diagnostics": candidate_diag.__dict__,
+        "execution": {
+            "duration_ms": round(float(duration_ms), 3),
+            "request_id": request_id,
+            "candidate_count": len(candidates),
+        },
+    }
+    manifest_path = write_manifest(run_id, manifest_payload)
+
+    results_payload = {
+        "run_id": run_id,
+        "selected": selected.model_dump(mode="json"),
+        "candidates": [route.model_dump(mode="json") for route in candidates],
+        "warnings": list(warnings),
+        "candidate_diagnostics": candidate_diag.__dict__,
+    }
+    write_json_artifact(run_id, "results.json", results_payload)
+    results_rows = _route_results_csv_rows(req, candidates, selected_id=selected.id)
+    write_csv_artifact(
+        run_id,
+        "results.csv",
+        fieldnames=[
+            "pair_index",
+            "origin_lat",
+            "origin_lon",
+            "destination_lat",
+            "destination_lon",
+            "error",
+            "route_id",
+            "distance_km",
+            "duration_s",
+            "monetary_cost",
+            "emissions_kg",
+            "avg_speed_kmh",
+            "selected",
+        ],
+        rows=results_rows,
+    )
+    write_json_artifact(
+        run_id,
+        "routes.geojson",
+        _route_routes_geojson(req, candidates, selected_id=selected.id),
+    )
+    write_csv_artifact(
+        run_id,
+        "results_summary.csv",
+        fieldnames=["route_id", "selected", "distance_km", "duration_s", "monetary_cost", "emissions_kg"],
+        rows=[
+            {
+                "route_id": route.id,
+                "selected": route.id == selected.id,
+                "distance_km": route.metrics.distance_km,
+                "duration_s": route.metrics.duration_s,
+                "monetary_cost": route.metrics.monetary_cost,
+                "emissions_kg": route.metrics.emissions_kg,
+            }
+            for route in candidates
+        ],
+    )
+
+    for artifact_name, payload in (extra_json_artifacts or {}).items():
+        write_json_artifact(run_id, artifact_name, payload)
+    for artifact_name, rows in (extra_jsonl_artifacts or {}).items():
+        write_jsonl_artifact(run_id, artifact_name, rows)
+    for artifact_name, payload in (extra_csv_artifacts or {}).items():
+        fieldnames, rows = payload
+        write_csv_artifact(run_id, artifact_name, fieldnames=fieldnames, rows=rows)
+    for artifact_name, text in (extra_text_artifacts or {}).items():
+        write_text_artifact(run_id, artifact_name, text)
+
+    artifact_names = sorted(list_artifact_paths_for_run(run_id))
+    metadata_payload = {
+        "run_id": run_id,
+        "schema_version": "1.0.0",
+        "type": "route_compute",
+        "request_id": request_id,
+        "pipeline_mode": pipeline_mode,
+        "run_seed": int(run_seed),
+        "manifest_endpoint": f"/runs/{run_id}/manifest",
+        "artifacts_endpoint": f"/runs/{run_id}/artifacts",
+        "provenance_endpoint": f"/runs/{run_id}/provenance",
+        "provenance_file": str(provenance_path_for_run(run_id)),
+        "artifact_names": artifact_names,
+        "selected_route_id": selected.id,
+        "candidate_count": len(candidates),
+        "warning_count": len(warnings),
+        "duration_ms": round(float(duration_ms), 3),
+    }
+    write_json_artifact(run_id, "metadata.json", metadata_payload)
+
+    provenance_events = [
+        provenance_event(
+            run_id,
+            "route_input_received",
+            pipeline_mode=pipeline_mode,
+            request=req.model_dump(mode="json"),
+            request_id=request_id,
+            run_seed=int(run_seed),
+        ),
+        provenance_event(
+            run_id,
+            "route_selected",
+            selected_id=selected.id,
+            candidate_count=len(candidates),
+            warning_count=len(warnings),
+            candidate_diagnostics=candidate_diag.__dict__,
+        ),
+        provenance_event(
+            run_id,
+            "artifacts_written",
+            manifest=str(manifest_path),
+            artifact_names=artifact_names,
+        ),
+    ]
+    write_provenance(run_id, provenance_events)
+
+    return {
+        "run_id": run_id,
+        "manifest_endpoint": f"/runs/{run_id}/manifest",
+        "artifacts_endpoint": f"/runs/{run_id}/artifacts",
+        "provenance_endpoint": f"/runs/{run_id}/provenance",
+    }
+
+
 def _batch_results_csv_rows(
     req: BatchParetoRequest,
     results: list[BatchParetoResult],
@@ -9026,11 +12843,11 @@ async def verify_signature(req: SignatureVerificationRequest) -> SignatureVerifi
 
 def _artifact_path_for_id(run_id: str, artifact_name: str) -> Path:
     valid_run_id = _validated_run_id(run_id)
-    if artifact_name not in ARTIFACT_FILES:
-        raise HTTPException(status_code=404, detail="artifact not found")
-
-    base = (Path(settings.out_dir) / "artifacts" / valid_run_id).resolve()
-    path = (base / artifact_name).resolve()
+    try:
+        base = artifact_dir_for_run(valid_run_id).resolve()
+        path = artifact_path_for_name(valid_run_id, artifact_name).resolve()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="invalid artifact path") from e
 
     if not str(path).startswith(str(base)):
         raise HTTPException(status_code=400, detail="invalid artifact path")
@@ -9044,7 +12861,7 @@ async def list_artifacts(run_id: str) -> dict[str, object]:
     has_error = False
     try:
         valid_run_id = _validated_run_id(run_id)
-        paths = artifact_paths_for_run(valid_run_id)
+        paths = list_artifact_paths_for_run(valid_run_id)
 
         artifacts: list[dict[str, object]] = []
         for name in sorted(paths):
@@ -9093,10 +12910,14 @@ async def _get_artifact_file(run_id: str, artifact_name: str) -> FileResponse:
         media_type = "application/octet-stream"
         if artifact_name.endswith(".json"):
             media_type = "application/json"
+        elif artifact_name.endswith(".jsonl"):
+            media_type = "application/x-ndjson"
         elif artifact_name.endswith(".geojson"):
             media_type = "application/geo+json"
         elif artifact_name.endswith(".csv"):
             media_type = "text/csv"
+        elif artifact_name.endswith(".md"):
+            media_type = "text/markdown"
         elif artifact_name.endswith(".pdf"):
             media_type = "application/pdf"
 
@@ -9145,5 +12966,10 @@ async def get_artifact_results_summary_csv(run_id: str) -> FileResponse:
 @app.get("/runs/{run_id}/artifacts/report.pdf")
 async def get_artifact_report_pdf(run_id: str) -> FileResponse:
     return await _get_artifact_file(run_id, "report.pdf")
+
+
+@app.get("/runs/{run_id}/artifacts/{artifact_name}")
+async def get_artifact_generic(run_id: str, artifact_name: str) -> FileResponse:
+    return await _get_artifact_file(run_id, artifact_name)
 
 

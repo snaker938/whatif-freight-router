@@ -63,6 +63,7 @@ class CostToggles(BaseModel):
 
 
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
+PipelineMode = Literal["legacy", "dccs", "dccs_refc", "voi"]
 TerrainProfile = Literal["flat", "rolling", "hilly"]
 OptimizationMode = Literal["expected_value", "robust"]
 FuelType = Literal["diesel", "petrol", "lng", "ev"]
@@ -147,6 +148,13 @@ class RouteRequest(BaseModel):
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
+    pipeline_mode: PipelineMode | None = None
+    pipeline_seed: int | None = None
+    search_budget: int | None = Field(default=None, ge=1, le=128)
+    evidence_budget: int | None = Field(default=None, ge=0, le=64)
+    cert_world_count: int | None = Field(default=None, ge=10, le=500)
+    certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    tau_stop: float | None = Field(default=None, ge=0.0)
 
 
 class ParetoRequest(BaseModel):
@@ -169,6 +177,8 @@ class ParetoRequest(BaseModel):
     departure_time_utc: datetime | None = None
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
+    pipeline_mode: PipelineMode | None = None
+    pipeline_seed: int | None = None
 
 
 class ODPair(BaseModel):
@@ -197,6 +207,13 @@ class BatchParetoRequest(BaseModel):
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None
+    pipeline_mode: PipelineMode | None = None
+    pipeline_seed: int | None = None
+    search_budget: int | None = Field(default=None, ge=1, le=128)
+    evidence_budget: int | None = Field(default=None, ge=0, le=64)
+    cert_world_count: int | None = Field(default=None, ge=10, le=500)
+    certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    tau_stop: float | None = Field(default=None, ge=0.0)
 
 
 class BatchCSVImportRequest(BaseModel):
@@ -220,6 +237,13 @@ class BatchCSVImportRequest(BaseModel):
     seed: int | None = None
     toggles: dict[str, bool | int | float | str] = Field(default_factory=dict)
     model_version: str | None = None
+    pipeline_mode: PipelineMode | None = None
+    pipeline_seed: int | None = None
+    search_budget: int | None = Field(default=None, ge=1, le=128)
+    evidence_budget: int | None = Field(default=None, ge=0, le=64)
+    cert_world_count: int | None = Field(default=None, ge=10, le=500)
+    certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    tau_stop: float | None = Field(default=None, ge=0.0)
 
 
 class RouteMetrics(BaseModel):
@@ -269,6 +293,48 @@ class ScenarioSummary(BaseModel):
     mode_projection_ratio: float | None = None
 
 
+class EvidenceSourceRecord(BaseModel):
+    family: str
+    source: str
+    active: bool = True
+    freshness_timestamp_utc: str | None = None
+    max_age_minutes: float | None = None
+    signature: str | None = None
+    confidence: float | None = None
+    coverage_ratio: float | None = None
+    fallback_used: bool = False
+    fallback_source: str | None = None
+    details: dict[str, str | float | int | bool] = Field(default_factory=dict)
+
+
+class EvidenceProvenance(BaseModel):
+    active_families: list[str] = Field(default_factory=list)
+    families: list[EvidenceSourceRecord] = Field(default_factory=list)
+
+
+class RouteCertificationSummary(BaseModel):
+    route_id: str
+    certificate: float = Field(ge=0.0, le=1.0)
+    certified: bool = False
+    threshold: float = Field(ge=0.0, le=1.0)
+    active_families: list[str] = Field(default_factory=list)
+    top_fragility_families: list[str] = Field(default_factory=list)
+    top_competitor_route_id: str | None = None
+    top_value_of_refresh_family: str | None = None
+
+
+class VoiStopSummary(BaseModel):
+    final_route_id: str
+    certificate: float = Field(ge=0.0, le=1.0)
+    certified: bool = False
+    iteration_count: int = Field(ge=0)
+    search_budget_used: int = Field(ge=0)
+    evidence_budget_used: int = Field(ge=0)
+    stop_reason: str
+    best_rejected_action: str | None = None
+    best_rejected_q: float | None = None
+
+
 class RouteOption(BaseModel):
     id: str
     geometry: GeoJSONLineString
@@ -291,11 +357,27 @@ class RouteOption(BaseModel):
     weather_summary: dict[str, float | str | bool] | None = None
     terrain_summary: TerrainSummaryPayload | None = None
     incident_events: list[SimulatedIncidentEvent] = Field(default_factory=list)
+    evidence_provenance: EvidenceProvenance | None = None
+    certification: RouteCertificationSummary | None = None
 
 
 class RouteResponse(BaseModel):
     selected: RouteOption
     candidates: list[RouteOption]
+    run_id: str | None = None
+    pipeline_mode: PipelineMode = "legacy"
+    manifest_endpoint: str | None = None
+    artifacts_endpoint: str | None = None
+    provenance_endpoint: str | None = None
+    selected_certificate: RouteCertificationSummary | None = None
+    voi_stop_summary: VoiStopSummary | None = None
+
+
+class RouteBaselineResponse(BaseModel):
+    baseline: RouteOption
+    method: Literal["osrm_quick_baseline", "ors_reference", "ors_proxy_baseline"]
+    compute_ms: float
+    notes: list[str] = Field(default_factory=list)
 
 
 class ParetoResponse(BaseModel):

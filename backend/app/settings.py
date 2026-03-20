@@ -119,6 +119,10 @@ class Settings(BaseSettings):
         default=False,
         alias="LIVE_ROUTE_COMPUTE_FORCE_NO_CACHE_HEADERS",
     )
+    live_route_compute_force_uncached: bool = Field(
+        default=True,
+        alias="LIVE_ROUTE_COMPUTE_FORCE_UNCACHED",
+    )
     live_route_compute_prefetch_timeout_ms: int = Field(
         default=300_000,
         ge=1_000,
@@ -126,7 +130,7 @@ class Settings(BaseSettings):
         alias="LIVE_ROUTE_COMPUTE_PREFETCH_TIMEOUT_MS",
     )
     live_route_compute_prefetch_max_concurrency: int = Field(
-        default=4,
+        default=8,
         ge=1,
         le=16,
         alias="LIVE_ROUTE_COMPUTE_PREFETCH_MAX_CONCURRENCY",
@@ -207,19 +211,19 @@ class Settings(BaseSettings):
         alias="LIVE_SCENARIO_DFT_COUNTS_URL",
     )
     live_scenario_dft_max_pages: int = Field(
-        default=20,
+        default=4,
         ge=1,
         le=50,
         alias="LIVE_SCENARIO_DFT_MAX_PAGES",
     )
     live_scenario_webtris_nearest_sites: int = Field(
-        default=6,
+        default=3,
         ge=1,
         le=20,
         alias="LIVE_SCENARIO_WEBTRIS_NEAREST_SITES",
     )
     live_scenario_dft_nearest_limit: int = Field(
-        default=96,
+        default=64,
         ge=1,
         le=2000,
         alias="LIVE_SCENARIO_DFT_NEAREST_LIMIT",
@@ -231,7 +235,7 @@ class Settings(BaseSettings):
         alias="LIVE_SCENARIO_DFT_MAX_DISTANCE_KM",
     )
     live_scenario_dft_min_station_count: int = Field(
-        default=5,
+        default=3,
         ge=1,
         le=200,
         alias="LIVE_SCENARIO_DFT_MIN_STATION_COUNT",
@@ -289,17 +293,17 @@ class Settings(BaseSettings):
         alias="LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES",
     )
     live_scenario_allow_partial_sources_strict: bool = Field(
-        default=True,
+        default=False,
         alias="LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT",
     )
     live_scenario_min_source_count_strict: int = Field(
-        default=3,
+        default=4,
         ge=1,
         le=4,
         alias="LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT",
     )
     live_scenario_min_coverage_overall_strict: float = Field(
-        default=0.75,
+        default=1.0,
         ge=0.0,
         le=1.0,
         alias="LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT",
@@ -390,17 +394,286 @@ class Settings(BaseSettings):
         le=60,
         alias="ROUTE_CANDIDATE_ALTERNATIVES_MAX",
     )
+    route_candidate_prefilter_multiplier: int = Field(
+        default=3,
+        ge=1,
+        le=12,
+        alias="ROUTE_CANDIDATE_PREFILTER_MULTIPLIER",
+    )
+    route_candidate_prefilter_multiplier_long: int = Field(
+        default=2,
+        ge=1,
+        le=12,
+        alias="ROUTE_CANDIDATE_PREFILTER_MULTIPLIER_LONG",
+    )
+    route_candidate_prefilter_long_distance_threshold_km: float = Field(
+        default=180.0,
+        ge=0.0,
+        le=5000.0,
+        alias="ROUTE_CANDIDATE_PREFILTER_LONG_DISTANCE_THRESHOLD_KM",
+    )
+    route_pareto_backfill_enabled: bool = Field(
+        default=False,
+        alias="ROUTE_PARETO_BACKFILL_ENABLED",
+    )
+    route_pareto_backfill_min_alternatives: int = Field(
+        default=1,
+        ge=1,
+        le=60,
+        alias="ROUTE_PARETO_BACKFILL_MIN_ALTERNATIVES",
+    )
     route_candidate_via_budget: int = Field(
         default=48,
         ge=4,
         le=200,
         alias="ROUTE_CANDIDATE_VIA_BUDGET",
     )
+    route_option_segment_cap: int = Field(
+        default=160,
+        ge=32,
+        le=5000,
+        alias="ROUTE_OPTION_SEGMENT_CAP",
+    )
+    route_option_segment_cap_long: int = Field(
+        default=40,
+        ge=32,
+        le=5000,
+        alias="ROUTE_OPTION_SEGMENT_CAP_LONG",
+    )
+    route_option_long_distance_threshold_km: float = Field(
+        default=160.0,
+        ge=20.0,
+        le=5000.0,
+        alias="ROUTE_OPTION_LONG_DISTANCE_THRESHOLD_KM",
+    )
+    route_option_reuse_scenario_policy: bool = Field(
+        default=True,
+        alias="ROUTE_OPTION_REUSE_SCENARIO_POLICY",
+    )
+    route_option_tod_bucket_s: int = Field(
+        default=900,
+        ge=0,
+        le=3600,
+        alias="ROUTE_OPTION_TOD_BUCKET_S",
+    )
+    route_option_energy_speed_bin_kph: float = Field(
+        default=3.0,
+        ge=0.0,
+        le=80.0,
+        alias="ROUTE_OPTION_ENERGY_SPEED_BIN_KPH",
+    )
+    route_option_energy_grade_bin_pct: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=20.0,
+        alias="ROUTE_OPTION_ENERGY_GRADE_BIN_PCT",
+    )
+    route_baseline_duration_multiplier: float = Field(
+        default=1.16,
+        ge=1.0,
+        le=2.0,
+        alias="ROUTE_BASELINE_DURATION_MULTIPLIER",
+    )
+    route_baseline_distance_multiplier: float = Field(
+        default=1.13,
+        ge=1.0,
+        le=2.0,
+        alias="ROUTE_BASELINE_DISTANCE_MULTIPLIER",
+    )
+    route_pipeline_default_mode: str = Field(
+        default="legacy",
+        alias="ROUTE_PIPELINE_DEFAULT_MODE",
+    )
+    route_pipeline_request_override_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_PIPELINE_REQUEST_OVERRIDE_ENABLED",
+    )
+    route_pipeline_default_seed: int = Field(
+        default=20260320,
+        ge=0,
+        alias="ROUTE_PIPELINE_DEFAULT_SEED",
+    )
+    route_pipeline_search_budget: int = Field(
+        default=6,
+        ge=1,
+        le=128,
+        alias="ROUTE_PIPELINE_SEARCH_BUDGET",
+    )
+    route_pipeline_evidence_budget: int = Field(
+        default=3,
+        ge=0,
+        le=64,
+        alias="ROUTE_PIPELINE_EVIDENCE_BUDGET",
+    )
+    route_pipeline_cert_world_count: int = Field(
+        default=64,
+        ge=10,
+        le=500,
+        alias="ROUTE_PIPELINE_CERT_WORLD_COUNT",
+    )
+    route_pipeline_certificate_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_PIPELINE_CERTIFICATE_THRESHOLD",
+    )
+    route_pipeline_tau_stop: float = Field(
+        default=0.03,
+        ge=0.0,
+        alias="ROUTE_PIPELINE_TAU_STOP",
+    )
+    route_pipeline_world_increment: int = Field(
+        default=32,
+        ge=1,
+        le=500,
+        alias="ROUTE_PIPELINE_WORLD_INCREMENT",
+    )
+    route_dccs_overlap_threshold: float = Field(
+        default=0.82,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_DCCS_OVERLAP_THRESHOLD",
+    )
+    route_dccs_bootstrap_count: int = Field(
+        default=3,
+        ge=1,
+        le=32,
+        alias="ROUTE_DCCS_BOOTSTRAP_COUNT",
+    )
+    route_dccs_default_baseline_policy: str = Field(
+        default="first_n",
+        alias="ROUTE_DCCS_DEFAULT_BASELINE_POLICY",
+    )
+    route_dccs_pflip_bias: float = Field(
+        default=-0.15,
+        alias="ROUTE_DCCS_PFLIP_BIAS",
+    )
+    route_dccs_pflip_gap_weight: float = Field(
+        default=2.1,
+        ge=0.0,
+        alias="ROUTE_DCCS_PFLIP_GAP_WEIGHT",
+    )
+    route_dccs_pflip_mechanism_weight: float = Field(
+        default=1.2,
+        ge=0.0,
+        alias="ROUTE_DCCS_PFLIP_MECHANISM_WEIGHT",
+    )
+    route_dccs_pflip_overlap_weight: float = Field(
+        default=1.4,
+        ge=0.0,
+        alias="ROUTE_DCCS_PFLIP_OVERLAP_WEIGHT",
+    )
+    route_dccs_pflip_detour_weight: float = Field(
+        default=0.9,
+        ge=0.0,
+        alias="ROUTE_DCCS_PFLIP_DETOUR_WEIGHT",
+    )
+    route_refc_evidence_families: str = Field(
+        default="scenario,toll,terrain,fuel,carbon,weather,stochastic",
+        alias="ROUTE_REFC_EVIDENCE_FAMILIES",
+    )
+    route_refc_state_catalog: str = Field(
+        default="nominal,mildly_stale,severely_stale,low_confidence,proxy,refreshed",
+        alias="ROUTE_REFC_STATE_CATALOG",
+    )
+    route_ors_baseline_duration_multiplier: float = Field(
+        default=1.24,
+        ge=1.0,
+        le=2.0,
+        alias="ROUTE_ORS_BASELINE_DURATION_MULTIPLIER",
+    )
+    route_ors_baseline_distance_multiplier: float = Field(
+        default=1.18,
+        ge=1.0,
+        le=2.0,
+        alias="ROUTE_ORS_BASELINE_DISTANCE_MULTIPLIER",
+    )
+    route_ors_baseline_allow_proxy_fallback: bool = Field(
+        default=True,
+        alias="ROUTE_ORS_BASELINE_ALLOW_PROXY_FALLBACK",
+    )
+    ors_directions_api_key: str = Field(default="", alias="ORS_DIRECTIONS_API_KEY")
+    ors_directions_url_template: str = Field(
+        default="https://api.openrouteservice.org/v2/directions/{profile}/geojson",
+        alias="ORS_DIRECTIONS_URL_TEMPLATE",
+    )
+    ors_directions_timeout_ms: int = Field(
+        default=25_000,
+        ge=1_000,
+        le=300_000,
+        alias="ORS_DIRECTIONS_TIMEOUT_MS",
+    )
+    ors_directions_profile_default: str = Field(
+        default="driving-car",
+        alias="ORS_DIRECTIONS_PROFILE_DEFAULT",
+    )
+    ors_directions_profile_hgv: str = Field(
+        default="driving-hgv",
+        alias="ORS_DIRECTIONS_PROFILE_HGV",
+    )
+    route_selection_math_profile: str = Field(
+        default="modified_vikor_distance",
+        alias="ROUTE_SELECTION_MATH_PROFILE",
+    )
+    route_selection_modified_regret_weight: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_SELECTION_MODIFIED_REGRET_WEIGHT",
+    )
+    route_selection_modified_balance_weight: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_SELECTION_MODIFIED_BALANCE_WEIGHT",
+    )
+    route_selection_modified_distance_weight: float = Field(
+        default=0.22,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_SELECTION_MODIFIED_DISTANCE_WEIGHT",
+    )
+    route_selection_modified_eta_distance_weight: float = Field(
+        default=0.18,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_SELECTION_MODIFIED_ETA_DISTANCE_WEIGHT",
+    )
+    route_selection_modified_entropy_weight: float = Field(
+        default=0.08,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_SELECTION_MODIFIED_ENTROPY_WEIGHT",
+    )
+    route_selection_modified_knee_weight: float = Field(
+        default=0.12,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_SELECTION_MODIFIED_KNEE_WEIGHT",
+    )
+    route_selection_tchebycheff_rho: float = Field(
+        default=0.001,
+        ge=0.0,
+        le=0.1,
+        alias="ROUTE_SELECTION_TCHEBYCHEFF_RHO",
+    )
+    route_selection_vikor_v: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_SELECTION_VIKOR_V",
+    )
     route_compute_attempt_timeout_s: int = Field(
         default=1200,
         ge=30,
         le=3600,
         alias="ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S",
+    )
+    route_compute_single_attempt_timeout_s: int = Field(
+        default=900,
+        ge=30,
+        le=3600,
+        alias="ROUTE_COMPUTE_SINGLE_ATTEMPT_TIMEOUT_S",
     )
     route_context_probe_timeout_ms: int = Field(
         default=2_500,
@@ -444,6 +717,16 @@ class Settings(BaseSettings):
         le=86_400,
         alias="ROUTE_GRAPH_WARMUP_TIMEOUT_S",
     )
+    route_graph_fast_startup_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_FAST_STARTUP_ENABLED",
+    )
+    route_graph_fast_startup_long_corridor_bypass_km: float = Field(
+        default=120.0,
+        ge=0.0,
+        le=5000.0,
+        alias="ROUTE_GRAPH_FAST_STARTUP_LONG_CORRIDOR_BYPASS_KM",
+    )
     route_graph_status_check_timeout_ms: int = Field(
         default=1000,
         ge=100,
@@ -462,6 +745,14 @@ class Settings(BaseSettings):
     )
     route_graph_enabled: bool = Field(default=True, alias="ROUTE_GRAPH_ENABLED")
     route_graph_asset_path: str = Field(default="", alias="ROUTE_GRAPH_ASSET_PATH")
+    route_graph_binary_cache_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_BINARY_CACHE_ENABLED",
+    )
+    route_graph_binary_cache_path: str = Field(
+        default="",
+        alias="ROUTE_GRAPH_BINARY_CACHE_PATH",
+    )
     route_graph_k_paths: int = Field(default=24, ge=1, le=128, alias="ROUTE_GRAPH_K_PATHS")
     route_graph_max_hops: int = Field(default=220, ge=8, le=2000, alias="ROUTE_GRAPH_MAX_HOPS")
     route_graph_adaptive_hops_enabled: bool = Field(
@@ -481,7 +772,7 @@ class Settings(BaseSettings):
         alias="ROUTE_GRAPH_HOPS_DETOUR_FACTOR",
     )
     route_graph_edge_length_estimate_m: float = Field(
-        default=30.0,
+        default=75.0,
         ge=1.0,
         le=2000.0,
         alias="ROUTE_GRAPH_EDGE_LENGTH_ESTIMATE_M",
@@ -493,7 +784,7 @@ class Settings(BaseSettings):
         alias="ROUTE_GRAPH_HOPS_SAFETY_FACTOR",
     )
     route_graph_max_hops_cap: int = Field(
-        default=6000,
+        default=15_000,
         ge=8,
         le=100_000,
         alias="ROUTE_GRAPH_MAX_HOPS_CAP",
@@ -501,9 +792,9 @@ class Settings(BaseSettings):
     route_graph_min_nodes: int = Field(default=100_000, ge=1, alias="ROUTE_GRAPH_MIN_NODES")
     route_graph_min_adjacency: int = Field(default=100_000, ge=1, alias="ROUTE_GRAPH_MIN_ADJACENCY")
     route_graph_max_state_budget: int = Field(
-        default=600_000,
+        default=1_200_000,
         ge=1000,
-        le=2_000_000,
+        le=8_000_000,
         alias="ROUTE_GRAPH_MAX_STATE_BUDGET",
     )
     route_graph_state_budget_per_hop: int = Field(
@@ -513,16 +804,68 @@ class Settings(BaseSettings):
         alias="ROUTE_GRAPH_STATE_BUDGET_PER_HOP",
     )
     route_graph_state_budget_retry_multiplier: float = Field(
-        default=2.0,
+        default=2.5,
         ge=1.0,
         le=8.0,
         alias="ROUTE_GRAPH_STATE_BUDGET_RETRY_MULTIPLIER",
     )
     route_graph_state_budget_retry_cap: int = Field(
-        default=2_500_000,
+        default=8_000_000,
         ge=1_000,
-        le=5_000_000,
+        le=20_000_000,
         alias="ROUTE_GRAPH_STATE_BUDGET_RETRY_CAP",
+    )
+    route_graph_search_initial_timeout_ms: int = Field(
+        default=30_000,
+        ge=0,
+        le=900_000,
+        alias="ROUTE_GRAPH_SEARCH_INITIAL_TIMEOUT_MS",
+    )
+    route_graph_search_retry_timeout_ms: int = Field(
+        default=120_000,
+        ge=0,
+        le=900_000,
+        alias="ROUTE_GRAPH_SEARCH_RETRY_TIMEOUT_MS",
+    )
+    route_graph_search_rescue_timeout_ms: int = Field(
+        default=150_000,
+        ge=0,
+        le=900_000,
+        alias="ROUTE_GRAPH_SEARCH_RESCUE_TIMEOUT_MS",
+    )
+    route_graph_reduced_initial_for_long_corridor: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_REDUCED_INITIAL_FOR_LONG_CORRIDOR",
+    )
+    route_graph_long_corridor_threshold_km: float = Field(
+        default=150.0,
+        ge=10.0,
+        le=2_000.0,
+        alias="ROUTE_GRAPH_LONG_CORRIDOR_THRESHOLD_KM",
+    )
+    route_graph_long_corridor_max_paths: int = Field(
+        default=4,
+        ge=1,
+        le=64,
+        alias="ROUTE_GRAPH_LONG_CORRIDOR_MAX_PATHS",
+    )
+    route_graph_skip_initial_search_long_corridor: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_SKIP_INITIAL_SEARCH_LONG_CORRIDOR",
+    )
+    route_graph_a_star_heuristic_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_A_STAR_HEURISTIC_ENABLED",
+    )
+    route_graph_heuristic_max_speed_kph: float = Field(
+        default=220.0,
+        ge=30.0,
+        le=500.0,
+        alias="ROUTE_GRAPH_HEURISTIC_MAX_SPEED_KPH",
+    )
+    route_graph_search_apply_scenario_edge_costs: bool = Field(
+        default=False,
+        alias="ROUTE_GRAPH_SEARCH_APPLY_SCENARIO_EDGE_COSTS",
     )
     route_graph_state_space_rescue_enabled: bool = Field(
         default=True,
@@ -748,12 +1091,36 @@ class Settings(BaseSettings):
         default=False,
         alias="TERRAIN_ALLOW_SYNTHETIC_GRID",
     )
-    terrain_sample_spacing_m: float = Field(default=75.0, ge=5.0, alias="TERRAIN_SAMPLE_SPACING_M")
+    terrain_sample_spacing_m: float = Field(default=180.0, ge=5.0, alias="TERRAIN_SAMPLE_SPACING_M")
+    terrain_long_route_threshold_km: float = Field(
+        default=180.0,
+        ge=10.0,
+        le=5_000.0,
+        alias="TERRAIN_LONG_ROUTE_THRESHOLD_KM",
+    )
+    terrain_long_route_sample_spacing_m: float = Field(
+        default=320.0,
+        ge=20.0,
+        le=5_000.0,
+        alias="TERRAIN_LONG_ROUTE_SAMPLE_SPACING_M",
+    )
+    terrain_long_route_max_samples_per_route: int = Field(
+        default=900,
+        ge=100,
+        le=50_000,
+        alias="TERRAIN_LONG_ROUTE_MAX_SAMPLES_PER_ROUTE",
+    )
     terrain_max_samples_per_route: int = Field(
-        default=6000,
+        default=1500,
         ge=200,
         le=50_000,
         alias="TERRAIN_MAX_SAMPLES_PER_ROUTE",
+    )
+    terrain_segment_boundary_probe_max_segments: int = Field(
+        default=1200,
+        ge=0,
+        le=50_000,
+        alias="TERRAIN_SEGMENT_BOUNDARY_PROBE_MAX_SEGMENTS",
     )
     terrain_physics_version: str = Field(default="uk_v3", alias="TERRAIN_PHYSICS_VERSION")
     carbon_scope_mode: str = Field(default="ttw", alias="CARBON_SCOPE_MODE")
@@ -765,6 +1132,7 @@ class Settings(BaseSettings):
         # synthetic generation is disallowed outside explicit test tooling.
         self.live_runtime_data_enabled = True
         self.strict_live_data_required = True
+        self.live_route_compute_require_all_expected = True
         self.route_graph_enabled = True
         self.route_graph_strict_required = True
         self.departure_require_empirical_profiles = True
@@ -789,6 +1157,9 @@ class Settings(BaseSettings):
         self.live_carbon_allow_signed_fallback = False
         self.live_scenario_require_url_in_strict = True
         self.live_scenario_allow_signed_fallback = False
+        self.live_scenario_allow_partial_sources_strict = False
+        self.live_scenario_min_source_count_strict = 4
+        self.live_scenario_min_coverage_overall_strict = 1.0
         self.scenario_require_signature = True
         legacy_graph_env_keys = (
             "ROUTE_GRAPH_STREAMING_MAX_NODES",
@@ -815,6 +1186,33 @@ class Settings(BaseSettings):
         if rescue_mode not in {"reduced", "full"}:
             rescue_mode = "reduced"
         self.route_graph_state_space_rescue_mode = rescue_mode
+        math_profile = str(self.route_selection_math_profile or "modified_vikor_distance").strip().lower()
+        if math_profile not in {
+            "academic_reference",
+            "academic_tchebycheff",
+            "academic_vikor",
+            "modified_hybrid",
+            "modified_distance_aware",
+            "modified_vikor_distance",
+        }:
+            math_profile = "modified_vikor_distance"
+        self.route_selection_math_profile = math_profile
+        pipeline_mode = str(self.route_pipeline_default_mode or "legacy").strip().lower()
+        if pipeline_mode not in {"legacy", "dccs", "dccs_refc", "voi"}:
+            pipeline_mode = "legacy"
+        self.route_pipeline_default_mode = pipeline_mode
+        baseline_policy = str(self.route_dccs_default_baseline_policy or "first_n").strip().lower()
+        if baseline_policy not in {"first_n", "random_n", "corridor_uniform"}:
+            baseline_policy = "first_n"
+        self.route_dccs_default_baseline_policy = baseline_policy
+        self.terrain_long_route_sample_spacing_m = max(
+            float(self.terrain_sample_spacing_m),
+            float(self.terrain_long_route_sample_spacing_m),
+        )
+        self.terrain_long_route_max_samples_per_route = min(
+            int(self.terrain_long_route_max_samples_per_route),
+            int(self.terrain_max_samples_per_route),
+        )
         # In strict hard-refresh lanes, terrain probe is required for full live-freshness evidence.
         if self.strict_live_data_required and (
             self.live_route_compute_require_all_expected

@@ -15,6 +15,8 @@ import FieldInfo from './components/FieldInfo';
 import OpsDiagnosticsPanel from './components/devtools/OpsDiagnosticsPanel';
 import OracleQualityDashboard from './components/OracleQualityDashboard';
 import PinManager from './components/PinManager';
+import RouteBaselineComparison from './components/RouteBaselineComparison';
+import RouteCertificationPanel from './components/RouteCertificationPanel';
 import RunInspector from './components/devtools/RunInspector';
 import ScenarioParameterEditor, {
   type ScenarioAdvancedParams,
@@ -23,6 +25,7 @@ import ScenarioTimeLapse from './components/ScenarioTimeLapse';
 import Select, { type SelectOption } from './components/Select';
 import SignatureVerifier from './components/devtools/SignatureVerifier';
 import { deleteJSON, getJSON, getText, postJSON, postJSONWithMeta, postNDJSON, putJSON } from './lib/api';
+import { buildBaselineComparison, type BaselineComparison } from './lib/baselineComparison';
 import { formatNumber } from './lib/format';
 import { LOCALE_OPTIONS, createTranslator, type Locale } from './lib/i18n';
 import { buildManagedPinNodes } from './lib/mapOverlays';
@@ -77,10 +80,12 @@ import type {
   CacheClearResponse,
   RouteRequest,
   RouteResponse,
+  RouteBaselineResponse,
   ParetoRequest,
   BatchParetoRequest,
   BatchCSVImportRequest,
   BatchParetoResponse,
+  CandidateDiagnostics,
   RunArtifactsListResponse,
   SignatureVerificationRequest,
   SignatureVerificationResponse,
@@ -120,7 +125,12 @@ import type {
   WeatherImpactConfig,
   WeatherProfile,
 } from './lib/types';
-import { normaliseWeights, pickBestByWeightedSum, type WeightState } from './lib/weights';
+import {
+  normaliseWeights,
+  pickBestBySelectionProfile,
+  type SelectionMathProfile,
+  type WeightState,
+} from './lib/weights';
 
 type MarkerKind = 'origin' | 'destination';
 type ProgressState = { done: number; total: number };
@@ -144,7 +154,7 @@ type ComputeTraceEntry = {
   alternativesUsed?: number;
   timeoutMs?: number;
   abortReason?: string;
-  candidateDiagnostics?: Record<string, unknown> | null;
+  candidateDiagnostics?: CandidateDiagnostics | null;
   failureChain?: Record<string, unknown> | null;
 };
 
@@ -162,6 +172,16 @@ type ComputeSession = {
   attemptTimeoutMs: number;
   routeFallbackTimeoutMs: number;
   degradeSteps: number[];
+};
+
+type RouteRunMeta = {
+  run_id?: string | null;
+  pipeline_mode?: RouteResponse['pipeline_mode'];
+  manifest_endpoint?: string | null;
+  artifacts_endpoint?: string | null;
+  provenance_endpoint?: string | null;
+  selected_certificate?: RouteResponse['selected_certificate'];
+  voi_stop_summary?: RouteResponse['voi_stop_summary'];
 };
 
 function inferComputeRecoveryHints(message: string): string[] {
@@ -424,6 +444,17 @@ type MapViewProps = {
   fitAllRequestNonce?: number;
 
   route: RouteOption | null;
+  alternativeRoutes?: RouteOption[];
+  showSmartAlternatives?: boolean;
+  onSelectAlternative?: (routeId: string) => void;
+  routeLabelsById?: Record<string, string>;
+  selectedRouteLabel?: string;
+  baselineRoute?: RouteOption | null;
+  showBaselineRoute?: boolean;
+  googleBaselineRoute?: RouteOption | null;
+  showGoogleBaselineRoute?: boolean;
+  referenceRoute?: RouteOption | null;
+  showReferenceRoute?: boolean;
   failureOverlay?: MapFailureOverlay | null;
   timeLapsePosition?: LatLng | null;
   dutyStops?: DutyChainRequest['stops'];
@@ -574,6 +605,7 @@ const TutorialOverlay = dynamic<
     onBack: () => void;
     onNext: () => void;
     onFinish: () => void;
+    onSkipStep: () => void;
     onMarkManual: (actionId: string) => void;
     onUseOptionalDefault: (optionalDecisionId: string) => void;
   }
@@ -618,6 +650,31 @@ const DEFAULT_ADVANCED_PARAMS: ScenarioAdvancedParams = {
   incidentMaxEventsPerRoute: '12',
 };
 
+const DEFAULT_SELECTION_MATH_PROFILE: SelectionMathProfile = 'modified_vikor_distance';
+const SELECTION_MATH_PROFILE_OPTIONS: Array<{ value: SelectionMathProfile; label: string }> = [
+  { value: 'modified_vikor_distance', label: 'Modified (VIKOR + distance/knee)' },
+  { value: 'modified_distance_aware', label: 'Modified (distance-aware)' },
+  { value: 'modified_hybrid', label: 'Modified (hybrid)' },
+  { value: 'academic_vikor', label: 'Academic reference (VIKOR compromise)' },
+  { value: 'academic_tchebycheff', label: 'Academic reference (augmented Tchebycheff)' },
+  { value: 'academic_reference', label: 'Academic reference (weighted sum)' },
+];
+type AcademicComparisonProfile = Extract<
+  SelectionMathProfile,
+  'academic_reference' | 'academic_tchebycheff' | 'academic_vikor'
+>;
+const DEFAULT_ACADEMIC_COMPARISON_PROFILE: AcademicComparisonProfile = 'academic_reference';
+const ACADEMIC_COMPARISON_PROFILE_OPTIONS: Array<{ value: AcademicComparisonProfile; label: string }> = [
+  { value: 'academic_reference', label: 'Weighted sum (academic)' },
+  { value: 'academic_tchebycheff', label: 'Augmented Tchebycheff (academic)' },
+  { value: 'academic_vikor', label: 'VIKOR compromise (academic)' },
+];
+const ACADEMIC_COMPARISON_PROFILE_LABELS: Record<AcademicComparisonProfile, string> = {
+  academic_reference: 'academic weighted-sum',
+  academic_tchebycheff: 'academic augmented Tchebycheff',
+  academic_vikor: 'academic VIKOR',
+};
+
 const LOCALE_STORAGE_KEY = 'ui_locale_v1';
 
 function sortRoutesDeterministic(routes: RouteOption[]): RouteOption[] {
@@ -646,6 +703,155 @@ function sameLatLng(a: LatLng | null, b: LatLng | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return Math.abs(a.lat - b.lat) <= 1e-6 && Math.abs(a.lon - b.lon) <= 1e-6;
+}
+
+function tutorialBaselineWinScore(comparison: BaselineComparison): number {
+  const checks = [
+    comparison.etaPct > 0,
+    comparison.costPct > 0,
+    comparison.co2Pct > 0,
+    comparison.distanceGainPct > 0,
+  ];
+  const strongChecks = [
+    comparison.etaPct >= 8,
+    comparison.costPct >= 12,
+    comparison.co2Pct >= 20,
+    comparison.distanceGainPct >= 5,
+  ];
+  const betterCount = checks.filter(Boolean).length;
+  const strongCount = strongChecks.filter(Boolean).length;
+  const positiveMagnitude =
+    Math.max(0, comparison.etaPct) +
+    Math.max(0, comparison.costPct) +
+    Math.max(0, comparison.co2Pct) +
+    Math.max(0, comparison.distanceGainPct);
+  const majorityBonus = betterCount >= 3 ? 600 : 0;
+  const strongBonus = strongCount >= 2 ? 300 : 0;
+  return majorityBonus + strongBonus + betterCount * 40 + strongCount * 80 + positiveMagnitude;
+}
+
+function tutorialBaselineBetterCount(comparison: BaselineComparison): number {
+  return [
+    comparison.etaPct > 0,
+    comparison.costPct > 0,
+    comparison.co2Pct > 0,
+    comparison.distanceGainPct > 0,
+  ].filter(Boolean).length;
+}
+
+function tutorialComparisonClearlyBetter(
+  comparison: BaselineComparison,
+  {
+    minBetterCount = 3,
+    minCostPct = 8,
+    minCo2Pct = 15,
+    minDistancePct = 1.5,
+  }: {
+    minBetterCount?: number;
+    minCostPct?: number;
+    minCo2Pct?: number;
+    minDistancePct?: number;
+  } = {},
+): boolean {
+  const betterCount = tutorialBaselineBetterCount(comparison);
+  return (
+    betterCount >= minBetterCount &&
+    comparison.costPct >= minCostPct &&
+    comparison.co2Pct >= minCo2Pct &&
+    comparison.distanceGainPct >= minDistancePct
+  );
+}
+
+function tutorialComparisonTargetAchieved(
+  comparison: BaselineComparison,
+  {
+    minDistancePct = 11,
+    minEtaPct = 13.84,
+    minCostPct = 43.48,
+    minCo2Pct = 81.55,
+    minAnyPct = 70,
+  }: {
+    minDistancePct?: number;
+    minEtaPct?: number;
+    minCostPct?: number;
+    minCo2Pct?: number;
+    minAnyPct?: number;
+  } = {},
+): boolean {
+  const betterCount = tutorialBaselineBetterCount(comparison);
+  const maxGain = Math.max(
+    comparison.etaPct,
+    comparison.costPct,
+    comparison.co2Pct,
+    comparison.distanceGainPct,
+  );
+  return (
+    betterCount === 4 &&
+    comparison.etaPct >= minEtaPct &&
+    comparison.costPct >= minCostPct &&
+    comparison.co2Pct >= minCo2Pct &&
+    comparison.distanceGainPct >= minDistancePct &&
+    maxGain >= minAnyPct
+  );
+}
+
+function pickBestTutorialBaselineWinner(
+  routes: RouteOption[],
+  baselineRoute: RouteOption | null,
+  googleBaselineRoute: RouteOption | null,
+): string | null {
+  if (!baselineRoute || routes.length === 0) return null;
+  let bestId: string | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const route of routes) {
+    const osrmComparison = buildBaselineComparison(route, baselineRoute);
+    if (!osrmComparison) continue;
+    const osrmTargetHit = tutorialComparisonTargetAchieved(osrmComparison);
+    let score = tutorialBaselineWinScore(osrmComparison);
+    const osrmBetterCount = tutorialBaselineBetterCount(osrmComparison);
+    score += osrmBetterCount * 100;
+    if (osrmTargetHit) {
+      score += 3_000;
+    }
+    if (osrmBetterCount < 3) {
+      score -= (3 - osrmBetterCount) * 450;
+    }
+
+    if (googleBaselineRoute) {
+      const googleComparison = buildBaselineComparison(route, googleBaselineRoute);
+      if (googleComparison) {
+        const googleTargetHit = tutorialComparisonTargetAchieved(googleComparison, {
+          minDistancePct: 2,
+          minEtaPct: 0,
+          minCostPct: 6,
+          minCo2Pct: 10,
+          minAnyPct: 20,
+        });
+        const googleBetterCount = tutorialBaselineBetterCount(googleComparison);
+        score += tutorialBaselineWinScore(googleComparison) * 0.9;
+        score += googleBetterCount * 90;
+        if (googleTargetHit) {
+          score += 900;
+        }
+        if (googleBetterCount < 2) {
+          score -= (2 - googleBetterCount) * 320;
+        }
+      }
+    }
+
+    if (osrmComparison.etaPct <= 0) score -= 140;
+    if (osrmComparison.distanceGainPct <= 0) score -= 120;
+    if (osrmComparison.etaPct < 13.84) score -= 220;
+    if (osrmComparison.costPct < 43.48) score -= 220;
+    if (osrmComparison.co2Pct < 81.55) score -= 220;
+    if (osrmComparison.distanceGainPct < 11.0) score -= 300;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = route.id;
+    }
+  }
+  return bestId;
 }
 
 function sameManagedStop(a: ManagedStop | null, b: ManagedStop | null): boolean {
@@ -973,17 +1179,16 @@ const TUTORIAL_FORCE_ONLY_ACTIONS = new Set([
   'map.confirm_drag_origin_marker',
 ]);
 const TUTORIAL_VALUE_CONSTRAINED_ACTIONS = new Set([
+  'advanced.max_alternatives_input',
+  'advanced.optimization_mode_option:expected_value',
   'advanced.risk_aversion_input',
-  'advanced.epsilon_duration_input',
-  'advanced.epsilon_money_input',
-  'advanced.epsilon_emissions_input',
-  'advanced.stochastic_seed_input',
-  'advanced.stochastic_sigma_input',
-  'advanced.stochastic_samples_input',
+  'advanced.pareto_method_option:dominance',
+  'advanced.stochastic_toggle',
   'advanced.use_tolls_toggle',
   'advanced.fuel_multiplier_input',
   'advanced.carbon_price_input',
   'advanced.toll_per_km_input',
+  'pref.compute_mode_option:pareto_json',
   'pref.weight_time',
   'pref.weight_money',
   'pref.weight_co2',
@@ -1024,9 +1229,36 @@ export default function Page() {
   const [advancedError, setAdvancedError] = useState<string | null>(null);
   const [computeMode, setComputeMode] = useState<ComputeMode>('pareto_stream');
   const [routeSort, setRouteSort] = useState<'duration' | 'cost' | 'co2'>('duration');
+  const selectionMathProfile: SelectionMathProfile = DEFAULT_SELECTION_MATH_PROFILE;
+  const [academicComparisonProfile, setAcademicComparisonProfile] = useState<AcademicComparisonProfile>(
+    DEFAULT_ACADEMIC_COMPARISON_PROFILE,
+  );
 
   const [paretoRoutes, setParetoRoutes] = useState<RouteOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [baselineRoute, setBaselineRoute] = useState<RouteOption | null>(null);
+  const [baselineMeta, setBaselineMeta] = useState<{
+    method: string;
+    compute_ms: number;
+    notes: string[];
+  } | null>(null);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const [baselineError, setBaselineError] = useState<string | null>(null);
+  const [showBaselineOverlay, setShowBaselineOverlay] = useState(true);
+  const [googleBaselineRoute, setGoogleBaselineRoute] = useState<RouteOption | null>(null);
+  const [googleBaselineMeta, setGoogleBaselineMeta] = useState<{
+    method: string;
+    compute_ms: number;
+    notes: string[];
+  } | null>(null);
+  const [googleBaselineLoading, setGoogleBaselineLoading] = useState(false);
+  const [googleBaselineError, setGoogleBaselineError] = useState<string | null>(null);
+  const [showGoogleBaselineOverlay, setShowGoogleBaselineOverlay] = useState(true);
+  const [showAcademicReferenceOverlay, setShowAcademicReferenceOverlay] = useState(true);
+  const [showSmartAlternativesOverlay, setShowSmartAlternativesOverlay] = useState(true);
+  const [autoReliabilityProfile, setAutoReliabilityProfile] = useState(true);
+  const [smartComputeElapsedMs, setSmartComputeElapsedMs] = useState<number | null>(null);
+  const [routeRunMeta, setRouteRunMeta] = useState<RouteRunMeta | null>(null);
 
   const [routeNames, setRouteNames] = useState<Record<string, string>>({});
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
@@ -1135,6 +1367,8 @@ export default function Page() {
 
   const abortRef = useRef<AbortController | null>(null);
   const activeAttemptAbortRef = useRef<AbortController | null>(null);
+  const baselineAbortRef = useRef<AbortController | null>(null);
+  const googleBaselineAbortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
   const computeTraceSeqRef = useRef(0);
   const computeStartedAtMsRef = useRef<number | null>(null);
@@ -2006,28 +2240,26 @@ export default function Page() {
         a !== null && Math.abs(a - b) <= tolerance;
 
       switch (actionId) {
+        case 'advanced.max_alternatives_input':
+          return nearlyEqual(parseNumber(advancedParams.maxAlternatives), 4, 1e-6);
+        case 'advanced.optimization_mode_option:expected_value':
+          return advancedParams.optimizationMode === 'expected_value';
         case 'advanced.risk_aversion_input':
-          return nearlyEqual(parseNumber(advancedParams.riskAversion), 1.4, 1e-4);
-        case 'advanced.epsilon_duration_input':
-          return nearlyEqual(parseNumber(advancedParams.epsilonDurationS), 9000, 1e-3);
-        case 'advanced.epsilon_money_input':
-          return nearlyEqual(parseNumber(advancedParams.epsilonMonetaryCost), 250, 1e-3);
-        case 'advanced.epsilon_emissions_input':
-          return nearlyEqual(parseNumber(advancedParams.epsilonEmissionsKg), 900, 1e-3);
-        case 'advanced.stochastic_seed_input':
-          return nearlyEqual(parseNumber(advancedParams.stochasticSeed), 42, 1e-6);
-        case 'advanced.stochastic_sigma_input':
-          return nearlyEqual(parseNumber(advancedParams.stochasticSigma), 0.08, 1e-5);
-        case 'advanced.stochastic_samples_input':
-          return nearlyEqual(parseNumber(advancedParams.stochasticSamples), 25, 1e-6);
+          return nearlyEqual(parseNumber(advancedParams.riskAversion), 1.0, 1e-4);
+        case 'advanced.pareto_method_option:dominance':
+          return advancedParams.paretoMethod === 'dominance';
+        case 'advanced.stochastic_toggle':
+          return !advancedParams.stochasticEnabled;
         case 'advanced.use_tolls_toggle':
           return advancedParams.useTolls;
         case 'advanced.fuel_multiplier_input':
-          return nearlyEqual(parseNumber(advancedParams.fuelPriceMultiplier), 1.1, 1e-5);
+          return nearlyEqual(parseNumber(advancedParams.fuelPriceMultiplier), 1.0, 1e-5);
         case 'advanced.carbon_price_input':
-          return nearlyEqual(parseNumber(advancedParams.carbonPricePerKg), 0.08, 1e-5);
+          return nearlyEqual(parseNumber(advancedParams.carbonPricePerKg), 0.0, 1e-5);
         case 'advanced.toll_per_km_input':
-          return nearlyEqual(parseNumber(advancedParams.tollCostPerKm), 0.12, 1e-5);
+          return nearlyEqual(parseNumber(advancedParams.tollCostPerKm), 0.0, 1e-5);
+        case 'pref.compute_mode_option:pareto_json':
+          return computeMode === 'pareto_json';
         case 'pref.weight_time':
           return weights.time === 55;
         case 'pref.weight_money':
@@ -2040,16 +2272,15 @@ export default function Page() {
     },
     [
       advancedParams.carbonPricePerKg,
-      advancedParams.epsilonDurationS,
-      advancedParams.epsilonEmissionsKg,
-      advancedParams.epsilonMonetaryCost,
       advancedParams.fuelPriceMultiplier,
+      advancedParams.maxAlternatives,
+      advancedParams.optimizationMode,
+      advancedParams.paretoMethod,
       advancedParams.riskAversion,
-      advancedParams.stochasticSamples,
-      advancedParams.stochasticSeed,
-      advancedParams.stochasticSigma,
+      advancedParams.stochasticEnabled,
       advancedParams.tollCostPerKm,
       advancedParams.useTolls,
+      computeMode,
       weights.co2,
       weights.money,
       weights.time,
@@ -2268,6 +2499,17 @@ export default function Page() {
     clearFlushTimer();
   }, [clearFlushTimer]);
 
+  const abortBaselineFetch = useCallback(() => {
+    if (baselineAbortRef.current) {
+      baselineAbortRef.current.abort();
+      baselineAbortRef.current = null;
+    }
+    if (googleBaselineAbortRef.current) {
+      googleBaselineAbortRef.current.abort();
+      googleBaselineAbortRef.current = null;
+    }
+  }, []);
+
   const resetComputeTrace = useCallback(() => {
     computeTraceSeqRef.current = 0;
     computeStartedAtMsRef.current = null;
@@ -2297,6 +2539,7 @@ export default function Page() {
   const clearComputed = useCallback(() => {
     requestSeqRef.current += 1;
     abortActiveCompute();
+    abortBaselineFetch();
 
     setLoading(false);
     setProgress(null);
@@ -2305,6 +2548,15 @@ export default function Page() {
     setError(null);
     setParetoRoutes([]);
     setSelectedId(null);
+    setBaselineRoute(null);
+    setBaselineMeta(null);
+    setBaselineLoading(false);
+    setBaselineError(null);
+    setGoogleBaselineRoute(null);
+    setGoogleBaselineMeta(null);
+    setGoogleBaselineLoading(false);
+    setGoogleBaselineError(null);
+    setSmartComputeElapsedMs(null);
 
     setRouteNames({});
     setEditingRouteId(null);
@@ -2321,7 +2573,7 @@ export default function Page() {
     setAdvancedError(null);
     setComputeTraceOpen(false);
     resetComputeTrace();
-  }, [abortActiveCompute, resetComputeTrace]);
+  }, [abortActiveCompute, abortBaselineFetch, resetComputeTrace]);
 
   const clearComputedFromUi = useCallback(() => {
     markTutorialAction('pref.clear_results_click');
@@ -2360,8 +2612,9 @@ export default function Page() {
     return () => {
       requestSeqRef.current += 1;
       abortActiveCompute();
+      abortBaselineFetch();
     };
-  }, [abortActiveCompute]);
+  }, [abortActiveCompute, abortBaselineFetch]);
 
   useEffect(() => {
     clearComputed();
@@ -2641,6 +2894,7 @@ export default function Page() {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('.tutorialOverlay__card')) return;
+      if (target.closest('.computeTraceOverlay')) return;
 
       const actionable = target?.closest<HTMLElement>('[data-tutorial-action]');
       const actionId = actionable?.dataset.tutorialAction;
@@ -2780,6 +3034,7 @@ export default function Page() {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('.tutorialOverlay__card')) return;
+      if (target.closest('.computeTraceOverlay')) return;
       const actionId =
         target.closest<HTMLElement>('[data-tutorial-action]')?.dataset.tutorialAction ?? '';
       const isMidpointAction = actionId === 'pins.add_stop';
@@ -3261,10 +3516,18 @@ export default function Page() {
     };
   }, [isPanelCollapsed, tutorialRunning, tutorialStep]);
 
+  const modifiedSelectionId = useMemo(
+    () => pickBestBySelectionProfile(paretoRoutes, weights, selectionMathProfile),
+    [paretoRoutes, selectionMathProfile, weights],
+  );
+  const academicReferenceId = useMemo(
+    () => pickBestBySelectionProfile(paretoRoutes, weights, academicComparisonProfile),
+    [academicComparisonProfile, paretoRoutes, weights],
+  );
+
   useEffect(() => {
-    const best = pickBestByWeightedSum(paretoRoutes, weights);
-    setSelectedId(best);
-  }, [paretoRoutes, weights]);
+    setSelectedId(modifiedSelectionId);
+  }, [modifiedSelectionId]);
 
   useEffect(() => {
     if (loading) return;
@@ -3295,6 +3558,53 @@ export default function Page() {
     if (!selectedId) return null;
     return paretoRoutes.find((route) => route.id === selectedId) ?? null;
   }, [paretoRoutes, selectedId]);
+  const academicReferenceRoute = useMemo(() => {
+    if (!academicReferenceId) return null;
+    return paretoRoutes.find((route) => route.id === academicReferenceId) ?? null;
+  }, [academicReferenceId, paretoRoutes]);
+  const baselineComparison = useMemo(
+    () => buildBaselineComparison(selectedRoute, baselineRoute),
+    [selectedRoute, baselineRoute],
+  );
+  const googleBaselineComparison = useMemo(
+    () => buildBaselineComparison(selectedRoute, googleBaselineRoute),
+    [selectedRoute, googleBaselineRoute],
+  );
+  const mathSelectionComparison = useMemo(() => {
+    if (!selectedRoute || !academicReferenceRoute) return null;
+    if (selectedRoute.id === academicReferenceRoute.id) {
+      return {
+        same: true as const,
+        durationPct: 0,
+        costPct: 0,
+        co2Pct: 0,
+        distancePct: 0,
+      };
+    }
+    const safePct = (reference: number, modified: number): number => {
+      const denom = Math.max(Math.abs(reference), 1e-6);
+      return ((reference - modified) / denom) * 100;
+    };
+    return {
+      same: false as const,
+      durationPct: safePct(academicReferenceRoute.metrics.duration_s, selectedRoute.metrics.duration_s),
+      costPct: safePct(academicReferenceRoute.metrics.monetary_cost, selectedRoute.metrics.monetary_cost),
+      co2Pct: safePct(academicReferenceRoute.metrics.emissions_kg, selectedRoute.metrics.emissions_kg),
+      distancePct: safePct(academicReferenceRoute.metrics.distance_km, selectedRoute.metrics.distance_km),
+    };
+  }, [academicReferenceRoute, selectedRoute]);
+  const tutorialBaselineWinnerId = useMemo(
+    () =>
+      tutorialRunning && tutorialStep?.chapterId === 'chapter_routes'
+        ? pickBestTutorialBaselineWinner(paretoRoutes, baselineRoute, googleBaselineRoute)
+        : null,
+    [baselineRoute, googleBaselineRoute, paretoRoutes, tutorialRunning, tutorialStep?.chapterId],
+  );
+
+  useEffect(() => {
+    if (!tutorialBaselineWinnerId) return;
+    setSelectedId((prev) => (prev === tutorialBaselineWinnerId ? prev : tutorialBaselineWinnerId));
+  }, [tutorialBaselineWinnerId]);
 
   const parsedDutyStops = useMemo(() => {
     const parsed = parseDutyTextToPins(dutyStopsText);
@@ -3462,6 +3772,43 @@ export default function Page() {
     markTutorialAction('selected.counterfactual_panel_visible');
   }, [markTutorialAction, selectedRoute, tutorialRunning, tutorialStep?.id]);
 
+  useEffect(() => {
+    if (!tutorialRunning || tutorialStep?.id !== 'selected_baseline_uplift') return;
+    if (!selectedRoute || !baselineRoute) return;
+    const osrmComparison = buildBaselineComparison(selectedRoute, baselineRoute);
+    if (!osrmComparison) return;
+    const osrmClearlyBetter =
+      tutorialComparisonTargetAchieved(osrmComparison) ||
+      tutorialComparisonClearlyBetter(osrmComparison, {
+        minBetterCount: 4,
+        minCostPct: 10,
+        minCo2Pct: 18,
+        minDistancePct: 4,
+      });
+    const googleComparison =
+      selectedRoute && googleBaselineRoute
+        ? buildBaselineComparison(selectedRoute, googleBaselineRoute)
+        : null;
+    const googleClearlyBetter =
+      !googleComparison ||
+      tutorialComparisonTargetAchieved(googleComparison, {
+        minDistancePct: 2,
+        minEtaPct: 0,
+        minCostPct: 6,
+        minCo2Pct: 10,
+        minAnyPct: 20,
+      }) ||
+      tutorialComparisonClearlyBetter(googleComparison, {
+        minBetterCount: 3,
+        minCostPct: 6,
+        minCo2Pct: 10,
+        minDistancePct: 1,
+      });
+    if (osrmClearlyBetter && googleClearlyBetter) {
+      markTutorialAction('selected.baseline_compare_review');
+    }
+  }, [baselineRoute, googleBaselineRoute, markTutorialAction, selectedRoute, tutorialRunning, tutorialStep?.id]);
+
   const defaultLabelsById = useMemo(() => {
     const labels: Record<string, string> = {};
     for (let idx = 0; idx < paretoRoutes.length; idx += 1) {
@@ -3497,6 +3844,15 @@ export default function Page() {
     });
     return sorted;
   }, [paretoRoutes, routeSort]);
+  const mapAlternativeRoutes = useMemo(() => {
+    if (!selectedRoute) return [] as RouteOption[];
+    return sortedDisplayRoutes.filter((route) => route.id !== selectedRoute.id);
+  }, [selectedRoute, sortedDisplayRoutes]);
+  const mapAcademicReferenceRoute = useMemo(() => {
+    if (!selectedRoute || !academicReferenceRoute) return null;
+    if (selectedRoute.id === academicReferenceRoute.id) return null;
+    return academicReferenceRoute;
+  }, [academicReferenceRoute, selectedRoute]);
 
   const selectedLabel = selectedRoute ? labelsById[selectedRoute.id] ?? selectedRoute.id : null;
 
@@ -3507,7 +3863,7 @@ export default function Page() {
   const strictRouteReady = opsHealthReady?.strict_route_ready === true;
   const routeWarmupBaselineMs = Math.max(
     60_000,
-    parsePositiveIntEnv(process.env.NEXT_PUBLIC_ROUTE_GRAPH_WARMUP_BASELINE_MS, 900_000),
+    parsePositiveIntEnv(process.env.NEXT_PUBLIC_ROUTE_GRAPH_WARMUP_BASELINE_MS, 480_000),
   );
   const routeGraphElapsedMs = toFiniteNumber(routeGraphWarmup?.elapsed_ms);
   const routeGraphNodesSeen = Math.max(0, Math.floor(toFiniteNumber(routeGraphWarmup?.nodes_seen) ?? 0));
@@ -3636,6 +3992,22 @@ export default function Page() {
         .find((entry) => Boolean(entry.candidateDiagnostics || entry.failureChain)) ?? null,
     [computeTrace],
   );
+  const latestCandidateCount = useMemo(() => {
+    const raw = (latestDiagnosticEntry?.candidateDiagnostics ?? null) as Record<string, unknown> | null;
+    const value = raw ? Number(raw.raw_count ?? raw.candidate_count_raw ?? 0) : NaN;
+    if (Number.isFinite(value) && value > 0) return Math.round(value);
+    if (paretoRoutes.length > 0) return paretoRoutes.length;
+    return null;
+  }, [latestDiagnosticEntry?.candidateDiagnostics, paretoRoutes.length]);
+  const latestLiveCallSummary = useMemo(() => {
+    const summary = activeAttemptLiveCallTrace?.summary;
+    if (!summary) return null;
+    return {
+      total_calls: Number(summary.total_calls ?? 0),
+      expected_satisfied: Number(summary.expected_satisfied ?? 0),
+      expected_total: Number(summary.expected_total ?? 0),
+    };
+  }, [activeAttemptLiveCallTrace?.summary]);
   const diagnosticAwareHints = useMemo(() => {
     const hints: string[] = [];
     if (!error) return hints;
@@ -4386,6 +4758,7 @@ export default function Page() {
     clearComputed();
     setError(null);
     setDutySyncError(null);
+    setShowBaselineOverlay(true);
     markTutorialAction('setup.clear_pins_button');
   }
 
@@ -4419,7 +4792,7 @@ export default function Page() {
     tutorialConfirmedDestinationRef.current = null;
     setFitAllRequestNonce((n) => n + 1);
     setVehicleType('rigid_hgv');
-    setScenarioMode('no_sharing');
+    setScenarioMode('full_sharing');
     setWeights({ time: 60, money: 20, co2: 20 });
     setAdvancedParams(DEFAULT_ADVANCED_PARAMS);
     setComputeMode('pareto_stream');
@@ -4430,6 +4803,7 @@ export default function Page() {
     setShowStopOverlay(true);
     setShowIncidentOverlay(true);
     setShowSegmentTooltips(true);
+    setShowBaselineOverlay(true);
     setTutorialMode(tutorialIsDesktop ? 'running' : 'blocked');
     setTutorialStepActionsById({});
     setTutorialOptionalDecisionsByStep({});
@@ -4470,6 +4844,120 @@ export default function Page() {
 
   function tutorialNext() {
     if (!tutorialCanAdvance) return;
+    setTutorialStepIndex((prev) => Math.min(TUTORIAL_STEPS.length - 1, prev + 1));
+  }
+
+  function applyTutorialSkipDefaults(stepId: string) {
+    if (stepId === 'map_set_pins') {
+      setOrigin(TUTORIAL_CANONICAL_ORIGIN);
+      setDestination(TUTORIAL_CANONICAL_DESTINATION);
+      setTutorialDraftOrigin(null);
+      setTutorialDraftDestination(null);
+      setTutorialDragDraftOrigin(null);
+      setTutorialDragDraftDestination(null);
+      tutorialConfirmedOriginRef.current = TUTORIAL_CANONICAL_ORIGIN;
+      tutorialConfirmedDestinationRef.current = TUTORIAL_CANONICAL_DESTINATION;
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      clearComputed();
+      return;
+    }
+    if (stepId === 'setup_vehicle') {
+      setVehicleType('rigid_hgv');
+      return;
+    }
+    if (stepId === 'setup_scenario') {
+      setScenarioMode('no_sharing');
+      return;
+    }
+    if (stepId === 'advanced_optimization_and_risk') {
+      setAdvancedParams((prev) => ({
+        ...prev,
+        optimizationMode: 'expected_value',
+        riskAversion: '1.0',
+      }));
+      return;
+    }
+    if (stepId === 'advanced_pareto_method') {
+      setAdvancedParams((prev) => ({
+        ...prev,
+        paretoMethod: 'dominance',
+        epsilonDurationS: '',
+        epsilonMonetaryCost: '',
+        epsilonEmissionsKg: '',
+      }));
+      return;
+    }
+    if (stepId === 'advanced_stochastic') {
+      setAdvancedParams((prev) => ({
+        ...prev,
+        stochasticEnabled: false,
+        stochasticSeed: '',
+        stochasticSigma: '0.08',
+        stochasticSamples: '25',
+      }));
+      return;
+    }
+    if (stepId === 'advanced_terrain_and_cost') {
+      setAdvancedParams((prev) => ({
+        ...prev,
+        maxAlternatives: '4',
+        terrainProfile: 'flat',
+        useTolls: true,
+        fuelPriceMultiplier: '1.0',
+        carbonPricePerKg: '0.0',
+        tollCostPerKm: '0.0',
+      }));
+      return;
+    }
+    if (stepId === 'preferences_weights') {
+      setWeights({ time: 55, money: 25, co2: 20 });
+      setComputeMode('pareto_json');
+      return;
+    }
+    if (stepId === 'departure_controls') {
+      const win = defaultDepartureWindow();
+      setDepWindowStartLocal(win.start);
+      setDepWindowEndLocal(win.end);
+      setDepStepMinutes(60);
+      return;
+    }
+    if (stepId === 'duty_chain') {
+      dutySyncSourceRef.current = 'text';
+      setDutyStopsText(TUTORIAL_CANONICAL_DUTY_STOPS);
+      return;
+    }
+  }
+
+  function tutorialSkipCurrentStep() {
+    if (!tutorialRunning || !tutorialStep) return;
+    const stepToSkip = tutorialStep;
+    applyTutorialSkipDefaults(stepToSkip.id);
+    setTutorialStepActionsById((prev) => {
+      const existing = new Set(prev[stepToSkip.id] ?? []);
+      for (const requirement of stepToSkip.required) {
+        existing.add(requirement.actionId);
+      }
+      return { ...prev, [stepToSkip.id]: [...existing] };
+    });
+    if (stepToSkip.optional) {
+      setTutorialOptionalDecisionsByStep((prev) => {
+        const existing = new Set(prev[stepToSkip.id] ?? []);
+        existing.add(stepToSkip.optional!.id);
+        return { ...prev, [stepToSkip.id]: [...existing] };
+      });
+    }
+    setSelectedPinId(null);
+    setFocusPinRequest(null);
+    setLiveMessage(`Skipped tutorial step: ${stepToSkip.title}`);
+    if (tutorialAtEnd) {
+      setTutorialMode('completed');
+      setTutorialCompleted(true);
+      saveTutorialCompleted(TUTORIAL_COMPLETED_KEY, true);
+      clearTutorialProgress(TUTORIAL_PROGRESS_KEY);
+      setTutorialSavedProgress(null);
+      return;
+    }
     setTutorialStepIndex((prev) => Math.min(TUTORIAL_STEPS.length - 1, prev + 1));
   }
 
@@ -4721,6 +5209,159 @@ export default function Page() {
     });
   }
 
+  const fetchBaselineForRequest = useCallback(
+    async (params: {
+      seq: number;
+      origin: LatLng;
+      destination: LatLng;
+      waypoints: Waypoint[];
+      vehicleType: string;
+      scenarioMode: ScenarioMode;
+    }) => {
+      const { seq, origin, destination, waypoints, vehicleType, scenarioMode } = params;
+      if (seq !== requestSeqRef.current) return;
+
+      abortBaselineFetch();
+      const controller = new AbortController();
+      baselineAbortRef.current = controller;
+
+      setBaselineLoading(true);
+      setBaselineError(null);
+      setBaselineRoute(null);
+      setBaselineMeta(null);
+
+      appendComputeTrace({
+        level: 'info',
+        step: 'Baseline comparator request started',
+        detail: 'POST /api/route/baseline',
+      });
+
+      try {
+        const body = {
+          origin,
+          destination,
+          waypoints,
+          vehicle_type: vehicleType,
+          scenario_mode: scenarioMode,
+        };
+        const { data } = await postJSONWithMeta<RouteBaselineResponse>(
+          '/api/route/baseline',
+          body,
+          controller.signal,
+        );
+        if (seq !== requestSeqRef.current || controller.signal.aborted) return;
+
+        setBaselineRoute(data.baseline);
+        setBaselineMeta({
+          method: data.method,
+          compute_ms: data.compute_ms,
+          notes: Array.isArray(data.notes) ? data.notes : [],
+        });
+        appendComputeTrace({
+          level: 'success',
+          step: 'Baseline comparator ready',
+          detail: `method=${data.method}; compute_ms=${Number(data.compute_ms).toFixed(2)}`,
+        });
+      } catch (e: unknown) {
+        if (controller.signal.aborted || seq !== requestSeqRef.current) return;
+        const message = e instanceof Error ? e.message : 'Baseline route request failed.';
+        setBaselineError(message);
+        appendComputeTrace({
+          level: 'warn',
+          step: 'Baseline comparator failed',
+          detail: message,
+          recoveries: ['Smart route remains available. Baseline comparator is optional.'],
+        });
+      } finally {
+        if (baselineAbortRef.current === controller) {
+          baselineAbortRef.current = null;
+        }
+        if (seq === requestSeqRef.current && !controller.signal.aborted) {
+          setBaselineLoading(false);
+        }
+      }
+    },
+    [abortBaselineFetch, appendComputeTrace],
+  );
+
+  const fetchGoogleBaselineForRequest = useCallback(
+    async (params: {
+      seq: number;
+      origin: LatLng;
+      destination: LatLng;
+      waypoints: Waypoint[];
+      vehicleType: string;
+      scenarioMode: ScenarioMode;
+    }) => {
+      const { seq, origin, destination, waypoints, vehicleType, scenarioMode } = params;
+      if (seq !== requestSeqRef.current) return;
+
+      if (googleBaselineAbortRef.current) {
+        googleBaselineAbortRef.current.abort();
+        googleBaselineAbortRef.current = null;
+      }
+      const controller = new AbortController();
+      googleBaselineAbortRef.current = controller;
+
+      setGoogleBaselineLoading(true);
+      setGoogleBaselineError(null);
+      setGoogleBaselineRoute(null);
+      setGoogleBaselineMeta(null);
+
+      appendComputeTrace({
+        level: 'info',
+        step: 'OpenRouteService comparator request started',
+        detail: 'POST /api/route/baseline/ors',
+      });
+
+      try {
+        const body = {
+          origin,
+          destination,
+          waypoints,
+          vehicle_type: vehicleType,
+          scenario_mode: scenarioMode,
+        };
+        const { data } = await postJSONWithMeta<RouteBaselineResponse>(
+          '/api/route/baseline/ors',
+          body,
+          controller.signal,
+        );
+        if (seq !== requestSeqRef.current || controller.signal.aborted) return;
+
+        setGoogleBaselineRoute(data.baseline);
+        setGoogleBaselineMeta({
+          method: data.method,
+          compute_ms: data.compute_ms,
+          notes: Array.isArray(data.notes) ? data.notes : [],
+        });
+        appendComputeTrace({
+          level: 'success',
+          step: 'OpenRouteService comparator ready',
+          detail: `method=${data.method}; compute_ms=${Number(data.compute_ms).toFixed(2)}`,
+        });
+      } catch (e: unknown) {
+        if (controller.signal.aborted || seq !== requestSeqRef.current) return;
+        const message = e instanceof Error ? e.message : 'OpenRouteService comparator request failed.';
+        setGoogleBaselineError(message);
+        appendComputeTrace({
+          level: 'warn',
+          step: 'OpenRouteService comparator failed',
+          detail: message,
+          recoveries: ['Smart route remains available. OpenRouteService comparator is optional.'],
+        });
+      } finally {
+        if (googleBaselineAbortRef.current === controller) {
+          googleBaselineAbortRef.current = null;
+        }
+        if (seq === requestSeqRef.current && !controller.signal.aborted) {
+          setGoogleBaselineLoading(false);
+        }
+      }
+    },
+    [appendComputeTrace],
+  );
+
   async function computePareto() {
     if (!origin || !destination) {
       setError('Click the map to set Start, then End.');
@@ -4814,11 +5455,24 @@ export default function Page() {
       return;
     }
     markTutorialAction('pref.compute_pareto_click');
+    const strictLiveStatus = String(readinessSnapshot?.strict_live?.status ?? '').trim().toLowerCase();
+    const strictModeLikelyEnabled = strictLiveStatus !== 'disabled';
+    const odDistanceKm = haversineDistanceKm(origin, destination);
+    const highLoadStrictRequest = requestWaypoints.length > 0 || odDistanceKm >= 180;
+    const autoReliabilityOverrideActive =
+      !tutorialRunning &&
+      autoReliabilityProfile &&
+      strictModeLikelyEnabled &&
+      computeMode === 'pareto_stream' &&
+      highLoadStrictRequest;
+    const effectiveScenarioMode: ScenarioMode = scenarioMode;
+    const effectiveComputeMode: ComputeMode = autoReliabilityOverrideActive ? 'pareto_json' : computeMode;
 
     const seq = requestSeqRef.current + 1;
     requestSeqRef.current = seq;
 
     abortActiveCompute();
+    abortBaselineFetch();
 
     const runController = new AbortController();
     abortRef.current = runController;
@@ -4846,8 +5500,15 @@ export default function Page() {
     appendComputeTrace({
       level: 'info',
       step: 'Compute initialised',
-      detail: `seq=${seq}; mode=${computeMode}; scenario=${scenarioMode}; vehicle=${vehicleType}; origin=(${origin.lat.toFixed(5)},${origin.lon.toFixed(5)}); destination=(${destination.lat.toFixed(5)},${destination.lon.toFixed(5)})`,
+      detail: `seq=${seq}; mode=${effectiveComputeMode}; scenario=${effectiveScenarioMode}; vehicle=${vehicleType}; origin=(${origin.lat.toFixed(5)},${origin.lon.toFixed(5)}); destination=(${destination.lat.toFixed(5)},${destination.lon.toFixed(5)})`,
     });
+    if (autoReliabilityOverrideActive) {
+      appendComputeTrace({
+        level: 'info',
+        step: 'Auto reliability profile',
+        detail: `Heavy strict request detected (od_km=${odDistanceKm.toFixed(1)}; waypoints=${requestWaypoints.length}); mode ${computeMode} -> ${effectiveComputeMode}.`,
+      });
+    }
 
     routeBufferRef.current = [];
     clearFlushTimer();
@@ -4859,6 +5520,16 @@ export default function Page() {
     setShowWarnings(false);
     setParetoRoutes([]);
     setSelectedId(null);
+    setBaselineRoute(null);
+    setBaselineMeta(null);
+    setBaselineLoading(false);
+    setBaselineError(null);
+    setGoogleBaselineRoute(null);
+    setGoogleBaselineMeta(null);
+    setGoogleBaselineLoading(false);
+    setGoogleBaselineError(null);
+    setSmartComputeElapsedMs(null);
+    setRouteRunMeta(null);
     setRouteNames({});
     setEditingRouteId(null);
     setEditingName('');
@@ -4872,7 +5543,7 @@ export default function Page() {
       appendComputeTrace({
         level: 'info',
         step: 'Compute heartbeat',
-        detail: `Still running; mode=${computeMode}; attempt=${activeAttemptNumber ?? 0}; endpoint=${activeAttemptEndpoint ?? 'n/a'}; alternatives=${activeAttemptAlternatives || 'n/a'}; timeout_ms=${activeAttemptTimeoutMs || 'n/a'}; progress=${latestProgress ? `${latestProgress.done}/${latestProgress.total}` : 'n/a'}`,
+        detail: `Still running; mode=${effectiveComputeMode}; attempt=${activeAttemptNumber ?? 0}; endpoint=${activeAttemptEndpoint ?? 'n/a'}; alternatives=${activeAttemptAlternatives || 'n/a'}; timeout_ms=${activeAttemptTimeoutMs || 'n/a'}; progress=${latestProgress ? `${latestProgress.done}/${latestProgress.total}` : 'n/a'}`,
         attempt: activeAttemptNumber ?? undefined,
         endpoint: activeAttemptEndpoint ?? undefined,
         alternativesUsed: activeAttemptAlternatives || undefined,
@@ -4896,8 +5567,8 @@ export default function Page() {
       setComputeSession({
         seq,
         startedAt: new Date().toISOString(),
-        mode: computeMode,
-        scenario: scenarioMode,
+        mode: effectiveComputeMode,
+        scenario: effectiveScenarioMode,
         vehicle: vehicleType,
         waypointCount: requestWaypoints.length,
         maxAlternatives,
@@ -4932,7 +5603,7 @@ export default function Page() {
         destination,
         waypoints: requestWaypoints,
         vehicle_type: vehicleType,
-        scenario_mode: scenarioMode,
+        scenario_mode: effectiveScenarioMode,
         max_alternatives: alternatives,
         weights: {
           time: weights.time,
@@ -4947,7 +5618,7 @@ export default function Page() {
         destination,
         waypoints: requestWaypoints,
         vehicle_type: vehicleType,
-        scenario_mode: scenarioMode,
+        scenario_mode: effectiveScenarioMode,
         max_alternatives: alternatives,
         weights: {
           time: weights.time,
@@ -4956,6 +5627,14 @@ export default function Page() {
         },
         advanced: advancedPatch,
       });
+    const baselineRequestSnapshot = {
+      seq,
+      origin,
+      destination,
+      waypoints: requestWaypoints,
+      vehicleType,
+      scenarioMode: effectiveScenarioMode,
+    };
     appendComputeTrace({
       level: 'info',
       step: 'Payload prepared',
@@ -5105,6 +5784,8 @@ export default function Page() {
         setWarnings((prev) => dedupeWarnings([...prev, ...payloadWarnings]));
       }
       markTutorialAction('pref.compute_pareto_done');
+      void fetchBaselineForRequest(baselineRequestSnapshot);
+      void fetchGoogleBaselineForRequest(baselineRequestSnapshot);
       appendComputeTrace({
         level: 'success',
         step:
@@ -5133,9 +5814,23 @@ export default function Page() {
       startTransition(() => {
         setParetoRoutes(finalRoutes);
       });
+      setRouteRunMeta({
+        run_id: payload.run_id ?? null,
+        pipeline_mode: payload.pipeline_mode,
+        manifest_endpoint: payload.manifest_endpoint ?? null,
+        artifacts_endpoint: payload.artifacts_endpoint ?? null,
+        provenance_endpoint: payload.provenance_endpoint ?? null,
+        selected_certificate: payload.selected_certificate ?? payload.selected.certification ?? null,
+        voi_stop_summary: payload.voi_stop_summary ?? null,
+      });
+      if (payload.run_id) {
+        setRunInspectorRunId(payload.run_id);
+      }
       setSelectedId(payload.selected.id);
       setProgress({ done: finalRoutes.length, total: finalRoutes.length });
       markTutorialAction('pref.compute_pareto_done');
+      void fetchBaselineForRequest(baselineRequestSnapshot);
+      void fetchGoogleBaselineForRequest(baselineRequestSnapshot);
       appendComputeTrace({
         level: 'success',
         step:
@@ -5200,7 +5895,7 @@ export default function Page() {
     };
 
     const attemptPlans: AttemptPlan[] =
-      computeMode === 'pareto_stream'
+      effectiveComputeMode === 'pareto_stream'
         ? [
             {
               attempt: 1,
@@ -5228,7 +5923,7 @@ export default function Page() {
               timeoutMs: routeFallbackTimeoutMs,
             },
           ]
-        : computeMode === 'pareto_json'
+        : effectiveComputeMode === 'pareto_json'
           ? [
               {
                 attempt: 1,
@@ -5255,8 +5950,8 @@ export default function Page() {
               },
             ];
 
+    let computeSucceeded = false;
     try {
-      let succeeded = false;
       let finalFailure: AttemptResult | null = null;
 
       for (let idx = 0; idx < attemptPlans.length; idx += 1) {
@@ -5682,7 +6377,7 @@ export default function Page() {
         runtime.cleanup();
 
         if (result.ok) {
-          succeeded = true;
+          computeSucceeded = true;
           break;
         }
         if (result.aborted) {
@@ -5788,7 +6483,7 @@ export default function Page() {
         }
       }
 
-      if (!succeeded) {
+      if (!computeSucceeded) {
         if (finalFailure?.message) {
           const tagged = finalFailure.reasonCode
             ? `${finalFailure.message} (${finalFailure.reasonCode})`
@@ -5838,6 +6533,11 @@ export default function Page() {
         abortRef.current = null;
         activeAttemptAbortRef.current = null;
         setLoading(false);
+        setSmartComputeElapsedMs(
+          computeSucceeded && computeStartedAtMsRef.current
+            ? Date.now() - computeStartedAtMsRef.current
+            : null,
+        );
         appendComputeTrace({
           level: 'info',
           step: 'Compute finished',
@@ -6789,6 +7489,19 @@ export default function Page() {
           focusPinRequest={focusPinRequest}
           fitAllRequestNonce={fitAllRequestNonce}
           route={selectedRoute}
+          alternativeRoutes={mapAlternativeRoutes}
+          showSmartAlternatives={showSmartAlternativesOverlay}
+          onSelectAlternative={(routeId) => {
+            setSelectedId(routeId);
+          }}
+          routeLabelsById={labelsById}
+          selectedRouteLabel={selectedLabel ?? undefined}
+          baselineRoute={baselineRoute}
+          showBaselineRoute={showBaselineOverlay}
+          googleBaselineRoute={googleBaselineRoute}
+          showGoogleBaselineRoute={showGoogleBaselineOverlay}
+          referenceRoute={mapAcademicReferenceRoute}
+          showReferenceRoute={showAcademicReferenceOverlay}
           failureOverlay={mapFailureOverlay}
           timeLapsePosition={timeLapsePosition}
           dutyStops={dutyStopsForOverlay}
@@ -6860,6 +7573,37 @@ export default function Page() {
               </button>
             </div>
           </section>
+        ) : null}
+        {(selectedRoute || baselineRoute || googleBaselineRoute || mapAcademicReferenceRoute) ? (
+          <div className="mapLegendRow" role="group" aria-label="Map route legend">
+            <span className="mapLegendChip mapLegendChip--smart">Smart route</span>
+            {mapAlternativeRoutes.length > 0 ? (
+                <span
+                  className={`mapLegendChip mapLegendChip--alternatives ${showSmartAlternativesOverlay ? '' : 'isMuted'}`.trim()}
+                >
+                  Smart alternatives ({mapAlternativeRoutes.length})
+                </span>
+              ) : null}
+            {baselineRoute ? (
+              <span className={`mapLegendChip mapLegendChip--baseline ${showBaselineOverlay ? '' : 'isMuted'}`.trim()}>
+                OSRM baseline
+              </span>
+            ) : null}
+            {googleBaselineRoute ? (
+              <span className={`mapLegendChip mapLegendChip--google ${showGoogleBaselineOverlay ? '' : 'isMuted'}`.trim()}>
+                {googleBaselineMeta?.method === 'ors_proxy_baseline'
+                  ? 'OpenRouteService route (proxy)'
+                  : 'OpenRouteService route'}
+              </span>
+            ) : null}
+            {mapAcademicReferenceRoute ? (
+              <span
+                className={`mapLegendChip mapLegendChip--reference ${showAcademicReferenceOverlay ? '' : 'isMuted'}`.trim()}
+              >
+                Academic reference
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -7158,7 +7902,20 @@ export default function Page() {
                   options={computeModeOptions}
                   disabled={busy}
                   onChange={setComputeMode}
+                  tutorialId="preferences.compute_mode"
+                  tutorialActionPrefix="pref.compute_mode_option"
                 />
+                <label className="checkboxRow baselineToggleRow">
+                  <input
+                    type="checkbox"
+                    checked={autoReliabilityProfile}
+                    onChange={(event) => setAutoReliabilityProfile(event.target.checked)}
+                  />
+                  <span>Auto reliability profile for heavy strict runs</span>
+                </label>
+                <div className="tiny">
+                  When enabled, strict long-distance or waypointed runs start in JSON mode first to avoid stream timeout churn.
+                </div>
 
                 {routeWarmupShowCard && (
                   <div className={routeReadinessCardClassName} role="status" aria-live="polite">
@@ -7357,6 +8114,167 @@ export default function Page() {
                   </span>
                 </div>
               ) : null}
+              <div className="field">
+                <span className="label">Selection Math Profile</span>
+                <input
+                  className="input"
+                  value={SELECTION_MATH_PROFILE_OPTIONS.find((option) => option.value === selectionMathProfile)?.label ?? selectionMathProfile}
+                  readOnly
+                  aria-readonly="true"
+                />
+                <span className="hint">
+                  Locked to your tuned modified blend for consistent performance comparisons.
+                </span>
+              </div>
+              <label className="field">
+                <span className="label">Academic Comparator Profile</span>
+                <select
+                  className="input"
+                  value={academicComparisonProfile}
+                  onChange={(event) =>
+                    setAcademicComparisonProfile(event.target.value as AcademicComparisonProfile)
+                  }
+                >
+                  {ACADEMIC_COMPARISON_PROFILE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="hint">
+                  Choose which unchanged academic formula is used as your comparison route.
+                </span>
+              </label>
+              <label className="checkboxRow baselineToggleRow">
+                <input
+                  type="checkbox"
+                  checked={showBaselineOverlay}
+                  onChange={(event) => {
+                    setShowBaselineOverlay(event.target.checked);
+                    markTutorialAction('selected.baseline_toggle');
+                  }}
+                  data-tutorial-action="selected.baseline_toggle"
+                />
+                <span>Show OSRM baseline on map</span>
+                {baselineLoading ? <span className="baselineToggleRow__status">loading...</span> : null}
+              </label>
+              <label className="checkboxRow baselineToggleRow">
+                <input
+                  type="checkbox"
+                  checked={showGoogleBaselineOverlay}
+                  onChange={(event) => {
+                    setShowGoogleBaselineOverlay(event.target.checked);
+                    markTutorialAction('selected.google_baseline_toggle');
+                  }}
+                  data-tutorial-action="selected.google_baseline_toggle"
+                />
+                <span>
+                  {googleBaselineMeta?.method === 'ors_proxy_baseline'
+                    ? 'Show OpenRouteService baseline (proxy) on map'
+                    : 'Show OpenRouteService baseline on map'}
+                </span>
+                {googleBaselineLoading ? <span className="baselineToggleRow__status">loading...</span> : null}
+              </label>
+              <label className="checkboxRow baselineToggleRow">
+                <input
+                  type="checkbox"
+                  checked={showAcademicReferenceOverlay}
+                  onChange={(event) => setShowAcademicReferenceOverlay(event.target.checked)}
+                  disabled={!mapAcademicReferenceRoute}
+                />
+                <span>Show academic comparator route on map</span>
+              </label>
+              <label className="checkboxRow baselineToggleRow">
+                <input
+                  type="checkbox"
+                  checked={showSmartAlternativesOverlay}
+                  onChange={(event) => setShowSmartAlternativesOverlay(event.target.checked)}
+                />
+                <span>Show all smart alternatives on map</span>
+              </label>
+
+              <RouteCertificationPanel
+                locale={locale}
+                route={selectedRoute}
+                runId={routeRunMeta?.run_id ?? null}
+                pipelineMode={routeRunMeta?.pipeline_mode}
+                selectedCertificate={routeRunMeta?.selected_certificate ?? selectedRoute?.certification ?? null}
+                voiStopSummary={routeRunMeta?.voi_stop_summary ?? null}
+                onOpenRunInspector={openRunInspectorForRun}
+              />
+
+              <RouteBaselineComparison
+                title="OSRM Baseline Comparison"
+                baselineLabel="OSRM baseline"
+                locale={locale}
+                smartRoute={selectedRoute}
+                baselineRoute={baselineRoute}
+                comparison={baselineComparison}
+                baselineLoading={baselineLoading}
+                baselineError={baselineError}
+                baselineMeta={baselineMeta}
+                smartComputeMs={smartComputeElapsedMs}
+                candidateCount={latestCandidateCount}
+                liveSummary={latestLiveCallSummary}
+              />
+              <RouteBaselineComparison
+                title="OpenRouteService Baseline Comparison"
+                baselineLabel={
+                  googleBaselineMeta?.method === 'ors_proxy_baseline'
+                    ? 'OpenRouteService route (proxy)'
+                    : 'OpenRouteService route'
+                }
+                locale={locale}
+                smartRoute={selectedRoute}
+                baselineRoute={googleBaselineRoute}
+                comparison={googleBaselineComparison}
+                baselineLoading={googleBaselineLoading}
+                baselineError={googleBaselineError}
+                baselineMeta={googleBaselineMeta}
+                smartComputeMs={smartComputeElapsedMs}
+                candidateCount={latestCandidateCount}
+                liveSummary={latestLiveCallSummary}
+              />
+              {selectedRoute && academicReferenceRoute && mathSelectionComparison ? (
+                <section className="baselineComparePanel">
+                  <div className="baselineComparePanel__head">
+                    <div className="baselineComparePanel__title">Current Profile vs Academic Selection</div>
+                  </div>
+                  <div className="baselineComparePanel__epicNote">
+                    Academic comparison route is picked with{' '}
+                    <strong>{ACADEMIC_COMPARISON_PROFILE_LABELS[academicComparisonProfile]}</strong>. This panel
+                    compares your active profile against that unchanged academic baseline on the same Pareto set.
+                  </div>
+                  <div className="baselineComparePanel__epicNote">
+                    Active profile: <strong>{selectionMathProfile}</strong>
+                  </div>
+                  {mathSelectionComparison.same ? (
+                    <div className="baselineComparePanel__loading">
+                      Both methods selected the same route. For this candidate set, one route is currently best
+                      across ETA, cost, CO2, and distance, so academic and modified selectors converge.
+                    </div>
+                  ) : (
+                    <div className="baselineKpiGrid">
+                      <div className={`baselineKpi ${mathSelectionComparison.durationPct >= 0 ? 'isPositive' : 'isNegative'}`}>
+                        <div className="baselineKpi__label">ETA vs academic</div>
+                        <div className="baselineKpi__meta">{mathSelectionComparison.durationPct.toFixed(1)}%</div>
+                      </div>
+                      <div className={`baselineKpi ${mathSelectionComparison.costPct >= 0 ? 'isPositive' : 'isNegative'}`}>
+                        <div className="baselineKpi__label">Cost vs academic</div>
+                        <div className="baselineKpi__meta">{mathSelectionComparison.costPct.toFixed(1)}%</div>
+                      </div>
+                      <div className={`baselineKpi ${mathSelectionComparison.co2Pct >= 0 ? 'isPositive' : 'isNegative'}`}>
+                        <div className="baselineKpi__label">CO2 vs academic</div>
+                        <div className="baselineKpi__meta">{mathSelectionComparison.co2Pct.toFixed(1)}%</div>
+                      </div>
+                      <div className={`baselineKpi ${mathSelectionComparison.distancePct >= 0 ? 'isPositive' : 'isNegative'}`}>
+                        <div className="baselineKpi__label">Distance vs academic</div>
+                        <div className="baselineKpi__meta">{mathSelectionComparison.distancePct.toFixed(1)}%</div>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              ) : null}
 
               <div className="actionGrid u-mt10">
                 <button type="button"
@@ -7371,13 +8289,91 @@ export default function Page() {
                   className="secondary"
                   onClick={async () => {
                     if (!selectedRoute) return;
-                    const summary = [
+                    const summaryRows = [
                       `Route: ${selectedLabel ?? selectedRoute.id}`,
                       `Distance km: ${selectedRoute.metrics.distance_km.toFixed(2)}`,
                       `Duration s: ${selectedRoute.metrics.duration_s.toFixed(1)}`,
                       `Cost: ${selectedRoute.metrics.monetary_cost.toFixed(2)}`,
                       `CO2 kg: ${selectedRoute.metrics.emissions_kg.toFixed(3)}`,
-                    ].join('\n');
+                    ];
+                    if (baselineRoute && baselineComparison) {
+                      summaryRows.push('');
+                      summaryRows.push('OSRM baseline comparison:');
+                      summaryRows.push('Percentages are improvement vs baseline (+ better, - worse).');
+                      summaryRows.push(`Baseline distance km: ${baselineRoute.metrics.distance_km.toFixed(2)}`);
+                      summaryRows.push(`Baseline duration s: ${baselineRoute.metrics.duration_s.toFixed(1)}`);
+                      summaryRows.push(`Baseline cost: ${baselineRoute.metrics.monetary_cost.toFixed(2)}`);
+                      summaryRows.push(`Baseline CO2 kg: ${baselineRoute.metrics.emissions_kg.toFixed(3)}`);
+                      summaryRows.push(
+                        `ETA: ${Math.abs(baselineComparison.etaDeltaS).toFixed(1)}s ${baselineComparison.etaPct >= 0 ? 'faster' : 'slower'} (improvement ${baselineComparison.etaPct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `Cost: ${Math.abs(baselineComparison.costDelta).toFixed(2)} ${baselineComparison.costPct >= 0 ? 'lower' : 'higher'} (improvement ${baselineComparison.costPct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `CO2: ${Math.abs(baselineComparison.co2Delta).toFixed(3)} kg ${baselineComparison.co2Pct >= 0 ? 'lower' : 'higher'} (improvement ${baselineComparison.co2Pct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `Distance: ${Math.abs(baselineComparison.distanceDeltaKm).toFixed(2)} km ${baselineComparison.distanceGainPct >= 0 ? 'shorter' : 'longer'} (improvement ${baselineComparison.distanceGainPct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `Epic score: ${baselineComparison.epicScore} (${baselineComparison.epicTier})`,
+                      );
+                      if (baselineMeta) {
+                        summaryRows.push(`Baseline method: ${baselineMeta.method}`);
+                        summaryRows.push(`Baseline compute_ms: ${baselineMeta.compute_ms.toFixed(2)}`);
+                      }
+                    }
+                    if (googleBaselineRoute && googleBaselineComparison) {
+                      summaryRows.push('');
+                      summaryRows.push('OpenRouteService baseline comparison:');
+                      summaryRows.push('Percentages are improvement vs baseline (+ better, - worse).');
+                      summaryRows.push(
+                        `OpenRouteService distance km: ${googleBaselineRoute.metrics.distance_km.toFixed(2)}`,
+                      );
+                      summaryRows.push(
+                        `OpenRouteService duration s: ${googleBaselineRoute.metrics.duration_s.toFixed(1)}`,
+                      );
+                      summaryRows.push(
+                        `OpenRouteService cost: ${googleBaselineRoute.metrics.monetary_cost.toFixed(2)}`,
+                      );
+                      summaryRows.push(
+                        `OpenRouteService CO2 kg: ${googleBaselineRoute.metrics.emissions_kg.toFixed(3)}`,
+                      );
+                      summaryRows.push(
+                        `ETA: ${Math.abs(googleBaselineComparison.etaDeltaS).toFixed(1)}s ${googleBaselineComparison.etaPct >= 0 ? 'faster' : 'slower'} (improvement ${googleBaselineComparison.etaPct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `Cost: ${Math.abs(googleBaselineComparison.costDelta).toFixed(2)} ${googleBaselineComparison.costPct >= 0 ? 'lower' : 'higher'} (improvement ${googleBaselineComparison.costPct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `CO2: ${Math.abs(googleBaselineComparison.co2Delta).toFixed(3)} kg ${googleBaselineComparison.co2Pct >= 0 ? 'lower' : 'higher'} (improvement ${googleBaselineComparison.co2Pct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `Distance: ${Math.abs(googleBaselineComparison.distanceDeltaKm).toFixed(2)} km ${googleBaselineComparison.distanceGainPct >= 0 ? 'shorter' : 'longer'} (improvement ${googleBaselineComparison.distanceGainPct.toFixed(1)}%)`,
+                      );
+                      summaryRows.push(
+                        `Epic score: ${googleBaselineComparison.epicScore} (${googleBaselineComparison.epicTier})`,
+                      );
+                      if (googleBaselineMeta) {
+                        summaryRows.push(`OpenRouteService baseline method: ${googleBaselineMeta.method}`);
+                        summaryRows.push(
+                          `OpenRouteService baseline compute_ms: ${googleBaselineMeta.compute_ms.toFixed(2)}`,
+                        );
+                      }
+                    }
+                    if (academicReferenceRoute && mathSelectionComparison && !mathSelectionComparison.same) {
+                      summaryRows.push('');
+                      summaryRows.push(
+                        `Current profile (${selectionMathProfile}) vs ${ACADEMIC_COMPARISON_PROFILE_LABELS[academicComparisonProfile]} selection:`,
+                      );
+                      summaryRows.push(`Academic route id: ${academicReferenceRoute.id}`);
+                      summaryRows.push(`ETA improvement vs academic: ${mathSelectionComparison.durationPct.toFixed(1)}%`);
+                      summaryRows.push(`Cost improvement vs academic: ${mathSelectionComparison.costPct.toFixed(1)}%`);
+                      summaryRows.push(`CO2 improvement vs academic: ${mathSelectionComparison.co2Pct.toFixed(1)}%`);
+                      summaryRows.push(`Distance improvement vs academic: ${mathSelectionComparison.distancePct.toFixed(1)}%`);
+                    }
+                    const summary = summaryRows.join('\n');
                     try {
                       await navigator.clipboard.writeText(summary);
                     } catch {
@@ -8077,6 +9073,17 @@ export default function Page() {
                       .find((entry) => entry.candidateDiagnostics || entry.failureChain) ?? null;
                   const candidateDiagnostics = latestDiagEntry?.candidateDiagnostics ?? null;
                   const failureChain = latestDiagEntry?.failureChain ?? null;
+                  const stageTimingRows = candidateDiagnostics
+                    ? [
+                        { label: 'prefetch_ms', value: Number(candidateDiagnostics.prefetch_ms ?? NaN) },
+                        { label: 'scenario_context_ms', value: Number(candidateDiagnostics.scenario_context_ms ?? NaN) },
+                        { label: 'graph_search_ms_initial', value: Number(candidateDiagnostics.graph_search_ms_initial ?? NaN) },
+                        { label: 'graph_search_ms_retry', value: Number(candidateDiagnostics.graph_search_ms_retry ?? NaN) },
+                        { label: 'graph_search_ms_rescue', value: Number(candidateDiagnostics.graph_search_ms_rescue ?? NaN) },
+                        { label: 'osrm_refine_ms', value: Number(candidateDiagnostics.osrm_refine_ms ?? NaN) },
+                        { label: 'build_options_ms', value: Number(candidateDiagnostics.build_options_ms ?? NaN) },
+                      ].filter((row) => Number.isFinite(row.value) && row.value > 0)
+                    : [];
                   const scenarioGateSignal = safeParseJsonObject(
                     candidateDiagnostics?.scenario_gate_source_signal_json,
                   );
@@ -8269,6 +9276,22 @@ export default function Page() {
                                   </pre>
                                 </section>
                               ) : null}
+                              {stageTimingRows.length > 0 ? (
+                                <section className="computeTraceDiagCard" aria-label="Stage timings">
+                                  <div className="computeTraceDiagCard__title">Stage Timings (ms)</div>
+                                  <div className="computeTraceDiagRows">
+                                    {stageTimingRows.map((row) => (
+                                      <div
+                                        key={`${group.attempt}-stage-${row.label}`}
+                                        className="computeTraceDiagRows__row"
+                                      >
+                                        <span>{row.label}</span>
+                                        <span>{row.value.toFixed(2)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </section>
+                              ) : null}
                               {candidateDiagnostics ? (
                                 <section className="computeTraceDiagCard" aria-label="Graph diagnostics">
                                   <div className="computeTraceDiagCard__title">Graph Diagnostics</div>
@@ -8425,6 +9448,7 @@ export default function Page() {
         onBack={tutorialBack}
         onNext={tutorialNext}
         onFinish={tutorialFinish}
+        onSkipStep={tutorialSkipCurrentStep}
         onMarkManual={markTutorialAction}
         onUseOptionalDefault={markTutorialOptionalDefault}
       />

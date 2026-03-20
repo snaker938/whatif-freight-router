@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.main import CandidateDiagnostics, TerrainDiagnostics
 from app.main import app, osrm_client
-from app.models import GeoJSONLineString, RouteMetrics, RouteOption, ScenarioSummary
+from app.models import (
+    GeoJSONLineString,
+    RouteCertificationSummary,
+    RouteMetrics,
+    RouteOption,
+    ScenarioSummary,
+    VoiStopSummary,
+)
 from app.routing_graph import GraphCandidateDiagnostics
 from app.routing_osrm import OSRMError
 from app.scenario import ScenarioMode
@@ -376,7 +383,7 @@ def test_route_timeout_returns_route_compute_timeout(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "route_compute_attempt_timeout_s", 1)
+    monkeypatch.setattr(settings, "route_compute_single_attempt_timeout_s", 1)
 
     async def _slow_collect_route_options_with_diagnostics(**_: Any) -> tuple[
         list[RouteOption],
@@ -407,6 +414,126 @@ def test_route_timeout_returns_route_compute_timeout(
     assert detail["stage"] == "collecting_candidates"
     assert detail["stage_detail"] == "attempt_timeout_reached"
     assert int(detail["timeout_s"]) == 1
+
+
+def test_route_uses_direct_pipeline_for_voi_mode(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+
+    async def _fail_if_legacy_called(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        TerrainDiagnostics,
+        CandidateDiagnostics,
+    ]:
+        raise AssertionError("legacy route collector should not run for VOI pipeline mode")
+
+    route = RouteOption(
+        id="voi_route_1",
+        geometry=GeoJSONLineString(
+            type="LineString",
+            coordinates=[(-1.8904, 52.4862), (-0.1276, 51.5072)],
+        ),
+        metrics=RouteMetrics(
+            distance_km=185.0,
+            duration_s=8100.0,
+            monetary_cost=312.4,
+            emissions_kg=144.2,
+            avg_speed_kmh=82.2,
+        ),
+        scenario_summary=ScenarioSummary(
+            mode=ScenarioMode.NO_SHARING,
+            duration_multiplier=1.0,
+            incident_rate_multiplier=1.0,
+            incident_delay_multiplier=1.0,
+            fuel_consumption_multiplier=1.0,
+            emissions_multiplier=1.0,
+            stochastic_sigma_multiplier=1.0,
+            source="pytest",
+            version="pytest",
+        ),
+        certification=RouteCertificationSummary(
+            route_id="voi_route_1",
+            certificate=0.86,
+            certified=True,
+            threshold=0.8,
+            active_families=["scenario", "weather"],
+            top_fragility_families=["weather"],
+            top_competitor_route_id="voi_route_2",
+            top_value_of_refresh_family="weather",
+        ),
+    )
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        return {
+            "selected": route,
+            "candidates": [route],
+            "warnings": [],
+            "candidate_fetches": 1,
+            "terrain_diag": TerrainDiagnostics(),
+            "candidate_diag": CandidateDiagnostics(raw_count=1, deduped_count=1, candidate_budget=1),
+            "selected_certificate": route.certification,
+            "voi_stop_summary": VoiStopSummary(
+                final_route_id="voi_route_1",
+                certificate=0.86,
+                certified=True,
+                iteration_count=1,
+                search_budget_used=1,
+                evidence_budget_used=0,
+                stop_reason="certified",
+                best_rejected_action="refine_top1_dccs:other",
+                best_rejected_q=0.04,
+            ),
+            "extra_json_artifacts": {
+                "certificate_summary.json": {"selected_route_id": "voi_route_1", "selected_certificate": 0.86},
+                "voi_stop_certificate.json": {"final_winner_route_id": "voi_route_1", "certificate_value": 0.86},
+            },
+            "extra_jsonl_artifacts": {
+                "dccs_candidates.jsonl": [{"candidate_id": "cand-1", "decision": "refine"}],
+            },
+            "extra_csv_artifacts": {
+                "voi_action_scores.csv": (
+                    ["iteration", "action_id", "q_score"],
+                    [{"iteration": 0, "action_id": "refine_top1_dccs:cand-1", "q_score": 0.14}],
+                ),
+            },
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fail_if_legacy_called,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+
+    resp = client.post(
+        "/route",
+        json={
+            **_pareto_payload(),
+            "pipeline_mode": "voi",
+            "search_budget": 2,
+            "evidence_budget": 1,
+            "cert_world_count": 16,
+            "certificate_threshold": 0.8,
+            "tau_stop": 0.02,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pipeline_mode"] == "voi"
+    assert data["selected"]["id"] == "voi_route_1"
+    assert data["selected_certificate"]["route_id"] == "voi_route_1"
+    assert data["selected_certificate"]["certified"] is True
+    assert data["voi_stop_summary"]["stop_reason"] == "certified"
+    assert data["run_id"]
 
 
 def test_pareto_timeout_returns_route_compute_timeout(

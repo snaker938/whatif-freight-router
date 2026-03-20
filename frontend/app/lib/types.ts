@@ -1,5 +1,6 @@
 export type ScenarioMode = 'no_sharing' | 'partial_sharing' | 'full_sharing';
 export type ParetoMethod = 'dominance' | 'epsilon_constraint';
+export type PipelineMode = 'legacy' | 'dccs' | 'dccs_refc' | 'voi';
 export type TerrainProfile = 'flat' | 'rolling' | 'hilly';
 export type OptimizationMode = 'expected_value' | 'robust';
 export type ComputeMode = 'pareto_stream' | 'pareto_json' | 'route_single';
@@ -199,6 +200,48 @@ export type ScenarioSummary = {
   mode_projection_ratio?: number;
 };
 
+export type EvidenceSourceRecord = {
+  family: string;
+  source: string;
+  active: boolean;
+  freshness_timestamp_utc?: string | null;
+  max_age_minutes?: number | null;
+  signature?: string | null;
+  confidence?: number | null;
+  coverage_ratio?: number | null;
+  fallback_used?: boolean;
+  fallback_source?: string | null;
+  details?: Record<string, string | number | boolean>;
+};
+
+export type EvidenceProvenance = {
+  active_families: string[];
+  families: EvidenceSourceRecord[];
+};
+
+export type RouteCertificationSummary = {
+  route_id: string;
+  certificate: number;
+  certified: boolean;
+  threshold: number;
+  active_families?: string[];
+  top_fragility_families?: string[];
+  top_competitor_route_id?: string | null;
+  top_value_of_refresh_family?: string | null;
+};
+
+export type VoiStopSummary = {
+  final_route_id: string;
+  certificate: number;
+  certified: boolean;
+  iteration_count: number;
+  search_budget_used: number;
+  evidence_budget_used: number;
+  stop_reason: string;
+  best_rejected_action?: string | null;
+  best_rejected_q?: number | null;
+};
+
 export type GeoJSONLineString = {
   type: 'LineString';
   coordinates: [number, number][];
@@ -226,17 +269,44 @@ export type RouteOption = {
   incident_events?: SimulatedIncidentEvent[];
   weather_summary?: WeatherSummary | null;
   terrain_summary?: TerrainSummary | null;
+  evidence_provenance?: EvidenceProvenance | null;
+  certification?: RouteCertificationSummary | null;
 };
 
 export type RouteResponse = {
   selected: RouteOption;
   candidates: RouteOption[];
+  run_id?: string | null;
+  pipeline_mode?: PipelineMode;
+  manifest_endpoint?: string | null;
+  artifacts_endpoint?: string | null;
+  provenance_endpoint?: string | null;
+  selected_certificate?: RouteCertificationSummary | null;
+  voi_stop_summary?: VoiStopSummary | null;
+};
+
+export type RouteBaselineResponse = {
+  baseline: RouteOption;
+  method: 'osrm_quick_baseline' | 'ors_reference' | 'ors_proxy_baseline';
+  compute_ms: number;
+  notes?: string[];
 };
 
 export type ParetoResponse = {
   routes: RouteOption[];
   warnings?: string[];
   diagnostics?: Record<string, string | number | boolean>;
+};
+
+export type CandidateDiagnostics = {
+  [key: string]: unknown;
+  prefetch_ms?: number;
+  scenario_context_ms?: number;
+  graph_search_ms_initial?: number;
+  graph_search_ms_retry?: number;
+  graph_search_ms_rescue?: number;
+  osrm_refine_ms?: number;
+  build_options_ms?: number;
 };
 
 export type ParetoStreamMetaEvent = {
@@ -251,7 +321,7 @@ export type ParetoStreamMetaEvent = {
   heartbeat?: number;
   candidate_done?: number;
   candidate_total?: number;
-  candidate_diagnostics?: Record<string, unknown> | null;
+  candidate_diagnostics?: CandidateDiagnostics | null;
 };
 
 export type ParetoStreamRouteEvent = {
@@ -421,6 +491,13 @@ export type RouteRequest = {
   departure_time_utc?: string;
   pareto_method?: ParetoMethod;
   epsilon?: EpsilonConstraints;
+  pipeline_mode?: PipelineMode | null;
+  pipeline_seed?: number | null;
+  search_budget?: number | null;
+  evidence_budget?: number | null;
+  cert_world_count?: number | null;
+  certificate_threshold?: number | null;
+  tau_stop?: number | null;
 };
 
 export type ParetoRequest = RouteRequest & {

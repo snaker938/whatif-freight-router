@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,30 @@ ARTIFACT_FILES: tuple[str, ...] = (
     "routes.geojson",
     "results_summary.csv",
     "report.pdf",
+    "dccs_candidates.jsonl",
+    "dccs_summary.json",
+    "refined_routes.jsonl",
+    "strict_frontier.jsonl",
+    "winner_summary.json",
+    "certificate_summary.json",
+    "route_fragility_map.json",
+    "competitor_fragility_breakdown.json",
+    "value_of_refresh.json",
+    "sampled_world_manifest.json",
+    "voi_action_trace.json",
+    "voi_action_scores.csv",
+    "voi_stop_certificate.json",
+    "final_route_trace.json",
+    "od_corpus.csv",
+    "od_corpus_summary.json",
+    "ors_snapshot.json",
+    "thesis_results.csv",
+    "thesis_summary.csv",
+    "methods_appendix.md",
+    "thesis_report.md",
 )
+
+_SAFE_ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 CSV_COLUMNS: tuple[str, ...] = (
     "pair_index",
@@ -66,13 +90,44 @@ def artifact_dir_for_run(run_id: str) -> Path:
     return p
 
 
+def is_safe_artifact_name(name: str) -> bool:
+    return bool(_SAFE_ARTIFACT_NAME.fullmatch(str(name or "").strip()))
+
+
+def artifact_path_for_name(run_id: str, artifact_name: str) -> Path:
+    cleaned = str(artifact_name or "").strip()
+    if not is_safe_artifact_name(cleaned):
+        raise ValueError("invalid artifact name")
+    return artifact_dir_for_run(run_id) / cleaned
+
+
 def artifact_paths_for_run(run_id: str) -> dict[str, Path]:
-    base = Path(settings.out_dir) / "artifacts" / run_id
+    base = artifact_dir_for_run(run_id)
     return {name: base / name for name in ARTIFACT_FILES}
+
+
+def list_artifact_paths_for_run(run_id: str) -> dict[str, Path]:
+    base = artifact_dir_for_run(run_id)
+    found: dict[str, Path] = {}
+    for path in sorted(base.iterdir(), key=lambda item: item.name):
+        if not path.is_file():
+            continue
+        if not is_safe_artifact_name(path.name):
+            continue
+        found[path.name] = path
+    for name, path in artifact_paths_for_run(run_id).items():
+        if path.exists():
+            found.setdefault(name, path)
+    return found
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    lines = [json.dumps(row, separators=(",", ":"), ensure_ascii=False) for row in rows]
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -81,6 +136,40 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow({k: row.get(k, "") for k in CSV_COLUMNS})
+
+
+def write_json_artifact(run_id: str, artifact_name: str, payload: dict[str, Any] | list[Any]) -> Path:
+    path = artifact_path_for_name(run_id, artifact_name)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def write_jsonl_artifact(run_id: str, artifact_name: str, rows: list[dict[str, Any]]) -> Path:
+    path = artifact_path_for_name(run_id, artifact_name)
+    _write_jsonl(path, rows)
+    return path
+
+
+def write_csv_artifact(
+    run_id: str,
+    artifact_name: str,
+    *,
+    fieldnames: list[str],
+    rows: list[dict[str, Any]],
+) -> Path:
+    path = artifact_path_for_name(run_id, artifact_name)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
+    return path
+
+
+def write_text_artifact(run_id: str, artifact_name: str, text: str) -> Path:
+    path = artifact_path_for_name(run_id, artifact_name)
+    path.write_text(str(text), encoding="utf-8")
+    return path
 
 
 def write_run_artifacts(

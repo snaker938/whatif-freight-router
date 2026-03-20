@@ -11,7 +11,9 @@ APP_MODULE_TO_TEST_FILES = {
     "calibration_loader.py": ["test_cost_model.py", "test_terrain_runtime_budget.py"],
     "carbon_model.py": ["test_cost_model.py", "test_emissions_context.py"],
     "departure_profile.py": ["test_departure_profile_v2.py", "test_departure_optimize.py"],
+    "decision_critical.py": ["test_dccs.py", "test_voi_controller.py"],
     "experiment_store.py": ["test_experiments.py"],
+    "evidence_certification.py": ["test_refc.py", "test_voi_controller.py"],
     "fuel_energy_model.py": ["test_cost_model.py", "test_emissions_context.py"],
     "incident_simulator.py": ["test_incident_simulator.py"],
     "k_shortest.py": ["test_k_shortest.py"],
@@ -49,6 +51,7 @@ APP_MODULE_TO_TEST_FILES = {
     "toll_engine.py": ["test_toll_engine_unit.py", "test_traffic_profiles.py"],
     "uncertainty_model.py": ["test_uncertainty_model_unit.py"],
     "vehicles.py": ["test_vehicle_custom.py", "test_emissions_models.py"],
+    "voi_controller.py": ["test_voi_controller.py"],
     "weather_adapter.py": ["test_weather_adapter.py"],
 }
 

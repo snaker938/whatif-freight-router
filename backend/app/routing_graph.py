@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
+import json
+import pickle
 import re
 import threading
 import time
-from collections import deque
 from decimal import Decimal
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -75,6 +76,36 @@ def _effective_route_graph_max_hops(
     return max(base_hops, min(cap_hops, max(scaled_hops, hop_floor)))
 
 
+def _route_graph_heuristic_fn(graph: RouteGraph, *, goal_node_id: str):
+    if not bool(settings.route_graph_a_star_heuristic_enabled):
+        return None
+    goal_coords = graph.nodes.get(goal_node_id)
+    if goal_coords is None:
+        return None
+    max_speed_kph = float(settings.route_graph_heuristic_max_speed_kph)
+    if not math.isfinite(max_speed_kph) or max_speed_kph <= 0.0:
+        return None
+    max_speed_mps = max(1.0, max_speed_kph / 3.6)
+    min_cost_per_meter = max(0.0, float(getattr(graph, "min_cost_per_meter", 0.0)))
+    goal_lat, goal_lon = goal_coords
+
+    # A* lower-bound heuristic design follows Hart et al. (1968):
+    # "A Formal Basis for the Heuristic Determination of Minimum Cost Paths"
+    # https://doi.org/10.1109/TSSC.1968.300136
+    def _heuristic(node_id: str) -> float:
+        coords = graph.nodes.get(node_id)
+        if coords is None:
+            return 0.0
+        lat, lon = coords
+        distance_m = _haversine_m(lat, lon, goal_lat, goal_lon)
+        h_speed = distance_m / max_speed_mps
+        h_cost_density = distance_m * min_cost_per_meter if min_cost_per_meter > 0.0 else 0.0
+        # Both terms are lower bounds; taking max improves pruning while remaining admissible.
+        return max(0.0, h_speed, h_cost_density)
+
+    return _heuristic
+
+
 @dataclass(frozen=True)
 class RouteGraph:
     version: str
@@ -89,6 +120,7 @@ class RouteGraph:
     largest_component_nodes: int
     largest_component_ratio: float
     graph_fragmented: bool
+    min_cost_per_meter: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -117,6 +149,7 @@ class GraphEdge:
 
 _WARMUP_LOCK = threading.Lock()
 _WARMUP_STATE = "idle"  # idle | loading | ready | failed
+_WARMUP_READY_MODE = "none"  # none | fast | full
 _WARMUP_STARTED_AT_UTC: str | None = None
 _WARMUP_READY_AT_UTC: str | None = None
 _WARMUP_STARTED_MONOTONIC: float | None = None
@@ -135,6 +168,10 @@ _WARMUP_LARGEST_COMPONENT_RATIO = 0.0
 _WARMUP_GRAPH_FRAGMENTED = False
 _WARMUP_LAST_PROGRESS_LOG_MONOTONIC: float | None = None
 _WARMUP_THREAD: threading.Thread | None = None
+_ADJ_CACHE_LOCK = threading.Lock()
+_BASE_ADJ_COST_VIEW_CACHE: dict[int, dict[str, tuple[tuple[str, float], ...]]] = {}
+_SCENARIO_ADJ_COST_VIEW_CACHE: dict[tuple[int, str], dict[str, tuple[tuple[str, float], ...]]] = {}
+_SCENARIO_ADJ_COST_VIEW_CACHE_MAX = 4
 
 
 def _iso_utc_now() -> str:
@@ -144,6 +181,7 @@ def _iso_utc_now() -> str:
 def _snapshot_warmup_state() -> dict[str, Any]:
     with _WARMUP_LOCK:
         state = str(_WARMUP_STATE)
+        ready_mode = str(_WARMUP_READY_MODE)
         started_at_utc = _WARMUP_STARTED_AT_UTC
         ready_at_utc = _WARMUP_READY_AT_UTC
         started_monotonic = _WARMUP_STARTED_MONOTONIC
@@ -176,6 +214,7 @@ def _snapshot_warmup_state() -> dict[str, Any]:
         asset_size_mb = None
     return {
         "state": state,
+        "ready_mode": ready_mode,
         "phase": phase,
         "started_at_utc": started_at_utc,
         "ready_at_utc": ready_at_utc,
@@ -207,6 +246,7 @@ def _mark_warmup_loading() -> None:
     with _WARMUP_LOCK:
         global _WARMUP_STATE, _WARMUP_STARTED_AT_UTC, _WARMUP_READY_AT_UTC
         global _WARMUP_STARTED_MONOTONIC, _WARMUP_LAST_ERROR, _WARMUP_PHASE
+        global _WARMUP_READY_MODE
         global _WARMUP_TIMED_OUT, _WARMUP_PROGRESS_NODES_SEEN, _WARMUP_PROGRESS_NODES_KEPT
         global _WARMUP_PROGRESS_EDGES_SEEN, _WARMUP_PROGRESS_EDGES_KEPT
         global _WARMUP_COMPONENT_COUNT, _WARMUP_LARGEST_COMPONENT_NODES
@@ -217,6 +257,7 @@ def _mark_warmup_loading() -> None:
         _WARMUP_READY_AT_UTC = None
         _WARMUP_STARTED_MONOTONIC = time.monotonic()
         _WARMUP_LAST_ERROR = None
+        _WARMUP_READY_MODE = "none"
         _WARMUP_PHASE = "initializing"
         _WARMUP_TIMED_OUT = False
         _WARMUP_PROGRESS_NODES_SEEN = 0
@@ -290,7 +331,7 @@ def _mark_warmup_ready(graph: RouteGraph) -> None:
     with _WARMUP_LOCK:
         global _WARMUP_STATE, _WARMUP_READY_AT_UTC, _WARMUP_LAST_ERROR
         global _WARMUP_LAST_SOURCE, _WARMUP_LAST_VERSION
-        global _WARMUP_PHASE, _WARMUP_TIMED_OUT
+        global _WARMUP_PHASE, _WARMUP_TIMED_OUT, _WARMUP_READY_MODE
         global _WARMUP_COMPONENT_COUNT, _WARMUP_LARGEST_COMPONENT_NODES
         global _WARMUP_LARGEST_COMPONENT_RATIO, _WARMUP_GRAPH_FRAGMENTED
         _WARMUP_STATE = "ready"
@@ -298,6 +339,7 @@ def _mark_warmup_ready(graph: RouteGraph) -> None:
         _WARMUP_LAST_ERROR = None
         _WARMUP_LAST_SOURCE = str(graph.source or "")
         _WARMUP_LAST_VERSION = str(graph.version or "")
+        _WARMUP_READY_MODE = "full"
         _WARMUP_PHASE = "ready"
         _WARMUP_TIMED_OUT = False
         _WARMUP_COMPONENT_COUNT = int(graph.component_count)
@@ -306,13 +348,30 @@ def _mark_warmup_ready(graph: RouteGraph) -> None:
         _WARMUP_GRAPH_FRAGMENTED = bool(graph.graph_fragmented)
 
 
+def _mark_warmup_ready_fast(*, source: str, version: str) -> None:
+    now = _iso_utc_now()
+    with _WARMUP_LOCK:
+        global _WARMUP_STATE, _WARMUP_READY_AT_UTC, _WARMUP_LAST_ERROR
+        global _WARMUP_LAST_SOURCE, _WARMUP_LAST_VERSION
+        global _WARMUP_PHASE, _WARMUP_TIMED_OUT, _WARMUP_READY_MODE
+        _WARMUP_STATE = "ready"
+        _WARMUP_READY_AT_UTC = now
+        _WARMUP_LAST_ERROR = None
+        _WARMUP_LAST_SOURCE = str(source or "")
+        _WARMUP_LAST_VERSION = str(version or "")
+        _WARMUP_READY_MODE = "fast"
+        _WARMUP_PHASE = "ready_fast"
+        _WARMUP_TIMED_OUT = False
+
+
 def _mark_warmup_failed(error: str, *, timed_out: bool = False, phase: str | None = None) -> None:
     with _WARMUP_LOCK:
         global _WARMUP_STATE, _WARMUP_LAST_ERROR, _WARMUP_READY_AT_UTC
-        global _WARMUP_PHASE, _WARMUP_TIMED_OUT
+        global _WARMUP_PHASE, _WARMUP_TIMED_OUT, _WARMUP_READY_MODE
         _WARMUP_STATE = "failed"
         _WARMUP_LAST_ERROR = str(error).strip() or "unknown"
         _WARMUP_READY_AT_UTC = None
+        _WARMUP_READY_MODE = "none"
         if phase is not None and str(phase).strip():
             _WARMUP_PHASE = str(phase).strip()
         _WARMUP_TIMED_OUT = bool(timed_out)
@@ -337,6 +396,35 @@ def _raise_if_warmup_timed_out(deadline_monotonic: float | None, *, phase: str) 
     raise TimeoutError(f"route_graph_warmup_timeout phase={phase} timeout_s={timeout_s}")
 
 
+def _fast_startup_graph_ready_without_full_load() -> bool:
+    if not bool(settings.route_graph_fast_startup_enabled):
+        return False
+    with _WARMUP_LOCK:
+        ready = _WARMUP_STATE == "ready" and _WARMUP_READY_MODE == "fast"
+    if not ready:
+        return False
+    return load_route_graph.cache_info().currsize <= 0
+
+
+def _fast_startup_long_corridor_bypass_allowed(
+    *,
+    origin_lat: float,
+    origin_lon: float,
+    destination_lat: float,
+    destination_lon: float,
+) -> tuple[bool, float]:
+    straight_line_km = max(
+        0.0,
+        _haversine_m(origin_lat, origin_lon, destination_lat, destination_lon) / 1000.0,
+    )
+    if not _fast_startup_graph_ready_without_full_load():
+        return False, straight_line_km
+    threshold_km = max(0.0, float(settings.route_graph_fast_startup_long_corridor_bypass_km))
+    if straight_line_km < threshold_km:
+        return False, straight_line_km
+    return True, straight_line_km
+
+
 def _warmup_worker() -> None:
     timeout_s = max(60, int(settings.route_graph_warmup_timeout_s))
     log_event(
@@ -346,6 +434,33 @@ def _warmup_worker() -> None:
     )
     _set_warmup_phase("initializing", force_log=True)
     try:
+        if bool(settings.route_graph_fast_startup_enabled):
+            path = _graph_asset_path()
+            signature = _graph_asset_signature(path)
+            if signature is None:
+                _mark_warmup_failed("route_graph_unavailable", timed_out=False, phase="metadata_validation")
+                log_event(
+                    "route_graph_warmup_failed",
+                    reason="route_graph_unavailable",
+                    timeout_s=timeout_s,
+                    warmup=route_graph_warmup_status(),
+                )
+                return
+            _set_warmup_phase("metadata_validation", force_log=True)
+            _mark_warmup_ready_fast(
+                source=str(signature.get("source", str(path))),
+                version=str(signature.get("version", "unknown")),
+            )
+            log_event(
+                "route_graph_warmup_ready",
+                timeout_s=timeout_s,
+                warmup=route_graph_warmup_status(),
+                node_count=0,
+                adjacency_count=0,
+                edge_count=0,
+                mode="fast_startup_metadata",
+            )
+            return
         graph = load_route_graph()
         if graph is None:
             _mark_warmup_failed("route_graph_unavailable", timed_out=False, phase="finalizing")
@@ -461,6 +576,114 @@ def _graph_asset_path() -> Path:
     return Path(settings.model_asset_dir) / "routing_graph_uk.json"
 
 
+def _graph_binary_cache_path(asset_path: Path) -> Path:
+    explicit = (settings.route_graph_binary_cache_path or "").strip()
+    if explicit:
+        return Path(explicit)
+    return asset_path.with_suffix(f"{asset_path.suffix}.pkl")
+
+
+def _graph_binary_cache_meta_path(asset_path: Path) -> Path:
+    return _graph_binary_cache_path(asset_path).with_suffix(".pkl.meta.json")
+
+
+def _graph_asset_signature(path: Path) -> dict[str, Any] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    version, source = _graph_meta_from_head(path)
+    return {
+        "path": str(path.resolve()),
+        "size": int(stat.st_size),
+        "mtime_ns": int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+        "version": str(version),
+        "source": str(source),
+    }
+
+
+def _load_route_graph_binary_cache(path: Path) -> RouteGraph | None:
+    if not bool(settings.route_graph_binary_cache_enabled):
+        return None
+    expected_sig = _graph_asset_signature(path)
+    if expected_sig is None:
+        return None
+    cache_path = _graph_binary_cache_path(path)
+    if not cache_path.exists():
+        return None
+    meta_path = _graph_binary_cache_meta_path(path)
+    if meta_path.exists():
+        try:
+            with meta_path.open("r", encoding="utf-8") as fh:
+                meta_payload = json.load(fh)
+            meta_asset = meta_payload.get("asset")
+            if isinstance(meta_asset, dict) and meta_asset != expected_sig:
+                return None
+        except Exception:
+            # Fall back to legacy payload check if meta cannot be read.
+            pass
+    else:
+        # Fast stale-cache rejection for legacy caches without sidecar metadata.
+        # If cache is older than source graph file, skip expensive unpickle immediately.
+        try:
+            cache_stat = cache_path.stat()
+            if int(getattr(cache_stat, "st_mtime_ns", int(cache_stat.st_mtime * 1_000_000_000))) < int(
+                expected_sig.get("mtime_ns", 0)
+            ):
+                return None
+        except OSError:
+            return None
+    try:
+        with cache_path.open("rb") as fh:
+            payload = pickle.load(fh)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("asset") != expected_sig:
+        return None
+    graph = payload.get("graph")
+    if not isinstance(graph, RouteGraph):
+        return None
+    return graph
+
+
+def _save_route_graph_binary_cache(path: Path, graph: RouteGraph) -> None:
+    if not bool(settings.route_graph_binary_cache_enabled):
+        return
+    signature = _graph_asset_signature(path)
+    if signature is None:
+        return
+    cache_path = _graph_binary_cache_path(path)
+    meta_path = _graph_binary_cache_meta_path(path)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = cache_path.with_suffix(f"{cache_path.suffix}.tmp")
+        tmp_meta_path = meta_path.with_suffix(f"{meta_path.suffix}.tmp")
+        with tmp_path.open("wb") as fh:
+            pickle.dump(
+                {
+                    "asset": signature,
+                    "saved_at_utc": _iso_utc_now(),
+                    "graph": graph,
+                },
+                fh,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+        with tmp_meta_path.open("w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "asset": signature,
+                    "saved_at_utc": _iso_utc_now(),
+                },
+                fh,
+            )
+        tmp_path.replace(cache_path)
+        tmp_meta_path.replace(meta_path)
+    except Exception:
+        return
+
+
 def _parse_node(raw: dict[str, object]) -> tuple[str, float, float] | None:
     node_id_raw = raw.get("id")
     if node_id_raw is None:
@@ -536,36 +759,66 @@ def _compute_component_index(
     nodes: dict[str, tuple[float, float]],
     adjacency_mut: dict[str, list[GraphEdge]],
 ) -> tuple[dict[str, int], dict[int, int], int, int, float]:
-    undirected: dict[str, set[str]] = {}
+    # Union-find weak-component indexing avoids materialising an additional
+    # undirected neighbour-set graph for >10M-node UK assets.
+    parent: dict[str, str] = {}
+    rank: dict[str, int] = {}
+
+    def _find(node_id: str) -> str:
+        root = parent.get(node_id)
+        if root is None:
+            parent[node_id] = node_id
+            rank[node_id] = 0
+            return node_id
+        path: list[str] = []
+        while True:
+            next_root = parent.get(root)
+            if next_root is None or next_root == root:
+                break
+            path.append(root)
+            root = next_root
+        parent[node_id] = root
+        for item in path:
+            parent[item] = root
+        return root
+
+    def _union(a: str, b: str) -> None:
+        root_a = _find(a)
+        root_b = _find(b)
+        if root_a == root_b:
+            return
+        rank_a = int(rank.get(root_a, 0))
+        rank_b = int(rank.get(root_b, 0))
+        if rank_a < rank_b:
+            root_a, root_b = root_b, root_a
+            rank_a, rank_b = rank_b, rank_a
+        parent[root_b] = root_a
+        if rank_a == rank_b:
+            rank[root_a] = rank_a + 1
+
     for src, edges in adjacency_mut.items():
         if src not in nodes:
             continue
-        out = undirected.setdefault(src, set())
         for edge in edges:
             dst = str(edge.to)
             if dst not in nodes:
                 continue
-            out.add(dst)
-            undirected.setdefault(dst, set()).add(src)
+            _union(src, dst)
+
     component_by_node: dict[str, int] = {}
     component_sizes: dict[int, int] = {}
+    root_to_component: dict[str, int] = {}
     component_idx = 0
     for node_id in nodes:
-        if node_id in component_by_node:
-            continue
-        component_idx += 1
-        q: deque[str] = deque([node_id])
-        size = 0
-        while q:
-            current = q.popleft()
-            if current in component_by_node:
-                continue
-            component_by_node[current] = component_idx
-            size += 1
-            for nxt in undirected.get(current, ()):
-                if nxt not in component_by_node:
-                    q.append(nxt)
-        component_sizes[component_idx] = size
+        root = _find(node_id)
+        component_id = root_to_component.get(root)
+        if component_id is None:
+            component_idx += 1
+            component_id = component_idx
+            root_to_component[root] = component_id
+            component_sizes[component_id] = 0
+        component_by_node[node_id] = component_id
+        component_sizes[component_id] = int(component_sizes[component_id]) + 1
     largest_component_nodes = max(component_sizes.values(), default=0)
     largest_component_ratio = (
         float(largest_component_nodes) / float(max(1, len(nodes)))
@@ -620,6 +873,15 @@ def _finalize_graph(
         largest_component_nodes < min_giant_nodes
         or largest_component_ratio < min_giant_ratio
     )
+    min_cost_per_meter = 0.0
+    if edge_index:
+        ratios = [
+            float(edge.cost) / float(edge.distance_m)
+            for edge in edge_index.values()
+            if edge.distance_m > 0.0 and edge.cost > 0.0
+        ]
+        if ratios:
+            min_cost_per_meter = max(0.0, min(ratios))
     return RouteGraph(
         version=version,
         source=source,
@@ -633,6 +895,7 @@ def _finalize_graph(
         largest_component_nodes=largest_component_nodes,
         largest_component_ratio=largest_component_ratio,
         graph_fragmented=graph_fragmented,
+        min_cost_per_meter=min_cost_per_meter,
     )
 
 
@@ -650,6 +913,7 @@ def _load_route_graph_streaming(
     nodes: dict[str, tuple[float, float]] = {}
     adjacency_mut: dict[str, list[GraphEdge]] = {}
     edge_index: dict[tuple[str, str], GraphEdge] = {}
+    edges_need_fallback = False
 
     _set_warmup_phase(
         "parsing_nodes",
@@ -661,6 +925,7 @@ def _load_route_graph_streaming(
     )
     try:
         with path.open("rb") as fh:
+            # Parse nodes then edges from a single stream to avoid a full second disk pass.
             for raw_node in ijson.items(fh, "nodes.item"):
                 nodes_seen += 1
                 parsed = _parse_node(raw_node)
@@ -676,58 +941,109 @@ def _load_route_graph_streaming(
                         edges_kept=0,
                     )
                 _raise_if_warmup_timed_out(deadline_monotonic, phase="parsing_nodes")
-    except TimeoutError:
-        raise
-    except Exception:
-        return None
 
-    if not nodes:
-        return None
+            if not nodes:
+                return None
 
-    _set_warmup_phase(
-        "parsing_edges",
-        nodes_seen=nodes_seen,
-        nodes_kept=len(nodes),
-        edges_seen=0,
-        edges_kept=0,
-        force_log=True,
-    )
-    try:
-        with path.open("rb") as fh:
-            for raw_edge in ijson.items(fh, "edges.item"):
-                edges_seen += 1
-                parsed = _parse_edge(raw_edge)
-                if parsed is not None:
-                    u, v, edge, oneway = parsed
-                    if u in nodes and v in nodes:
-                        adjacency_mut.setdefault(u, []).append(edge)
-                        edge_index[(u, v)] = edge
-                        directed_edges_kept += 1
-                        if not oneway:
-                            reverse = GraphEdge(
-                                to=u,
-                                cost=edge.cost,
-                                distance_m=edge.distance_m,
-                                highway=edge.highway,
-                                toll=edge.toll,
-                                maxspeed_kph=edge.maxspeed_kph,
-                            )
-                            adjacency_mut.setdefault(v, []).append(reverse)
-                            edge_index[(v, u)] = reverse
+            _set_warmup_phase(
+                "parsing_edges",
+                nodes_seen=nodes_seen,
+                nodes_kept=len(nodes),
+                edges_seen=0,
+                edges_kept=0,
+                force_log=True,
+            )
+            try:
+                for raw_edge in ijson.items(fh, "edges.item"):
+                    edges_seen += 1
+                    parsed = _parse_edge(raw_edge)
+                    if parsed is not None:
+                        u, v, edge, oneway = parsed
+                        if u in nodes and v in nodes:
+                            adjacency_mut.setdefault(u, []).append(edge)
+                            edge_index[(u, v)] = edge
                             directed_edges_kept += 1
-                if edges_seen % 200_000 == 0:
-                    _set_warmup_phase(
-                        "parsing_edges",
-                        nodes_seen=nodes_seen,
-                        nodes_kept=len(nodes),
-                        edges_seen=edges_seen,
-                        edges_kept=directed_edges_kept,
-                    )
-                _raise_if_warmup_timed_out(deadline_monotonic, phase="parsing_edges")
+                            if not oneway:
+                                reverse = GraphEdge(
+                                    to=u,
+                                    cost=edge.cost,
+                                    distance_m=edge.distance_m,
+                                    highway=edge.highway,
+                                    toll=edge.toll,
+                                    maxspeed_kph=edge.maxspeed_kph,
+                                )
+                                adjacency_mut.setdefault(v, []).append(reverse)
+                                edge_index[(v, u)] = reverse
+                                directed_edges_kept += 1
+                    if edges_seen % 200_000 == 0:
+                        _set_warmup_phase(
+                            "parsing_edges",
+                            nodes_seen=nodes_seen,
+                            nodes_kept=len(nodes),
+                            edges_seen=edges_seen,
+                            edges_kept=directed_edges_kept,
+                        )
+                    _raise_if_warmup_timed_out(deadline_monotonic, phase="parsing_edges")
+            except TimeoutError:
+                raise
+            except Exception:
+                edges_need_fallback = True
     except TimeoutError:
         raise
     except Exception:
         return None
+
+    if edges_need_fallback or not edge_index:
+        # Compatibility fallback for parser implementations that cannot continue
+        # from nodes.item to edges.item on the same file stream.
+        try:
+            edges_seen = 0
+            directed_edges_kept = 0
+            adjacency_mut = {}
+            edge_index = {}
+            _set_warmup_phase(
+                "parsing_edges",
+                nodes_seen=nodes_seen,
+                nodes_kept=len(nodes),
+                edges_seen=0,
+                edges_kept=0,
+                force_log=True,
+            )
+            with path.open("rb") as fh:
+                for raw_edge in ijson.items(fh, "edges.item"):
+                    edges_seen += 1
+                    parsed = _parse_edge(raw_edge)
+                    if parsed is not None:
+                        u, v, edge, oneway = parsed
+                        if u in nodes and v in nodes:
+                            adjacency_mut.setdefault(u, []).append(edge)
+                            edge_index[(u, v)] = edge
+                            directed_edges_kept += 1
+                            if not oneway:
+                                reverse = GraphEdge(
+                                    to=u,
+                                    cost=edge.cost,
+                                    distance_m=edge.distance_m,
+                                    highway=edge.highway,
+                                    toll=edge.toll,
+                                    maxspeed_kph=edge.maxspeed_kph,
+                                )
+                                adjacency_mut.setdefault(v, []).append(reverse)
+                                edge_index[(v, u)] = reverse
+                                directed_edges_kept += 1
+                    if edges_seen % 200_000 == 0:
+                        _set_warmup_phase(
+                            "parsing_edges",
+                            nodes_seen=nodes_seen,
+                            nodes_kept=len(nodes),
+                            edges_seen=edges_seen,
+                            edges_kept=directed_edges_kept,
+                        )
+                    _raise_if_warmup_timed_out(deadline_monotonic, phase="parsing_edges")
+        except TimeoutError:
+            raise
+        except Exception:
+            return None
 
     if not edge_index:
         return None
@@ -754,10 +1070,16 @@ def load_route_graph() -> RouteGraph | None:
     path = _graph_asset_path()
     if not path.exists():
         return None
+    cached_graph = _load_route_graph_binary_cache(path)
+    if cached_graph is not None:
+        return cached_graph
     if ijson is None:
         return None
     try:
-        return _load_route_graph_streaming(path=path)
+        graph = _load_route_graph_streaming(path=path)
+        if graph is not None:
+            _save_route_graph_binary_cache(path, graph)
+        return graph
     except TimeoutError:
         raise
     except Exception:
@@ -767,6 +1089,10 @@ def load_route_graph() -> RouteGraph | None:
 def route_graph_status() -> tuple[bool, str]:
     if not settings.route_graph_enabled:
         return False, "disabled"
+    if _fast_startup_graph_ready_without_full_load():
+        # Fast startup keeps strict readiness responsive while deferring full
+        # graph hydration for long-corridor OSRM fallback paths.
+        return True, "ok_fast"
     graph = load_route_graph()
     if graph is None:
         return False, "unavailable"
@@ -791,6 +1117,25 @@ def _adjacency_cost_view(
     *,
     scenario_edge_modifiers: dict[str, Any] | None = None,
 ) -> dict[str, tuple[tuple[str, float], ...]]:
+    graph_key = id(graph)
+    with _ADJ_CACHE_LOCK:
+        base_view = _BASE_ADJ_COST_VIEW_CACHE.get(graph_key)
+    if base_view is None:
+        # Build once per loaded graph instance. Rebuilding this per request was
+        # O(|E|) and dominated end-to-end latency on large UK assets.
+        built = {
+            node: tuple((edge.to, max(1.0, float(edge.cost))) for edge in edges)
+            for node, edges in graph.adjacency.items()
+        }
+        with _ADJ_CACHE_LOCK:
+            base_view = _BASE_ADJ_COST_VIEW_CACHE.get(graph_key)
+            if base_view is None:
+                _BASE_ADJ_COST_VIEW_CACHE.clear()
+                _BASE_ADJ_COST_VIEW_CACHE[graph_key] = built
+                base_view = built
+    if not bool(settings.route_graph_search_apply_scenario_edge_costs):
+        return base_view
+
     road_penalty = {
         "motorway": 0.98,
         "motorway_link": 1.04,
@@ -818,6 +1163,17 @@ def _adjacency_cost_view(
         "unclassified": 1.4,
     }
     scenario_mod = scenario_edge_modifiers or {}
+    if not scenario_mod:
+        return base_view
+    scenario_cache_key = (
+        graph_key,
+        json.dumps(scenario_mod, sort_keys=True, separators=(",", ":"), default=str),
+    )
+    with _ADJ_CACHE_LOCK:
+        cached_scenario_view = _SCENARIO_ADJ_COST_VIEW_CACHE.get(scenario_cache_key)
+    if cached_scenario_view is not None:
+        return cached_scenario_view
+
     traffic_pressure = max(0.6, min(2.2, float(scenario_mod.get("traffic_pressure", 1.0))))
     incident_pressure = max(0.6, min(2.4, float(scenario_mod.get("incident_pressure", 1.0))))
     weather_pressure = max(0.6, min(2.1, float(scenario_mod.get("weather_pressure", 1.0))))
@@ -873,7 +1229,7 @@ def _adjacency_cost_view(
         "unclassified": 1.46,
         "residential": 1.55,
     }
-    return {
+    scenario_view = {
         node: tuple(
             (
                 edge.to,
@@ -896,7 +1252,12 @@ def _adjacency_cost_view(
             for edge in edges
         )
         for node, edges in graph.adjacency.items()
-}
+    }
+    with _ADJ_CACHE_LOCK:
+        _SCENARIO_ADJ_COST_VIEW_CACHE[scenario_cache_key] = scenario_view
+        while len(_SCENARIO_ADJ_COST_VIEW_CACHE) > _SCENARIO_ADJ_COST_VIEW_CACHE_MAX:
+            _SCENARIO_ADJ_COST_VIEW_CACHE.pop(next(iter(_SCENARIO_ADJ_COST_VIEW_CACHE)))
+    return scenario_view
 
 
 def _heading_bin(heading_deg: float) -> int:
@@ -1033,6 +1394,8 @@ def _nearest_node_candidates(
                 prior = best_by_node.get(node_id)
                 if prior is None or dist < prior:
                     best_by_node[node_id] = float(dist)
+        if radius >= 1 and len(best_by_node) >= candidate_limit:
+            break
     if not best_by_node:
         return []
     sorted_nodes = sorted(best_by_node.items(), key=lambda item: item[1])[:candidate_limit]
@@ -1159,6 +1522,35 @@ def route_graph_od_feasibility(
             "reason_code": "routing_graph_unavailable",
             "message": "Route graph is disabled.",
         }
+    if _fast_startup_graph_ready_without_full_load():
+        return {
+            "ok": False,
+            "reason_code": "routing_graph_deferred_load",
+            "message": (
+                "Route graph full load is deferred in fast-startup mode; "
+                "using OSRM family fallback for this request."
+            ),
+            "fast_startup_deferred": True,
+        }
+    fast_bypass, straight_line_km = _fast_startup_long_corridor_bypass_allowed(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+    )
+    if fast_bypass:
+        threshold_km = max(0.0, float(settings.route_graph_fast_startup_long_corridor_bypass_km))
+        return {
+            "ok": False,
+            "reason_code": "routing_graph_precheck_timeout",
+            "message": (
+                "Route graph full-load is deferred under fast startup policy; "
+                "using long-corridor degraded-continue fallback."
+            ),
+            "fast_startup_deferred": True,
+            "straight_line_km": float(straight_line_km),
+            "bypass_threshold_km": float(threshold_km),
+        }
     graph = load_route_graph()
     if graph is None:
         return {
@@ -1177,6 +1569,14 @@ def route_graph_od_feasibility(
         }
     max_nearest_m = float(max(100.0, settings.route_graph_max_nearest_node_distance_m))
     candidate_limit = max(8, int(settings.route_graph_od_candidate_limit))
+    straight_line_m = max(
+        0.0,
+        _haversine_m(origin_lat, origin_lon, destination_lat, destination_lon),
+    )
+    if straight_line_m <= 120_000.0:
+        candidate_limit = min(candidate_limit, 256)
+    elif straight_line_m <= 300_000.0:
+        candidate_limit = min(candidate_limit, 512)
     candidate_radius_cap = max(1, int(settings.route_graph_od_candidate_max_radius))
     candidate_radius = _candidate_search_radius_for_max_distance(
         max_distance_m=max_nearest_m,
@@ -1408,6 +1808,7 @@ def route_graph_via_paths(
         )
     if not start or not goal or start == goal:
         return ()
+    heuristic_fn = _route_graph_heuristic_fn(graph, goal_node_id=goal)
     effective_max_hops = (
         max(8, int(max_hops_override))
         if max_hops_override is not None
@@ -1445,6 +1846,7 @@ def route_graph_via_paths(
         max_detour_ratio=max(1.0, float(settings.route_graph_max_detour_ratio)),
         max_candidate_pool=max(16, int(settings.route_graph_k_paths) * 8),
         transition_state_fn=_transition_state_callback(graph),
+        heuristic_fn=heuristic_fn,
         deadline_monotonic_s=search_deadline_s,
     )
     out: list[tuple[tuple[float, float], ...]] = []
@@ -1543,6 +1945,41 @@ def route_graph_candidate_routes(
     goal_node_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
     budget = max(1, int(max_paths or settings.route_graph_k_paths))
+    if _fast_startup_graph_ready_without_full_load():
+        return [], GraphCandidateDiagnostics(
+            explored_states=0,
+            generated_paths=0,
+            emitted_paths=0,
+            candidate_budget=budget,
+            effective_max_hops=0,
+            effective_state_budget=0,
+            no_path_reason="routing_graph_deferred_load",
+            no_path_detail=(
+                "Skipped route-graph path search because full graph hydration is deferred "
+                "in fast-startup mode."
+            ),
+        )
+    fast_bypass, straight_line_km = _fast_startup_long_corridor_bypass_allowed(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+    )
+    if fast_bypass:
+        threshold_km = max(0.0, float(settings.route_graph_fast_startup_long_corridor_bypass_km))
+        return [], GraphCandidateDiagnostics(
+            explored_states=0,
+            generated_paths=0,
+            emitted_paths=0,
+            candidate_budget=budget,
+            effective_max_hops=0,
+            effective_state_budget=0,
+            no_path_reason="routing_graph_precheck_timeout",
+            no_path_detail=(
+                "Route graph full-load deferred in fast-startup mode "
+                f"(straight_line_km={straight_line_km:.3f}, threshold_km={threshold_km:.3f})."
+            ),
+        )
     graph = load_route_graph()
     if graph is None:
         return [], GraphCandidateDiagnostics(
@@ -1608,6 +2045,7 @@ def route_graph_candidate_routes(
             no_path_reason="routing_graph_coverage_gap",
             no_path_detail="Nearest route graph node could not be resolved for one or both endpoints.",
         )
+    heuristic_fn = _route_graph_heuristic_fn(graph, goal_node_id=goal)
     effective_max_hops = (
         max(8, int(max_hops_override))
         if max_hops_override is not None
@@ -1656,6 +2094,7 @@ def route_graph_candidate_routes(
             if bool(use_transition_state)
             else None
         ),
+        heuristic_fn=heuristic_fn,
         deadline_monotonic_s=search_deadline_s,
     )
     out: list[dict[str, Any]] = []
@@ -1779,6 +2218,7 @@ def route_graph_candidate_routes(
             ],
             "_graph_meta": {
                 "path_id": idx,
+                "path_node_ids": list(path.nodes),
                 "path_nodes": len(path.nodes),
                 "path_cost": float(path.cost),
                 "toll_edges": int(toll_edges),
