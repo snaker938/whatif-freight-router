@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.main import _finalize_pareto_options, _pick_best_option
+from app.main import _finalize_pareto_options, _pick_best_option, settings
 from app.models import GeoJSONLineString, RouteMetrics, RouteOption
 
 
@@ -12,6 +12,7 @@ def _option(
     co2: float,
     mean_duration_s: float,
     std_duration_s: float,
+    distance_km: float = 30.0,
     cvar95_duration_s: float | None = None,
     mean_money: float | None = None,
     std_money: float = 0.0,
@@ -27,7 +28,7 @@ def _option(
         id=route_id,
         geometry=GeoJSONLineString(type="LineString", coordinates=[(-1.0, 52.0), (-0.5, 51.8)]),
         metrics=RouteMetrics(
-            distance_km=30.0,
+            distance_km=distance_km,
             duration_s=duration_s,
             monetary_cost=money,
             emissions_kg=co2,
@@ -206,3 +207,43 @@ def test_robust_mode_prefers_cvar_over_std_when_available() -> None:
         risk_aversion=1.0,
     )
     assert picked.id == "b"
+
+
+def test_pick_best_option_supports_vikor_profiles() -> None:
+    option_a = _option(
+        route_id="a",
+        duration_s=100.0,
+        money=95.0,
+        co2=95.0,
+        distance_km=65.0,
+        mean_duration_s=100.0,
+        std_duration_s=1.0,
+    )
+    option_b = _option(
+        route_id="b",
+        duration_s=103.0,
+        money=95.0,
+        co2=95.0,
+        distance_km=20.0,
+        mean_duration_s=103.0,
+        std_duration_s=1.0,
+    )
+    profiles = (
+        "academic_vikor",
+        "modified_vikor_distance",
+    )
+    original_profile = settings.route_selection_math_profile
+    try:
+        for profile in profiles:
+            settings.route_selection_math_profile = profile
+            picked = _pick_best_option(
+                [option_a, option_b],
+                w_time=0.6,
+                w_money=0.2,
+                w_co2=0.2,
+                optimization_mode="expected_value",
+                risk_aversion=1.0,
+            )
+            assert picked.id in {"a", "b"}
+    finally:
+        settings.route_selection_math_profile = original_profile

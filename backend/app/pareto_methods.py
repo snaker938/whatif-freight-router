@@ -11,6 +11,57 @@ def _norm(v: float, vmin: float, vmax: float) -> float:
     return 0.0 if vmax <= vmin else (v - vmin) / (vmax - vmin)
 
 
+def _crowding_distances(values: list[tuple[float, ...]]) -> list[float]:
+    count = len(values)
+    if count <= 2:
+        return [float("inf")] * count
+    dim_count = len(values[0])
+    distances = [0.0] * count
+    for dim in range(dim_count):
+        order = sorted(range(count), key=lambda idx: values[idx][dim])
+        first = order[0]
+        last = order[-1]
+        min_v = float(values[first][dim])
+        max_v = float(values[last][dim])
+        distances[first] = float("inf")
+        distances[last] = float("inf")
+        if max_v <= min_v:
+            continue
+        denom = max_v - min_v
+        for rank in range(1, count - 1):
+            idx = order[rank]
+            if math.isinf(distances[idx]):
+                continue
+            prev_v = float(values[order[rank - 1]][dim])
+            next_v = float(values[order[rank + 1]][dim])
+            distances[idx] += (next_v - prev_v) / denom
+    return distances
+
+
+def _truncate_pareto_with_crowding(
+    routes: list[RouteOption],
+    *,
+    max_alternatives: int,
+    objective_key: Callable[[RouteOption], tuple[float, ...]],
+) -> list[RouteOption]:
+    if len(routes) <= max_alternatives:
+        return list(routes)
+    objectives = [objective_key(route) for route in routes]
+    crowding = _crowding_distances(objectives)
+    ranked_indices = sorted(
+        range(len(routes)),
+        key=lambda idx: (
+            0 if math.isinf(crowding[idx]) else 1,
+            -(crowding[idx] if not math.isinf(crowding[idx]) else float("inf")),
+            objectives[idx],
+            routes[idx].id,
+        ),
+    )
+    selected_indices = ranked_indices[:max_alternatives]
+    selected = [routes[idx] for idx in selected_indices]
+    return sorted(selected, key=lambda option: (*objective_key(option), option.id))
+
+
 def filter_by_epsilon(
     options: list[RouteOption],
     epsilon: EpsilonConstraints | None,
@@ -113,10 +164,15 @@ def select_pareto_routes(
         return annotate_knee_scores(pareto_sorted, objective_key=objective)
 
     if pareto_sorted:
-        return annotate_knee_scores(
-            pareto_sorted[: max(1, max_alternatives)],
+        capped = _truncate_pareto_with_crowding(
+            pareto_sorted,
+            max_alternatives=max(1, max_alternatives),
             objective_key=objective,
         )
+        # NSGA-II crowding-distance truncation keeps objective-space spread on
+        # the same Pareto frontier before selecting the exported subset:
+        # Deb et al. (2002) https://doi.org/10.1109/4235.996017
+        return annotate_knee_scores(capped, objective_key=objective)
 
     # Non-strict fallback only when strict frontier is disabled and no pareto
     # candidates survived (e.g. corrupted objective payloads).

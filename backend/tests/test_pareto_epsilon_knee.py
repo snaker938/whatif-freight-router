@@ -49,3 +49,21 @@ def test_knee_selection_is_deterministic() -> None:
     assert first_knee == second_knee
     assert len(first_knee) == 1
     assert all(route.knee_score is not None for route in first)
+
+
+def test_pareto_truncation_preserves_extremes_via_crowding_distance() -> None:
+    options = [
+        _option("r_fast", duration_s=1000, monetary_cost=320, emissions_kg=120),
+        _option("r_mid_a", duration_s=1250, monetary_cost=250, emissions_kg=95),
+        _option("r_mid_b", duration_s=1500, monetary_cost=195, emissions_kg=78),
+        _option("r_lean", duration_s=1900, monetary_cost=150, emissions_kg=60),
+    ]
+    selected = select_pareto_routes(
+        options,
+        max_alternatives=3,
+        pareto_method="dominance",
+        epsilon=None,
+    )
+    selected_ids = {route.id for route in selected}
+    assert "r_fast" in selected_ids
+    assert "r_lean" in selected_ids

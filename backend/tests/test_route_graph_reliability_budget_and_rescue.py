@@ -8,7 +8,7 @@ import app.main as main_module
 import app.routing_graph as routing_graph
 from app.models import LatLng
 from app.routing_graph import GraphCandidateDiagnostics, GraphEdge, RouteGraph
-from app.settings import settings
+from app.settings import Settings, settings
 
 
 class _NoopOSRM:
@@ -29,6 +29,25 @@ def _make_graph_route(seed: float = 0.0) -> dict[str, Any]:
         },
         "duration": 1200.0,
         "distance": 15000.0,
+    }
+
+
+def _make_ranked_route(*, duration_s: float, lon_seed: float, road_class: str) -> dict[str, Any]:
+    return {
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [-1.9000 + lon_seed, 52.5000],
+                [-1.8500 + lon_seed, 52.5200],
+                [-1.7800 + lon_seed, 52.5600],
+            ],
+        },
+        "duration": float(duration_s),
+        "distance": 32_000.0,
+        "_graph_meta": {
+            "road_mix_counts": {road_class: 5},
+            "toll_edges": 0,
+        },
     }
 
 
@@ -293,3 +312,183 @@ def test_collect_candidate_routes_rescue_exhausted_keeps_no_path_reason(monkeypa
     assert diag.graph_retry_outcome == "exhausted"
     assert diag.graph_rescue_attempted is True
     assert diag.graph_rescue_outcome == "exhausted"
+
+
+def test_select_ranked_candidate_routes_prefilter_keeps_route_diversity(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "route_candidate_alternatives_max", 24)
+    monkeypatch.setattr(settings, "route_candidate_prefilter_multiplier", 3)
+
+    routes = [
+        _make_ranked_route(duration_s=100.0 + idx, lon_seed=0.001 * idx, road_class="motorway")
+        for idx in range(5)
+    ] + [
+        _make_ranked_route(duration_s=103.0 + idx, lon_seed=0.08 + (0.001 * idx), road_class="primary")
+        for idx in range(3)
+    ]
+
+    selected = main_module._select_ranked_candidate_routes(routes, max_routes=2)
+    families = {
+        main_module._graph_family_signature(route)
+        for route in selected
+        if main_module._graph_family_signature(route)
+    }
+
+    assert len(selected) == 6
+    assert len(families) >= 2
+
+
+def test_collect_candidate_routes_skips_baseline_rerun_when_separability_not_enforced(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def _ok_status() -> tuple[bool, str]:
+        return True, "ok"
+
+    async def _graph_routes_once(**kwargs: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
+        calls.append(dict(kwargs))
+        return (
+            [_make_graph_route(seed=0.0)],
+            GraphCandidateDiagnostics(
+                explored_states=120,
+                generated_paths=1,
+                emitted_paths=1,
+                candidate_budget=12,
+            ),
+        )
+
+    async def _empty_refine_iter(**_: Any):
+        if False:
+            yield None
+
+    monkeypatch.setattr(settings, "route_graph_scenario_separability_fail", False)
+    monkeypatch.setattr(main_module, "_route_graph_status_async", _ok_status)
+    monkeypatch.setattr(main_module, "_route_graph_candidate_routes_async", _graph_routes_once)
+    monkeypatch.setattr(main_module, "_iter_candidate_fetches", _empty_refine_iter)
+
+    routes, warnings, spec_count, diag = asyncio.run(
+        main_module._collect_candidate_routes(
+            osrm=_NoopOSRM(),
+            origin=LatLng(lat=51.74933, lon=-0.48340),
+            destination=LatLng(lat=51.49899, lon=-0.12360),
+            max_routes=6,
+            cache_key=None,
+            scenario_edge_modifiers={"duration_multiplier": 1.25},
+            progress_cb=None,
+        )
+    )
+
+    assert routes
+    assert spec_count >= 1
+    assert len(calls) == 1
+    assert diag.scenario_candidate_gate_action == "skipped_non_enforcing"
+    assert warnings == []
+
+
+def test_settings_accept_route_graph_retry_cap_eight_million() -> None:
+    instance = Settings(ROUTE_GRAPH_STATE_BUDGET_RETRY_CAP=8_000_000)
+    assert instance.route_graph_state_budget_retry_cap == 8_000_000
+
+
+def test_collect_candidate_routes_uses_reduced_initial_for_long_corridor(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def _ok_status() -> tuple[bool, str]:
+        return True, "ok"
+
+    async def _graph_routes_once(**kwargs: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
+        calls.append(dict(kwargs))
+        return (
+            [_make_graph_route(seed=0.0)],
+            GraphCandidateDiagnostics(
+                explored_states=90,
+                generated_paths=1,
+                emitted_paths=1,
+                candidate_budget=12,
+            ),
+        )
+
+    async def _empty_refine_iter(**_: Any):
+        if False:
+            yield None
+
+    monkeypatch.setattr(settings, "route_graph_reduced_initial_for_long_corridor", True)
+    monkeypatch.setattr(settings, "route_graph_skip_initial_search_long_corridor", False)
+    monkeypatch.setattr(settings, "route_graph_long_corridor_threshold_km", 10.0)
+    monkeypatch.setattr(main_module, "_route_graph_status_async", _ok_status)
+    monkeypatch.setattr(main_module, "_route_graph_candidate_routes_async", _graph_routes_once)
+    monkeypatch.setattr(main_module, "_iter_candidate_fetches", _empty_refine_iter)
+
+    routes, _warnings, _spec_count, _diag = asyncio.run(
+        main_module._collect_candidate_routes(
+            osrm=_NoopOSRM(),
+            origin=LatLng(lat=54.9783, lon=-1.6178),
+            destination=LatLng(lat=53.0027, lon=-2.1794),
+            max_routes=6,
+            cache_key=None,
+            scenario_edge_modifiers={"duration_multiplier": 1.1},
+            progress_cb=None,
+        )
+    )
+
+    assert routes
+    assert calls
+    assert calls[0].get("use_transition_state") is False
+
+
+def test_collect_candidate_routes_retries_on_path_search_exhausted(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def _ok_status() -> tuple[bool, str]:
+        return True, "ok"
+
+    async def _graph_routes_retry(**kwargs: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
+        calls.append(dict(kwargs))
+        if len(calls) == 1:
+            return (
+                [],
+                GraphCandidateDiagnostics(
+                    explored_states=1000,
+                    generated_paths=0,
+                    emitted_paths=0,
+                    candidate_budget=12,
+                    effective_state_budget=1200,
+                    no_path_reason="path_search_exhausted",
+                    no_path_detail="deadline reached",
+                ),
+            )
+        return (
+            [_make_graph_route(seed=0.0)],
+            GraphCandidateDiagnostics(
+                explored_states=200,
+                generated_paths=1,
+                emitted_paths=1,
+                candidate_budget=12,
+                effective_state_budget=2400,
+            ),
+        )
+
+    async def _empty_refine_iter(**_: Any):
+        if False:
+            yield None
+
+    monkeypatch.setattr(settings, "route_graph_state_space_rescue_enabled", False)
+    monkeypatch.setattr(settings, "route_graph_state_budget_retry_multiplier", 2.0)
+    monkeypatch.setattr(main_module, "_route_graph_status_async", _ok_status)
+    monkeypatch.setattr(main_module, "_route_graph_candidate_routes_async", _graph_routes_retry)
+    monkeypatch.setattr(main_module, "_iter_candidate_fetches", _empty_refine_iter)
+
+    routes, _warnings, _spec_count, diag = asyncio.run(
+        main_module._collect_candidate_routes(
+            osrm=_NoopOSRM(),
+            origin=LatLng(lat=52.0, lon=-1.0),
+            destination=LatLng(lat=52.3, lon=-1.6),
+            max_routes=6,
+            cache_key=None,
+            scenario_edge_modifiers={"duration_multiplier": 1.2},
+            progress_cb=None,
+        )
+    )
+
+    assert routes
+    assert len(calls) >= 2
+    assert diag.graph_retry_attempted is True
+    assert diag.graph_retry_outcome == "succeeded"

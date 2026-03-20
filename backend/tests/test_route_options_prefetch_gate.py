@@ -13,9 +13,14 @@ from app.model_data_errors import ModelDataError
 from app.models import (
     CostToggles,
     EmissionsContext,
+    GeoJSONLineString,
     IncidentSimulatorConfig,
     LatLng,
+    RouteMetrics,
+    RouteOption,
+    ScenarioSummary,
     StochasticConfig,
+    Waypoint,
     WeatherImpactConfig,
 )
 from app.settings import settings
@@ -49,6 +54,56 @@ def _collect_kwargs() -> dict[str, Any]:
         "option_prefix": "route",
         "progress_cb": None,
     }
+
+
+def _make_leg_route(origin: LatLng, destination: LatLng) -> dict[str, Any]:
+    return {
+        "distance": 50_000.0,
+        "duration": 2400.0,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [origin.lon, origin.lat],
+                [destination.lon, destination.lat],
+            ],
+        },
+        "legs": [
+            {
+                "annotation": {
+                    "distance": [50_000.0],
+                    "duration": [2400.0],
+                }
+            }
+        ],
+    }
+
+
+def _make_leg_option(option_id: str, scenario_mode: main_module.ScenarioMode) -> RouteOption:
+    return RouteOption(
+        id=option_id,
+        geometry=GeoJSONLineString(
+            type="LineString",
+            coordinates=[[-1.0, 52.0], [-1.1, 52.1]],
+        ),
+        metrics=RouteMetrics(
+            distance_km=50.0,
+            duration_s=2400.0,
+            monetary_cost=80.0,
+            emissions_kg=25.0,
+            avg_speed_kmh=75.0,
+        ),
+        scenario_summary=ScenarioSummary(
+            mode=scenario_mode,
+            duration_multiplier=1.0,
+            incident_rate_multiplier=1.0,
+            incident_delay_multiplier=1.0,
+            fuel_consumption_multiplier=1.0,
+            emissions_multiplier=1.0,
+            stochastic_sigma_multiplier=1.0,
+            source="pytest",
+            version="pytest",
+        ),
+    )
 
 
 def test_collect_route_options_runs_single_precheck(monkeypatch) -> None:
@@ -143,6 +198,79 @@ def test_collect_route_options_honors_route_compute_refresh_mode_in_strict_runti
     assert refresh_modes
     assert refresh_modes[0] == "route_compute"
     assert "all_sources" not in refresh_modes
+
+
+def test_collect_route_options_multileg_reuses_context_cache_and_avoids_per_leg_refresh(monkeypatch) -> None:
+    refresh_modes: list[str] = []
+    scenario_context_calls: list[tuple[float, float, float, float]] = []
+
+    async def _ok_precheck(*, origin: LatLng, destination: LatLng) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "reason_code": "ok",
+            "message": "ok",
+            "origin_node_id": f"node_{origin.lat:.4f}_{origin.lon:.4f}",
+            "destination_node_id": f"node_{destination.lat:.4f}_{destination.lon:.4f}",
+        }
+
+    async def _scenario_context(
+        *,
+        origin: LatLng,
+        destination: LatLng,
+        **_: Any,
+    ) -> Any:
+        scenario_context_calls.append((origin.lat, origin.lon, destination.lat, destination.lon))
+        return {"key": f"{origin.lat:.6f},{origin.lon:.6f}->{destination.lat:.6f},{destination.lon:.6f}"}
+
+    async def _scenario_modifiers(**_: Any) -> dict[str, Any]:
+        return {}
+
+    async def _candidate_routes(
+        *,
+        origin: LatLng,
+        destination: LatLng,
+        **_: Any,
+    ):
+        route = _make_leg_route(origin, destination)
+        return [route], [], 1, main_module.CandidateDiagnostics(raw_count=1, deduped_count=1)
+
+    def _build_options(*_: Any, option_prefix: str, **kwargs: Any):
+        mode = kwargs.get("scenario_mode", main_module.ScenarioMode.NO_SHARING)
+        return [_make_leg_option(f"{option_prefix}_0", mode)], [], main_module.TerrainDiagnostics()
+
+    monkeypatch.setattr(main_module, "_route_graph_od_feasibility_async", _ok_precheck)
+    monkeypatch.setattr(
+        main_module,
+        "refresh_live_runtime_route_caches",
+        lambda **kwargs: refresh_modes.append(str(kwargs.get("mode", ""))),
+    )
+    monkeypatch.setattr(main_module, "resolve_vehicle_profile", lambda *_: SimpleNamespace(vehicle_class="rigid_hgv"))
+    monkeypatch.setattr(main_module, "_scenario_context_from_od", _scenario_context)
+    monkeypatch.setattr(main_module, "_scenario_candidate_modifiers_async", _scenario_modifiers)
+    monkeypatch.setattr(main_module, "_collect_candidate_routes", _candidate_routes)
+    monkeypatch.setattr(main_module, "_build_options", _build_options)
+    monkeypatch.setattr(settings, "strict_live_data_required", False)
+    monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
+    monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
+
+    kwargs = _collect_kwargs()
+    kwargs["waypoints"] = [
+        Waypoint(lat=53.2000, lon=-1.5000, label="A"),
+        Waypoint(lat=kwargs["origin"].lat, lon=kwargs["origin"].lon, label="B"),
+        Waypoint(lat=53.2000, lon=-1.5000, label="C"),
+    ]
+
+    options, warnings, candidate_fetches, _terrain_diag, candidate_diag = asyncio.run(
+        main_module._collect_route_options(**kwargs)
+    )
+
+    assert options
+    assert warnings == []
+    assert candidate_fetches >= 1
+    assert refresh_modes == ["route_compute"]
+    # 1 base OD context + 3 unique leg contexts (origin->A repeats once and is cache-hit on 2nd occurrence).
+    assert len(scenario_context_calls) == 4
+    assert candidate_diag.scenario_context_ms >= 0.0
 
 
 def test_collect_route_options_prefetch_gate_failure_maps_reason(monkeypatch) -> None:
@@ -395,6 +523,8 @@ def test_prefetch_expected_live_sources_surfaces_missing_transform_params(monkey
     monkeypatch.setattr(settings, "strict_live_data_required", True)
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", True)
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(settings, "live_route_compute_force_uncached", True)
+    monkeypatch.setattr(settings, "live_route_compute_force_uncached", True)
     monkeypatch.setattr(main_module, "_should_prefetch_terrain_source", lambda: False)
     monkeypatch.setattr(main_module, "load_scenario_profiles", _scenario_profiles)
     monkeypatch.setattr(main_module, "load_live_scenario_context", lambda **_: {"ok": True})
@@ -437,6 +567,7 @@ def test_prefetch_expected_live_sources_fails_when_expected_family_not_observed(
     monkeypatch.setattr(settings, "strict_live_data_required", True)
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", True)
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(settings, "live_route_compute_force_uncached", True)
     monkeypatch.setattr(main_module, "_should_prefetch_terrain_source", lambda: False)
     monkeypatch.setattr(main_module, "load_scenario_profiles", _scenario_profiles)
     monkeypatch.setattr(main_module, "load_live_scenario_context", lambda **_: {"ok": True})
@@ -494,6 +625,7 @@ def test_prefetch_expected_live_sources_uses_uncached_wrapped_loaders_for_strict
     monkeypatch.setattr(settings, "strict_live_data_required", True)
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", True)
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(settings, "live_route_compute_force_uncached", True)
     monkeypatch.setattr(main_module, "_should_prefetch_terrain_source", lambda: False)
     monkeypatch.setattr(
         main_module,
@@ -581,6 +713,7 @@ def test_prefetch_expected_live_sources_scenario_calls_use_uncached_wrappers(mon
     monkeypatch.setattr(settings, "strict_live_data_required", True)
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", True)
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(settings, "live_route_compute_force_uncached", True)
     monkeypatch.setattr(main_module, "_should_prefetch_terrain_source", lambda: False)
     monkeypatch.setattr(main_module, "load_scenario_profiles", _outer_profiles)
     monkeypatch.setattr(main_module, "load_live_scenario_context", _outer_context)
@@ -913,7 +1046,7 @@ def test_live_scenario_context_sparse_observations_fail_when_webtris_unreachable
     assert int(coverage_gate.get("source_ok_count", 0)) == 2
 
 
-def test_live_scenario_context_full_strict_mode_remains_fail_closed(monkeypatch) -> None:
+def test_live_scenario_context_full_strict_mode_uses_reachability_gate(monkeypatch) -> None:
     monkeypatch.setattr(settings, "live_runtime_data_enabled", True)
     monkeypatch.setattr(settings, "live_scenario_dft_min_station_count", 1)
     monkeypatch.setattr(live_data_sources, "_utc_now", lambda: datetime(2026, 2, 26, 12, 0, tzinfo=UTC))
@@ -966,14 +1099,12 @@ def test_live_scenario_context_full_strict_mode_remains_fail_closed(monkeypatch)
         skip_dft_in_partial_mode=False,
     )
     assert isinstance(payload, dict)
-    assert "_live_error" in payload
-    err = payload["_live_error"]
-    assert isinstance(err, dict)
-    diagnostics = err.get("diagnostics", {})
-    assert isinstance(diagnostics, dict)
-    coverage_gate = diagnostics.get("coverage_gate", {})
+    assert "_live_error" not in payload
+    coverage_gate = payload.get("coverage_gate", {})
     assert isinstance(coverage_gate, dict)
     assert int(coverage_gate.get("required_source_count_effective", 0)) == 4
+    assert int(coverage_gate.get("source_ok_count", 0)) == 4
+    assert str(coverage_gate.get("source_gate_basis", "")).strip().lower() == "reachability"
 
 
 @pytest.mark.parametrize(

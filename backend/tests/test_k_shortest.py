@@ -57,3 +57,38 @@ def test_yen_k_shortest_returns_empty_when_unreachable() -> None:
     assert stats["generated_candidates"] == 0
     assert stats["termination_reason"] == "no_initial_path"
     assert stats["no_path_reason"] in {"no_path", "path_search_exhausted"}
+
+
+def test_yen_k_shortest_heuristic_matches_baseline_shortest_path() -> None:
+    adjacency = {
+        "A": (("B", 2.0), ("C", 2.5)),
+        "B": (("D", 2.0), ("E", 1.0)),
+        "C": (("D", 1.4),),
+        "E": (("D", 1.0),),
+        "D": (),
+    }
+
+    baseline, _stats = yen_k_shortest_paths_with_stats(
+        adjacency=adjacency,
+        start="A",
+        goal="D",
+        k=1,
+    )
+    heuristic, _stats_heuristic = yen_k_shortest_paths_with_stats(
+        adjacency=adjacency,
+        start="A",
+        goal="D",
+        k=1,
+        heuristic_fn=lambda node: {
+            "A": 1.2,
+            "B": 0.8,
+            "C": 0.3,
+            "E": 0.3,
+            "D": 0.0,
+        }.get(node, 0.0),
+    )
+
+    assert baseline
+    assert heuristic
+    assert heuristic[0].nodes == baseline[0].nodes
+    assert heuristic[0].cost == baseline[0].cost

@@ -18,6 +18,7 @@ class PathNotFoundError(ValueError):
 
 
 TransitionStateFn = Callable[[str | None, str, str], tuple[Hashable, float] | None]
+HeuristicFn = Callable[[str], float]
 
 
 def _dijkstra_shortest_path(
@@ -33,6 +34,7 @@ def _dijkstra_shortest_path(
     max_repeat_per_node: int = 1,
     max_cost_limit: float | None = None,
     transition_state_fn: TransitionStateFn | None = None,
+    heuristic_fn: HeuristicFn | None = None,
     deadline_monotonic_s: float | None = None,
 ) -> PathResult:
     banned_nodes = banned_nodes or set()
@@ -40,7 +42,10 @@ def _dijkstra_shortest_path(
     if start in banned_nodes or goal in banned_nodes:
         raise PathNotFoundError("start/goal blocked")
     initial_state: Hashable = "start"
-    heap: list[tuple[float, int, str, tuple[str, ...], Hashable]] = [(0.0, 0, start, (start,), initial_state)]
+    initial_h = max(0.0, float(heuristic_fn(start))) if heuristic_fn is not None else 0.0
+    heap: list[tuple[float, float, int, str, tuple[str, ...], Hashable]] = [
+        (initial_h, 0.0, 0, start, (start,), initial_state)
+    ]
     best_cost_by_state: dict[tuple[str, Hashable], float] = {(start, initial_state): 0.0}
     while heap:
         if deadline_monotonic_s is not None and time.monotonic() >= float(deadline_monotonic_s):
@@ -48,7 +53,10 @@ def _dijkstra_shortest_path(
         if max_state_budget is not None and max_state_budget > 0 and explored_counter is not None:
             if explored_counter[0] >= max_state_budget:
                 raise PathNotFoundError("state budget exceeded")
-        cost, hops, node, path, state_key = heapq.heappop(heap)
+        _priority, cost, hops, node, path, state_key = heapq.heappop(heap)
+        known_best = best_cost_by_state.get((node, state_key))
+        if known_best is not None and cost > known_best + 1e-9:
+            continue
         if explored_counter is not None:
             explored_counter[0] += 1
         if node == goal:
@@ -80,7 +88,22 @@ def _dijkstra_shortest_path(
             if prev_best is not None and new_cost >= prev_best:
                 continue
             best_cost_by_state[best_key] = new_cost
-            heapq.heappush(heap, (new_cost, hops + 1, nxt, (*path, nxt), next_state_key))
+            heuristic_cost = (
+                max(0.0, float(heuristic_fn(nxt)))
+                if heuristic_fn is not None
+                else 0.0
+            )
+            heapq.heappush(
+                heap,
+                (
+                    new_cost + heuristic_cost,
+                    new_cost,
+                    hops + 1,
+                    nxt,
+                    (*path, nxt),
+                    next_state_key,
+                ),
+            )
     raise PathNotFoundError("no path")
 
 
@@ -96,6 +119,7 @@ def yen_k_shortest_paths_with_stats(
     max_detour_ratio: float | None = None,
     max_candidate_pool: int | None = None,
     transition_state_fn: TransitionStateFn | None = None,
+    heuristic_fn: HeuristicFn | None = None,
     deadline_monotonic_s: float | None = None,
 ) -> tuple[tuple[PathResult, ...], dict[str, int | str]]:
     if k <= 0:
@@ -123,6 +147,7 @@ def yen_k_shortest_paths_with_stats(
             max_state_budget=max_state_budget,
             max_repeat_per_node=max_repeat_per_node,
             transition_state_fn=transition_state_fn,
+            heuristic_fn=heuristic_fn,
             deadline_monotonic_s=deadline_monotonic_s,
         )
     except PathNotFoundError as exc:
@@ -135,6 +160,21 @@ def yen_k_shortest_paths_with_stats(
             "no_path_reason": normalize_no_path_reason(first_error),
             "first_error": first_error,
         }
+
+    # Yen's loop repeatedly evaluates root-path costs for many spur branches.
+    # Cache edge costs once so root-prefix costs are O(1) per spur index instead
+    # of repeatedly scanning adjacency lists.
+    #
+    # Reference (original K-shortest loopless paths algorithm):
+    # Yen (1971), Management Science 17(11), 712-716
+    # https://doi.org/10.1287/mnsc.17.11.712
+    edge_cost_lookup: dict[tuple[str, str], float] = {}
+    for src, neighbors in adjacency.items():
+        for dst, edge_cost in neighbors:
+            key = (src, dst)
+            existing = edge_cost_lookup.get(key)
+            if existing is None or edge_cost < existing:
+                edge_cost_lookup[key] = edge_cost
 
     shortest: list[PathResult] = [first]
     candidates: list[tuple[float, tuple[str, ...]]] = []
@@ -149,9 +189,15 @@ def yen_k_shortest_paths_with_stats(
     for _ in range(1, k):
         previous = shortest[-1]
         previous_nodes = list(previous.nodes)
+        prefix_root_costs: list[float] = [0.0]
+        for idx in range(1, len(previous_nodes)):
+            src = previous_nodes[idx - 1]
+            dst = previous_nodes[idx]
+            prefix_root_costs.append(prefix_root_costs[-1] + float(edge_cost_lookup.get((src, dst), 0.0)))
         for spur_idx in range(len(previous_nodes) - 1):
             root_path = tuple(previous_nodes[: spur_idx + 1])
             spur_node = root_path[-1]
+            root_cost = float(prefix_root_costs[spur_idx])
 
             banned_edges: set[tuple[str, str]] = set()
             for p in shortest:
@@ -173,20 +219,15 @@ def yen_k_shortest_paths_with_stats(
                     max_state_budget=max_state_budget,
                     max_repeat_per_node=max_repeat_per_node,
                     transition_state_fn=transition_state_fn,
+                    heuristic_fn=heuristic_fn,
                     deadline_monotonic_s=deadline_monotonic_s,
                     max_cost_limit=(
                         None
                         if transition_state_fn is not None
                         else (
                             None
-                        if detour_cap == inf
-                        else max(0.0, detour_cap - sum(
-                            next(
-                                (edge_cost for nxt, edge_cost in adjacency.get(root_path[idx - 1], ()) if nxt == root_path[idx]),
-                                0.0,
-                            )
-                            for idx in range(1, len(root_path))
-                        ))
+                            if detour_cap == inf
+                            else max(0.0, detour_cap - root_cost)
                         )
                     ),
                 )
@@ -198,14 +239,6 @@ def yen_k_shortest_paths_with_stats(
             total_nodes = (*root_path[:-1], *spur.nodes)
             if total_nodes in candidate_seen:
                 continue
-            root_cost = 0.0
-            for idx in range(1, len(root_path)):
-                src = root_path[idx - 1]
-                dst = root_path[idx]
-                for nxt, edge_cost in adjacency.get(src, ()):
-                    if nxt == dst:
-                        root_cost += edge_cost
-                        break
             total_cost = root_cost + spur.cost
             if total_cost > detour_cap:
                 pruned_constraints += 1
@@ -264,6 +297,7 @@ def yen_k_shortest_paths(
     max_detour_ratio: float | None = None,
     max_candidate_pool: int | None = None,
     transition_state_fn: TransitionStateFn | None = None,
+    heuristic_fn: HeuristicFn | None = None,
     deadline_monotonic_s: float | None = None,
 ) -> tuple[PathResult, ...]:
     paths, _stats = yen_k_shortest_paths_with_stats(
@@ -277,6 +311,7 @@ def yen_k_shortest_paths(
         max_detour_ratio=max_detour_ratio,
         max_candidate_pool=max_candidate_pool,
         transition_state_fn=transition_state_fn,
+        heuristic_fn=heuristic_fn,
         deadline_monotonic_s=deadline_monotonic_s,
     )
     return paths
