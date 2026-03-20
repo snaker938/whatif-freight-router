@@ -2,8 +2,8 @@
   "type": "FeatureCollection",
   "source": "live_runtime:toll_topology",
   "version": "uk-v2",
-  "generated_at_utc": "2026-03-02T21:26:19Z",
-  "as_of_utc": "2026-03-02T21:26:19Z",
+  "generated_at_utc": "2026-03-04T14:58:10Z",
+  "as_of_utc": "2026-03-04T14:58:10Z",
   "features": [
     {
       "type": "Feature",

@@ -4,6 +4,6 @@
   "expected_contains_toll": false,
   "expected_toll_cost_gbp": 0.0,
   "expected_currency": "GBP",
-  "source_provenance": "proxy_from_classification_balancer_v1",
+  "source_provenance": "proxy_from_labeled_fixture_corpus_v1",
   "as_of_utc": "2026-02-27T00:07:14Z"
 }
