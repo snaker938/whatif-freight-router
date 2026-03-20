@@ -18,6 +18,8 @@ This page is the source-of-truth backend API contract for current strict runtime
 
 - `GET /`
 - `GET /health`
+- `GET /health/ready`
+- `GET /debug/live-calls/{request_id}`
 - `GET /metrics`
 - `GET /cache/stats`
 - `DELETE /cache`
@@ -33,6 +35,8 @@ This page is the source-of-truth backend API contract for current strict runtime
 ### Routing and Pareto
 
 - `POST /route`
+- `POST /route/baseline`
+- `POST /route/baseline/ors`
 - `POST /pareto`
 - `POST /pareto/stream`
 - `POST /api/pareto/stream`

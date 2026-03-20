@@ -76,7 +76,7 @@ Configure in `.env` / `.env.example`:
 
 Strict-live route compute now uses a hybrid cache refresh strategy: scenario coefficients refresh each attempt, while expensive live context feeds (DfT/WebTRIS/Traffic/Meteo) remain short-cached by TTL for fallback reliability.
 Frontend fallback now treats strict business failures (`HTTP 4xx` from route/pareto endpoints) as terminal and stops additional fallback attempts immediately.
-Routing graph runtime now always loads the full `routing_graph_uk.json` dataset in strict mode (no streamed/capped graph loading path exposed via env config).
+Routing graph runtime now always loads the full `backend/out/model_assets/routing_graph_uk.json` dataset in strict mode (no streamed/capped graph loading path exposed via env config).
 When graph warmup fail-fast is enabled, strict route endpoints return `routing_graph_warming_up` quickly until `GET /health/ready` reports `strict_route_ready=true`. If warmup exceeds timeout, endpoints return `routing_graph_warmup_failed` with rebuild guidance. If the loaded graph is fragmented, strict failures use `routing_graph_fragmented`; OD-specific failures use `routing_graph_disconnected_od` or `routing_graph_coverage_gap`.
 `GET /health/ready` now also reports `strict_live` readiness for scenario coefficients; if stale/unavailable under strict policy, `recommended_action=refresh_live_sources`.
 The frontend compute button is readiness-gated and remains disabled until strict route readiness is true.
@@ -179,7 +179,7 @@ Use this for full containerized verification. Do not run this at the same time a
 
 - `backend/scripts/publish_live_artifacts_uk.py`
   - publishes strict JSON live artifacts into tracked `backend/assets/uk/` paths
-  - converts compiled toll outputs into strict runtime JSON payloads (`toll_topology_uk.json`, `toll_tariffs_uk.json`)
+  - converts compiled toll outputs into strict runtime JSON payloads (`backend/assets/uk/toll_topology_uk.json`, `backend/assets/uk/toll_tariffs_uk.json`)
   - validates/regenerates fuel signature when needed
   - run from repo root:
   - `uv run --project backend python backend/scripts/publish_live_artifacts_uk.py`

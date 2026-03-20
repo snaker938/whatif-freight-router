@@ -488,6 +488,10 @@ def segment_grade_profile(
         float(settings.terrain_dem_resolution_m),
     )
     max_samples = max(100, int(settings.terrain_max_samples_per_route))
+    distance_km = sum(max(0.0, float(seg_m)) for seg_m in segment_distances_m) / 1000.0
+    if float(distance_km) >= float(settings.terrain_long_route_threshold_km):
+        spacing_m = max(spacing_m, float(settings.terrain_long_route_sample_spacing_m))
+        max_samples = min(max_samples, max(100, int(settings.terrain_long_route_max_samples_per_route)))
     signature = _route_signature_key(coordinates_lon_lat)
     profile, _coverage, _version = _cached_profile(
         signature,
@@ -526,14 +530,20 @@ def segment_grade_profile(
             lat1 + ((lat2 - lat1) * t),
         )
 
+    # Probing live elevation for every segment boundary is expensive on very long routes.
+    # For high-segment chains we use interpolated profile elevation directly.
+    max_probe_segments = max(0, int(settings.terrain_segment_boundary_probe_max_segments))
+    boundary_probe_enabled = max_probe_segments == 0 or len(segment_distances_m) <= max_probe_segments
+
     def _elevation_at_segment_boundary(boundary_m: float) -> float:
         # Strict geometry-aligned projection: use absolute segment boundary distance
         # on the route chain, not normalized ratio remapping.
         geom_boundary = max(0.0, min(geom_total_m, boundary_m))
-        lon, lat = _geometry_point_at_distance(geom_boundary)
-        elev, ok, _version = sample_elevation_m(lat, lon)
-        if ok and math.isfinite(elev):
-            return elev
+        if boundary_probe_enabled:
+            lon, lat = _geometry_point_at_distance(geom_boundary)
+            elev, ok, _version = sample_elevation_m(lat, lon)
+            if ok and math.isfinite(elev):
+                return elev
         profile_boundary = max(0.0, min(profile_total_m, geom_boundary))
         return _interp_elevation(profile, profile_boundary)
 
@@ -580,6 +590,12 @@ def estimate_terrain_summary(
         float(settings.terrain_dem_resolution_m),
     )
     max_samples = max(100, int(settings.terrain_max_samples_per_route))
+    if float(distance_km) >= float(settings.terrain_long_route_threshold_km):
+        # Keep summary sampling policy aligned with segment-grade policy so
+        # long corridors do not re-sample terrain twice at two different
+        # resolutions in the same route-option build.
+        spacing_m = max(spacing_m, float(settings.terrain_long_route_sample_spacing_m))
+        max_samples = min(max_samples, max(100, int(settings.terrain_long_route_max_samples_per_route)))
     route_intersects_uk = _route_intersects_uk(coordinates_lon_lat)
     manifest = load_terrain_manifest()
     if bool(settings.terrain_uk_only_support) and not route_intersects_uk:

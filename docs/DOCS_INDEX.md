@@ -1,6 +1,6 @@
 # Documentation Index
 
-Last Updated: 2026-02-25  
+Last Updated: 2026-03-06  
 Applies To: `backend/` + `frontend/` (strict v2 runtime)
 
 This is the source-of-truth index for all project documentation.  
@@ -13,6 +13,7 @@ Start here, then follow topic links.
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)
+- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
 
 ## Backend Core
 
@@ -41,6 +42,7 @@ Start here, then follow topic links.
 - [Dissertation Math Overview](dissertation-math-overview.md)
 - [Expanded Math Appendix](math-appendix.md)
 - [Graph Theory Notes](appendix-graph-theory-notes.md)
+- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
 
 ## Quality, Performance, Reproducibility
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import math
 import random
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,6 +42,37 @@ class _RetryResult:
 
 
 _CACHE: dict[str, _CacheEntry] = {}
+_LIVE_HTTP_CLIENT: httpx.Client | None = None
+_LIVE_HTTP_CLIENT_LOCK = threading.Lock()
+
+
+def _close_live_http_client() -> None:
+    global _LIVE_HTTP_CLIENT
+    with _LIVE_HTTP_CLIENT_LOCK:
+        client = _LIVE_HTTP_CLIENT
+        _LIVE_HTTP_CLIENT = None
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _live_http_client() -> httpx.Client:
+    global _LIVE_HTTP_CLIENT
+    with _LIVE_HTTP_CLIENT_LOCK:
+        client = _LIVE_HTTP_CLIENT
+        if client is None:
+            client = httpx.Client(
+                timeout=httpx.Timeout(max(1.0, float(settings.live_data_request_timeout_s))),
+                trust_env=False,
+                headers={"accept": "application/json"},
+            )
+            _LIVE_HTTP_CLIENT = client
+        return client
+
+
+atexit.register(_close_live_http_client)
 
 
 def clear_live_data_source_cache(keys_or_prefixes: list[str] | tuple[str, ...] | None = None) -> None:
@@ -246,8 +279,11 @@ def _request_json_with_bounded_retry(
             break
         attempt_count += 1
         try:
-            with httpx.Client(timeout=request_timeout_s) as client:
-                response = client.get(url, headers=headers)
+            response = _live_http_client().get(
+                url,
+                headers=headers,
+                timeout=max(0.001, float(request_timeout_s)),
+            )
             status_code = int(response.status_code)
             response_headers = {str(k): str(v) for k, v in response.headers.items()}
             response_body_bytes = int(len(response.content or b""))
@@ -2020,7 +2056,10 @@ def live_scenario_context(
         "dft": bool(dft_err is None and dft_query_meta),
         "open_meteo": bool(meteo_err is None and isinstance(meteo_payload, dict)),
     }
-    source_gate_set = dict(source_signal_set)
+    # Strict runtime should fail when required live APIs are not reached, not
+    # when a reachable API legitimately returns sparse local observations.
+    # This keeps "all required APIs were included/reached" as the hard gate.
+    source_gate_set = dict(source_signal_set if allow_partial_sources else source_reachability_set)
     required_source_count_configured = 4
     required_source_count_effective = 4
     waiver_applied = False
@@ -2050,6 +2089,7 @@ def live_scenario_context(
         "source_signal_set": source_signal_set,
         "source_reachability_set": source_reachability_set,
         "source_gate_set": source_gate_set,
+        "source_gate_basis": "signal" if allow_partial_sources else "reachability",
         "source_ok_count": int(source_ok_count),
         "required_source_count_configured": int(required_source_count_configured),
         "required_source_count_effective": int(required_source_count_effective),

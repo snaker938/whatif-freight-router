@@ -11,6 +11,7 @@ FROZEN_REASON_CODES: frozenset[str] = frozenset(
         "routing_graph_coverage_gap",
         "routing_graph_no_path",
         "routing_graph_precheck_timeout",
+        "routing_graph_deferred_load",
         "routing_graph_warming_up",
         "routing_graph_warmup_failed",
         "live_source_refresh_failed",
@@ -36,6 +37,8 @@ FROZEN_REASON_CODES: frozenset[str] = frozenset(
         "carbon_intensity_unavailable",
         "epsilon_infeasible",
         "no_route_candidates",
+        "baseline_route_unavailable",
+        "baseline_provider_unconfigured",
         "model_asset_unavailable",
     }
 )

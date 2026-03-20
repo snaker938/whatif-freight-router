@@ -51,11 +51,14 @@ def refresh_live_runtime_route_caches(*, mode: str = "full") -> None:
 
     selected_mode = str(mode or "full").strip().lower()
     if selected_mode == "route_compute":
+        # Keep heavy runtime artifacts warm between attempts and only force
+        # scenario-coefficient freshness. This is the low-latency strict path.
         clear_live_data_source_cache(keys_or_prefixes=("scenario:coefficients",))
-    elif selected_mode == "all_sources":
-        clear_live_data_source_cache()
-    else:
-        clear_live_data_source_cache()
+        load_scenario_profiles.cache_clear()
+        load_live_scenario_context.cache_clear()
+        return
+
+    clear_live_data_source_cache()
     load_scenario_profiles.cache_clear()
     load_live_scenario_context.cache_clear()
     load_departure_profile.cache_clear()
@@ -2055,34 +2058,37 @@ def load_risk_normalization_reference(
                     elif {"duration_s_per_km", "monetary_gbp_per_km", "emissions_kg_per_km"}.issubset(by_day.keys()):
                         selected_ref = by_day
 
-    if not isinstance(selected_ref, dict):
-        if pytest_bypass_enabled and isinstance(corridor_vehicle_refs, dict):
-            fallback_corridors = [corridor_key, "uk_default", "*"]
-            fallback_days = [day_key, "weekday", "weekend", "holiday"]
-            fallback_slots = [slot_key, "h12", "*"]
-            for fallback_corridor in fallback_corridors:
-                c_item = corridor_vehicle_refs.get(fallback_corridor)
-                if not isinstance(c_item, dict):
+    if not isinstance(selected_ref, dict) and isinstance(corridor_vehicle_refs, dict):
+        # Strict fallback policy: keep live artifact fail-closed, but allow
+        # corridor/day/slot fallback to canonical defaults inside the same
+        # strict reference asset so valid UK corridors are not rejected only
+        # because a sparse bucket is absent.
+        fallback_corridors = [corridor_key, "uk_default", "*"]
+        fallback_days = [day_key, "weekday", "weekend", "holiday", "*"]
+        fallback_slots = [slot_key, "h12", "*"]
+        for fallback_corridor in fallback_corridors:
+            c_item = corridor_vehicle_refs.get(fallback_corridor)
+            if not isinstance(c_item, dict):
+                continue
+            by_vehicle = c_item.get(vehicle_bucket)
+            if not isinstance(by_vehicle, dict):
+                continue
+            for fallback_day in fallback_days:
+                by_day = by_vehicle.get(fallback_day)
+                if not isinstance(by_day, dict):
                     continue
-                by_vehicle = c_item.get(vehicle_bucket)
-                if not isinstance(by_vehicle, dict):
-                    continue
-                for fallback_day in fallback_days:
-                    by_day = by_vehicle.get(fallback_day)
-                    if not isinstance(by_day, dict):
-                        continue
-                    for fallback_slot in fallback_slots:
-                        row = by_day.get(fallback_slot)
-                        if isinstance(row, dict):
-                            selected_ref = row
-                            corridor_key = fallback_corridor
-                            day_key = fallback_day
-                            slot_key = fallback_slot
-                            break
-                    if isinstance(selected_ref, dict):
+                for fallback_slot in fallback_slots:
+                    row = by_day.get(fallback_slot)
+                    if isinstance(row, dict):
+                        selected_ref = row
+                        corridor_key = fallback_corridor
+                        day_key = fallback_day
+                        slot_key = fallback_slot
                         break
                 if isinstance(selected_ref, dict):
                     break
+            if isinstance(selected_ref, dict):
+                break
     if not isinstance(selected_ref, dict):
         raise ModelDataError(
             reason_code="risk_normalization_unavailable",
