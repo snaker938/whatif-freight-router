@@ -12,28 +12,23 @@ export const TUTORIAL_CHAPTERS: TutorialChapter[] = [
     description: 'Configure vehicle and scenario context.',
   },
   {
-    id: 'chapter_advanced',
-    title: '3. Advanced parameters',
-    description: 'Tune optimization, Pareto filtering, uncertainty, terrain, and costs.',
-  },
-  {
     id: 'chapter_routes',
-    title: '4. Compute and route analysis',
+    title: '3. Compute and route analysis',
     description: 'Generate routes, inspect output panels, and use route-level tools.',
   },
   {
     id: 'chapter_compare',
-    title: '5. Compare, departure optimization, and timeline playback',
+    title: '4. Compare, departure optimization, and timeline playback',
     description: 'Run scenario deltas, optimize departure windows, and animate route playback.',
   },
   {
     id: 'chapter_ops',
-    title: '6. Duty chain, oracle quality, and experiments',
+    title: '5. Duty chain, oracle quality, and experiments',
     description: 'Run multi-leg planning, quality checks, and experiment lifecycle actions.',
   },
   {
     id: 'chapter_finish',
-    title: '7. Completion recap',
+    title: '6. Completion recap',
     description: 'Confirm completion and keep restart available for future onboarding.',
   },
 ];
@@ -182,9 +177,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     chapterId: 'chapter_setup',
     title: 'Set scenario mode to No sharing.',
     what:
-      'Open Scenario mode and explicitly select No sharing for the guided baseline.',
+      'Open Scenario mode and explicitly select No sharing for the guided compute profile.',
     impact:
-      'No sharing is the baseline comparator in backend scenario-delta logic and keeps tutorial outcomes deterministic.',
+      'No sharing is the strict tutorial baseline for stable, reproducible comparisons across generated routes and quick baselines.',
     targetIds: ['setup.scenario'],
     required: [{ actionId: 'setup.scenario_option:no_sharing', label: 'Select No sharing.' }],
     activeSectionId: 'setup.section',
@@ -192,132 +187,19 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowedActions: ['setup.scenario_option:open', 'setup.scenario_option:no_sharing'],
   },
   {
-    id: 'advanced_optimization_and_risk',
-    chapterId: 'chapter_advanced',
-    title: 'Set optimization mode to Robust and risk aversion to 1.4',
-    what:
-      'Select Robust optimization mode first, then set risk aversion to 1.4 for the uncertainty-aware tutorial baseline.',
-    impact:
-      'Higher risk aversion penalizes volatile options and can prioritize stability over minimum mean ETA.',
-    targetIds: ['advanced.optimization_mode', 'advanced.risk_aversion'],
-    required: [
-      { actionId: 'advanced.optimization_mode_option:robust', label: 'Select Robust optimization mode.' },
-      { actionId: 'advanced.risk_aversion_input', label: 'Set risk aversion to 1.4.' },
-    ],
-    prefillId: 'canonical_advanced',
-    activeSectionId: 'advanced.section',
-    lockScope: 'sidebar_section_only',
-    allowedActions: [
-      'advanced.optimization_mode_option:open',
-      'advanced.optimization_mode_option:robust',
-      'advanced.risk_aversion_input',
-    ],
-  },
-  {
-    id: 'advanced_pareto_method',
-    chapterId: 'chapter_advanced',
-    title: 'Switch Pareto method and set epsilon bounds',
-    what:
-      'Switch to epsilon-constraint mode and fill duration, monetary, and emissions caps.',
-    impact:
-      'Epsilon caps pre-filter infeasible candidates before nondominance selection, changing the final candidate set.',
-    targetIds: ['advanced.pareto_method', 'advanced.epsilon_grid'],
-    required: [
-      {
-        actionId: 'advanced.pareto_method_option:epsilon_constraint',
-        label: 'Set Pareto method to Epsilon Constraint.',
-      },
-      { actionId: 'advanced.epsilon_duration_input', label: 'Set epsilon duration bound to 9000.' },
-      { actionId: 'advanced.epsilon_money_input', label: 'Set epsilon monetary bound to 250.' },
-      { actionId: 'advanced.epsilon_emissions_input', label: 'Set epsilon emissions bound to 900.' },
-    ],
-    activeSectionId: 'advanced.section',
-    lockScope: 'sidebar_section_only',
-    allowedActions: [
-      'advanced.pareto_method_option:open',
-      'advanced.pareto_method_option:epsilon_constraint',
-      'advanced.epsilon_duration_input',
-      'advanced.epsilon_money_input',
-      'advanced.epsilon_emissions_input',
-    ],
-  },
-  {
-    id: 'advanced_departure_optional',
-    chapterId: 'chapter_advanced',
-    title: 'Optional departure time in route requests',
-    what:
-      'Set a departure time or explicitly keep default behavior. This field is optional but important for reproducible runs.',
-    impact:
-      'Time-dependent effects (for example profile multipliers) are anchored to this timestamp when present.',
-    targetIds: ['advanced.departure_time'],
-    required: [],
-    optional: {
-      id: 'advanced.departure_time_decision',
-      label: 'Set departure time or explicitly keep default inferred behavior.',
-      actionIds: ['advanced.departure_time_input'],
-      defaultLabel: 'Keep departure time at default behavior.',
-    },
-    activeSectionId: 'advanced.section',
-    lockScope: 'sidebar_section_only',
-  },
-  {
-    id: 'advanced_stochastic',
-    chapterId: 'chapter_advanced',
-    title: 'Configure stochastic sampling',
-    what:
-      'Enable stochastic sampling and set seed, sigma, and sample count.',
-    impact:
-      'These values control uncertainty spread and reproducibility, which directly influences robust ranking outcomes.',
-    targetIds: ['advanced.stochastic_toggle', 'advanced.stochastic_grid'],
-    required: [
-      { actionId: 'advanced.stochastic_toggle', label: 'Enable stochastic sampling.' },
-      { actionId: 'advanced.stochastic_seed_input', label: 'Set stochastic seed to 42.' },
-      { actionId: 'advanced.stochastic_sigma_input', label: 'Set stochastic sigma to 0.08.' },
-      { actionId: 'advanced.stochastic_samples_input', label: 'Set sample count to 25.' },
-    ],
-    activeSectionId: 'advanced.section',
-    lockScope: 'sidebar_section_only',
-  },
-  {
-    id: 'advanced_terrain_and_cost',
-    chapterId: 'chapter_advanced',
-    title: 'Set terrain and monetary cost toggles',
-    what:
-      'Set terrain profile and cost toggles (tolls, fuel multiplier, carbon price, toll per km).',
-    impact:
-      'These knobs alter duration, emissions, and monetary surfaces, which can reorder selected-route outcomes.',
-    targetIds: ['advanced.terrain', 'advanced.cost_toggles'],
-    required: [
-      { actionId: 'advanced.terrain_option:rolling', label: 'Set terrain profile to Rolling.' },
-      { actionId: 'advanced.use_tolls_toggle', label: 'Enable Use tolls.' },
-      { actionId: 'advanced.fuel_multiplier_input', label: 'Set fuel price multiplier to 1.1.' },
-      { actionId: 'advanced.carbon_price_input', label: 'Set carbon price per kg to 0.08.' },
-      { actionId: 'advanced.toll_per_km_input', label: 'Set toll cost per km to 0.12.' },
-    ],
-    activeSectionId: 'advanced.section',
-    lockScope: 'sidebar_section_only',
-    allowedActions: [
-      'advanced.terrain_option:open',
-      'advanced.terrain_option:rolling',
-      'advanced.use_tolls_toggle',
-      'advanced.fuel_multiplier_input',
-      'advanced.carbon_price_input',
-      'advanced.toll_per_km_input',
-    ],
-  },
-  {
     id: 'preferences_weights',
     chapterId: 'chapter_routes',
-    title: 'Tune objective weights',
+    title: 'Tune objective weights and compute mode',
     what:
-      'Adjust time, money, and CO2 sliders to set your optimization preference before computing routes.',
+      'Adjust time, money, and CO2 sliders, then set Compute mode to Pareto JSON.',
     impact:
-      'Weights control weighted-selection preference over the Pareto set and determine which candidate auto-selects.',
-    targetIds: ['preferences.weights'],
+      'These are the final tutorial compute values and will be used exactly as configured.',
+    targetIds: ['preferences.weights', 'preferences.compute_mode'],
     required: [
       { actionId: 'pref.weight_time', label: 'Set Time weight to 55.' },
       { actionId: 'pref.weight_money', label: 'Set Money weight to 25.' },
       { actionId: 'pref.weight_co2', label: 'Set CO2 weight to 20.' },
+      { actionId: 'pref.compute_mode_option:pareto_json', label: 'Set Compute mode to Pareto JSON.' },
     ],
     prefillId: 'canonical_preferences',
     activeSectionId: 'preferences.section',
@@ -432,6 +314,25 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     activeSectionId: 'selected.route_panel',
     lockScope: 'sidebar_section_only',
+  },
+  {
+    id: 'selected_baseline_uplift',
+    chapterId: 'chapter_routes',
+    title: 'Review smart-route uplift vs OSRM and OpenRouteService baselines',
+    what:
+      'In Selected route, review the OSRM baseline comparison card and the OpenRouteService baseline card (when available). The tutorial auto-selects the strongest winner route from the generated list; confirm the smart route beats the OSRM baseline in at least 3 of 4 metrics and remains competitive against OpenRouteService.',
+    impact:
+      'This makes the value of strict smart routing explicit: users see concrete uplift against fast baseline routing from two providers, not just raw route geometry.',
+    targetIds: ['selected.route_panel'],
+    required: [
+      {
+        actionId: 'selected.baseline_compare_review',
+        label: 'Confirm smart route beats baseline in most metrics.',
+      },
+    ],
+    activeSectionId: 'selected.route_panel',
+    lockScope: 'sidebar_section_only',
+    allowedActions: ['selected.baseline_toggle', 'selected.google_baseline_toggle', 'selected.baseline_compare_review'],
   },
   {
     id: 'selected_read_panels',

@@ -143,6 +143,7 @@ export default function ScenarioParameterEditor({
         value={value.maxAlternatives}
         disabled={disabled}
         onChange={(event) => patch('maxAlternatives', event.target.value)}
+        data-tutorial-action="advanced.max_alternatives_input"
       />
 
       <div className="fieldLabelRow">
@@ -284,7 +285,9 @@ export default function ScenarioParameterEditor({
           data-tutorial-id="advanced.stochastic_toggle"
           data-tutorial-action="advanced.stochastic_toggle"
         />
-        <label htmlFor="stochastic-enabled">Enable Stochastic Travel-Time Sampling</label>
+        <label htmlFor="stochastic-enabled" data-tutorial-action="advanced.stochastic_toggle">
+          Enable Stochastic Travel-Time Sampling
+        </label>
         <FieldInfo text={SIDEBAR_FIELD_HELP.stochasticEnabled} />
       </div>
 

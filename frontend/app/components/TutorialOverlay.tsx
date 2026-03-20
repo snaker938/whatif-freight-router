@@ -53,6 +53,7 @@ type Props = {
   onBack: () => void;
   onNext: () => void;
   onFinish: () => void;
+  onSkipStep: () => void;
   onMarkManual: (actionId: string) => void;
   onUseOptionalDefault: (optionalDecisionId: string) => void;
 };
@@ -92,6 +93,7 @@ export default function TutorialOverlay({
   onBack: _onBack,
   onNext: _onNext,
   onFinish: _onFinish,
+  onSkipStep,
   onMarkManual,
   onUseOptionalDefault,
 }: Props) {
@@ -580,11 +582,16 @@ export default function TutorialOverlay({
             </div>
 
             <div className="tutorialOverlay__footer">
-              {!isDesktop ? null : (
-                <button type="button" className="ghostButton" onClick={onClose}>
-                  Close and keep progress
+              <div className="tutorialOverlay__footerActions">
+                <button type="button" className="secondary" onClick={onSkipStep}>
+                  Skip this step
                 </button>
-              )}
+                {!isDesktop ? null : (
+                  <button type="button" className="ghostButton" onClick={onClose}>
+                    Close and keep progress
+                  </button>
+                )}
+              </div>
             </div>
           </>
         ) : null}

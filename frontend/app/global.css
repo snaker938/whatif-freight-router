@@ -270,6 +270,62 @@ a {
     gap: 8px;
   }
 
+  .mapLegendRow {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 535;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    max-width: min(72%, 460px);
+    pointer-events: none;
+  }
+
+  .mapLegendChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(4, 10, 20, 0.72);
+    color: rgba(236, 254, 255, 0.95);
+    font-size: 11px;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .mapLegendChip--smart {
+    border-color: rgba(6, 182, 212, 0.45);
+    box-shadow: inset 0 0 0 1px rgba(6, 182, 212, 0.25);
+  }
+
+  .mapLegendChip--alternatives {
+    border-color: rgba(147, 197, 253, 0.42);
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.22);
+  }
+
+  .mapLegendChip--baseline {
+    border-color: rgba(148, 163, 184, 0.44);
+  }
+
+  .mapLegendChip--google {
+    border-color: rgba(251, 146, 60, 0.48);
+    box-shadow: inset 0 0 0 1px rgba(251, 146, 60, 0.22);
+  }
+
+  .mapLegendChip--reference {
+    border-color: rgba(250, 204, 21, 0.5);
+    box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.2);
+  }
+
+  .mapLegendChip.isMuted {
+    opacity: 0.62;
+  }
+
   .sidebarToggle__icon {
     color: rgba(233, 241, 255, 0.76);
     width: 14px;
@@ -671,19 +727,27 @@ a {
     left: 22px;
     top: 50%;
     transform: translateY(-50%) translateX(-4px);
-    min-width: min(180px, calc(100vw - 48px));
-    max-width: min(260px, calc(100vw - 48px));
+    min-width: min(220px, calc(100vw - 32px));
+    max-width: min(420px, calc(100vw - 32px));
+    max-height: min(58vh, 360px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     z-index: 70;
     opacity: 0;
     pointer-events: none;
-    font-size: 11px;
-    line-height: 1.3;
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: 0.01em;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     color: rgba(255, 255, 255, 0.9);
     border: 1px solid rgba(6, 182, 212, 0.4);
     border-radius: 10px;
     background: rgba(8, 11, 20, 0.95);
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
-    padding: 7px 8px;
+    padding: 10px 12px;
     transition: opacity 120ms ease, transform 120ms ease;
   }
 
@@ -1766,6 +1830,343 @@ a {
   .terrainBadgeMeta {
     font-size: 11px;
     color: rgba(203, 213, 225, 0.9);
+  }
+
+  .baselineToggleRow {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: rgba(226, 232, 240, 0.9);
+  }
+
+  .baselineToggleRow__status {
+    font-size: 10.5px;
+    border-radius: 999px;
+    padding: 2px 7px;
+    border: 1px solid rgba(125, 211, 252, 0.45);
+    background: rgba(2, 132, 199, 0.18);
+    color: rgba(186, 230, 253, 0.96);
+  }
+
+  .baselineComparePanel {
+    margin-top: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 14px;
+    background: rgba(4, 10, 22, 0.42);
+    padding: 10px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .baselineComparePanel__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .baselineComparePanel__title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: rgba(240, 249, 255, 0.95);
+  }
+
+  .baselineComparePanel__loading {
+    font-size: 11px;
+    color: rgba(148, 163, 184, 0.92);
+  }
+
+  .baselineComparePanel__epicNote {
+    font-size: 10.5px;
+    color: rgba(186, 230, 253, 0.92);
+    line-height: 1.35;
+  }
+
+  .baselineComparePanel__signLegend {
+    font-size: 10.5px;
+    line-height: 1.4;
+    border-radius: 10px;
+    border: 1px solid rgba(56, 189, 248, 0.36);
+    background: rgba(8, 47, 73, 0.28);
+    color: rgba(186, 230, 253, 0.98);
+    padding: 6px 8px;
+  }
+
+  .baselineComparePanel__warning {
+    font-size: 11px;
+    line-height: 1.35;
+    border-radius: 10px;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    background: rgba(120, 53, 15, 0.24);
+    color: rgba(254, 215, 170, 0.96);
+    padding: 6px 8px;
+  }
+
+  .baselineEpicScore {
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 10.5px;
+    font-weight: 700;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    color: rgba(226, 232, 240, 0.95);
+    background: rgba(30, 41, 59, 0.35);
+  }
+
+  .baselineEpicScore--epic {
+    border-color: rgba(74, 222, 128, 0.62);
+    background: rgba(21, 128, 61, 0.28);
+    color: rgba(187, 247, 208, 0.98);
+  }
+
+  .baselineEpicScore--strong {
+    border-color: rgba(6, 182, 212, 0.62);
+    background: rgba(14, 116, 144, 0.28);
+    color: rgba(165, 243, 252, 0.98);
+  }
+
+  .baselineEpicScore--positive {
+    border-color: rgba(125, 211, 252, 0.58);
+    background: rgba(2, 132, 199, 0.22);
+    color: rgba(186, 230, 253, 0.98);
+  }
+
+  .baselineEpicScore--limitedgain {
+    border-color: rgba(251, 191, 36, 0.58);
+    background: rgba(146, 64, 14, 0.26);
+    color: rgba(254, 240, 138, 0.96);
+  }
+
+  .baselineKpiGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .baselineComparePanel__tradeoff {
+    font-size: 11px;
+    line-height: 1.4;
+    color: rgba(226, 232, 240, 0.95);
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(15, 23, 42, 0.5);
+    padding: 7px 9px;
+  }
+
+  .baselineKpi {
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(2, 6, 23, 0.42);
+    padding: 8px;
+    display: grid;
+    gap: 3px;
+  }
+
+  .baselineKpi.isPositive {
+    border-color: rgba(74, 222, 128, 0.36);
+  }
+
+  .baselineKpi.isNegative {
+    border-color: rgba(248, 113, 113, 0.38);
+  }
+
+  .baselineKpi__label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(148, 163, 184, 0.9);
+  }
+
+  .baselineKpi__value {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(241, 245, 249, 0.98);
+  }
+
+  .baselineKpi__meta {
+    font-size: 10.5px;
+    color: rgba(186, 230, 253, 0.9);
+  }
+
+  .baselineImpactGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .baselineImpactGrid__label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(148, 163, 184, 0.88);
+  }
+
+  .baselineImpactGrid__value {
+    margin-top: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.97);
+  }
+
+  .baselineImpactGrid__trace {
+    font-size: 10.5px;
+    color: rgba(148, 163, 184, 0.9);
+  }
+
+  .baselineChartsGrid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 1fr;
+  }
+
+  .baselineChartCard {
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: rgba(2, 6, 23, 0.36);
+    padding: 8px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .baselineChartCard__title {
+    font-size: 11px;
+    color: rgba(226, 232, 240, 0.96);
+    font-weight: 600;
+  }
+
+  .baselineDeltaBars {
+    display: grid;
+    gap: 7px;
+  }
+
+  .baselineDeltaBars__row {
+    display: grid;
+    grid-template-columns: 78px 1fr 124px;
+    gap: 7px;
+    align-items: center;
+  }
+
+  .baselineDeltaBars__label {
+    font-size: 10.5px;
+    color: rgba(203, 213, 225, 0.9);
+  }
+
+  .baselineDeltaBars__track {
+    position: relative;
+    height: 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.6);
+    overflow: hidden;
+  }
+
+  .baselineDeltaBars__zero {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: rgba(148, 163, 184, 0.52);
+  }
+
+  .baselineDeltaBars__bar {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    border-radius: 999px;
+  }
+
+  .baselineDeltaBars__bar.isPositive {
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.88), rgba(16, 185, 129, 0.92));
+  }
+
+  .baselineDeltaBars__bar.isNegative {
+    background: linear-gradient(90deg, rgba(248, 113, 113, 0.9), rgba(239, 68, 68, 0.95));
+  }
+
+  .baselineDeltaBars__value {
+    font-size: 10.5px;
+    text-align: right;
+    color: rgba(226, 232, 240, 0.92);
+  }
+
+  .baselineRadar {
+    width: 100%;
+    max-width: 260px;
+    justify-self: center;
+    height: auto;
+  }
+
+  .baselineRadar__ring {
+    fill: none;
+    stroke: rgba(148, 163, 184, 0.18);
+    stroke-width: 1;
+  }
+
+  .baselineRadar__axis {
+    stroke: rgba(148, 163, 184, 0.22);
+    stroke-width: 1;
+  }
+
+  .baselineRadar__baselinePoly {
+    fill: rgba(148, 163, 184, 0.1);
+    stroke: rgba(148, 163, 184, 0.86);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
+  .baselineRadar__smartPoly {
+    fill: rgba(6, 182, 212, 0.24);
+    stroke: rgba(6, 182, 212, 0.95);
+    stroke-width: 2;
+  }
+
+  .baselineRadar__label {
+    fill: rgba(226, 232, 240, 0.96);
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .baselineRadarLegend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .baselineRadarLegend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: rgba(226, 232, 240, 0.94);
+  }
+
+  .baselineRadarLegend__item::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+  }
+
+  .baselineRadarLegend__item--smart::before {
+    background: rgba(6, 182, 212, 0.95);
+  }
+
+  .baselineRadarLegend__item--baseline::before {
+    background: rgba(148, 163, 184, 0.92);
+  }
+
+  .baselineNotes {
+    margin: 0;
+    padding-left: 16px;
+    display: grid;
+    gap: 4px;
+    font-size: 10.5px;
+    color: rgba(186, 230, 253, 0.92);
   }
 
   /* ---------- Chart ---------- */
@@ -2951,6 +3352,13 @@ a {
     justify-content: flex-end;
   }
 
+  .tutorialOverlay__footerActions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   .tutorialOverlay__spotlight {
     position: fixed;
     border-radius: 12px;
@@ -3023,6 +3431,21 @@ a {
       opacity 180ms ease,
       filter 180ms ease,
       box-shadow 180ms ease;
+  }
+
+  .tutorialActionPulse:is(input, select, textarea, button, label, [role='button']) {
+    outline: 1px solid rgba(56, 189, 248, 0.72);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tutorialActionPulse {
+      animation: none !important;
+      box-shadow:
+        0 0 0 1px rgba(56, 189, 248, 0.72),
+        0 0 0 6px rgba(56, 189, 248, 0.18) !important;
+      filter: saturate(1.06) brightness(1.03);
+    }
   }
 
   @keyframes tutorialTargetPulseGlow {
@@ -3666,8 +4089,86 @@ a {
     filter: drop-shadow(0 0 16px rgba(6, 182, 212, 0.35));
   }
 
+  .baselineRoutePath {
+    filter: drop-shadow(0 0 8px rgba(148, 163, 184, 0.25));
+  }
+
+  .googleBaselineRoutePath {
+    filter: drop-shadow(0 0 8px rgba(251, 146, 60, 0.3));
+  }
+
+  .referenceRoutePath {
+    filter: drop-shadow(0 0 9px rgba(250, 204, 21, 0.28));
+  }
+
+  .routeAlternativePath {
+    filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.28));
+  }
+
   .routePath {
     filter: drop-shadow(0 0 12px rgba(124, 58, 237, 0.35));
+  }
+
+  .mapRouteBadgeDot {
+    filter: drop-shadow(0 0 8px rgba(15, 23, 42, 0.35));
+  }
+
+  .leaflet-tooltip.mapRouteBadgeTooltip {
+    background: rgba(7, 11, 28, 0.92) !important;
+    border: 1px solid rgba(148, 163, 184, 0.35) !important;
+    border-radius: 10px !important;
+    color: rgba(241, 245, 249, 0.97) !important;
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35) !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    padding: 2px 6px !important;
+  }
+
+  .leaflet-tooltip.mapRouteBadgeTooltip::before {
+    border-top-color: rgba(7, 11, 28, 0.92) !important;
+  }
+
+  .leaflet-tooltip-top.mapRouteBadgeTooltip::before {
+    border-top-color: rgba(7, 11, 28, 0.92) !important;
+  }
+
+  .leaflet-tooltip-bottom.mapRouteBadgeTooltip::before {
+    border-bottom-color: rgba(7, 11, 28, 0.92) !important;
+  }
+
+  .leaflet-tooltip-left.mapRouteBadgeTooltip::before {
+    border-left-color: rgba(7, 11, 28, 0.92) !important;
+  }
+
+  .leaflet-tooltip-right.mapRouteBadgeTooltip::before {
+    border-right-color: rgba(7, 11, 28, 0.92) !important;
+  }
+
+  .mapRouteBadgeTooltip .leaflet-tooltip-content {
+    margin: 1px 2px;
+  }
+
+  .mapRouteBadgeTooltip--selected {
+    background: rgba(49, 46, 129, 0.94) !important;
+    border-color: rgba(196, 181, 253, 0.42) !important;
+    color: rgba(250, 245, 255, 0.98) !important;
+  }
+
+  .leaflet-tooltip-top.mapRouteBadgeTooltip--selected::before {
+    border-top-color: rgba(49, 46, 129, 0.94) !important;
+  }
+
+  .leaflet-tooltip-bottom.mapRouteBadgeTooltip--selected::before {
+    border-bottom-color: rgba(49, 46, 129, 0.94) !important;
+  }
+
+  .leaflet-tooltip-left.mapRouteBadgeTooltip--selected::before {
+    border-left-color: rgba(49, 46, 129, 0.94) !important;
+  }
+
+  .leaflet-tooltip-right.mapRouteBadgeTooltip--selected::before {
+    border-right-color: rgba(49, 46, 129, 0.94) !important;
   }
 
   .routePath.leaflet-interactive {
@@ -4029,6 +4530,26 @@ a {
 
     .devGrid {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .metrics {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .baselineKpiGrid,
+    .baselineImpactGrid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .baselineDeltaBars__row {
+      grid-template-columns: 52px 1fr 50px;
+      gap: 6px;
+    }
+
+    .mapLegendRow {
+      right: 10px;
+      bottom: 10px;
+      max-width: calc(100% - 20px);
     }
   }
 

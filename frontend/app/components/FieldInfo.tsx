@@ -43,7 +43,7 @@ export default function FieldInfo({ text, id }: Props) {
 
       const availableRight = Math.max(120, viewportWidth - (rootRect.right + gap + margin));
       const availableLeft = Math.max(120, rootRect.left - gap - margin);
-      const preferredMax = 260;
+      const preferredMax = 420;
 
       const fitsRight = rootRect.right + gap + tooltipRect.width <= viewportWidth - margin;
       const fitsLeft = rootRect.left - gap - tooltipRect.width >= margin;

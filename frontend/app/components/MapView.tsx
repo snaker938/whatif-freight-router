@@ -58,6 +58,17 @@ type Props = {
   fitAllRequestNonce?: number;
 
   route: RouteOption | null;
+  alternativeRoutes?: RouteOption[];
+  showSmartAlternatives?: boolean;
+  onSelectAlternative?: (routeId: string) => void;
+  routeLabelsById?: Record<string, string>;
+  selectedRouteLabel?: string;
+  baselineRoute?: RouteOption | null;
+  showBaselineRoute?: boolean;
+  googleBaselineRoute?: RouteOption | null;
+  showGoogleBaselineRoute?: boolean;
+  referenceRoute?: RouteOption | null;
+  showReferenceRoute?: boolean;
   failureOverlay?: MapFailureOverlay | null;
   timeLapsePosition?: LatLng | null;
   dutyStops?: DutyChainStop[];
@@ -1190,6 +1201,70 @@ function rgbaFromHex(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${clampedAlpha})`;
 }
 
+const ALT_ROUTE_PALETTE = ['#22D3EE', '#38BDF8', '#A78BFA', '#F59E0B', '#34D399', '#F97316'] as const;
+const ALT_ROUTE_DASH_PATTERNS = ['10 8', '4 8', '14 6', '2 10', '8 10', '12 9'] as const;
+
+type RoutePathPoint = [number, number];
+
+function routeAltColor(routeId: string, index: number): string {
+  let hash = 0;
+  const seed = routeId || `route-${index}`;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  }
+  const paletteIdx = Math.abs(hash + index) % ALT_ROUTE_PALETTE.length;
+  return ALT_ROUTE_PALETTE[paletteIdx];
+}
+
+function alternatingSpreadIndex(index: number): number {
+  const lane = Math.floor(index / 2) + 1;
+  return index % 2 === 0 ? lane : -lane;
+}
+
+function offsetPolylineLatLonPositions(
+  positions: RoutePathPoint[],
+  offsetMeters: number,
+): RoutePathPoint[] {
+  if (positions.length < 2 || Math.abs(offsetMeters) < 0.01) return positions;
+  const metersPerDegLat = 111_320;
+  const lastIndex = positions.length - 1;
+  return positions.map((point, idx) => {
+    const prev = positions[Math.max(0, idx - 1)];
+    const next = positions[Math.min(lastIndex, idx + 1)];
+    const dLon = next[1] - prev[1];
+    const dLat = next[0] - prev[0];
+    const latRad = (point[0] * Math.PI) / 180;
+    const cosLat = Math.max(0.2, Math.cos(latRad));
+    const dx = dLon * cosLat;
+    const dy = dLat;
+    const length = Math.hypot(dx, dy);
+    if (!Number.isFinite(length) || length <= 1e-9) return point;
+    const normalX = -dy / length;
+    const normalY = dx / length;
+    const latOffsetDeg = (normalY * offsetMeters) / metersPerDegLat;
+    const lonOffsetDeg = (normalX * offsetMeters) / (metersPerDegLat * cosLat);
+    return [point[0] + latOffsetDeg, point[1] + lonOffsetDeg];
+  });
+}
+
+function pickLabelAnchor(positions: RoutePathPoint[], seed: number): RoutePathPoint | null {
+  if (positions.length < 2) return null;
+  const normalizedSeed = ((seed % 7) + 7) % 7;
+  const ratio = 0.22 + normalizedSeed * 0.09;
+  const idx = Math.max(1, Math.min(positions.length - 1, Math.round((positions.length - 1) * ratio)));
+  return positions[idx] ?? null;
+}
+
+function compactRouteBadge(label: string, fallbackIndex: number): string {
+  const trimmed = label.trim();
+  const routeMatch = trimmed.match(/^route\s+(\d+)$/i);
+  if (routeMatch?.[1]) {
+    return `R${routeMatch[1]}`;
+  }
+  if (trimmed.length > 0 && trimmed.length <= 8) return trimmed;
+  return `R${fallbackIndex + 1}`;
+}
+
 function makeDutyStopIcon(sequence: number, colorHex: string, selected = false) {
   const darkHex = darkenHexColor(colorHex, 0.72);
   const shadowColor = rgbaFromHex(colorHex, 0.48);
@@ -1278,6 +1353,17 @@ export default function MapView({
   focusPinRequest = null,
   fitAllRequestNonce = 0,
   route,
+  alternativeRoutes = [],
+  showSmartAlternatives = true,
+  onSelectAlternative,
+  routeLabelsById = {},
+  selectedRouteLabel,
+  baselineRoute = null,
+  showBaselineRoute = true,
+  googleBaselineRoute = null,
+  showGoogleBaselineRoute = true,
+  referenceRoute = null,
+  showReferenceRoute = true,
   failureOverlay = null,
   timeLapsePosition,
   dutyStops = [],
@@ -1567,6 +1653,77 @@ export default function MapView({
     const slim = downsamplePolyline(coords);
     return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
   }, [route]);
+  const selectedRouteLabelAnchor = useMemo(() => {
+    const points = polylinePositions as RoutePathPoint[];
+    return pickLabelAnchor(points, 3);
+  }, [polylinePositions]);
+  const selectedRouteBadgeText = useMemo(() => {
+    const label =
+      selectedRouteLabel?.trim() ||
+      routeLabelsById[route?.id ?? '']?.trim() ||
+      'Selected';
+    return compactRouteBadge(label, 0);
+  }, [route?.id, routeLabelsById, selectedRouteLabel]);
+  const baselinePolylinePositions: LatLngExpression[] = useMemo(() => {
+    const coords = baselineRoute?.geometry?.coordinates ?? [];
+    const slim = downsamplePolyline(coords);
+    return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
+  }, [baselineRoute]);
+  const googleBaselinePolylinePositions: LatLngExpression[] = useMemo(() => {
+    const coords = googleBaselineRoute?.geometry?.coordinates ?? [];
+    const slim = downsamplePolyline(coords);
+    return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
+  }, [googleBaselineRoute]);
+  const referencePolylinePositions: LatLngExpression[] = useMemo(() => {
+    const coords = referenceRoute?.geometry?.coordinates ?? [];
+    const slim = downsamplePolyline(coords);
+    return slim.map(([lon, lat]) => [lat, lon] as [number, number]);
+  }, [referenceRoute]);
+  const alternativeRouteLayers = useMemo(() => {
+    const routes = alternativeRoutes ?? [];
+    if (!routes.length) return [] as Array<{
+      id: string;
+      positions: RoutePathPoint[];
+      color: string;
+      weight: number;
+      opacity: number;
+      dashArray: string;
+      label: string;
+      badge: string;
+      labelAnchor: RoutePathPoint | null;
+    }>;
+    const laneSpacingMeters =
+      routes.length >= 18 ? 4.6 : routes.length >= 12 ? 5.8 : routes.length >= 8 ? 6.8 : 8.4;
+    return routes
+      .map((altRoute, idx) => {
+        const coords = altRoute?.geometry?.coordinates ?? [];
+        const slim = downsamplePolyline(coords);
+        const rawPositions = slim.map(([lon, lat]) => [lat, lon] as RoutePathPoint);
+        const laneIndex = alternatingSpreadIndex(idx);
+        const offsetMeters = laneIndex * laneSpacingMeters;
+        const positions = offsetPolylineLatLonPositions(rawPositions, offsetMeters);
+        const color = routeAltColor(altRoute.id, idx);
+        const label = routeLabelsById[altRoute.id]?.trim() || `Route ${idx + 1}`;
+        return {
+          id: altRoute.id,
+          positions,
+          color,
+          weight: 2.8 + (idx % 3) * 0.6,
+          opacity: Math.max(0.54, 0.82 - Math.min(idx, 10) * 0.02),
+          dashArray: ALT_ROUTE_DASH_PATTERNS[idx % ALT_ROUTE_DASH_PATTERNS.length],
+          label,
+          badge: compactRouteBadge(label, idx),
+          labelAnchor: pickLabelAnchor(positions, idx),
+        };
+      })
+      .filter((entry) => entry.positions.length > 1);
+  }, [alternativeRoutes, routeLabelsById]);
+  const hasComputedRoute =
+    polylinePositions.length > 0 ||
+    alternativeRouteLayers.some((entry) => entry.positions.length > 0) ||
+    baselinePolylinePositions.length > 0 ||
+    googleBaselinePolylinePositions.length > 0 ||
+    referencePolylinePositions.length > 0;
   const failureLinePositions: LatLngExpression[] = useMemo(() => {
     if (!failureOverlay || !effectiveOrigin || !effectiveDestination) return [];
     return [
@@ -2555,28 +2712,165 @@ export default function MapView({
           </Marker>
         ) : null}
 
-        {!suppressRoutePath && !failureOverlayActive && polylinePositions.length > 0 && (
+        {!suppressRoutePath &&
+        !failureOverlayActive &&
+        (polylinePositions.length > 0 || alternativeRouteLayers.length > 0) && (
           <>
-            <Polyline
-              positions={polylinePositions}
-              pathOptions={{
-                className: 'routeGlow',
-                color: 'rgba(6, 182, 212, 0.35)',
-                weight: 12,
-                opacity: 0.9,
-              }}
-            />
-            <Polyline
-              positions={polylinePositions}
-              pathOptions={{
-                className: 'routePath',
-                color: 'rgba(124, 58, 237, 0.95)',
-                weight: 5,
-                opacity: 0.95,
-                lineCap: 'round',
-                lineJoin: 'round',
-              }}
-            />
+            {showBaselineRoute && baselinePolylinePositions.length > 1 ? (
+              <Polyline
+                positions={baselinePolylinePositions}
+                pathOptions={{
+                  className: 'baselineRoutePath',
+                  color: 'rgba(148, 163, 184, 0.92)',
+                  weight: 3,
+                  opacity: 0.9,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '10 8',
+                }}
+              />
+            ) : null}
+            {showGoogleBaselineRoute && googleBaselinePolylinePositions.length > 1 ? (
+              <Polyline
+                positions={googleBaselinePolylinePositions}
+                pathOptions={{
+                  className: 'googleBaselineRoutePath',
+                  color: 'rgba(251, 146, 60, 0.95)',
+                  weight: 3,
+                  opacity: 0.88,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '6 7',
+                }}
+              />
+            ) : null}
+            {showReferenceRoute && referencePolylinePositions.length > 1 ? (
+              <Polyline
+                positions={referencePolylinePositions}
+                pathOptions={{
+                  className: 'referenceRoutePath',
+                  color: 'rgba(250, 204, 21, 0.92)',
+                  weight: 4,
+                  opacity: 0.78,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '4 10',
+                }}
+              />
+            ) : null}
+            {showSmartAlternatives
+              ? alternativeRouteLayers.flatMap((alternative) => {
+                  const layers = [
+                    <Polyline
+                      key={`alt-${alternative.id}`}
+                      positions={alternative.positions}
+                      pathOptions={{
+                        className: 'routeAlternativePath',
+                        color: alternative.color,
+                        weight: alternative.weight,
+                        opacity: alternative.opacity,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                        dashArray: alternative.dashArray,
+                      }}
+                      eventHandlers={
+                        onSelectAlternative
+                          ? {
+                              click() {
+                                onSelectAlternative(alternative.id);
+                              },
+                            }
+                          : undefined
+                      }
+                    />,
+                  ];
+                  if (alternative.labelAnchor) {
+                    layers.push(
+                      <CircleMarker
+                        key={`alt-badge-${alternative.id}`}
+                        center={[alternative.labelAnchor[0], alternative.labelAnchor[1]]}
+                        radius={6}
+                        pathOptions={{
+                          className: 'mapRouteBadgeDot mapRouteBadgeDot--alternative',
+                          color: 'rgba(7, 11, 28, 0.85)',
+                          weight: 1.1,
+                          fillColor: alternative.color,
+                          fillOpacity: 0.95,
+                        }}
+                        eventHandlers={
+                          onSelectAlternative
+                            ? {
+                                click() {
+                                  onSelectAlternative(alternative.id);
+                                },
+                              }
+                            : undefined
+                        }
+                      >
+                        <Tooltip
+                          direction="top"
+                          offset={[0, -8]}
+                          opacity={1}
+                          permanent
+                          interactive={false}
+                          className="mapRouteBadgeTooltip mapRouteBadgeTooltip--alternative"
+                        >
+                          <span title={alternative.label}>{alternative.badge}</span>
+                        </Tooltip>
+                      </CircleMarker>,
+                    );
+                  }
+                  return layers;
+                })
+              : null}
+            {polylinePositions.length > 1 ? (
+              <>
+                <Polyline
+                  positions={polylinePositions}
+                  pathOptions={{
+                    className: 'routeGlow',
+                    color: 'rgba(6, 182, 212, 0.35)',
+                    weight: 12,
+                    opacity: 0.9,
+                  }}
+                />
+                <Polyline
+                  positions={polylinePositions}
+                  pathOptions={{
+                    className: 'routePath',
+                    color: 'rgba(124, 58, 237, 0.95)',
+                    weight: 5,
+                    opacity: 0.95,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+                {selectedRouteLabelAnchor ? (
+                  <CircleMarker
+                    center={[selectedRouteLabelAnchor[0], selectedRouteLabelAnchor[1]]}
+                    radius={7}
+                    pathOptions={{
+                      className: 'mapRouteBadgeDot mapRouteBadgeDot--selected',
+                      color: 'rgba(4, 6, 18, 0.95)',
+                      weight: 1.2,
+                      fillColor: 'rgba(124, 58, 237, 0.98)',
+                      fillOpacity: 0.98,
+                    }}
+                  >
+                    <Tooltip
+                      direction="top"
+                      offset={[0, -8]}
+                      opacity={1}
+                      permanent
+                      interactive={false}
+                      className="mapRouteBadgeTooltip mapRouteBadgeTooltip--selected"
+                    >
+                      <span title={selectedRouteLabel ?? 'Selected route'}>{selectedRouteBadgeText}</span>
+                    </Tooltip>
+                  </CircleMarker>
+                ) : null}
+              </>
+            ) : null}
           </>
         )}
         {failureOverlayActive && failureOverlay ? (
@@ -2680,7 +2974,7 @@ export default function MapView({
           );
         })}
 
-        {showPreviewConnector && !failureOverlayActive && previewDotSegments.map((segment) => (
+        {showPreviewConnector && !failureOverlayActive && !hasComputedRoute && previewDotSegments.map((segment) => (
           <Polyline
             key={segment.id}
             positions={[
