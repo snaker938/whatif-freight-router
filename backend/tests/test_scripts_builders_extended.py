@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -365,3 +366,100 @@ def test_build_model_assets_helpers_and_main_wiring(tmp_path: Path, monkeypatch:
     assert captured["routing_graph_max_ways"] == 250
     assert captured["force_rebuild_topology"] is True
     assert captured["force_rebuild_terrain"] is True
+
+
+def test_build_model_assets_existing_coverage_report_reuse_requires_fresh_matching_graph(tmp_path: Path) -> None:
+    graph_output = tmp_path / "routing_graph_uk.json"
+    graph_output.write_text(json.dumps({"nodes": [], "edges": []}), encoding="utf-8")
+    report_path = tmp_path / "routing_graph_coverage_report.json"
+    report_payload = {
+        "coverage_passed": True,
+        "nodes": 12,
+        "edges": 24,
+        "graph_path": str(graph_output),
+    }
+    report_path.write_text(json.dumps(report_payload), encoding="utf-8")
+    report_path.touch()
+
+    reused = build_model_assets._existing_coverage_report_valid(
+        report_path,
+        graph_output=graph_output,
+        min_nodes=10,
+        min_edges=20,
+    )
+    assert reused == report_payload
+
+    graph_output.write_text(json.dumps({"nodes": [1], "edges": [2]}), encoding="utf-8")
+    os.utime(graph_output, (report_path.stat().st_mtime + 5.0, report_path.stat().st_mtime + 5.0))
+    invalidated = build_model_assets._existing_coverage_report_valid(
+        report_path,
+        graph_output=graph_output,
+        min_nodes=10,
+        min_edges=20,
+    )
+    assert invalidated is None
+
+
+def test_build_model_assets_prefers_valid_non_strict_scenario_corpus_when_strict_override_is_bad(
+    tmp_path: Path,
+) -> None:
+    strict_path = tmp_path / "scenario_live_observed_strict.jsonl"
+    default_path = tmp_path / "scenario_live_observed.jsonl"
+    strict_path.write_text(
+        json.dumps(
+            {
+                "source": "free_live_apis",
+                "mode_observation_source": "empirical_outcome_bootstrap",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    default_path.write_text(
+        json.dumps(
+            {
+                "source": "free_live_apis",
+                "mode_observation_source": "empirical_outcome_public_feeds_v1",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    selected, summary = build_model_assets._preferred_validated_jsonl_source(
+        strict_path=strict_path,
+        default_path=default_path,
+        label="Scenario live observed",
+        source_policy="strict_external",
+    )
+
+    assert selected == default_path
+    assert summary["selected_via"] == "default_fallback_after_invalid_strict_override"
+
+
+def test_build_model_assets_rejects_proxy_toll_raw_inputs(tmp_path: Path) -> None:
+    classification_dir = tmp_path / "classification"
+    pricing_dir = tmp_path / "pricing"
+    classification_dir.mkdir(parents=True, exist_ok=True)
+    pricing_dir.mkdir(parents=True, exist_ok=True)
+    (classification_dir / "class_0001.json").write_text(
+        json.dumps({"source_provenance": "proxy_from_labeled_fixture_corpus_v1"}),
+        encoding="utf-8",
+    )
+    (pricing_dir / "price_0001.json").write_text(
+        json.dumps({"source_provenance": "proxy_from_labeled_fixture_corpus_v1"}),
+        encoding="utf-8",
+    )
+    tariffs_path = tmp_path / "toll_tariffs_operator_truth.json"
+    tariffs_path.write_text(
+        json.dumps({"source": "proxy_from_labeled_toll_fixture_corpus_v1"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError):
+        build_model_assets._validate_toll_raw_provenance(
+            classification_dir=classification_dir,
+            pricing_dir=pricing_dir,
+            tariffs_path=tariffs_path,
+            source_policy="strict_external",
+        )

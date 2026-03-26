@@ -29,6 +29,18 @@ def _stub_scenario_profile(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
     monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(
+        main_module,
+        "_validate_route_options_evidence",
+        lambda options: {
+            "status": "ok",
+            "issues": [],
+            "validations": [
+                {"status": "ok", "issues": [], "route_id": getattr(option, "id", "")}
+                for option in options
+            ],
+        },
+    )
 
     def _policy(*_args: Any, **_kwargs: Any) -> ScenarioPolicy:
         return ScenarioPolicy(

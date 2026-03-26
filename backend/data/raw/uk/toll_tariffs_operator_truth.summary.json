@@ -6,7 +6,7 @@
   "pricing_true": 100,
   "pricing_false": 5,
   "tariff_rule_count": 220,
-  "classification_out": "backend\\data\\raw\\uk\\toll_classification",
-  "pricing_out": "backend\\data\\raw\\uk\\toll_pricing",
-  "tariffs_out": "backend\\data\\raw\\uk\\toll_tariffs_operator_truth.json"
+  "classification_out": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\toll_classification",
+  "pricing_out": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\toll_pricing",
+  "tariffs_out": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\toll_tariffs_operator_truth.json"
 }

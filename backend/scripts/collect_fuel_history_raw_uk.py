@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import statistics
@@ -13,6 +15,10 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 
 SYNTHETIC_TOKENS = ("synthetic", "simulated", "interpolated", "wobble", "fake", "bootstrap")
+DEFAULT_GOV_UK_FUEL_CSV_URLS = (
+    "https://assets.publishing.service.gov.uk/media/69b81ff2b84f01b2be53a2e2/weekly_road_fuel_prices_160326.csv",
+    "https://assets.publishing.service.gov.uk/media/68a3326b32d2c63f869343a3/weekly_road_fuel_prices_2003_to_2017.csv",
+)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -58,6 +64,87 @@ def _load_remote_json(*, url: str, timeout_s: float) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError(f"Fuel source payload must be a JSON object: {url}")
     return payload
+
+
+def _repo_local_energy_defaults(output_json: Path) -> tuple[float, float, dict[str, float]]:
+    candidates = [
+        output_json,
+        ROOT / "assets" / "uk" / "fuel_prices_uk.json",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            payload = _load_local_json(path)
+        except Exception:
+            continue
+        prices = payload.get("prices_gbp_per_l", {})
+        if not isinstance(prices, dict):
+            prices = {}
+        lng = _coerce_float(prices.get("lng"), float("nan"))
+        grid = _coerce_float(payload.get("grid_price_gbp_per_kwh"), float("nan"))
+        regional = payload.get("regional_multipliers", {})
+        if isinstance(regional, dict):
+            regional_out = {
+                str(key).strip().lower(): _clamp(_coerce_float(value, 1.0), 0.7, 1.4)
+                for key, value in regional.items()
+                if str(key).strip()
+            }
+        else:
+            regional_out = {}
+        if lng == lng and lng > 0.0 and grid == grid and grid > 0.0:
+            if "uk_default" not in regional_out:
+                regional_out["uk_default"] = 1.0
+            return lng, grid, regional_out
+    return 1.05, 0.29, {"uk_default": 1.0}
+
+
+def _parse_gov_uk_day(raw: Any) -> date | None:
+    text = str(raw or "").strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _gov_uk_history_payload(*, url: str, timeout_s: float, output_json: Path) -> dict[str, Any]:
+    with httpx.Client(timeout=max(2.0, float(timeout_s))) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        text = resp.text
+    lng_default, grid_default, regional = _repo_local_energy_defaults(output_json)
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+    history: list[dict[str, Any]] = []
+    for row in reader:
+        if not isinstance(row, dict):
+            continue
+        normalized = {str(key or "").strip().lstrip("\ufeff"): value for key, value in row.items()}
+        day = _parse_gov_uk_day(normalized.get("Date"))
+        if day is None:
+            continue
+        petrol_ppl = _coerce_float(normalized.get("ULSP (Ultra low sulphur unleaded petrol) Pump price in pence/litre"), float("nan"))
+        diesel_ppl = _coerce_float(normalized.get("ULSD (Ultra low sulphur diesel) Pump price in pence/litre"), float("nan"))
+        if petrol_ppl != petrol_ppl or diesel_ppl != diesel_ppl:
+            continue
+        history.append(
+            {
+                "as_of": day.isoformat(),
+                "prices_gbp_per_l": {
+                    "diesel": round(_clamp(diesel_ppl / 100.0, 0.6, 4.5), 4),
+                    "petrol": round(_clamp(petrol_ppl / 100.0, 0.6, 4.5), 4),
+                    "lng": round(_clamp(lng_default, 0.4, 4.5), 4),
+                },
+                "grid_price_gbp_per_kwh": round(_clamp(grid_default, 0.02, 2.0), 4),
+            }
+        )
+    return {
+        "source": "gov_uk_weekly_road_fuel_prices",
+        "source_url": url,
+        "history": history,
+        "regional_multipliers": regional,
+    }
 
 
 def _extract_history(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -108,7 +195,8 @@ def build(
         payloads.append((url, _load_remote_json(url=url, timeout_s=timeout_s)))
 
     if not payloads:
-        raise RuntimeError("No fuel sources were provided. Use --source-url and/or --source-json.")
+        for url in DEFAULT_GOV_UK_FUEL_CSV_URLS:
+            payloads.append((url, _gov_uk_history_payload(url=url, timeout_s=timeout_s, output_json=output_json)))
 
     day_to_values: dict[date, dict[str, list[float]]] = {}
     regional_multipliers: dict[str, float] = {}
@@ -232,7 +320,8 @@ def main() -> None:
 
     source_urls = [str(item).strip() for item in list(args.source_url or []) if str(item).strip()]
     env_url = os.environ.get("LIVE_FUEL_PRICE_URL", "").strip()
-    if env_url and env_url not in source_urls:
+    env_source_policy = os.environ.get("LIVE_SOURCE_POLICY", "repo_local_fresh").strip().lower() or "repo_local_fresh"
+    if env_url and env_source_policy == "strict_external" and env_url not in source_urls:
         source_urls.append(env_url)
 
     summary = build(

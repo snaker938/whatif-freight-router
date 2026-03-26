@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import pickle
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
@@ -357,12 +358,204 @@ def _extract_from_osm_xml(
     return nodes, edges
 
 
+def _component_index_from_edges(
+    *,
+    nodes: dict[str, tuple[float, float]],
+    edges: list[dict[str, Any]],
+) -> tuple[dict[str, int], dict[int, int], int, int, float]:
+    parent: dict[str, str] = {}
+    rank: dict[str, int] = {}
+
+    def _find(node_id: str) -> str:
+        root = parent.get(node_id)
+        if root is None:
+            parent[node_id] = node_id
+            rank[node_id] = 0
+            return node_id
+        path: list[str] = []
+        while True:
+            next_root = parent.get(root)
+            if next_root is None or next_root == root:
+                break
+            path.append(root)
+            root = next_root
+        parent[node_id] = root
+        for item in path:
+            parent[item] = root
+        return root
+
+    def _union(a: str, b: str) -> None:
+        root_a = _find(a)
+        root_b = _find(b)
+        if root_a == root_b:
+            return
+        rank_a = int(rank.get(root_a, 0))
+        rank_b = int(rank.get(root_b, 0))
+        if rank_a < rank_b:
+            root_a, root_b = root_b, root_a
+            rank_a, rank_b = rank_b, rank_a
+        parent[root_b] = root_a
+        if rank_a == rank_b:
+            rank[root_a] = rank_a + 1
+
+    for node_id in nodes:
+        _find(node_id)
+    for edge in edges:
+        u = str(edge.get("u", "")).strip()
+        v = str(edge.get("v", "")).strip()
+        if u in nodes and v in nodes:
+            _union(u, v)
+
+    component_by_node: dict[str, int] = {}
+    component_sizes: dict[int, int] = {}
+    root_to_component: dict[str, int] = {}
+    component_idx = 0
+    for node_id in nodes:
+        root = _find(node_id)
+        component_id = root_to_component.get(root)
+        if component_id is None:
+            component_idx += 1
+            component_id = component_idx
+            root_to_component[root] = component_id
+            component_sizes[component_id] = 0
+        component_by_node[node_id] = component_id
+        component_sizes[component_id] = int(component_sizes[component_id]) + 1
+    largest_component_nodes = max(component_sizes.values(), default=0)
+    largest_component_ratio = (
+        float(largest_component_nodes) / float(max(1, len(nodes)))
+        if nodes
+        else 0.0
+    )
+    return (
+        component_by_node,
+        component_sizes,
+        int(component_idx),
+        int(largest_component_nodes),
+        float(largest_component_ratio),
+    )
+
+
+def _grid_index_from_nodes(nodes: dict[str, tuple[float, float]]) -> dict[tuple[int, int], tuple[str, ...]]:
+    grid_mut: dict[tuple[int, int], list[str]] = {}
+    for node_id, (lat, lon) in nodes.items():
+        key = (int(math.floor(lat / 0.15)), int(math.floor(lon / 0.15)))
+        grid_mut.setdefault(key, []).append(node_id)
+    return {key: tuple(values) for key, values in grid_mut.items()}
+
+
+def _compact_edge_record(edge: dict[str, Any]) -> tuple[str, str, float, float, bool, str, bool, float | None]:
+    maxspeed_raw = edge.get("maxspeed_kph")
+    maxspeed_kph = None
+    if maxspeed_raw is not None:
+        try:
+            maxspeed_kph = float(maxspeed_raw)
+        except (TypeError, ValueError):
+            maxspeed_kph = None
+    return (
+        str(edge.get("u", "")),
+        str(edge.get("v", "")),
+        float(edge.get("distance_m", 1.0)),
+        float(edge.get("generalized_cost", edge.get("distance_m", 1.0))),
+        bool(edge.get("oneway", False)),
+        str(edge.get("highway", "unclassified")).strip().lower() or "unclassified",
+        bool(edge.get("toll", False)),
+        maxspeed_kph,
+    )
+
+
+def _write_compact_bundle(
+    *,
+    graph_output: Path,
+    bundle_output: Path,
+    source: Path,
+    generated_at_utc: str,
+    as_of_utc: str,
+    nodes: dict[str, tuple[float, float]],
+    edges: list[dict[str, Any]],
+    min_giant_component_nodes: int,
+    min_giant_component_ratio: float,
+) -> dict[str, Any]:
+    component_by_node, component_sizes, component_count, largest_component_nodes, largest_component_ratio = (
+        _component_index_from_edges(nodes=nodes, edges=edges)
+    )
+    grid_index = _grid_index_from_nodes(nodes)
+    adjacency_mut: dict[str, list[tuple[str, float, float, str, bool, float | None]]] = {}
+    min_cost_per_meter = 0.0
+    for raw_edge in edges:
+        u, v, distance_m, generalized_cost, oneway, highway, toll, maxspeed_kph = _compact_edge_record(raw_edge)
+        if u not in nodes or v not in nodes:
+            continue
+        adjacency_mut.setdefault(u, []).append((v, generalized_cost, distance_m, highway, toll, maxspeed_kph))
+        if distance_m > 0.0 and generalized_cost > 0.0:
+            ratio = float(generalized_cost) / float(distance_m)
+            if min_cost_per_meter <= 0.0 or ratio < min_cost_per_meter:
+                min_cost_per_meter = max(0.0, ratio)
+        if not oneway:
+            adjacency_mut.setdefault(v, []).append((u, generalized_cost, distance_m, highway, toll, maxspeed_kph))
+    graph_fragmented = bool(
+        largest_component_nodes < max(1, int(min_giant_component_nodes))
+        or largest_component_ratio < max(0.0, min(1.0, float(min_giant_component_ratio)))
+    )
+    bundle_payload = {
+        "asset": {
+            "path": str(graph_output.resolve()),
+            "size": int(graph_output.stat().st_size),
+            "mtime_ns": int(getattr(graph_output.stat(), "st_mtime_ns", int(graph_output.stat().st_mtime * 1_000_000_000))),
+            "version": "uk-routing-graph-v1",
+            "source": str(source),
+        },
+        "saved_at_utc": generated_at_utc,
+        "graph": {
+            "version": "uk-routing-graph-v1",
+            "source": str(source),
+            "generated_at_utc": generated_at_utc,
+            "as_of_utc": as_of_utc,
+            "nodes": nodes,
+            "adjacency": {node: tuple(edges_for_node) for node, edges_for_node in adjacency_mut.items()},
+            "grid_index": grid_index,
+            "component_by_node": component_by_node,
+            "component_sizes": component_sizes,
+            "component_count": component_count,
+            "largest_component_nodes": largest_component_nodes,
+            "largest_component_ratio": largest_component_ratio,
+            "graph_fragmented": graph_fragmented,
+            "min_cost_per_meter": min_cost_per_meter,
+            "edge_count": sum(len(values) for values in adjacency_mut.values()),
+        },
+    }
+    bundle_output.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = bundle_output.with_suffix(f"{bundle_output.suffix}.tmp")
+    with tmp_path.open("wb") as fh:
+        pickle.dump(bundle_payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp_path.replace(bundle_output)
+    bundle_output.with_suffix(".meta.json").write_text(
+        json.dumps(
+            {
+                "asset": bundle_payload["asset"],
+                "saved_at_utc": generated_at_utc,
+                "graph": {
+                    "version": "uk-routing-graph-v1",
+                    "source": str(source),
+                    "edge_count": bundle_payload["graph"]["edge_count"],
+                    "component_count": component_count,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return bundle_payload
+
+
 def build(
     *,
     source: Path,
     output: Path,
     bbox: tuple[float, float, float, float] = UK_BBOX,
     max_ways: int = 0,
+    compact_bundle_output: Path | None = None,
+    compact_bundle_min_giant_component_nodes: int = 1,
+    compact_bundle_min_giant_component_ratio: float = 0.0,
 ) -> dict[str, Any]:
     print(f"[routing_graph] build start source={source} output={output}", flush=True)
     if source.suffix.lower() in {".pbf", ".osm"}:
@@ -410,13 +603,30 @@ def build(
         ),
         encoding="utf-8",
     )
-    return {
+    report = {
         "nodes": len(nodes),
         "edges": len(edges),
         "source": str(source),
         "output": str(output),
         "meta": str(meta_path),
     }
+    if compact_bundle_output is not None:
+        bundle_payload = _write_compact_bundle(
+            graph_output=output,
+            bundle_output=compact_bundle_output,
+            source=source,
+            generated_at_utc=generated_at_utc,
+            as_of_utc=as_of_utc,
+            nodes=nodes,
+            edges=edges,
+            min_giant_component_nodes=max(1, int(compact_bundle_min_giant_component_nodes)),
+            min_giant_component_ratio=max(0.0, float(compact_bundle_min_giant_component_ratio)),
+        )
+        report["compact_bundle"] = str(compact_bundle_output)
+        report["compact_bundle_meta"] = str(compact_bundle_output.with_suffix(".meta.json"))
+        report["compact_bundle_nodes"] = int(len(bundle_payload["graph"]["nodes"]))
+        report["compact_bundle_edges"] = int(bundle_payload["graph"]["edge_count"])
+    return report
 
 
 def main() -> None:
@@ -443,6 +653,12 @@ def main() -> None:
         default=0,
         help="Optional cap on extracted ways (0 means no cap).",
     )
+    parser.add_argument(
+        "--compact-bundle-output",
+        type=Path,
+        default=None,
+        help="Optional compact startup bundle path to write alongside the graph JSON.",
+    )
     args = parser.parse_args()
     bbox = (args.lat_min, args.lat_max, args.lon_min, args.lon_max)
     report = build(
@@ -450,6 +666,7 @@ def main() -> None:
         output=args.output,
         bbox=bbox,
         max_ways=max(0, int(args.max_ways)),
+        compact_bundle_output=args.compact_bundle_output,
     )
     print(json.dumps(report, indent=2))
 

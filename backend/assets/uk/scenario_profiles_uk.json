@@ -1,8 +1,8 @@
 {
   "version": "scenario_profiles_uk_v2_live",
   "source": "free_live_apis+holdout_fit",
-  "as_of_utc": "2026-03-04T14:58:10Z",
-  "generated_at_utc": "2026-03-04T14:58:10Z",
+  "as_of_utc": "2026-03-23T23:24:37Z",
+  "generated_at_utc": "2026-03-23T23:24:37Z",
   "calibration_basis": "empirical_live_fit",
   "mode_outcomes_source": "backend\\data\\raw\\uk\\scenario_mode_outcomes_observed.jsonl",
   "fit_window": {
@@ -23295,5 +23295,5 @@
     }
   },
   "signature_algorithm": "sha256",
-  "signature": "a3234c57c31c8f4904273e41617dc269d626f64b6e48bbeb9214f8d4aa8766f7"
+  "signature": "bcf4851cfb6b08c0e7cfeb7d1d11239ade493a3867fb5dc892a89c892476f489"
 }

@@ -1,9 +1,34 @@
 {
   "type": "FeatureCollection",
-  "source": "live_runtime:toll_topology",
+  "source": "osrm\\data\\pbf\\region.osm.pbf",
   "version": "uk-v2",
-  "generated_at_utc": "2026-03-04T14:58:10Z",
-  "as_of_utc": "2026-03-04T14:58:10Z",
+  "generated_at_utc": "2026-03-21T13:09:17Z",
+  "published_at_utc": "2026-03-21T13:09:17Z",
+  "as_of_utc": "2026-03-21T13:09:07Z",
+  "source_validation": {
+    "toll_raw_inputs": {
+      "status": "repo_local_ok",
+      "inputs": [
+        {
+          "label": "Toll classification raw corpus",
+          "path": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\toll_classification",
+          "file_count": 220,
+          "status": "repo_local_ok"
+        },
+        {
+          "label": "Toll pricing raw corpus",
+          "path": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\toll_pricing",
+          "file_count": 105,
+          "status": "repo_local_ok"
+        },
+        {
+          "label": "Toll tariff raw truth",
+          "path": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\toll_tariffs_operator_truth.json",
+          "status": "repo_local_ok"
+        }
+      ]
+    }
+  },
   "features": [
     {
       "type": "Feature",

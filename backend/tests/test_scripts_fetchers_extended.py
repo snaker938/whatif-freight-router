@@ -4,6 +4,7 @@ import csv
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -434,6 +435,136 @@ def test_collect_dft_raw_collect_paginates_dedupes_and_writes_checkpoint(
     assert rows[1]["corridor_bucket"] == "wales_west"
 
 
+def test_collect_dft_raw_collect_resets_completed_resume_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_csv = tmp_path / "dft_counts_raw.csv"
+    state_file = tmp_path / "dft_counts_raw.state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "resume_year": 2026,
+                "resume_page": 1,
+                "completed_years": [2026],
+                "rows_written": 0,
+                "updated_at_utc": "2026-03-21T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        collect_dft_raw_counts_uk,
+        "_load_holiday_dates",
+        lambda **kwargs: set(),
+    )
+
+    def _fake_fetch_page(**kwargs) -> dict[str, object]:
+        if int(kwargs["page_number"]) == 1:
+            return {
+                "data": [
+                    {
+                        "id": "3",
+                        "count_point_id": "300",
+                        "count_date": "2026-01-03",
+                        "hour": 10,
+                        "direction_of_travel": "E",
+                        "region_id": 8,
+                        "local_authority_id": 33,
+                        "road_name": "M6",
+                        "road_category": "M",
+                        "road_type": "major",
+                        "latitude": 53.5,
+                        "longitude": -2.4,
+                        "all_motor_vehicles": 900,
+                        "all_hgvs": 120,
+                        "cars_and_taxis": 700,
+                        "lgvs": 110,
+                        "buses_and_coaches": 6,
+                        "pedal_cycles": 2,
+                        "two_wheeled_motor_vehicles": 5,
+                    }
+                ],
+                "next_page_url": None,
+                "last_page": 1,
+            }
+        return {"data": []}
+
+    monkeypatch.setattr(collect_dft_raw_counts_uk, "_fetch_page", _fake_fetch_page)
+
+    summary = collect_dft_raw_counts_uk.collect(
+        output_csv=output_csv,
+        years=[2026],
+        base_url="https://example.test/raw-counts",
+        max_pages_per_year=5,
+        page_size=50,
+        retries=1,
+        backoff_s=0.01,
+        timeout_s=2.0,
+        target_min_rows=1,
+        append_safe=True,
+        resume=True,
+        state_file=state_file,
+        bank_holidays_url="https://example.test/bank-holidays.json",
+    )
+
+    assert summary["resume_reset_applied"] is True
+    assert summary["pages_fetched"] == 1
+    assert summary["rows_written"] == 1
+    assert summary["rows_written_current_run"] == 1
+
+
+def test_collect_dft_raw_summary_reports_total_rows_when_resume_skips_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_csv = tmp_path / "dft_counts_raw.csv"
+    output_csv.write_text(
+        "dedupe_key,id,count_point_id,observed_at_utc,count_date,year,hour,holiday,day_kind,region_id,region,corridor_bucket,local_authority_id,road_name,road_category,road_type,road_bucket,direction_of_travel,latitude,longitude,all_motor_vehicles,all_hgvs,cars_and_taxis,lgvs,buses_and_coaches,pedal_cycles,two_wheeled_motor_vehicles,source_url,as_of_utc\n"
+        "k1,1,100,2026-01-01T08:00:00Z,2026-01-01,2026,8,1,holiday,3,london,london_southeast,11,M1,M,major,motorway_dominant,N,52.4,-1.9,1200,140,1000,160,20,5,12,https://example.test/raw-counts,2026-03-21T00:00:00Z\n",
+        encoding="utf-8",
+    )
+    state_file = tmp_path / "dft_counts_raw.state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "resume_year": 2026,
+                "resume_page": 1,
+                "completed_years": [2026],
+                "rows_written": 0,
+                "updated_at_utc": "2026-03-21T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(collect_dft_raw_counts_uk, "_load_holiday_dates", lambda **kwargs: set())
+
+    def _no_rows_fetch_page(**kwargs) -> dict[str, object]:
+        return {"data": []}
+
+    monkeypatch.setattr(collect_dft_raw_counts_uk, "_fetch_page", _no_rows_fetch_page)
+
+    summary = collect_dft_raw_counts_uk.collect(
+        output_csv=output_csv,
+        years=[2026],
+        base_url="https://example.test/raw-counts",
+        max_pages_per_year=5,
+        page_size=50,
+        retries=1,
+        backoff_s=0.01,
+        timeout_s=2.0,
+        target_min_rows=1,
+        append_safe=True,
+        resume=True,
+        state_file=state_file,
+        bank_holidays_url="https://example.test/bank-holidays.json",
+    )
+
+    assert summary["rows_written"] == 1
+    assert summary["rows_written_current_run"] == 0
+
+
 def test_collect_stochastic_residuals_raw_builds_target_rows(tmp_path: Path) -> None:
     scenario_jsonl = tmp_path / "scenario_live_observed.jsonl"
     scenario_jsonl.write_text(
@@ -586,6 +717,40 @@ def test_collect_fuel_history_raw_builds_payload_and_rejects_synthetic(tmp_path:
             min_days=1,
             timeout_s=2.0,
         )
+
+
+def test_collect_fuel_history_main_only_uses_env_url_for_strict_external(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_build(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"rows": 2, "output_json": str(kwargs["output_json"])}
+
+    monkeypatch.setattr(collect_fuel_history_raw_uk, "build", _fake_build)
+    monkeypatch.setattr(
+        collect_fuel_history_raw_uk.argparse.ArgumentParser,
+        "parse_args",
+        lambda self: SimpleNamespace(
+            output=tmp_path / "fuel_prices_raw.json",
+            source_url=[],
+            source_json=[],
+            min_days=30,
+            timeout_s=5.0,
+        ),
+    )
+    monkeypatch.setenv("LIVE_FUEL_PRICE_URL", "https://example.test/live-fuel.json")
+
+    monkeypatch.setenv("LIVE_SOURCE_POLICY", "repo_local_fresh")
+    collect_fuel_history_raw_uk.main()
+    assert captured["source_urls"] == []
+
+    captured.clear()
+    monkeypatch.setenv("LIVE_SOURCE_POLICY", "strict_external")
+    collect_fuel_history_raw_uk.main()
+    assert captured["source_urls"] == ["https://example.test/live-fuel.json"]
 
 
 def test_collect_carbon_intensity_raw_builds_profiles_with_stubbed_fetch(

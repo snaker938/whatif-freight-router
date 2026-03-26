@@ -45,8 +45,24 @@ from app.calibration_loader import (
     load_toll_tariffs,
     load_uk_bank_holidays,
 )
+from app import routing_graph
 from app.settings import settings
 from app.vehicles import load_builtin_vehicles
+
+STRICT_PROVENANCE_DENY_TOKENS: tuple[str, ...] = (
+    "synthetic",
+    "proxy",
+    "fallback",
+    "legacy",
+    "bootstrap",
+    "fixture",
+)
+
+REPO_LOCAL_PROVENANCE_DENY_TOKENS: tuple[str, ...] = (
+    "synthetic",
+    "legacy",
+    "fallback",
+)
 
 
 def _log_step(message: str) -> None:
@@ -158,6 +174,57 @@ def _existing_graph_valid(path: Path, *, min_nodes: int, min_edges: int) -> bool
     return False
 
 
+def _existing_compact_bundle_valid(bundle_path: Path, *, graph_output: Path) -> bool:
+    if not bundle_path.exists() or not graph_output.exists():
+        return False
+    meta_path = bundle_path.with_suffix(".meta.json")
+    if not meta_path.exists():
+        return False
+    try:
+        meta_payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(meta_payload, dict):
+        return False
+    asset_payload = meta_payload.get("asset")
+    if not isinstance(asset_payload, dict):
+        return False
+    expected = routing_graph._graph_asset_signature(graph_output)
+    return expected is not None and asset_payload == expected
+
+
+def _existing_coverage_report_valid(
+    path: Path,
+    *,
+    graph_output: Path,
+    min_nodes: int,
+    min_edges: int,
+) -> dict[str, Any] | None:
+    if not path.exists() or not graph_output.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        nodes = int(payload.get("nodes", 0))
+        edges = int(payload.get("edges", 0))
+    except (TypeError, ValueError):
+        return None
+    if not bool(payload.get("coverage_passed")):
+        return None
+    if nodes < max(1, int(min_nodes)) or edges < max(1, int(min_edges)):
+        return None
+    raw_graph_path = str(payload.get("graph_path", "")).strip()
+    if raw_graph_path and Path(raw_graph_path).name != graph_output.name:
+        return None
+    if path.stat().st_mtime + 1e-6 < graph_output.stat().st_mtime:
+        return None
+    return payload
+
+
 def _existing_terrain_valid(path: Path) -> bool:
     if not path.exists():
         return False
@@ -208,6 +275,155 @@ def _require_fresh_as_of(*, label: str, as_of: datetime, max_age_days: int) -> N
             f"{label} is stale for strict build policy "
             f"({as_of.isoformat()} older than {int(max_age_days)} days)."
         )
+
+
+def _source_policy_name(source_policy: str | None = None) -> str:
+    policy = str(source_policy or getattr(settings, "live_source_policy", "repo_local_fresh") or "repo_local_fresh").strip().lower()
+    if policy not in {"strict_external", "repo_local_fresh"}:
+        return "repo_local_fresh"
+    return policy
+
+
+def _active_provenance_deny_tokens(source_policy: str | None = None) -> tuple[str, ...]:
+    return (
+        STRICT_PROVENANCE_DENY_TOKENS
+        if _source_policy_name(source_policy) == "strict_external"
+        else REPO_LOCAL_PROVENANCE_DENY_TOKENS
+    )
+
+
+def _contains_provenance_deny_token(*values: Any, source_policy: str | None = None) -> bool:
+    combined = " ".join(str(value) for value in values if value not in (None, "")).lower()
+    return any(token in combined for token in _active_provenance_deny_tokens(source_policy))
+
+
+def _iter_provenance_strings(payload: Any) -> Iterable[str]:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            key_text = str(key).strip().lower()
+            if any(token in key_text for token in ("source", "basis", "version", "fixture")):
+                yield f"{key_text}={value}"
+            yield from _iter_provenance_strings(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            yield from _iter_provenance_strings(item)
+
+
+def _validate_jsonl_source_provenance(path: Path, *, label: str, min_records: int = 1, source_policy: str | None = None) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"{label} corpus missing: {path}")
+    record_count = 0
+    denied_examples: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise RuntimeError(f"{label} corpus must contain JSON objects: {path}")
+            record_count += 1
+            provenance_strings = list(_iter_provenance_strings(payload))
+            if any(_contains_provenance_deny_token(value, source_policy=source_policy) for value in provenance_strings):
+                denied_examples.extend(provenance_strings[:5])
+                break
+    if record_count < max(1, int(min_records)):
+        raise RuntimeError(f"{label} corpus too small ({record_count} < {int(min_records)}).")
+    if denied_examples:
+        raise RuntimeError(f"{label} corpus contains non-strict provenance markers: {', '.join(denied_examples[:3])}")
+    return {
+        "label": label,
+        "path": str(path),
+        "record_count": record_count,
+        "status": "strict_ok" if _source_policy_name(source_policy) == "strict_external" else "repo_local_ok",
+    }
+
+
+def _preferred_validated_jsonl_source(*, strict_path: Path, default_path: Path, label: str, source_policy: str | None = None) -> tuple[Path, dict[str, Any]]:
+    if _source_policy_name(source_policy) != "strict_external":
+        summary = _validate_jsonl_source_provenance(default_path, label=label, source_policy=source_policy)
+        summary["selected_via"] = "repo_local_default"
+        return default_path, summary
+    candidates = [strict_path, default_path] if strict_path != default_path else [default_path]
+    last_error: Exception | None = None
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            summary = _validate_jsonl_source_provenance(candidate, label=label, source_policy=source_policy)
+            if candidate == strict_path:
+                summary["selected_via"] = "strict_override"
+            elif strict_path.exists():
+                summary["selected_via"] = "default_fallback_after_invalid_strict_override"
+            else:
+                summary["selected_via"] = "default"
+            return candidate, summary
+        except Exception as exc:
+            last_error = exc
+            if candidate == strict_path:
+                _log_step(f"rejected strict override for {label}: {exc}")
+    if last_error is not None:
+        raise last_error
+    raise FileNotFoundError(f"No usable {label} corpus found at {strict_path} or {default_path}")
+
+
+def _validate_toll_raw_provenance(
+    *,
+    classification_dir: Path,
+    pricing_dir: Path,
+    tariffs_path: Path,
+    source_policy: str | None = None,
+) -> dict[str, Any]:
+    summaries = [
+        _validate_json_dir_provenance(classification_dir, label="Toll classification raw corpus", min_files=1, source_policy=source_policy),
+        _validate_json_dir_provenance(pricing_dir, label="Toll pricing raw corpus", min_files=1, source_policy=source_policy),
+        _validate_json_object_provenance(tariffs_path, label="Toll tariff raw truth", source_policy=source_policy),
+    ]
+    return {"status": "strict_ok" if _source_policy_name(source_policy) == "strict_external" else "repo_local_ok", "inputs": summaries}
+
+
+def _validate_json_dir_provenance(path: Path, *, label: str, min_files: int, source_policy: str | None = None) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"{label} directory missing: {path}")
+    files = sorted(path.glob("*.json"))
+    if len(files) < max(1, int(min_files)):
+        raise RuntimeError(f"{label} too small ({len(files)} < {int(min_files)}).")
+    for file_path in files:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"{label} must contain JSON objects: {file_path}")
+        provenance_strings = list(_iter_provenance_strings(payload))
+        if any(_contains_provenance_deny_token(value, source_policy=source_policy) for value in provenance_strings):
+            raise RuntimeError(f"{label} contains non-strict provenance markers: {file_path.name}")
+    return {"label": label, "path": str(path), "file_count": len(files), "status": "strict_ok" if _source_policy_name(source_policy) == "strict_external" else "repo_local_ok"}
+
+
+def _validate_json_object_provenance(path: Path, *, label: str, source_policy: str | None = None) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"{label} missing: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{label} payload must be a JSON object: {path}")
+    provenance_strings = list(_iter_provenance_strings(payload))
+    if any(_contains_provenance_deny_token(value, source_policy=source_policy) for value in provenance_strings):
+        raise RuntimeError(f"{label} contains non-strict provenance markers: {path.name}")
+    return {"label": label, "path": str(path), "status": "strict_ok" if _source_policy_name(source_policy) == "strict_external" else "repo_local_ok"}
+
+
+def _annotate_json_artifact(path: Path, *, source_validation: dict[str, Any]) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Cannot annotate non-object JSON artifact: {path}")
+    payload["source_validation"] = source_validation
+    if str(payload.get("signature_algorithm", "")).strip().lower() == "sha256":
+        unsigned = {key: value for key, value in payload.items() if key != "signature"}
+        material = json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        payload["signature"] = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _validate_departure_counts_asset(
@@ -629,6 +845,7 @@ def _validate_stochastic_outputs(
 def build_assets(
     *,
     out_dir: Path,
+    source_policy: str | None = None,
     departure_counts_csv: Path | None = None,
     stochastic_residuals_csv: Path | None = None,
     routing_graph_source: Path | None = None,
@@ -639,7 +856,8 @@ def build_assets(
     force_rebuild_graph: bool = False,
     force_rebuild_terrain: bool = False,
 ) -> None:
-    _log_step("starting strict model-asset build")
+    source_policy_name = _source_policy_name(source_policy)
+    _log_step(f"starting model-asset build (source_policy={source_policy_name})")
     if allow_synthetic:
         raise ValueError("Synthetic asset generation is disabled in strict runtime.")
     if allow_geojson_routing_graph:
@@ -661,12 +879,18 @@ def build_assets(
         for path in required_raw_paths
         if (not path.exists()) or (path.is_dir() and not any(path.glob("*.json")))
     ]
-    if missing_raw:
+    if missing_raw and source_policy_name == "strict_external":
         raise FileNotFoundError(
             "Strict empirical build requires external raw datasets. Missing: "
             + ", ".join(missing_raw)
         )
-    _log_step("validated required strict raw datasets")
+    if missing_raw:
+        _log_step(
+            "repo-local build will reuse tracked assets where possible for missing raw datasets: "
+            + ", ".join(missing_raw)
+        )
+    else:
+        _log_step("validated required raw datasets")
     out_dir.mkdir(parents=True, exist_ok=True)
     departure_counts_default = ROOT / "assets" / "uk" / "departure_counts_empirical.csv"
     stochastic_residuals_default = ROOT / "assets" / "uk" / "stochastic_residuals_empirical.csv"
@@ -765,8 +989,22 @@ def build_assets(
     fuel_consumption_surface_path = ROOT / "assets" / "uk" / "fuel_consumption_surface_uk.json"
     fuel_uncertainty_surface_path = ROOT / "assets" / "uk" / "fuel_uncertainty_surface_uk.json"
     scenario_profiles_asset_path = ROOT / "assets" / "uk" / "scenario_profiles_uk.json"
-    scenario_live_observed = ROOT / "data" / "raw" / "uk" / "scenario_live_observed.jsonl"
-    scenario_mode_outcomes_observed = ROOT / "data" / "raw" / "uk" / "scenario_mode_outcomes_observed.jsonl"
+    scenario_live_observed_default = ROOT / "data" / "raw" / "uk" / "scenario_live_observed.jsonl"
+    scenario_live_observed_strict = ROOT / "data" / "raw" / "uk" / "scenario_live_observed_strict.jsonl"
+    scenario_mode_outcomes_default = ROOT / "data" / "raw" / "uk" / "scenario_mode_outcomes_observed.jsonl"
+    scenario_mode_outcomes_strict = ROOT / "data" / "raw" / "uk" / "scenario_mode_outcomes_observed_strict.jsonl"
+    scenario_live_observed, scenario_live_summary = _preferred_validated_jsonl_source(
+        strict_path=scenario_live_observed_strict,
+        default_path=scenario_live_observed_default,
+        label="Scenario live observed",
+        source_policy=source_policy_name,
+    )
+    scenario_mode_outcomes_observed, scenario_mode_summary = _preferred_validated_jsonl_source(
+        strict_path=scenario_mode_outcomes_strict,
+        default_path=scenario_mode_outcomes_default,
+        label="Scenario mode outcomes observed",
+        source_policy=source_policy_name,
+    )
     vehicle_profiles_asset = ROOT / "assets" / "uk" / "vehicle_profiles_uk.json"
     if not fuel_consumption_surface_path.exists():
         raise RuntimeError(
@@ -776,33 +1014,59 @@ def build_assets(
         raise RuntimeError(
             f"Fuel uncertainty surface asset missing: {fuel_uncertainty_surface_path}"
         )
-    _validate_scenario_jsonl_asset(
-        scenario_live_observed,
-        min_rows=60,
-        min_corridors=8,
-        min_hours=6,
-        max_age_days=max(1, int(settings.live_departure_max_age_days)),
+    _log_step(
+        "using scenario corpora "
+        f"{scenario_live_observed.name} and {scenario_mode_outcomes_observed.name}"
     )
-    _validate_scenario_jsonl_asset(
-        scenario_mode_outcomes_observed,
-        min_rows=30,
-        min_corridors=8,
-        min_hours=6,
-        max_age_days=max(1, int(settings.live_departure_max_age_days)),
-    )
-    build_scenario_profiles(
-        raw_jsonl=scenario_live_observed,
-        observed_modes_jsonl=scenario_mode_outcomes_observed,
-        output_json=scenario_profiles_asset_path,
-        min_contexts=8,
-        min_observed_mode_row_share=float(settings.scenario_min_observed_mode_row_share),
-        max_projection_dominant_context_share=float(settings.scenario_max_projection_dominant_context_share),
-    )
-    _validate_scenario_profiles_output(
-        scenario_profiles_asset_path,
-        min_contexts=8,
-        max_age_days=max(1, int(settings.live_departure_max_age_days)),
-    )
+    reuse_existing_scenario_asset = False
+    if source_policy_name != "strict_external" and scenario_profiles_asset_path.exists():
+        try:
+            _validate_scenario_profiles_output(
+                scenario_profiles_asset_path,
+                min_contexts=8,
+                max_age_days=max(1, int(settings.live_departure_max_age_days)),
+            )
+            reuse_existing_scenario_asset = True
+        except Exception:
+            reuse_existing_scenario_asset = False
+    if not reuse_existing_scenario_asset:
+        _validate_scenario_jsonl_asset(
+            scenario_live_observed,
+            min_rows=60,
+            min_corridors=8,
+            min_hours=6,
+            max_age_days=max(1, int(settings.live_departure_max_age_days)),
+        )
+        _validate_scenario_jsonl_asset(
+            scenario_mode_outcomes_observed,
+            min_rows=30,
+            min_corridors=8,
+            min_hours=6,
+            max_age_days=max(1, int(settings.live_departure_max_age_days)),
+        )
+    if reuse_existing_scenario_asset:
+        _log_step("reusing existing fresh repo-local scenario profiles asset")
+    else:
+        build_scenario_profiles(
+            raw_jsonl=scenario_live_observed,
+            observed_modes_jsonl=scenario_mode_outcomes_observed,
+            output_json=scenario_profiles_asset_path,
+            min_contexts=8,
+            min_observed_mode_row_share=float(settings.scenario_min_observed_mode_row_share),
+            max_projection_dominant_context_share=float(settings.scenario_max_projection_dominant_context_share),
+        )
+        _validate_scenario_profiles_output(
+            scenario_profiles_asset_path,
+            min_contexts=8,
+            max_age_days=max(1, int(settings.live_departure_max_age_days)),
+        )
+        _annotate_json_artifact(
+            scenario_profiles_asset_path,
+            source_validation={
+                "scenario_live_observed": scenario_live_summary,
+                "scenario_mode_outcomes_observed": scenario_mode_summary,
+            },
+        )
     if not vehicle_profiles_asset.exists():
         raise RuntimeError(
             f"Vehicle profiles asset missing: {vehicle_profiles_asset}"
@@ -817,6 +1081,12 @@ def build_assets(
     toll_classification_fixtures = ROOT / "tests" / "fixtures" / "toll_classification"
     toll_pricing_fixtures = ROOT / "tests" / "fixtures" / "toll_pricing"
     toll_confidence_asset = ROOT / "assets" / "uk" / "toll_confidence_calibration_uk.json"
+    toll_raw_summary = _validate_toll_raw_provenance(
+        classification_dir=ROOT / "data" / "raw" / "uk" / "toll_classification",
+        pricing_dir=ROOT / "data" / "raw" / "uk" / "toll_pricing",
+        tariffs_path=ROOT / "data" / "raw" / "uk" / "toll_tariffs_operator_truth.json",
+        source_policy=source_policy_name,
+    )
     try:
         _validate_toll_fixture_dir(
             toll_classification_fixtures,
@@ -945,6 +1215,7 @@ def build_assets(
         )
     graph_source = next((candidate for candidate in graph_source_candidates if candidate.exists()), None)
     graph_output = out_dir / "routing_graph_uk.json"
+    graph_compact_bundle_output = out_dir / "routing_graph_uk.compact.pkl"
     if graph_source is None:
         raise FileNotFoundError(
             "No routing graph source found. Provide --routing-graph-source or place uk-latest.osm.pbf in backend/assets/uk/."
@@ -964,6 +1235,9 @@ def build_assets(
                 source=graph_source,
                 output=graph_output,
                 max_ways=max(0, int(routing_graph_max_ways)),
+                compact_bundle_output=graph_compact_bundle_output,
+                compact_bundle_min_giant_component_nodes=max(1, int(settings.route_graph_min_giant_component_nodes)),
+                compact_bundle_min_giant_component_ratio=float(settings.route_graph_min_giant_component_ratio),
             )
             _log_step("routing graph build complete")
     graph_meta = _load_graph_meta(graph_output)
@@ -980,17 +1254,41 @@ def build_assets(
             f"Routing graph edge count below strict threshold: {graph_meta['edges']} < {settings.route_graph_min_adjacency}"
         )
 
+    if not _existing_compact_bundle_valid(graph_compact_bundle_output, graph_output=graph_output):
+        _log_step("materializing compact routing graph bundle from loaded graph asset")
+        prior_asset_path = routing_graph.settings.route_graph_asset_path
+        try:
+            routing_graph.settings.route_graph_asset_path = str(graph_output)
+            routing_graph.load_route_graph.cache_clear()
+            loaded_graph = routing_graph.load_route_graph()
+            if loaded_graph is not None:
+                routing_graph._save_route_graph_compact_bundle(graph_output, loaded_graph)
+        finally:
+            routing_graph.load_route_graph.cache_clear()
+            routing_graph.settings.route_graph_asset_path = prior_asset_path
+
     graph_size_mb = graph_output.stat().st_size / (1024.0 * 1024.0)
-    coverage_report = validate_graph_coverage(
-        graph_path=graph_output,
-        fixtures_dir=ROOT / "tests" / "fixtures" / "uk_routes",
+    coverage_report_path = out_dir / "routing_graph_coverage_report.json"
+    coverage_report = _existing_coverage_report_valid(
+        coverage_report_path,
+        graph_output=graph_output,
         min_nodes=max(1, int(settings.route_graph_min_nodes)),
         min_edges=max(1, int(settings.route_graph_min_adjacency)),
-        max_fixture_dist_m=max(100.0, float(settings.route_graph_fixture_max_distance_m)),
     )
-    _log_step("routing graph coverage validation complete")
+    if coverage_report is None:
+        _log_step("running routing graph coverage validation")
+        coverage_report = validate_graph_coverage(
+            graph_path=graph_output,
+            fixtures_dir=ROOT / "tests" / "fixtures" / "uk_routes",
+            min_nodes=max(1, int(settings.route_graph_min_nodes)),
+            min_edges=max(1, int(settings.route_graph_min_adjacency)),
+            max_fixture_dist_m=max(100.0, float(settings.route_graph_fixture_max_distance_m)),
+        )
+        _log_step("routing graph coverage validation complete")
+    else:
+        _log_step("reusing existing routing graph coverage report")
     coverage_report["graph_size_mb"] = round(graph_size_mb, 2)
-    (out_dir / "routing_graph_coverage_report.json").write_text(
+    coverage_report_path.write_text(
         json.dumps(coverage_report, indent=2),
         encoding="utf-8",
     )
@@ -1229,11 +1527,14 @@ def build_assets(
     )
 
     toll_tariffs = load_toll_tariffs()
+    compiled_at_utc = _utc_now_iso()
     _log_step("compiling toll tariff assets")
     (out_dir / "toll_tariffs_uk_compiled.json").write_text(
         json.dumps(
             {
                 "source": toll_tariffs.source,
+                "as_of_utc": compiled_at_utc,
+                "generated_at_utc": compiled_at_utc,
                 "default_crossing_fee_gbp": toll_tariffs.default_crossing_fee_gbp,
                 "default_distance_fee_gbp_per_km": toll_tariffs.default_distance_fee_gbp_per_km,
                 "rules": [
@@ -1260,12 +1561,19 @@ def build_assets(
         ),
         encoding="utf-8",
     )
+    _annotate_json_artifact(
+        out_dir / "toll_tariffs_uk_compiled.json",
+        source_validation={"toll_raw_inputs": toll_raw_summary},
+    )
 
     toll_segments = load_toll_segments_seed()
     _log_step("compiling toll segment assets")
     (out_dir / "toll_segments_seed_compiled.json").write_text(
         json.dumps(
             {
+                "source": str(toll_source),
+                "as_of_utc": compiled_at_utc,
+                "generated_at_utc": compiled_at_utc,
                 "count": len(toll_segments),
                 "segments": [
                     {
@@ -1285,6 +1593,10 @@ def build_assets(
             indent=2,
         ),
         encoding="utf-8",
+    )
+    _annotate_json_artifact(
+        out_dir / "toll_segments_seed_compiled.json",
+        source_validation={"toll_raw_inputs": toll_raw_summary},
     )
 
     fuel_snapshot = load_fuel_price_snapshot()
@@ -1614,9 +1926,50 @@ def build_assets(
                 "source": "backend/scripts/build_model_assets.py",
                 "generated_at_utc": generated_at_utc,
                 "as_of_utc": generated_at_utc,
+                "source_policy": source_policy_name,
                 "assets": manifest_assets,
                 "checksums": checksums,
                 "signature": signature,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    refresh_manifest_inputs: list[dict[str, Any]] = []
+    for path in required_raw_paths:
+        if not path.exists():
+            continue
+        entry: dict[str, Any] = {
+            "path": str(path),
+            "rebuilt_in_run": False,
+            "provenance_mode": "strict_external" if source_policy_name == "strict_external" else "repo_local_fresh",
+        }
+        if path.is_dir():
+            files = sorted(path.glob("*.json"))
+            entry["file_count"] = len(files)
+            entry["sha256"] = hashlib.sha256(
+                json.dumps([file.name for file in files], sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            if files:
+                entry["as_of_utc"] = datetime.fromtimestamp(
+                    max(file.stat().st_mtime for file in files),
+                    tz=UTC,
+                ).isoformat().replace("+00:00", "Z")
+        else:
+            h = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 256), b""):
+                    h.update(chunk)
+            entry["sha256"] = h.hexdigest()
+            entry["as_of_utc"] = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")
+        refresh_manifest_inputs.append(entry)
+    (out_dir / "refresh_manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at_utc": generated_at_utc,
+                "source_policy": source_policy_name,
+                "inputs": refresh_manifest_inputs,
+                "manifest_signature": signature,
             },
             indent=2,
         ),
@@ -1636,6 +1989,12 @@ def main() -> None:
         type=Path,
         default=Path("backend/out/model_assets"),
         help="Output directory for generated model assets",
+    )
+    parser.add_argument(
+        "--source-policy",
+        choices=("strict_external", "repo_local_fresh"),
+        default=None,
+        help="Override source policy for provenance/freshness validation.",
     )
     parser.add_argument(
         "--departure-counts-csv",
@@ -1689,6 +2048,7 @@ def main() -> None:
     args = parser.parse_args()
     build_assets(
         out_dir=args.out_dir,
+        source_policy=getattr(args, "source_policy", None),
         departure_counts_csv=args.departure_counts_csv,
         stochastic_residuals_csv=args.stochastic_residuals_csv,
         routing_graph_source=args.routing_graph_source,

@@ -113,7 +113,7 @@ def _safe_float(value: Any) -> float | None:
 def _build_toll_topology_payload(
     *,
     compiled_payload: dict[str, Any],
-    as_of_utc: str,
+    published_at_utc: str,
 ) -> dict[str, Any]:
     raw_segments = compiled_payload.get("segments")
     if not isinstance(raw_segments, list):
@@ -166,7 +166,9 @@ def _build_toll_topology_payload(
         or "live_runtime:toll_topology",
         "version": str(compiled_payload.get("version", "uk-v2")).strip() or "uk-v2",
         "generated_at_utc": _utc_now_iso(),
-        "as_of_utc": as_of_utc,
+        "published_at_utc": published_at_utc,
+        "as_of_utc": _extract_as_of(compiled_payload) or published_at_utc,
+        "source_validation": compiled_payload.get("source_validation"),
         "features": features,
     }
 
@@ -174,7 +176,7 @@ def _build_toll_topology_payload(
 def _build_toll_tariffs_payload(
     *,
     compiled_payload: dict[str, Any],
-    as_of_utc: str,
+    published_at_utc: str,
 ) -> dict[str, Any]:
     rules = compiled_payload.get("rules")
     if not isinstance(rules, list) or not rules:
@@ -227,7 +229,9 @@ def _build_toll_tariffs_payload(
         or "live_runtime:toll_tariffs",
         "version": str(compiled_payload.get("version", "uk-v2")).strip() or "uk-v2",
         "generated_at_utc": _utc_now_iso(),
-        "as_of_utc": as_of_utc,
+        "published_at_utc": published_at_utc,
+        "as_of_utc": _extract_as_of(compiled_payload) or published_at_utc,
+        "source_validation": compiled_payload.get("source_validation"),
         "defaults": defaults,
         "rules": sanitized_rules,
     }
@@ -287,11 +291,11 @@ def publish(
     publish_as_of = _utc_now_iso()
     toll_topology_payload = _build_toll_topology_payload(
         compiled_payload=toll_topology_compiled,
-        as_of_utc=publish_as_of,
+        published_at_utc=publish_as_of,
     )
     toll_tariffs_payload = _build_toll_tariffs_payload(
         compiled_payload=toll_tariffs_compiled,
-        as_of_utc=publish_as_of,
+        published_at_utc=publish_as_of,
     )
 
     _write_json(departure_out_path, departure_payload)

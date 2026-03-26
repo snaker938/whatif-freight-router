@@ -225,6 +225,23 @@ def _save_state(state_file: Path, payload: dict[str, Any]) -> None:
     state_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _count_output_rows(output_csv: Path) -> int:
+    if not output_csv.exists():
+        return 0
+    with output_csv.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.reader(handle)
+        return max(0, sum(1 for _ in reader) - 1)
+
+
+def _resume_state_completed_requested_years(*, state: dict[str, Any], years: list[int]) -> bool:
+    if not state or not years:
+        return False
+    completed_years = {int(item) for item in state.get("completed_years", []) if isinstance(item, int)}
+    if not completed_years:
+        return False
+    return all(int(year) in completed_years for year in years)
+
+
 def _fetch_page(
     *,
     client: httpx.Client,
@@ -286,6 +303,10 @@ def collect(
         backoff_s=backoff_s,
     )
     state = _load_state(state_file) if resume else {}
+    resume_reset_applied = False
+    if resume and _resume_state_completed_requested_years(state=state, years=years):
+        state = {}
+        resume_reset_applied = True
     completed_years = {int(item) for item in state.get("completed_years", []) if isinstance(item, int)}
     resume_year = int(state.get("resume_year", 0)) if state.get("resume_year") else None
     resume_page = int(state.get("resume_page", 1)) if state.get("resume_page") else 1
@@ -414,17 +435,20 @@ def collect(
                     break
 
     finished_at = datetime.now(UTC)
+    total_rows_written = _count_output_rows(output_csv)
     summary = {
         "source": "dft_raw_counts_public_api",
         "base_url": base_url,
         "years_requested": years,
-        "rows_written": int(rows_written),
+        "rows_written": int(total_rows_written),
+        "rows_written_current_run": int(rows_written),
         "target_min_rows": int(target_min_rows),
         "pages_fetched": int(pages_fetched),
         "year_row_counts": year_row_counts,
         "output_csv": str(output_csv),
         "state_file": str(state_file),
         "append_safe": bool(append_safe),
+        "resume_reset_applied": bool(resume_reset_applied),
         "started_at_utc": _iso_utc(started_at),
         "finished_at_utc": _iso_utc(finished_at),
         "duration_seconds": round((finished_at - started_at).total_seconds(), 3),

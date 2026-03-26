@@ -9,13 +9,19 @@
   ],
   "rows_written": 0,
   "target_min_rows": 200000,
-  "pages_fetched": 0,
-  "year_row_counts": {},
+  "pages_fetched": 102,
+  "year_row_counts": {
+    "2023": 0,
+    "2024": 0,
+    "2025": 0,
+    "2026": 0
+  },
   "output_csv": "backend\\data\\raw\\uk\\dft_counts_raw.csv",
-  "state_file": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\raw\\uk\\dft_counts_raw.state.json",
+  "state_file": "backend\\data\\raw\\uk\\dft_counts_raw.state.json",
   "append_safe": true,
-  "started_at_utc": "2026-03-04T14:57:51Z",
-  "finished_at_utc": "2026-03-04T14:57:51Z",
-  "duration_seconds": 0.205,
+  "resume_reset_applied": true,
+  "started_at_utc": "2026-03-21T13:00:57Z",
+  "finished_at_utc": "2026-03-21T13:08:02Z",
+  "duration_seconds": 424.776,
   "bank_holiday_count": 134
 }
