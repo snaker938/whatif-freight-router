@@ -1,0 +1,11 @@
+iteration,action_id,kind,target,cost_search,cost_evidence,predicted_delta_certificate,predicted_delta_margin,predicted_delta_frontier,q_score,selected_route_id,selected_certificate
+0,resample:stochastic,increase_stochastic_samples,stochastic,0,1,0.097959,0.0,0.029388,0.063184,route_0,1.0
+0,refresh:carbon,refresh_top1_vor,carbon,0,1,0.0,0.0,0.0,0.0,route_0,1.0
+0,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
+1,resample:stochastic,increase_stochastic_samples,stochastic,0,1,0.097959,0.0,0.029388,0.063184,route_0,1.0
+1,refresh:carbon,refresh_top1_vor,carbon,0,1,0.0,0.0,0.0,0.0,route_0,1.0
+1,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
+2,resample:stochastic,increase_stochastic_samples,stochastic,0,1,0.097959,0.0,0.029388,0.063184,route_0,1.0
+2,refresh:carbon,refresh_top1_vor,carbon,0,1,0.0,0.0,0.0,0.0,route_0,1.0
+2,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
+3,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0

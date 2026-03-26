@@ -1,0 +1,26 @@
+{
+  "route_0": {
+    "carbon": 0.0,
+    "fuel": 0.0,
+    "scenario": 0.0,
+    "stochastic": 0.0,
+    "terrain": 0.0,
+    "toll": 0.0
+  },
+  "route_10": {
+    "carbon": 0.0,
+    "fuel": 0.0,
+    "scenario": 0.0,
+    "stochastic": 0.0,
+    "terrain": 0.0,
+    "toll": 0.0
+  },
+  "route_8": {
+    "carbon": 0.0,
+    "fuel": 0.0,
+    "scenario": 0.0,
+    "stochastic": 0.0,
+    "terrain": 0.0,
+    "toll": 0.0
+  }
+}

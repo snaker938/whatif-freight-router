@@ -1,0 +1,2047 @@
+{
+  "pipeline_mode": "voi",
+  "refinement_policy": "dccs",
+  "run_seed": 20260324,
+  "stage_events": [
+    {
+      "stage": "scenario_context",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:49.715728+00:00"
+    },
+    {
+      "stage": "scenario_context",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:49.731732+00:00"
+    },
+    {
+      "stage": "preflight",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:49.731745+00:00"
+    },
+    {
+      "stage": "preflight",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:50.915672+00:00"
+    },
+    {
+      "stage": "k_raw",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:50.915709+00:00"
+    },
+    {
+      "stage": "k_raw",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:50.915881+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:51.271585+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:51.276902+00:00"
+    },
+    {
+      "stage": "option_build",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:51.331123+00:00"
+    },
+    {
+      "stage": "option_build",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:51.397747+00:00"
+    },
+    {
+      "stage": "pareto",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:51.397757+00:00"
+    },
+    {
+      "stage": "pareto",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:51.444380+00:00"
+    },
+    {
+      "stage": "option_enrichment",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:51.444392+00:00"
+    },
+    {
+      "stage": "option_enrichment",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:16:51.444394+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:16:51.515005+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:02.955784+00:00"
+    },
+    {
+      "stage": "voi",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:02.963381+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:02.963673+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:02.966466+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:02.998849+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:03.001673+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:03.026995+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:03.029226+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:03.056077+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:03.058288+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:03.082636+00:00"
+    },
+    {
+      "stage": "dccs",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:03.084580+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:03.097586+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:17.712313+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:17.740070+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:35.493744+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "enter",
+      "timestamp_utc": "2026-03-26T19:17:35.516084+00:00"
+    },
+    {
+      "stage": "refc",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:57.102674+00:00"
+    },
+    {
+      "stage": "voi",
+      "event": "exit",
+      "timestamp_utc": "2026-03-26T19:17:57.112218+00:00"
+    }
+  ],
+  "stage_timings_ms": {
+    "scenario_context_ms": 16.0,
+    "preflight_ms": 1183.91,
+    "k_raw_ms": 0.17,
+    "k_raw_osrm_fallback_ms": 320.07,
+    "dccs_ms": 17.32,
+    "osrm_refine_ms": 82.01,
+    "option_build_ms": 66.62,
+    "pareto_ms": 46.63,
+    "option_enrichment_ms": 0.0,
+    "refc_ms": 65394.22,
+    "voi_ms": 54147.54,
+    "refinement_ms": 82.01
+  },
+  "certification_runtime": {
+    "cache_hits": 4,
+    "cache_hits_local": 4,
+    "cache_hits_global": 0,
+    "cache_misses": 4,
+    "shortcut_count": 0
+  },
+  "option_build_runtime": {
+    "cache_hits": 4,
+    "cache_hits_local": 4,
+    "cache_hits_global": 0,
+    "cache_misses": 1,
+    "rebuild_count": 1,
+    "refresh_rebuild_count": 0,
+    "saved_ms_estimate": 266.44,
+    "saved_pareto_ms_estimate": 186.48,
+    "reuse_rate": 0.8,
+    "last_cache_key": "862b272eb6447b03af34003d53475e671cd1cbe8"
+  },
+  "route_option_cache_runtime": {
+    "cache_hits": 14,
+    "cache_hits_local": 0,
+    "cache_hits_global": 14,
+    "cache_misses": 0,
+    "cache_key_missing": 0,
+    "cache_disabled": 0,
+    "cache_set_failures": 0,
+    "saved_ms_estimate": 21903.67,
+    "reuse_rate": 1.0,
+    "last_cache_key": "b6b2f2915cb32d87276cbe47d147883d2c8cc949"
+  },
+  "voi_dccs_runtime": {
+    "cache_hits": 3,
+    "cache_hits_local": 3,
+    "cache_hits_global": 0,
+    "cache_misses": 5,
+    "reuse_rate": 0.375,
+    "last_cache_key": "85e23f8a548a49c424b5c50a43a4f8a556d552f6"
+  },
+  "ambiguity_context": {
+    "od_ambiguity_index": 0.403029,
+    "od_ambiguity_confidence": 0.810497,
+    "od_engine_disagreement_prior": 0.458077,
+    "od_hard_case_prior": 0.492942,
+    "od_ambiguity_source_count": 2,
+    "od_ambiguity_source_mix": "{\"historical_results_bootstrap\":4,\"routing_graph_probe\":11}",
+    "od_ambiguity_support_ratio": 0.686842,
+    "od_ambiguity_source_mix_count": 2,
+    "od_ambiguity_source_entropy": 0.836641,
+    "od_ambiguity_prior_strength": 0.403029,
+    "od_ambiguity_family_density": 0.785714,
+    "od_ambiguity_margin_pressure": 0.063913,
+    "od_ambiguity_spread_pressure": 0.0,
+    "od_ambiguity_toll_instability": 0.0,
+    "od_candidate_path_count": 14,
+    "od_corridor_family_count": 11,
+    "od_objective_spread": 0.0,
+    "od_nominal_margin_proxy": 0.936087,
+    "od_toll_disagreement_rate": null,
+    "ambiguity_budget_prior": 0.423843,
+    "ambiguity_budget_band": "high"
+  },
+  "resource_usage": {
+    "rss_bytes": 18786508800,
+    "vms_bytes": 26701963264,
+    "peak_wset_bytes": 22496256000,
+    "peak_pagefile_bytes": 28116639744,
+    "private_bytes": 26701963264,
+    "page_fault_count": 18458387
+  },
+  "route_cache_stats": {
+    "size": 4,
+    "hits": 0,
+    "misses": 4,
+    "evictions": 0,
+    "oversize_rejections": 0,
+    "ttl_s": 120,
+    "max_entries": 1024,
+    "estimated_bytes": 32507278,
+    "max_estimated_bytes": 256000000
+  },
+  "k_raw_cache_stats": {
+    "size": 5,
+    "hits": 10,
+    "misses": 5,
+    "evictions": 0,
+    "ttl_s": 1800,
+    "max_entries": 1024
+  },
+  "route_option_cache_stats": {
+    "size": 42,
+    "hits": 94,
+    "misses": 46,
+    "evictions": 0,
+    "oversize_rejections": 0,
+    "ttl_s": 1800,
+    "max_entries": 256,
+    "estimated_bytes": 7608573,
+    "max_estimated_bytes": 192000000,
+    "core_hits": 0,
+    "core_misses": 46,
+    "core_rejected": 0,
+    "enabled": 1
+  },
+  "route_state_cache_stats": {
+    "size": 15,
+    "hits": 0,
+    "misses": 15,
+    "evictions": 0,
+    "oversize_rejections": 0,
+    "ttl_s": 1200,
+    "max_entries": 48,
+    "estimated_bytes": 19181097,
+    "max_estimated_bytes": 384000000
+  },
+  "voi_dccs_cache_stats": {
+    "size": 12,
+    "hits": 0,
+    "misses": 12,
+    "evictions": 0,
+    "oversize_rejections": 0,
+    "ttl_s": 1800,
+    "max_entries": 256,
+    "estimated_bytes": 267938,
+    "max_estimated_bytes": 96000000
+  },
+  "counts": {
+    "k_raw": 14,
+    "refined": 14,
+    "strict_frontier": 10
+  },
+  "budgets": {
+    "search_total": 7,
+    "search_used": 7,
+    "evidence_total": 3,
+    "evidence_used": 3,
+    "world_count": 196
+  },
+  "dccs_batches": [
+    {
+      "iteration": 0,
+      "mode": "bootstrap",
+      "transition_reason": "bootstrap_seeding:no_strict_frontier",
+      "search_budget": 3,
+      "candidate_count": 14,
+      "selected_count": 3,
+      "skipped_count": 11,
+      "dc_yield": 1.0,
+      "challenger_hit_rate": 0.6666666666666666,
+      "frontier_gain_per_refinement": 0.6666666666666666,
+      "decision_flips": 3,
+      "frontier_additions": 2,
+      "dual_critical_predictions": 2,
+      "unique_critical_predictions": 3,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 1.0,
+      "predicted_challenger_hit_rate": 0.6666666666666666,
+      "predicted_frontier_gain_per_refinement": 0.6666666666666666,
+      "predicted_decision_flips": 3,
+      "predicted_frontier_additions": 2,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 3,
+      "selected_mean_overlap": 0.12698412698412698,
+      "selected_mean_predicted_refine_cost": 223.6654157268952
+    },
+    {
+      "iteration": 1,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 4,
+      "candidate_count": 11,
+      "selected_count": 4,
+      "skipped_count": 7,
+      "dc_yield": 1.0,
+      "challenger_hit_rate": 1.0,
+      "frontier_gain_per_refinement": 1.0,
+      "decision_flips": 4,
+      "frontier_additions": 4,
+      "dual_critical_predictions": 4,
+      "unique_critical_predictions": 4,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 1.0,
+      "predicted_challenger_hit_rate": 1.0,
+      "predicted_frontier_gain_per_refinement": 1.0,
+      "predicted_decision_flips": 4,
+      "predicted_frontier_additions": 4,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 4,
+      "selected_mean_overlap": 0.13095238095238093,
+      "selected_mean_predicted_refine_cost": 212.66134436106705
+    },
+    {
+      "iteration": 2,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 3,
+      "candidate_count": 10,
+      "selected_count": 3,
+      "skipped_count": 7,
+      "dc_yield": 1.0,
+      "challenger_hit_rate": 1.0,
+      "frontier_gain_per_refinement": 1.0,
+      "decision_flips": 3,
+      "frontier_additions": 3,
+      "dual_critical_predictions": 3,
+      "unique_critical_predictions": 3,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 1.0,
+      "predicted_challenger_hit_rate": 1.0,
+      "predicted_frontier_gain_per_refinement": 1.0,
+      "predicted_decision_flips": 3,
+      "predicted_frontier_additions": 3,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 3,
+      "selected_mean_overlap": 0.14285714285714285,
+      "selected_mean_predicted_refine_cost": 210.41353640873888
+    },
+    {
+      "iteration": 3,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 2,
+      "candidate_count": 9,
+      "selected_count": 2,
+      "skipped_count": 7,
+      "dc_yield": 1.0,
+      "challenger_hit_rate": 1.0,
+      "frontier_gain_per_refinement": 1.0,
+      "decision_flips": 2,
+      "frontier_additions": 2,
+      "dual_critical_predictions": 2,
+      "unique_critical_predictions": 2,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 1.0,
+      "predicted_challenger_hit_rate": 1.0,
+      "predicted_frontier_gain_per_refinement": 1.0,
+      "predicted_decision_flips": 2,
+      "predicted_frontier_additions": 2,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 2,
+      "selected_mean_overlap": 0.14285714285714285,
+      "selected_mean_predicted_refine_cost": 207.4199595677505
+    },
+    {
+      "iteration": 4,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 1,
+      "candidate_count": 8,
+      "selected_count": 1,
+      "skipped_count": 7,
+      "dc_yield": 1.0,
+      "challenger_hit_rate": 1.0,
+      "frontier_gain_per_refinement": 1.0,
+      "decision_flips": 1,
+      "frontier_additions": 1,
+      "dual_critical_predictions": 1,
+      "unique_critical_predictions": 1,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 1.0,
+      "predicted_challenger_hit_rate": 1.0,
+      "predicted_frontier_gain_per_refinement": 1.0,
+      "predicted_decision_flips": 1,
+      "predicted_frontier_additions": 1,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 1,
+      "selected_mean_overlap": 0.14285714285714285,
+      "selected_mean_predicted_refine_cost": 206.23098059128515
+    },
+    {
+      "iteration": 5,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 0,
+      "candidate_count": 7,
+      "selected_count": 0,
+      "skipped_count": 7,
+      "dc_yield": 0.0,
+      "challenger_hit_rate": 0.0,
+      "frontier_gain_per_refinement": 0.0,
+      "decision_flips": 0,
+      "frontier_additions": 0,
+      "dual_critical_predictions": 0,
+      "unique_critical_predictions": 0,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 0.0,
+      "predicted_challenger_hit_rate": 0.0,
+      "predicted_frontier_gain_per_refinement": 0.0,
+      "predicted_decision_flips": 0,
+      "predicted_frontier_additions": 0,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 0,
+      "selected_mean_overlap": 0.0,
+      "selected_mean_predicted_refine_cost": 0.0
+    },
+    {
+      "iteration": 6,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 0,
+      "candidate_count": 7,
+      "selected_count": 0,
+      "skipped_count": 7,
+      "dc_yield": 0.0,
+      "challenger_hit_rate": 0.0,
+      "frontier_gain_per_refinement": 0.0,
+      "decision_flips": 0,
+      "frontier_additions": 0,
+      "dual_critical_predictions": 0,
+      "unique_critical_predictions": 0,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 0.0,
+      "predicted_challenger_hit_rate": 0.0,
+      "predicted_frontier_gain_per_refinement": 0.0,
+      "predicted_decision_flips": 0,
+      "predicted_frontier_additions": 0,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 0,
+      "selected_mean_overlap": 0.0,
+      "selected_mean_predicted_refine_cost": 0.0
+    },
+    {
+      "iteration": 7,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 0,
+      "candidate_count": 7,
+      "selected_count": 0,
+      "skipped_count": 7,
+      "dc_yield": 0.0,
+      "challenger_hit_rate": 0.0,
+      "frontier_gain_per_refinement": 0.0,
+      "decision_flips": 0,
+      "frontier_additions": 0,
+      "dual_critical_predictions": 0,
+      "unique_critical_predictions": 0,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 0.0,
+      "predicted_challenger_hit_rate": 0.0,
+      "predicted_frontier_gain_per_refinement": 0.0,
+      "predicted_decision_flips": 0,
+      "predicted_frontier_additions": 0,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 0,
+      "selected_mean_overlap": 0.0,
+      "selected_mean_predicted_refine_cost": 0.0
+    },
+    {
+      "iteration": 8,
+      "mode": "challenger",
+      "transition_reason": "challenger_mode:strict_frontier_available",
+      "search_budget": 0,
+      "candidate_count": 7,
+      "selected_count": 0,
+      "skipped_count": 7,
+      "dc_yield": 0.0,
+      "challenger_hit_rate": 0.0,
+      "frontier_gain_per_refinement": 0.0,
+      "decision_flips": 0,
+      "frontier_additions": 0,
+      "dual_critical_predictions": 0,
+      "unique_critical_predictions": 0,
+      "dc_yield_is_predicted": true,
+      "metric_stage": "pre_refinement_prediction",
+      "observed_metrics_available": false,
+      "predicted_dc_yield": 0.0,
+      "predicted_challenger_hit_rate": 0.0,
+      "predicted_frontier_gain_per_refinement": 0.0,
+      "predicted_decision_flips": 0,
+      "predicted_frontier_additions": 0,
+      "term_ablation_ready": true,
+      "bootstrap_seed_size": 3,
+      "selected_corridor_count": 0,
+      "selected_mean_overlap": 0.0,
+      "selected_mean_predicted_refine_cost": 0.0
+    }
+  ],
+  "candidate_diagnostics": {
+    "raw_count": 14,
+    "deduped_count": 14,
+    "graph_explored_states": 0,
+    "graph_generated_paths": 0,
+    "graph_emitted_paths": 0,
+    "candidate_budget": 4,
+    "graph_effective_max_hops": 1382,
+    "graph_effective_hops_floor": 0,
+    "graph_effective_state_budget_initial": 1200000,
+    "graph_effective_state_budget": 1200000,
+    "graph_no_path_reason": "skipped_long_corridor_graph_search",
+    "graph_no_path_detail": "Skipped expensive long-corridor graph search and used bounded fallback.",
+    "prefetch_total_sources": 0,
+    "prefetch_success_sources": 0,
+    "prefetch_failed_sources": 0,
+    "prefetch_failed_keys": "",
+    "prefetch_failed_details": "",
+    "prefetch_missing_expected_sources": "",
+    "prefetch_rows_json": "",
+    "scenario_gate_required_configured": 0,
+    "scenario_gate_required_effective": 0,
+    "scenario_gate_source_ok_count": 0,
+    "scenario_gate_waiver_applied": false,
+    "scenario_gate_waiver_reason": "",
+    "scenario_gate_source_signal_json": "",
+    "scenario_gate_source_reachability_json": "",
+    "scenario_gate_road_hint": "",
+    "scenario_candidate_family_count": 0,
+    "scenario_candidate_jaccard_vs_baseline": 1.0,
+    "scenario_candidate_jaccard_threshold": 1.0,
+    "scenario_candidate_stress_score": 0.0,
+    "scenario_candidate_gate_action": "not_applicable",
+    "scenario_edge_scaling_version": "v3_live_transform",
+    "precheck_reason_code": "ok",
+    "precheck_message": "Graph coverage/connectivity checks passed.",
+    "precheck_elapsed_ms": 0.0,
+    "precheck_origin_node_id": "1239525667",
+    "precheck_destination_node_id": "1351850104",
+    "precheck_origin_nearest_m": 14.429296443680727,
+    "precheck_destination_nearest_m": 27.982201084631615,
+    "precheck_origin_selected_m": 14.429296443680727,
+    "precheck_destination_selected_m": 27.982201084631615,
+    "precheck_origin_candidate_count": 512,
+    "precheck_destination_candidate_count": 512,
+    "precheck_selected_component": 1,
+    "precheck_selected_component_size": 15564399,
+    "precheck_gate_action": "",
+    "graph_retry_attempted": true,
+    "graph_retry_state_budget": 1200000,
+    "graph_retry_outcome": "skipped_long_corridor_fast_fallback",
+    "graph_rescue_attempted": false,
+    "graph_rescue_mode": "not_applicable",
+    "graph_rescue_state_budget": 0,
+    "graph_rescue_outcome": "not_applicable",
+    "prefetch_ms": 0.0,
+    "scenario_context_ms": 16.0,
+    "graph_search_ms_initial": 0.0,
+    "graph_search_ms_retry": 0.0,
+    "graph_search_ms_rescue": 0.0,
+    "graph_search_ms_supplemental": 0.0,
+    "graph_k_raw_cache_hit": true,
+    "graph_low_ambiguity_fast_path": false,
+    "graph_supported_ambiguity_fast_fallback": false,
+    "osrm_refine_ms": 82.01000000000002,
+    "build_options_ms": 66.62,
+    "refinement_policy": "dccs",
+    "selected_candidate_count": 7,
+    "selected_candidate_ids_json": "[\"1e665fddb840aa810f5c93bfb33691a60e38b58d\", \"435a44e95f9d265c09a6a2bdd586d2c8c9afb354\", \"6c3ff612fff1941b8b21302cc582480245f82dec\", \"832c85ff486897a7f7da4a26687a4f185a5cb631\", \"83f46fbf93447807e48c2413f04b6f678035352c\", \"89478d29f3f92c23a060fcfa479826d08ebf7e24\", \"8a1a8be451b068566f56592cd5c2eb6cfb4ca61b\", \"94d6c197a9a5affc42ed415a581df6729fec8b62\", \"9b6b1db3cde77ebf081ae1ea263e744661dd6e42\", \"9f1fad8a481ef602439108f09d7cd463fc033e77\", \"ab720a8f75439a957f072a4f65bf28c382439d25\", \"b3a67682dfc4fcfa6b0183c33f9148cf422d7d54\", \"cef8646e3c5c1cd21a8d5d60bbcdb7866db30551\", \"e5379697e1f83fd6052d58f3dbdf6d31b8049f62\"]",
+    "diversity_collapse_detected": false,
+    "diversity_collapse_reason": "",
+    "raw_corridor_family_count": 1,
+    "refined_corridor_family_count": 14,
+    "supplemental_challenger_activated": false,
+    "supplemental_candidate_count": 0,
+    "supplemental_selected_count": 0,
+    "supplemental_budget_used": 0,
+    "supplemental_sources_json": "[]",
+    "preemptive_comparator_seed_activated": false,
+    "preemptive_comparator_candidate_count": 0,
+    "preemptive_comparator_source_count": 0,
+    "preemptive_comparator_sources_json": "[]",
+    "option_build_cache_hits": 4,
+    "option_build_cache_misses": 1,
+    "option_build_rebuild_count": 1,
+    "option_build_reuse_rate": 0.8
+  },
+  "diversity_rescue": {
+    "reserved_slot": false,
+    "collapse_detected": false,
+    "collapse_reason": "",
+    "raw_corridor_family_count": 1,
+    "refined_corridor_family_count_before": 14,
+    "refined_corridor_family_count_after": 14,
+    "supplemental_challenger_activated": false,
+    "supplemental_sources": [],
+    "supplemental_candidate_count": 0,
+    "supplemental_selected_count": 0,
+    "supplemental_budget_used": 0
+  },
+  "selected_route_id": "route_0",
+  "selected_route_signature": "1b41cfc9a8636a2c94bca5b19dac652d3957fdcd",
+  "selected_candidate_ids": [
+    "83f46fbf93447807e48c2413f04b6f678035352c"
+  ],
+  "selected_candidate_source_label": null,
+  "selected_candidate_source_engine": null,
+  "selected_candidate_source_stage": null,
+  "selected_from_supplemental_rescue": false,
+  "selected_certificate": {
+    "route_id": "route_0",
+    "certificate": 1.0,
+    "certified": true,
+    "threshold": 0.84,
+    "active_families": [
+      "carbon",
+      "fuel",
+      "scenario",
+      "stochastic",
+      "terrain",
+      "toll"
+    ],
+    "top_fragility_families": [],
+    "top_competitor_route_id": "route_10",
+    "top_value_of_refresh_family": "carbon",
+    "ambiguity_context": {
+      "od_ambiguity_index": 0.403029,
+      "od_ambiguity_confidence": 0.810497,
+      "od_engine_disagreement_prior": 0.458077,
+      "od_hard_case_prior": 0.492942,
+      "od_ambiguity_source_count": 2,
+      "od_ambiguity_source_mix": "{\"historical_results_bootstrap\":4,\"routing_graph_probe\":11}",
+      "od_ambiguity_support_ratio": 0.686842,
+      "od_ambiguity_source_mix_count": 2,
+      "od_ambiguity_source_entropy": 0.836641,
+      "od_ambiguity_prior_strength": 0.403029,
+      "od_ambiguity_family_density": 0.785714,
+      "od_ambiguity_margin_pressure": 0.063913,
+      "od_ambiguity_spread_pressure": 0.0,
+      "od_ambiguity_toll_instability": 0.0,
+      "od_candidate_path_count": 14,
+      "od_corridor_family_count": 11,
+      "od_objective_spread": 0.0,
+      "od_nominal_margin_proxy": 0.936087,
+      "ambiguity_budget_prior": 0.423843,
+      "ambiguity_budget_band": "high",
+      "refc_world_count": 291,
+      "refc_unique_world_count": 291,
+      "refc_world_reuse_rate": 0.0,
+      "refc_hard_stress_pack_count": 95,
+      "refc_stress_world_fraction": 0.32646
+    }
+  },
+  "voi": {
+    "stop_reason": "budget_exhausted",
+    "action_trace": [
+      {
+        "iteration": 0,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 4,
+        "remaining_evidence_budget": 3,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "refine_top1_dccs:7b38f9e9c9a96bc17a7e681e956745f59342c1c9",
+            "kind": "refine_top1_dccs",
+            "target": "7b38f9e9c9a96bc17a7e681e956745f59342c1c9",
+            "cost_search": 1,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.42841221893235126,
+            "predicted_delta_margin": 0.28272763500366727,
+            "predicted_delta_frontier": 0.25037299802112906,
+            "q_score": 0.36528518944821164,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 1,
+              "candidate_ids": [
+                "b3a67682dfc4fcfa6b0183c33f9148cf422d7d54"
+              ],
+              "cohort_signature": "7b38f9e9c9a96bc17a7e681e956745f59342c1c9",
+              "mean_final_score": 0.008274334013696451,
+              "mean_flip_probability": 0.9980362535397654,
+              "mean_objective_gap": 0.26180182678443126,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.09523809523809523,
+              "total_predicted_refine_cost": 222.42639922015206,
+              "normalized_objective_gap": 0.2303364647070839,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.9047619047619048,
+              "predicted_refine_cost": 222.42639922015206,
+              "search_completeness_gap": 0.317035,
+              "search_completeness_score": 0.522965,
+              "search_completeness_bonus": 0.020037,
+              "best_pending_flip_probability": 0.998036,
+              "pending_challenger_mass": 0.645274,
+              "corridor_family_recall": 0.363636,
+              "frontier_recall_at_budget": 0.373322,
+              "exploration_gate": 0.287272,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.70621
+            }
+          },
+          {
+            "action_id": "refine_topk_dccs:c7c3307d244015d65771e8d565e470786182231b",
+            "kind": "refine_topk_dccs",
+            "target": "c7c3307d244015d65771e8d565e470786182231b",
+            "cost_search": 2,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.42568075810778655,
+            "predicted_delta_margin": 0.2791169783401552,
+            "predicted_delta_frontier": 0.29134635636234885,
+            "q_score": 0.1844448263598091,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 2,
+              "candidate_ids": [
+                "b3a67682dfc4fcfa6b0183c33f9148cf422d7d54",
+                "89478d29f3f92c23a060fcfa479826d08ebf7e24"
+              ],
+              "cohort_signature": "c7c3307d244015d65771e8d565e470786182231b",
+              "mean_final_score": 0.008107073364487032,
+              "mean_flip_probability": 0.9979692011771066,
+              "mean_objective_gap": 0.25014203115489403,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.09523809523809523,
+              "total_predicted_refine_cost": 448.6638014982907,
+              "normalized_objective_gap": 0.2213098230483037,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.9047619047619048,
+              "predicted_refine_cost": 448.6638014982907,
+              "search_completeness_gap": 0.317035,
+              "search_completeness_score": 0.522965,
+              "search_completeness_bonus": 0.020037,
+              "best_pending_flip_probability": 0.998036,
+              "pending_challenger_mass": 0.645274,
+              "corridor_family_recall": 0.363636,
+              "frontier_recall_at_budget": 0.373322,
+              "exploration_gate": 0.287272,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.70621
+            }
+          },
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0487179,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.014615369999999999,
+            "q_score": 0.03142304546857695,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.487179,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "refine_top1_dccs:7b38f9e9c9a96bc17a7e681e956745f59342c1c9",
+          "kind": "refine_top1_dccs",
+          "target": "7b38f9e9c9a96bc17a7e681e956745f59342c1c9",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.42841221893235126,
+          "predicted_delta_margin": 0.28272763500366727,
+          "predicted_delta_frontier": 0.25037299802112906,
+          "q_score": 0.36528518944821164,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "b3a67682dfc4fcfa6b0183c33f9148cf422d7d54"
+            ],
+            "cohort_signature": "7b38f9e9c9a96bc17a7e681e956745f59342c1c9",
+            "mean_final_score": 0.008274334013696451,
+            "mean_flip_probability": 0.9980362535397654,
+            "mean_objective_gap": 0.26180182678443126,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.09523809523809523,
+            "total_predicted_refine_cost": 222.42639922015206,
+            "normalized_objective_gap": 0.2303364647070839,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.9047619047619048,
+            "predicted_refine_cost": 222.42639922015206,
+            "search_completeness_gap": 0.317035,
+            "search_completeness_score": 0.522965,
+            "search_completeness_bonus": 0.020037,
+            "best_pending_flip_probability": 0.998036,
+            "pending_challenger_mass": 0.645274,
+            "corridor_family_recall": 0.363636,
+            "frontier_recall_at_budget": 0.373322,
+            "exploration_gate": 0.287272,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.650912,
+            "support_richness": 0.650912,
+            "ambiguity_pressure": 0.70621
+          }
+        },
+        "requested_candidate_ids": [
+          "b3a67682dfc4fcfa6b0183c33f9148cf422d7d54"
+        ],
+        "resolved_candidate_ids": [
+          "b3a67682dfc4fcfa6b0183c33f9148cf422d7d54"
+        ],
+        "unresolved_candidate_ids": [],
+        "executed_candidate_ids": [
+          "b3a67682dfc4fcfa6b0183c33f9148cf422d7d54"
+        ],
+        "execution_used_candidate_metadata": true,
+        "execution_matches_requested_candidate_ids": true,
+        "execution_candidate_resolution_source": "action_metadata",
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      },
+      {
+        "iteration": 1,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 3,
+        "remaining_evidence_budget": 3,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "refine_top1_dccs:eac48602573a8f45f8c14f9305a04d011538198c",
+            "kind": "refine_top1_dccs",
+            "target": "eac48602573a8f45f8c14f9305a04d011538198c",
+            "cost_search": 1,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.43343892394587413,
+            "predicted_delta_margin": 0.28933200531314096,
+            "predicted_delta_frontier": 0.26599859085427835,
+            "q_score": 0.3722961439516553,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 1,
+              "candidate_ids": [
+                "e5379697e1f83fd6052d58f3dbdf6d31b8049f62"
+              ],
+              "cohort_signature": "eac48602573a8f45f8c14f9305a04d011538198c",
+              "mean_final_score": 0.00854969104200077,
+              "mean_flip_probability": 0.9981365210191125,
+              "mean_objective_gap": 0.28029656158625066,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.09523809523809523,
+              "total_predicted_refine_cost": 219.40476821805154,
+              "normalized_objective_gap": 0.24444036173766137,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.9047619047619048,
+              "predicted_refine_cost": 219.40476821805154,
+              "search_completeness_gap": 0.337238,
+              "search_completeness_score": 0.502762,
+              "search_completeness_bonus": 0.021558,
+              "best_pending_flip_probability": 0.998137,
+              "pending_challenger_mass": 0.646468,
+              "corridor_family_recall": 0.272727,
+              "frontier_recall_at_budget": 0.309478,
+              "exploration_gate": 0.290572,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.727039
+            }
+          },
+          {
+            "action_id": "refine_topk_dccs:d91d8de085c1e10c8c0809df2d3b5e25e556725f",
+            "kind": "refine_topk_dccs",
+            "target": "d91d8de085c1e10c8c0809df2d3b5e25e556725f",
+            "cost_search": 2,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.42860903985420773,
+            "predicted_delta_margin": 0.28294684670534087,
+            "predicted_delta_frontier": 0.3000356943347782,
+            "q_score": 0.1864537447763114,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 2,
+              "candidate_ids": [
+                "e5379697e1f83fd6052d58f3dbdf6d31b8049f62",
+                "89478d29f3f92c23a060fcfa479826d08ebf7e24"
+              ],
+              "cohort_signature": "d91d8de085c1e10c8c0809df2d3b5e25e556725f",
+              "mean_final_score": 0.00824475187863919,
+              "mean_flip_probability": 0.9980193349167801,
+              "mean_objective_gap": 0.25938939855580373,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.09523809523809523,
+              "total_predicted_refine_cost": 445.64217049619015,
+              "normalized_objective_gap": 0.22847746521816126,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.9047619047619048,
+              "predicted_refine_cost": 445.64217049619015,
+              "search_completeness_gap": 0.337238,
+              "search_completeness_score": 0.502762,
+              "search_completeness_bonus": 0.021558,
+              "best_pending_flip_probability": 0.998137,
+              "pending_challenger_mass": 0.646468,
+              "corridor_family_recall": 0.272727,
+              "frontier_recall_at_budget": 0.309478,
+              "exploration_gate": 0.290572,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.727039
+            }
+          },
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0487179,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.014615369999999999,
+            "q_score": 0.03142304546857695,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.487179,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "refine_top1_dccs:eac48602573a8f45f8c14f9305a04d011538198c",
+          "kind": "refine_top1_dccs",
+          "target": "eac48602573a8f45f8c14f9305a04d011538198c",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.43343892394587413,
+          "predicted_delta_margin": 0.28933200531314096,
+          "predicted_delta_frontier": 0.26599859085427835,
+          "q_score": 0.3722961439516553,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "e5379697e1f83fd6052d58f3dbdf6d31b8049f62"
+            ],
+            "cohort_signature": "eac48602573a8f45f8c14f9305a04d011538198c",
+            "mean_final_score": 0.00854969104200077,
+            "mean_flip_probability": 0.9981365210191125,
+            "mean_objective_gap": 0.28029656158625066,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.09523809523809523,
+            "total_predicted_refine_cost": 219.40476821805154,
+            "normalized_objective_gap": 0.24444036173766137,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.9047619047619048,
+            "predicted_refine_cost": 219.40476821805154,
+            "search_completeness_gap": 0.337238,
+            "search_completeness_score": 0.502762,
+            "search_completeness_bonus": 0.021558,
+            "best_pending_flip_probability": 0.998137,
+            "pending_challenger_mass": 0.646468,
+            "corridor_family_recall": 0.272727,
+            "frontier_recall_at_budget": 0.309478,
+            "exploration_gate": 0.290572,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.650912,
+            "support_richness": 0.650912,
+            "ambiguity_pressure": 0.727039
+          }
+        },
+        "requested_candidate_ids": [
+          "e5379697e1f83fd6052d58f3dbdf6d31b8049f62"
+        ],
+        "resolved_candidate_ids": [
+          "e5379697e1f83fd6052d58f3dbdf6d31b8049f62"
+        ],
+        "unresolved_candidate_ids": [],
+        "executed_candidate_ids": [
+          "e5379697e1f83fd6052d58f3dbdf6d31b8049f62"
+        ],
+        "execution_used_candidate_metadata": true,
+        "execution_matches_requested_candidate_ids": true,
+        "execution_candidate_resolution_source": "action_metadata",
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      },
+      {
+        "iteration": 2,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 2,
+        "remaining_evidence_budget": 3,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "refine_top1_dccs:275ee8060edfad4f672e1dbfbefa537e97ed626f",
+            "kind": "refine_top1_dccs",
+            "target": "275ee8060edfad4f672e1dbfbefa537e97ed626f",
+            "cost_search": 1,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.43904129395052305,
+            "predicted_delta_margin": 0.28733127561418303,
+            "predicted_delta_frontier": 0.28373923272570756,
+            "q_score": 0.3778184798048972,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 1,
+              "candidate_ids": [
+                "cef8646e3c5c1cd21a8d5d60bbcdb7866db30551"
+              ],
+              "cohort_signature": "275ee8060edfad4f672e1dbfbefa537e97ed626f",
+              "mean_final_score": 0.008782737136328175,
+              "mean_flip_probability": 0.9979624798855642,
+              "mean_objective_gap": 0.30172329811712556,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.14285714285714285,
+              "total_predicted_refine_cost": 216.4006900907156,
+              "normalized_objective_gap": 0.26045733056990705,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.8571428571428572,
+              "predicted_refine_cost": 216.4006900907156,
+              "search_completeness_gap": 0.359794,
+              "search_completeness_score": 0.480206,
+              "search_completeness_bonus": 0.023282,
+              "best_pending_flip_probability": 0.997962,
+              "pending_challenger_mass": 0.646977,
+              "corridor_family_recall": 0.181818,
+              "frontier_recall_at_budget": 0.230763,
+              "exploration_gate": 0.294132,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.749856
+            }
+          },
+          {
+            "action_id": "refine_topk_dccs:d2ae34d8a01cd1821d3cb4d38713503e5b6418ca",
+            "kind": "refine_topk_dccs",
+            "target": "d2ae34d8a01cd1821d3cb4d38713503e5b6418ca",
+            "cost_search": 2,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.4319032223569913,
+            "predicted_delta_margin": 0.28258982883463923,
+            "predicted_delta_frontier": 0.30998085387208624,
+            "q_score": 0.18814325925776212,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 2,
+              "candidate_ids": [
+                "cef8646e3c5c1cd21a8d5d60bbcdb7866db30551",
+                "89478d29f3f92c23a060fcfa479826d08ebf7e24"
+              ],
+              "cohort_signature": "d2ae34d8a01cd1821d3cb4d38713503e5b6418ca",
+              "mean_final_score": 0.008361274925802895,
+              "mean_flip_probability": 0.997932314350006,
+              "mean_objective_gap": 0.2701027668212412,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.11904761904761904,
+              "total_predicted_refine_cost": 442.63809236885425,
+              "normalized_objective_gap": 0.23669895171628574,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.8809523809523809,
+              "predicted_refine_cost": 442.63809236885425,
+              "search_completeness_gap": 0.359794,
+              "search_completeness_score": 0.480206,
+              "search_completeness_bonus": 0.023282,
+              "best_pending_flip_probability": 0.997962,
+              "pending_challenger_mass": 0.646977,
+              "corridor_family_recall": 0.181818,
+              "frontier_recall_at_budget": 0.230763,
+              "exploration_gate": 0.294132,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.749856
+            }
+          },
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0487179,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.014615369999999999,
+            "q_score": 0.03142304546857695,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.487179,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "refine_top1_dccs:275ee8060edfad4f672e1dbfbefa537e97ed626f",
+          "kind": "refine_top1_dccs",
+          "target": "275ee8060edfad4f672e1dbfbefa537e97ed626f",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.43904129395052305,
+          "predicted_delta_margin": 0.28733127561418303,
+          "predicted_delta_frontier": 0.28373923272570756,
+          "q_score": 0.3778184798048972,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "cef8646e3c5c1cd21a8d5d60bbcdb7866db30551"
+            ],
+            "cohort_signature": "275ee8060edfad4f672e1dbfbefa537e97ed626f",
+            "mean_final_score": 0.008782737136328175,
+            "mean_flip_probability": 0.9979624798855642,
+            "mean_objective_gap": 0.30172329811712556,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.14285714285714285,
+            "total_predicted_refine_cost": 216.4006900907156,
+            "normalized_objective_gap": 0.26045733056990705,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.8571428571428572,
+            "predicted_refine_cost": 216.4006900907156,
+            "search_completeness_gap": 0.359794,
+            "search_completeness_score": 0.480206,
+            "search_completeness_bonus": 0.023282,
+            "best_pending_flip_probability": 0.997962,
+            "pending_challenger_mass": 0.646977,
+            "corridor_family_recall": 0.181818,
+            "frontier_recall_at_budget": 0.230763,
+            "exploration_gate": 0.294132,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.650912,
+            "support_richness": 0.650912,
+            "ambiguity_pressure": 0.749856
+          }
+        },
+        "requested_candidate_ids": [
+          "cef8646e3c5c1cd21a8d5d60bbcdb7866db30551"
+        ],
+        "resolved_candidate_ids": [
+          "cef8646e3c5c1cd21a8d5d60bbcdb7866db30551"
+        ],
+        "unresolved_candidate_ids": [],
+        "executed_candidate_ids": [
+          "cef8646e3c5c1cd21a8d5d60bbcdb7866db30551"
+        ],
+        "execution_used_candidate_metadata": true,
+        "execution_matches_requested_candidate_ids": true,
+        "execution_candidate_resolution_source": "action_metadata",
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      },
+      {
+        "iteration": 3,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 1,
+        "remaining_evidence_budget": 3,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "refine_top1_dccs:74e6855f26cf2df2c6a695dc525e11418d7af6be",
+            "kind": "refine_top1_dccs",
+            "target": "74e6855f26cf2df2c6a695dc525e11418d7af6be",
+            "cost_search": 1,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.4492490656921661,
+            "predicted_delta_margin": 0.3008735736480411,
+            "predicted_delta_frontier": 0.3161251462763221,
+            "q_score": 0.39218660437657166,
+            "feasible": true,
+            "preconditions": [
+              "search_budget_available",
+              "dccs_candidate_available"
+            ],
+            "reason": "refine_candidate",
+            "metadata": {
+              "top_k": 1,
+              "candidate_ids": [
+                "9b6b1db3cde77ebf081ae1ea263e744661dd6e42"
+              ],
+              "cohort_signature": "74e6855f26cf2df2c6a695dc525e11418d7af6be",
+              "mean_final_score": 0.009431768801252696,
+              "mean_flip_probability": 0.9981677810784095,
+              "mean_objective_gap": 0.343540032456257,
+              "mean_mechanism_gap": 0.0,
+              "mean_overlap": 0.14285714285714285,
+              "total_predicted_refine_cost": 208.60893854421587,
+              "normalized_objective_gap": 0.2907449126471696,
+              "normalized_mechanism_gap": 0.0,
+              "normalized_overlap_reduction": 0.8571428571428572,
+              "predicted_refine_cost": 208.60893854421587,
+              "search_completeness_gap": 0.386467,
+              "search_completeness_score": 0.453533,
+              "search_completeness_bonus": 0.02538,
+              "best_pending_flip_probability": 0.998168,
+              "pending_challenger_mass": 0.649539,
+              "corridor_family_recall": 0.090909,
+              "frontier_recall_at_budget": 0.130599,
+              "exploration_gate": 0.298511,
+              "current_certificate": 1.0,
+              "prior_support_strength": 0.650912,
+              "support_richness": 0.650912,
+              "ambiguity_pressure": 0.776524
+            }
+          },
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0487179,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.014615369999999999,
+            "q_score": 0.03142304546857695,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.487179,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "refine_top1_dccs:74e6855f26cf2df2c6a695dc525e11418d7af6be",
+          "kind": "refine_top1_dccs",
+          "target": "74e6855f26cf2df2c6a695dc525e11418d7af6be",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.4492490656921661,
+          "predicted_delta_margin": 0.3008735736480411,
+          "predicted_delta_frontier": 0.3161251462763221,
+          "q_score": 0.39218660437657166,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "9b6b1db3cde77ebf081ae1ea263e744661dd6e42"
+            ],
+            "cohort_signature": "74e6855f26cf2df2c6a695dc525e11418d7af6be",
+            "mean_final_score": 0.009431768801252696,
+            "mean_flip_probability": 0.9981677810784095,
+            "mean_objective_gap": 0.343540032456257,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.14285714285714285,
+            "total_predicted_refine_cost": 208.60893854421587,
+            "normalized_objective_gap": 0.2907449126471696,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.8571428571428572,
+            "predicted_refine_cost": 208.60893854421587,
+            "search_completeness_gap": 0.386467,
+            "search_completeness_score": 0.453533,
+            "search_completeness_bonus": 0.02538,
+            "best_pending_flip_probability": 0.998168,
+            "pending_challenger_mass": 0.649539,
+            "corridor_family_recall": 0.090909,
+            "frontier_recall_at_budget": 0.130599,
+            "exploration_gate": 0.298511,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.650912,
+            "support_richness": 0.650912,
+            "ambiguity_pressure": 0.776524
+          }
+        },
+        "requested_candidate_ids": [
+          "9b6b1db3cde77ebf081ae1ea263e744661dd6e42"
+        ],
+        "resolved_candidate_ids": [
+          "9b6b1db3cde77ebf081ae1ea263e744661dd6e42"
+        ],
+        "unresolved_candidate_ids": [],
+        "executed_candidate_ids": [
+          "9b6b1db3cde77ebf081ae1ea263e744661dd6e42"
+        ],
+        "execution_used_candidate_metadata": true,
+        "execution_matches_requested_candidate_ids": true,
+        "execution_candidate_resolution_source": "action_metadata",
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      },
+      {
+        "iteration": 4,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 0,
+        "remaining_evidence_budget": 3,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0487179,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.014615369999999999,
+            "q_score": 0.03142304546857695,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.487179,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "resample:stochastic",
+          "kind": "increase_stochastic_samples",
+          "target": "stochastic",
+          "cost_search": 0,
+          "cost_evidence": 1,
+          "predicted_delta_certificate": 0.0487179,
+          "predicted_delta_margin": 0.0,
+          "predicted_delta_frontier": 0.014615369999999999,
+          "q_score": 0.03142304546857695,
+          "feasible": true,
+          "preconditions": [
+            "evidence_budget_available",
+            "near_tie_set_nonempty"
+          ],
+          "reason": "increase_stochastic_samples",
+          "metadata": {
+            "near_tie_mass": 0.0,
+            "stress_world_fraction": 0.487179,
+            "top_fragility_mass": 0.0,
+            "sample_increment": 32
+          }
+        },
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      },
+      {
+        "iteration": 5,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 0,
+        "remaining_evidence_budget": 2,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.041850200000000004,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.01255506,
+            "q_score": 0.026993378973006625,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.418502,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "resample:stochastic",
+          "kind": "increase_stochastic_samples",
+          "target": "stochastic",
+          "cost_search": 0,
+          "cost_evidence": 1,
+          "predicted_delta_certificate": 0.041850200000000004,
+          "predicted_delta_margin": 0.0,
+          "predicted_delta_frontier": 0.01255506,
+          "q_score": 0.026993378973006625,
+          "feasible": true,
+          "preconditions": [
+            "evidence_budget_available",
+            "near_tie_set_nonempty"
+          ],
+          "reason": "increase_stochastic_samples",
+          "metadata": {
+            "near_tie_mass": 0.0,
+            "stress_world_fraction": 0.418502,
+            "top_fragility_mass": 0.0,
+            "sample_increment": 32
+          }
+        },
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      },
+      {
+        "iteration": 6,
+        "selected_route_id": "route_0",
+        "selected_certificate": 1.0,
+        "remaining_search_budget": 0,
+        "remaining_evidence_budget": 1,
+        "frontier_size": 10,
+        "feasible_actions": [
+          {
+            "action_id": "resample:stochastic",
+            "kind": "increase_stochastic_samples",
+            "target": "stochastic",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0366795,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.011003849999999999,
+            "q_score": 0.023658277476341718,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "near_tie_set_nonempty"
+            ],
+            "reason": "increase_stochastic_samples",
+            "metadata": {
+              "near_tie_mass": 0.0,
+              "stress_world_fraction": 0.366795,
+              "top_fragility_mass": 0.0,
+              "sample_increment": 32
+            }
+          },
+          {
+            "action_id": "refresh:carbon",
+            "kind": "refresh_top1_vor",
+            "target": "carbon",
+            "cost_search": 0,
+            "cost_evidence": 1,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "evidence_budget_available",
+              "vor_available"
+            ],
+            "reason": "refresh_evidence_family",
+            "metadata": {
+              "vor_gain": 0.0,
+              "route_fragility": 0.0,
+              "competitor_pressure": 0.0,
+              "normalized_competitor_pressure": 0.0,
+              "current_certificate": 1.0,
+              "evidence_stability_factor": 1.0
+            }
+          },
+          {
+            "action_id": "stop",
+            "kind": "stop",
+            "target": "stop",
+            "cost_search": 0,
+            "cost_evidence": 0,
+            "predicted_delta_certificate": 0.0,
+            "predicted_delta_margin": 0.0,
+            "predicted_delta_frontier": 0.0,
+            "q_score": 0.0,
+            "feasible": true,
+            "preconditions": [
+              "always"
+            ],
+            "reason": "stop",
+            "metadata": {}
+          }
+        ],
+        "chosen_action": {
+          "action_id": "resample:stochastic",
+          "kind": "increase_stochastic_samples",
+          "target": "stochastic",
+          "cost_search": 0,
+          "cost_evidence": 1,
+          "predicted_delta_certificate": 0.0366795,
+          "predicted_delta_margin": 0.0,
+          "predicted_delta_frontier": 0.011003849999999999,
+          "q_score": 0.023658277476341718,
+          "feasible": true,
+          "preconditions": [
+            "evidence_budget_available",
+            "near_tie_set_nonempty"
+          ],
+          "reason": "increase_stochastic_samples",
+          "metadata": {
+            "near_tie_mass": 0.0,
+            "stress_world_fraction": 0.366795,
+            "top_fragility_mass": 0.0,
+            "sample_increment": 32
+          }
+        },
+        "realized_certificate_before": 1.0,
+        "realized_certificate_after": 1.0,
+        "realized_certificate_delta": 0.0,
+        "realized_frontier_gain": 0,
+        "realized_selected_route_changed": false,
+        "realized_selected_score_delta": 0.0,
+        "realized_runner_up_gap_before": 0.288379,
+        "realized_runner_up_gap_after": 0.288379,
+        "realized_runner_up_gap_delta": 0.0,
+        "realized_evidence_uncertainty_before": 0.0,
+        "realized_evidence_uncertainty_after": 0.0,
+        "realized_evidence_uncertainty_delta": 0.0,
+        "realized_productive": false
+      }
+    ],
+    "best_rejected_action": {
+      "action_id": "refresh:carbon",
+      "kind": "refresh_top1_vor",
+      "target": "carbon",
+      "cost_search": 0,
+      "cost_evidence": 1,
+      "predicted_delta_certificate": 0.0,
+      "predicted_delta_margin": 0.0,
+      "predicted_delta_frontier": 0.0,
+      "q_score": 0.0,
+      "feasible": true,
+      "preconditions": [
+        "evidence_budget_available",
+        "vor_available"
+      ],
+      "reason": "refresh_evidence_family",
+      "metadata": {
+        "vor_gain": 0.0,
+        "route_fragility": 0.0,
+        "competitor_pressure": 0.0,
+        "normalized_competitor_pressure": 0.0,
+        "current_certificate": 1.0,
+        "evidence_stability_factor": 1.0
+      }
+    },
+    "controller_states_recorded": 7,
+    "search_completeness_score": 0.427156,
+    "search_completeness_gap": 0.412844,
+    "credible_search_uncertainty": true,
+    "credible_evidence_uncertainty": true
+  },
+  "artifact_pointers": {
+    "dccs_candidates": "dccs_candidates.jsonl",
+    "dccs_summary": "dccs_summary.json",
+    "refined_routes": "refined_routes.jsonl",
+    "strict_frontier": "strict_frontier.jsonl",
+    "winner_summary": "winner_summary.json",
+    "certificate_summary": "certificate_summary.json",
+    "initial_certificate_summary": "initial_certificate_summary.json",
+    "route_fragility_map": "route_fragility_map.json",
+    "initial_route_fragility_map": "initial_route_fragility_map.json",
+    "competitor_fragility_breakdown": "competitor_fragility_breakdown.json",
+    "initial_competitor_fragility_breakdown": "initial_competitor_fragility_breakdown.json",
+    "value_of_refresh": "value_of_refresh.json",
+    "initial_value_of_refresh": "initial_value_of_refresh.json",
+    "sampled_world_manifest": "sampled_world_manifest.json",
+    "initial_sampled_world_manifest": "initial_sampled_world_manifest.json",
+    "evidence_snapshot_manifest": "evidence_snapshot_manifest.json",
+    "voi_action_trace": "voi_action_trace.json",
+    "voi_controller_state": "voi_controller_state.jsonl",
+    "voi_stop_certificate": "voi_stop_certificate.json"
+  }
+}

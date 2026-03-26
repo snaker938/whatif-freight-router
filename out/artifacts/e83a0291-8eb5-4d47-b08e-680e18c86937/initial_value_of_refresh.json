@@ -1,0 +1,99 @@
+{
+  "selected_route_id": "route_2",
+  "baseline_certificate": 1.0,
+  "baseline_margin_summary": {
+    "world_count": 120.0,
+    "mean_runner_up_gap": 1.05376,
+    "min_runner_up_gap": 0.770473,
+    "max_runner_up_gap": 1.4,
+    "positive_world_share": 1.0,
+    "margin_stability_signal": 1.368524
+  },
+  "fragility_stress_state": "severely_stale",
+  "per_family_certificate": {
+    "carbon": 0.6333333333333333,
+    "fuel": 1.0,
+    "scenario": 0.8166666666666667,
+    "stochastic": 0.7833333333333333,
+    "terrain": 0.625,
+    "toll": 0.625
+  },
+  "per_family_margin_summary": {
+    "carbon": {
+      "world_count": 120.0,
+      "mean_runner_up_gap": 0.403515,
+      "min_runner_up_gap": -0.330473,
+      "max_runner_up_gap": 1.4,
+      "positive_world_share": 0.633333,
+      "margin_stability_signal": 1.268752
+    },
+    "fuel": {
+      "world_count": 120.0,
+      "mean_runner_up_gap": 0.807195,
+      "min_runner_up_gap": 0.770473,
+      "max_runner_up_gap": 1.4,
+      "positive_world_share": 1.0,
+      "margin_stability_signal": 1.121959
+    },
+    "scenario": {
+      "world_count": 120.0,
+      "mean_runner_up_gap": 0.734284,
+      "min_runner_up_gap": -0.330473,
+      "max_runner_up_gap": 1.4,
+      "positive_world_share": 0.816667,
+      "margin_stability_signal": 1.599521
+    },
+    "stochastic": {
+      "world_count": 120.0,
+      "mean_runner_up_gap": 0.810745,
+      "min_runner_up_gap": -0.330473,
+      "max_runner_up_gap": 1.4,
+      "positive_world_share": 0.783333,
+      "margin_stability_signal": 1.675982
+    },
+    "terrain": {
+      "world_count": 120.0,
+      "mean_runner_up_gap": 0.399587,
+      "min_runner_up_gap": -0.330473,
+      "max_runner_up_gap": 1.4,
+      "positive_world_share": 0.625,
+      "margin_stability_signal": 1.264823
+    },
+    "toll": {
+      "world_count": 120.0,
+      "mean_runner_up_gap": 0.394341,
+      "min_runner_up_gap": -0.330473,
+      "max_runner_up_gap": 1.4,
+      "positive_world_share": 0.625,
+      "margin_stability_signal": 1.259577
+    }
+  },
+  "ranking": [
+    {
+      "family": "fuel",
+      "vor": 0.9166666666666666
+    },
+    {
+      "family": "scenario",
+      "vor": 0.2857142857142857
+    },
+    {
+      "family": "stochastic",
+      "vor": 0.23809523809523814
+    },
+    {
+      "family": "carbon",
+      "vor": 0.0714285714285714
+    },
+    {
+      "family": "terrain",
+      "vor": 0.0
+    },
+    {
+      "family": "toll",
+      "vor": 0.0
+    }
+  ],
+  "top_refresh_family": "fuel",
+  "top_refresh_gain": 0.9166666666666666
+}

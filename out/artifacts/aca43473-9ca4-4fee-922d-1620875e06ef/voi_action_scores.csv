@@ -1,0 +1,11 @@
+iteration,action_id,kind,target,cost_search,cost_evidence,predicted_delta_certificate,predicted_delta_margin,predicted_delta_frontier,q_score,selected_route_id,selected_certificate
+0,refresh:carbon,refresh_top1_vor,carbon,0,1,0.000324,0.000232,0.0,0.022276,route_0,1.0
+0,refine_top1_dccs:4d4baa1cce6030b3c38a63c7959afbdf9efae011,refine_top1_dccs,4d4baa1cce6030b3c38a63c7959afbdf9efae011,1,0,0.525884,0.402077,0.573043,0.000519,route_0,1.0
+0,refine_topk_dccs:74fb7a0151ddade4de2748f6876b7b1ffc7fef2d,refine_topk_dccs,74fb7a0151ddade4de2748f6876b7b1ffc7fef2d,2,0,0.522412,0.402921,0.611464,0.000518,route_0,1.0
+0,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
+1,refine_top1_dccs:4d4baa1cce6030b3c38a63c7959afbdf9efae011,refine_top1_dccs,4d4baa1cce6030b3c38a63c7959afbdf9efae011,1,0,0.525526,0.401595,0.571857,0.501493,route_0,1.0
+1,refine_topk_dccs:74fb7a0151ddade4de2748f6876b7b1ffc7fef2d,refine_topk_dccs,74fb7a0151ddade4de2748f6876b7b1ffc7fef2d,2,0,0.522032,0.402411,0.610206,0.252676,route_0,1.0
+1,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
+2,refine_top1_dccs:87583b99b581b7b2f48c6606c742e1b8ece13045,refine_top1_dccs,87583b99b581b7b2f48c6606c742e1b8ece13045,1,0,0.529093,0.41752,0.581364,0.50904,route_0,1.0
+2,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
+3,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0

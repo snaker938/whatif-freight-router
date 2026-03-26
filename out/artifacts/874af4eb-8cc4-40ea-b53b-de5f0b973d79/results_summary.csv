@@ -1,0 +1,4 @@
+route_id,selected,distance_km,duration_s,monetary_cost,emissions_kg
+route_0,True,71.258,3918.37,82.17,114.564
+route_3,False,126.985,6787.42,147.77,207.151
+route_4,False,153.518,9034.24,176.33,243.109

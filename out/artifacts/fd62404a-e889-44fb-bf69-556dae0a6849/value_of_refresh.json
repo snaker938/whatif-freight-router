@@ -1,0 +1,41 @@
+{
+  "selected_route_id": "route_2",
+  "baseline_certificate": 1.0,
+  "fragility_stress_state": "severely_stale",
+  "per_family_certificate": {
+    "carbon": 1.0,
+    "fuel": 1.0,
+    "scenario": 1.0,
+    "stochastic": 1.0,
+    "terrain": 1.0,
+    "toll": 1.0
+  },
+  "ranking": [
+    {
+      "family": "carbon",
+      "vor": 0.0
+    },
+    {
+      "family": "fuel",
+      "vor": 0.0
+    },
+    {
+      "family": "scenario",
+      "vor": 0.0
+    },
+    {
+      "family": "stochastic",
+      "vor": 0.0
+    },
+    {
+      "family": "terrain",
+      "vor": 0.0
+    },
+    {
+      "family": "toll",
+      "vor": 0.0
+    }
+  ],
+  "top_refresh_family": "carbon",
+  "top_refresh_gain": 0.0
+}
