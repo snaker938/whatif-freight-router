@@ -1,0 +1,22 @@
+{
+  "route_0": {
+    "route_2": {
+      "carbon": 84,
+      "fuel": 84,
+      "scenario": 84,
+      "stochastic": 84,
+      "terrain": 84,
+      "toll": 84
+    }
+  },
+  "route_2": {
+    "route_0": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  }
+}

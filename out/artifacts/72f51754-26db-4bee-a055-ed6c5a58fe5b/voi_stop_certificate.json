@@ -1,0 +1,557 @@
+{
+  "final_winner_route_id": "route_0",
+  "final_winner_objective_vector": {
+    "time": 12775.94,
+    "money": 191.65,
+    "co2": 273.692
+  },
+  "final_strict_frontier_size": 1,
+  "certificate_value": 1.0,
+  "certified": false,
+  "search_budget_used": 6,
+  "search_budget_remaining": 0,
+  "evidence_budget_used": 0,
+  "evidence_budget_remaining": 2,
+  "search_completeness_score": 0.483517,
+  "search_completeness_gap": 0.356483,
+  "credible_search_uncertainty": true,
+  "credible_evidence_uncertainty": true,
+  "stop_reason": "search_incomplete_no_action_worth_it",
+  "action_trace": [
+    {
+      "iteration": 0,
+      "selected_route_id": "route_0",
+      "selected_certificate": 1.0,
+      "remaining_search_budget": 3,
+      "remaining_evidence_budget": 2,
+      "frontier_size": 1,
+      "feasible_actions": [
+        {
+          "action_id": "refine_top1_dccs:1f5d685e88fdfb947e0eb20addb992e27e9a5aa2",
+          "kind": "refine_top1_dccs",
+          "target": "1f5d685e88fdfb947e0eb20addb992e27e9a5aa2",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.3098863345923323,
+          "predicted_delta_margin": 0.18343674725078088,
+          "predicted_delta_frontier": 0.006894008586825369,
+          "q_score": 0.23282508862329326,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "1b9e4e6389ec8a74057f31f8e0c04995f4aea1dc"
+            ],
+            "cohort_signature": "1f5d685e88fdfb947e0eb20addb992e27e9a5aa2",
+            "mean_final_score": 0.0050262850818791885,
+            "mean_flip_probability": 0.8764699409140247,
+            "mean_objective_gap": 0.0,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.09523809523809523,
+            "total_predicted_refine_cost": 257.3878115434245,
+            "normalized_objective_gap": 0.0,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.9047619047619048,
+            "predicted_refine_cost": 257.3878115434245,
+            "search_completeness_gap": 0.178873,
+            "search_completeness_score": 0.661127,
+            "search_completeness_bonus": 0.006894,
+            "best_pending_flip_probability": 0.905672,
+            "pending_challenger_mass": 0.541859,
+            "corridor_family_recall": 1.0,
+            "frontier_recall_at_budget": 0.379703,
+            "exploration_gate": 0.175188,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.602918,
+            "support_richness": 0.602918,
+            "ambiguity_pressure": 0.486809
+          }
+        },
+        {
+          "action_id": "refine_topk_dccs:e4bfd71c9b737822ea608bc722d86184bdf094e9",
+          "kind": "refine_topk_dccs",
+          "target": "e4bfd71c9b737822ea608bc722d86184bdf094e9",
+          "cost_search": 2,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.3059159859985412,
+          "predicted_delta_margin": 0.1786748424888761,
+          "predicted_delta_frontier": 0.05689400858682537,
+          "q_score": 0.11837620169549568,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 2,
+            "candidate_ids": [
+              "1b9e4e6389ec8a74057f31f8e0c04995f4aea1dc",
+              "77620c1a7d933a371c9039905807d359d5ef9035"
+            ],
+            "cohort_signature": "e4bfd71c9b737822ea608bc722d86184bdf094e9",
+            "mean_final_score": 0.004982342932084908,
+            "mean_flip_probability": 0.8651260877889073,
+            "mean_objective_gap": 0.0,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.11904761904761904,
+            "total_predicted_refine_cost": 511.6635361581556,
+            "normalized_objective_gap": 0.0,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.8809523809523809,
+            "predicted_refine_cost": 511.6635361581556,
+            "search_completeness_gap": 0.178873,
+            "search_completeness_score": 0.661127,
+            "search_completeness_bonus": 0.006894,
+            "best_pending_flip_probability": 0.905672,
+            "pending_challenger_mass": 0.541859,
+            "corridor_family_recall": 1.0,
+            "frontier_recall_at_budget": 0.379703,
+            "exploration_gate": 0.175188,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.602918,
+            "support_richness": 0.602918,
+            "ambiguity_pressure": 0.486809
+          }
+        },
+        {
+          "action_id": "stop",
+          "kind": "stop",
+          "target": "stop",
+          "cost_search": 0,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.0,
+          "predicted_delta_margin": 0.0,
+          "predicted_delta_frontier": 0.0,
+          "q_score": 0.0,
+          "feasible": true,
+          "preconditions": [
+            "always"
+          ],
+          "reason": "stop",
+          "metadata": {}
+        }
+      ],
+      "chosen_action": {
+        "action_id": "refine_top1_dccs:1f5d685e88fdfb947e0eb20addb992e27e9a5aa2",
+        "kind": "refine_top1_dccs",
+        "target": "1f5d685e88fdfb947e0eb20addb992e27e9a5aa2",
+        "cost_search": 1,
+        "cost_evidence": 0,
+        "predicted_delta_certificate": 0.3098863345923323,
+        "predicted_delta_margin": 0.18343674725078088,
+        "predicted_delta_frontier": 0.006894008586825369,
+        "q_score": 0.23282508862329326,
+        "feasible": true,
+        "preconditions": [
+          "search_budget_available",
+          "dccs_candidate_available"
+        ],
+        "reason": "refine_candidate",
+        "metadata": {
+          "top_k": 1,
+          "candidate_ids": [
+            "1b9e4e6389ec8a74057f31f8e0c04995f4aea1dc"
+          ],
+          "cohort_signature": "1f5d685e88fdfb947e0eb20addb992e27e9a5aa2",
+          "mean_final_score": 0.0050262850818791885,
+          "mean_flip_probability": 0.8764699409140247,
+          "mean_objective_gap": 0.0,
+          "mean_mechanism_gap": 0.0,
+          "mean_overlap": 0.09523809523809523,
+          "total_predicted_refine_cost": 257.3878115434245,
+          "normalized_objective_gap": 0.0,
+          "normalized_mechanism_gap": 0.0,
+          "normalized_overlap_reduction": 0.9047619047619048,
+          "predicted_refine_cost": 257.3878115434245,
+          "search_completeness_gap": 0.178873,
+          "search_completeness_score": 0.661127,
+          "search_completeness_bonus": 0.006894,
+          "best_pending_flip_probability": 0.905672,
+          "pending_challenger_mass": 0.541859,
+          "corridor_family_recall": 1.0,
+          "frontier_recall_at_budget": 0.379703,
+          "exploration_gate": 0.175188,
+          "current_certificate": 1.0,
+          "prior_support_strength": 0.602918,
+          "support_richness": 0.602918,
+          "ambiguity_pressure": 0.486809
+        }
+      },
+      "requested_candidate_ids": [
+        "1b9e4e6389ec8a74057f31f8e0c04995f4aea1dc"
+      ],
+      "resolved_candidate_ids": [
+        "1b9e4e6389ec8a74057f31f8e0c04995f4aea1dc"
+      ],
+      "unresolved_candidate_ids": [],
+      "executed_candidate_ids": [
+        "1b9e4e6389ec8a74057f31f8e0c04995f4aea1dc"
+      ],
+      "execution_used_candidate_metadata": true,
+      "execution_matches_requested_candidate_ids": true,
+      "execution_candidate_resolution_source": "action_metadata",
+      "realized_certificate_before": 1.0,
+      "realized_certificate_after": 1.0,
+      "realized_certificate_delta": 0.0,
+      "realized_frontier_gain": 0,
+      "realized_selected_route_changed": false,
+      "realized_selected_score_delta": 0.0,
+      "realized_runner_up_gap_before": 0.636718,
+      "realized_runner_up_gap_after": 0.636718,
+      "realized_runner_up_gap_delta": 0.0,
+      "realized_evidence_uncertainty_before": 0.0,
+      "realized_evidence_uncertainty_after": 0.0,
+      "realized_evidence_uncertainty_delta": 0.0,
+      "realized_productive": false
+    },
+    {
+      "iteration": 1,
+      "selected_route_id": "route_0",
+      "selected_certificate": 1.0,
+      "remaining_search_budget": 2,
+      "remaining_evidence_budget": 2,
+      "frontier_size": 1,
+      "feasible_actions": [
+        {
+          "action_id": "refine_top1_dccs:6917ef9f84736951d8abd6767afb65f6cfa8a4b4",
+          "kind": "refine_top1_dccs",
+          "target": "6917ef9f84736951d8abd6767afb65f6cfa8a4b4",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.29892768378103196,
+          "predicted_delta_margin": 0.1748805237787036,
+          "predicted_delta_frontier": 0.008991273890256894,
+          "q_score": 0.22442543207240814,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "5f1222615031c3c020e7ca6e6e13c8d338ed46fa"
+            ],
+            "cohort_signature": "6917ef9f84736951d8abd6767afb65f6cfa8a4b4",
+            "mean_final_score": 0.005029829893538902,
+            "mean_flip_probability": 0.8424460322218961,
+            "mean_objective_gap": 0.0,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.14285714285714285,
+            "total_predicted_refine_cost": 247.0982187063753,
+            "normalized_objective_gap": 0.0,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.8571428571428572,
+            "predicted_refine_cost": 247.0982187063753,
+            "search_completeness_gap": 0.225986,
+            "search_completeness_score": 0.614014,
+            "search_completeness_bonus": 0.008991,
+            "best_pending_flip_probability": 0.905672,
+            "pending_challenger_mass": 0.541859,
+            "corridor_family_recall": 0.666667,
+            "frontier_recall_at_budget": 0.298647,
+            "exploration_gate": 0.180849,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.602918,
+            "support_richness": 0.602918,
+            "ambiguity_pressure": 0.538967
+          }
+        },
+        {
+          "action_id": "refine_topk_dccs:fae7f6e179f05878365686ed3056cb4b2298591a",
+          "kind": "refine_topk_dccs",
+          "target": "fae7f6e179f05878365686ed3056cb4b2298591a",
+          "cost_search": 2,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.3009115192083634,
+          "predicted_delta_margin": 0.1748805237787036,
+          "predicted_delta_frontier": 0.05899127389025689,
+          "q_score": 0.11655786671833729,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 2,
+            "candidate_ids": [
+              "5f1222615031c3c020e7ca6e6e13c8d338ed46fa",
+              "77620c1a7d933a371c9039905807d359d5ef9035"
+            ],
+            "cohort_signature": "fae7f6e179f05878365686ed3056cb4b2298591a",
+            "mean_final_score": 0.0049841153379147655,
+            "mean_flip_probability": 0.848114133442843,
+            "mean_objective_gap": 0.0,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.14285714285714285,
+            "total_predicted_refine_cost": 501.37394332110637,
+            "normalized_objective_gap": 0.0,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.8571428571428572,
+            "predicted_refine_cost": 501.37394332110637,
+            "search_completeness_gap": 0.225986,
+            "search_completeness_score": 0.614014,
+            "search_completeness_bonus": 0.008991,
+            "best_pending_flip_probability": 0.905672,
+            "pending_challenger_mass": 0.541859,
+            "corridor_family_recall": 0.666667,
+            "frontier_recall_at_budget": 0.298647,
+            "exploration_gate": 0.180849,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.602918,
+            "support_richness": 0.602918,
+            "ambiguity_pressure": 0.538967
+          }
+        },
+        {
+          "action_id": "stop",
+          "kind": "stop",
+          "target": "stop",
+          "cost_search": 0,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.0,
+          "predicted_delta_margin": 0.0,
+          "predicted_delta_frontier": 0.0,
+          "q_score": 0.0,
+          "feasible": true,
+          "preconditions": [
+            "always"
+          ],
+          "reason": "stop",
+          "metadata": {}
+        }
+      ],
+      "chosen_action": {
+        "action_id": "refine_top1_dccs:6917ef9f84736951d8abd6767afb65f6cfa8a4b4",
+        "kind": "refine_top1_dccs",
+        "target": "6917ef9f84736951d8abd6767afb65f6cfa8a4b4",
+        "cost_search": 1,
+        "cost_evidence": 0,
+        "predicted_delta_certificate": 0.29892768378103196,
+        "predicted_delta_margin": 0.1748805237787036,
+        "predicted_delta_frontier": 0.008991273890256894,
+        "q_score": 0.22442543207240814,
+        "feasible": true,
+        "preconditions": [
+          "search_budget_available",
+          "dccs_candidate_available"
+        ],
+        "reason": "refine_candidate",
+        "metadata": {
+          "top_k": 1,
+          "candidate_ids": [
+            "5f1222615031c3c020e7ca6e6e13c8d338ed46fa"
+          ],
+          "cohort_signature": "6917ef9f84736951d8abd6767afb65f6cfa8a4b4",
+          "mean_final_score": 0.005029829893538902,
+          "mean_flip_probability": 0.8424460322218961,
+          "mean_objective_gap": 0.0,
+          "mean_mechanism_gap": 0.0,
+          "mean_overlap": 0.14285714285714285,
+          "total_predicted_refine_cost": 247.0982187063753,
+          "normalized_objective_gap": 0.0,
+          "normalized_mechanism_gap": 0.0,
+          "normalized_overlap_reduction": 0.8571428571428572,
+          "predicted_refine_cost": 247.0982187063753,
+          "search_completeness_gap": 0.225986,
+          "search_completeness_score": 0.614014,
+          "search_completeness_bonus": 0.008991,
+          "best_pending_flip_probability": 0.905672,
+          "pending_challenger_mass": 0.541859,
+          "corridor_family_recall": 0.666667,
+          "frontier_recall_at_budget": 0.298647,
+          "exploration_gate": 0.180849,
+          "current_certificate": 1.0,
+          "prior_support_strength": 0.602918,
+          "support_richness": 0.602918,
+          "ambiguity_pressure": 0.538967
+        }
+      },
+      "requested_candidate_ids": [
+        "5f1222615031c3c020e7ca6e6e13c8d338ed46fa"
+      ],
+      "resolved_candidate_ids": [
+        "5f1222615031c3c020e7ca6e6e13c8d338ed46fa"
+      ],
+      "unresolved_candidate_ids": [],
+      "executed_candidate_ids": [
+        "5f1222615031c3c020e7ca6e6e13c8d338ed46fa"
+      ],
+      "execution_used_candidate_metadata": true,
+      "execution_matches_requested_candidate_ids": true,
+      "execution_candidate_resolution_source": "action_metadata",
+      "realized_certificate_before": 1.0,
+      "realized_certificate_after": 1.0,
+      "realized_certificate_delta": 0.0,
+      "realized_frontier_gain": 0,
+      "realized_selected_route_changed": false,
+      "realized_selected_score_delta": 0.0,
+      "realized_runner_up_gap_before": 0.636718,
+      "realized_runner_up_gap_after": 0.636718,
+      "realized_runner_up_gap_delta": 0.0,
+      "realized_evidence_uncertainty_before": 0.0,
+      "realized_evidence_uncertainty_after": 0.0,
+      "realized_evidence_uncertainty_delta": 0.0,
+      "realized_productive": false
+    },
+    {
+      "iteration": 2,
+      "selected_route_id": "route_0",
+      "selected_certificate": 1.0,
+      "remaining_search_budget": 1,
+      "remaining_evidence_budget": 2,
+      "frontier_size": 1,
+      "feasible_actions": [
+        {
+          "action_id": "refine_top1_dccs:73a67157ce61c8409e4e57933d70b91767f2e2a0",
+          "kind": "refine_top1_dccs",
+          "target": "73a67157ce61c8409e4e57933d70b91767f2e2a0",
+          "cost_search": 1,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.3080404480521515,
+          "predicted_delta_margin": 0.18565417001184592,
+          "predicted_delta_frontier": 0.011463053179213829,
+          "q_score": 0.23295726907817718,
+          "feasible": true,
+          "preconditions": [
+            "search_budget_available",
+            "dccs_candidate_available"
+          ],
+          "reason": "refine_candidate",
+          "metadata": {
+            "top_k": 1,
+            "candidate_ids": [
+              "c549edd9a7cad453d4150316994b57f8772b595f"
+            ],
+            "cohort_signature": "73a67157ce61c8409e4e57933d70b91767f2e2a0",
+            "mean_final_score": 0.005139075511682509,
+            "mean_flip_probability": 0.8652844711505402,
+            "mean_objective_gap": 0.0,
+            "mean_mechanism_gap": 0.0,
+            "mean_overlap": 0.09523809523809523,
+            "total_predicted_refine_cost": 249.27376614781596,
+            "normalized_objective_gap": 0.0,
+            "normalized_mechanism_gap": 0.0,
+            "normalized_overlap_reduction": 0.9047619047619048,
+            "predicted_refine_cost": 249.27376614781596,
+            "search_completeness_gap": 0.278479,
+            "search_completeness_score": 0.561521,
+            "search_completeness_bonus": 0.011463,
+            "best_pending_flip_probability": 0.905672,
+            "pending_challenger_mass": 0.541859,
+            "corridor_family_recall": 0.333333,
+            "frontier_recall_at_budget": 0.185943,
+            "exploration_gate": 0.187105,
+            "current_certificate": 1.0,
+            "prior_support_strength": 0.602918,
+            "support_richness": 0.602918,
+            "ambiguity_pressure": 0.595873
+          }
+        },
+        {
+          "action_id": "stop",
+          "kind": "stop",
+          "target": "stop",
+          "cost_search": 0,
+          "cost_evidence": 0,
+          "predicted_delta_certificate": 0.0,
+          "predicted_delta_margin": 0.0,
+          "predicted_delta_frontier": 0.0,
+          "q_score": 0.0,
+          "feasible": true,
+          "preconditions": [
+            "always"
+          ],
+          "reason": "stop",
+          "metadata": {}
+        }
+      ],
+      "chosen_action": {
+        "action_id": "refine_top1_dccs:73a67157ce61c8409e4e57933d70b91767f2e2a0",
+        "kind": "refine_top1_dccs",
+        "target": "73a67157ce61c8409e4e57933d70b91767f2e2a0",
+        "cost_search": 1,
+        "cost_evidence": 0,
+        "predicted_delta_certificate": 0.3080404480521515,
+        "predicted_delta_margin": 0.18565417001184592,
+        "predicted_delta_frontier": 0.011463053179213829,
+        "q_score": 0.23295726907817718,
+        "feasible": true,
+        "preconditions": [
+          "search_budget_available",
+          "dccs_candidate_available"
+        ],
+        "reason": "refine_candidate",
+        "metadata": {
+          "top_k": 1,
+          "candidate_ids": [
+            "c549edd9a7cad453d4150316994b57f8772b595f"
+          ],
+          "cohort_signature": "73a67157ce61c8409e4e57933d70b91767f2e2a0",
+          "mean_final_score": 0.005139075511682509,
+          "mean_flip_probability": 0.8652844711505402,
+          "mean_objective_gap": 0.0,
+          "mean_mechanism_gap": 0.0,
+          "mean_overlap": 0.09523809523809523,
+          "total_predicted_refine_cost": 249.27376614781596,
+          "normalized_objective_gap": 0.0,
+          "normalized_mechanism_gap": 0.0,
+          "normalized_overlap_reduction": 0.9047619047619048,
+          "predicted_refine_cost": 249.27376614781596,
+          "search_completeness_gap": 0.278479,
+          "search_completeness_score": 0.561521,
+          "search_completeness_bonus": 0.011463,
+          "best_pending_flip_probability": 0.905672,
+          "pending_challenger_mass": 0.541859,
+          "corridor_family_recall": 0.333333,
+          "frontier_recall_at_budget": 0.185943,
+          "exploration_gate": 0.187105,
+          "current_certificate": 1.0,
+          "prior_support_strength": 0.602918,
+          "support_richness": 0.602918,
+          "ambiguity_pressure": 0.595873
+        }
+      },
+      "requested_candidate_ids": [
+        "c549edd9a7cad453d4150316994b57f8772b595f"
+      ],
+      "resolved_candidate_ids": [
+        "c549edd9a7cad453d4150316994b57f8772b595f"
+      ],
+      "unresolved_candidate_ids": [],
+      "executed_candidate_ids": [
+        "c549edd9a7cad453d4150316994b57f8772b595f"
+      ],
+      "execution_used_candidate_metadata": true,
+      "execution_matches_requested_candidate_ids": true,
+      "execution_candidate_resolution_source": "action_metadata",
+      "realized_certificate_before": 1.0,
+      "realized_certificate_after": 1.0,
+      "realized_certificate_delta": 0.0,
+      "realized_frontier_gain": 0,
+      "realized_selected_route_changed": false,
+      "realized_selected_score_delta": 0.0,
+      "realized_runner_up_gap_before": 0.636718,
+      "realized_runner_up_gap_after": 0.636718,
+      "realized_runner_up_gap_delta": 0.0,
+      "realized_evidence_uncertainty_before": 0.0,
+      "realized_evidence_uncertainty_after": 0.0,
+      "realized_evidence_uncertainty_delta": 0.0,
+      "realized_productive": false
+    }
+  ],
+  "best_rejected_action": null,
+  "ambiguity_summary": {
+    "top_fragility_families": [],
+    "top_refresh_family": "carbon",
+    "top_competitor_route_id": null
+  }
+}

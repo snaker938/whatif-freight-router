@@ -1,0 +1,25 @@
+{
+  "run_id": "7f96d9b6-9959-43bc-aaa4-a500f4b399b8",
+  "schema_version": "1.0.0",
+  "type": "route_compute",
+  "request_id": "56a5e407-2d97-4791-850a-190b6591b336",
+  "pipeline_mode": "legacy",
+  "run_seed": 20260327,
+  "manifest_endpoint": "/runs/7f96d9b6-9959-43bc-aaa4-a500f4b399b8/manifest",
+  "artifacts_endpoint": "/runs/7f96d9b6-9959-43bc-aaa4-a500f4b399b8/artifacts",
+  "provenance_endpoint": "/runs/7f96d9b6-9959-43bc-aaa4-a500f4b399b8/provenance",
+  "provenance_file": "out\\provenance\\7f96d9b6-9959-43bc-aaa4-a500f4b399b8.json",
+  "artifact_names": [
+    "evidence_validation.json",
+    "final_route_trace.json",
+    "results.csv",
+    "results.json",
+    "results_summary.csv",
+    "routes.geojson",
+    "strict_frontier.jsonl"
+  ],
+  "selected_route_id": "route_0",
+  "candidate_count": 6,
+  "warning_count": 2,
+  "duration_ms": 2274.04
+}

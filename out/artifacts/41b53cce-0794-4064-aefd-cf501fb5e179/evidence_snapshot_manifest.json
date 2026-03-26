@@ -1,0 +1,1308 @@
+{
+  "schema_version": "1.0.0",
+  "run_seed": 20260324,
+  "pipeline_mode": "dccs",
+  "routes": [
+    {
+      "route_id": "route_0",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "exclude_toll_candidate",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.99,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999886,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1051.49,
+            "descent_m": 946.022
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 139.959418,
+            "fuel_liters": 88.146756
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_13",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999843,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1185.847,
+            "descent_m": 1080.379
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 128.835747,
+            "fuel_liters": 81.141042
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_3",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999906,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1194.051,
+            "descent_m": 1088.584
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 147.093424,
+            "fuel_liters": 92.639768
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_8",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999943,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1298.904,
+            "descent_m": 1193.436
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 157.569195,
+            "fuel_liters": 99.237432
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_10",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999512,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1153.324,
+            "descent_m": 1047.856
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 167.88961,
+            "fuel_liters": 105.737253
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_7",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999742,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1224.368,
+            "descent_m": 1118.9
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 155.629682,
+            "fuel_liters": 98.015923
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_5",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.99998,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1301.77,
+            "descent_m": 1196.302
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 150.921797,
+            "fuel_liters": 95.050886
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_12",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.99973,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1257.07,
+            "descent_m": 1151.602
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 174.326339,
+            "fuel_liters": 109.791119
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_4",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999714,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1196.578,
+            "descent_m": 1091.11
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 148.045181,
+            "fuel_liters": 93.239187
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "route_9",
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "families": [
+        {
+          "family": "scenario",
+          "source": "repo_local:scenario_profiles_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-23T23:24:37Z",
+          "max_age_minutes": 4320.0,
+          "signature": "scenario_profiles_uk_v2_live",
+          "confidence": 1.0,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "calibration_basis": "empirical_live_fit",
+            "mode_observation_source": "observed_mode_labels",
+            "duration_multiplier": 1.246721,
+            "incident_rate_multiplier": 1.150992,
+            "incident_delay_multiplier": 1.136587
+          }
+        },
+        {
+          "family": "toll",
+          "source": "classification_only",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:18.127383Z",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": 0.95,
+          "coverage_ratio": 0.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "contains_toll": false,
+            "toll_distance_km": 0.0,
+            "tariff_rule_ids": "",
+            "matched_asset_ids": ""
+          }
+        },
+        {
+          "family": "terrain",
+          "source": "dem_real",
+          "active": true,
+          "freshness_timestamp_utc": "2026-02-20T00:31:01.088037Z",
+          "max_age_minutes": null,
+          "signature": "live_dem_z8",
+          "confidence": 0.999972,
+          "coverage_ratio": 1.0,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "ascent_m": 1167.196,
+            "descent_m": 1061.728
+          }
+        },
+        {
+          "family": "fuel",
+          "source": "repo_local:fuel_prices_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-16T00:00:00Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "fuel_cost_gbp": 153.830697,
+            "fuel_liters": 96.882918
+          }
+        },
+        {
+          "family": "carbon",
+          "source": "repo_local:carbon_price_schedule_uk.json",
+          "active": true,
+          "freshness_timestamp_utc": "2026-03-21T13:09:05.323143Z",
+          "max_age_minutes": 0.0,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "price_per_kg": 0.101,
+            "scope_mode": "ttw"
+          }
+        },
+        {
+          "family": "weather",
+          "source": "clear",
+          "active": false,
+          "freshness_timestamp_utc": "None",
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "speed_multiplier": 1.0,
+            "incident_multiplier": 1.0
+          }
+        },
+        {
+          "family": "stochastic",
+          "source": "uncertainty_model",
+          "active": true,
+          "freshness_timestamp_utc": null,
+          "max_age_minutes": null,
+          "signature": null,
+          "confidence": null,
+          "coverage_ratio": null,
+          "fallback_used": false,
+          "fallback_source": null,
+          "details": {
+            "samples": 80,
+            "sigma": 0.08
+          }
+        }
+      ]
+    }
+  ],
+  "snapshot_hash": "48c16875da16591dad6a0332b9ac3f10169bbb55"
+}

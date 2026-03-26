@@ -1,0 +1,41 @@
+{
+  "pipeline_mode": "voi",
+  "route_id": "route_0",
+  "route_signature": "049a5abec8be88049603addef1411ad7dc2b0831",
+  "candidate_ids": [
+    "4533e2cdc99f0c3bd56b4c068c74f16c1ad9fa21"
+  ],
+  "objective_vector": {
+    "time": 9385.41,
+    "money": 143.07,
+    "co2": 205.029
+  },
+  "selector_score": -0.07999999999999999,
+  "certificate": 1.0,
+  "certified": true,
+  "selected_candidate_source_stage": null,
+  "selected_candidate_source_engine": null,
+  "ambiguity_context": {
+    "od_ambiguity_index": 0.26,
+    "od_ambiguity_confidence": 0.964,
+    "od_engine_disagreement_prior": 0.362655,
+    "od_hard_case_prior": 0.36199,
+    "od_ambiguity_source_count": 3,
+    "od_ambiguity_source_mix": "{\"historical_results_bootstrap\":8,\"repo_local_geometry_backfill\":4,\"routing_graph_probe\":1}",
+    "od_ambiguity_support_ratio": 0.64432,
+    "od_ambiguity_source_mix_count": 3,
+    "od_ambiguity_source_entropy": 0.78166,
+    "od_ambiguity_prior_strength": 0.26,
+    "od_ambiguity_family_density": 0.25,
+    "od_ambiguity_margin_pressure": 0.0,
+    "od_ambiguity_spread_pressure": 0.26,
+    "od_ambiguity_toll_instability": 0.0,
+    "od_candidate_path_count": 4,
+    "od_corridor_family_count": 1,
+    "od_objective_spread": 0.26,
+    "od_nominal_margin_proxy": 1.0,
+    "od_toll_disagreement_rate": 0.0,
+    "ambiguity_budget_prior": 0.26,
+    "ambiguity_budget_band": "high"
+  }
+}

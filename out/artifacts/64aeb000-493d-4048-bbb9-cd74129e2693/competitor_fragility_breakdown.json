@@ -1,0 +1,742 @@
+{
+  "route_0": {
+    "route_13": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_3": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_8": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_5": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_13": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_5": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_3": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_8": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_5": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_8": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_5": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_10": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_7": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_5": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_9": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    }
+  },
+  "route_7": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_5": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_5": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_12": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_10": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_7": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_5": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_9": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    }
+  },
+  "route_4": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_5": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_9": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    }
+  },
+  "route_9": {
+    "route_0": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_13": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_3": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_8": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_10": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_7": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_5": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    },
+    "route_12": {
+      "carbon": 0,
+      "fuel": 0,
+      "scenario": 0,
+      "stochastic": 0,
+      "terrain": 0,
+      "toll": 0
+    },
+    "route_4": {
+      "carbon": 138,
+      "fuel": 138,
+      "scenario": 138,
+      "stochastic": 138,
+      "terrain": 138,
+      "toll": 138
+    }
+  }
+}

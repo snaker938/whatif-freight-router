@@ -1,0 +1,3 @@
+pair_index,origin_lat,origin_lon,destination_lat,destination_lon,error,route_id,distance_km,duration_s,monetary_cost,emissions_kg,avg_speed_kmh,selected
+0,51.5074,-0.1278,51.4545,-2.5879,,route_0,190.021,11825.94,198.08,289.413,57.85,True
+0,51.5074,-0.1278,51.4545,-2.5879,,route_3,265.135,17232.52,275.07,398.05,55.39,False

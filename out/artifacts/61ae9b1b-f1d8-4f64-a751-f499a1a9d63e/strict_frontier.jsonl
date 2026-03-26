@@ -1,0 +1,2 @@
+{"route_id":"route_0","route_signature":"f571bc42a7fb103fe90cef1e0e52ee1583c3f5aa","candidate_ids":["f35c5c29cab148039e2fe6d5d7f21d536cc8c3bc"],"distance_km":161.96,"duration_s":9721.9,"monetary_cost":168.98,"emissions_kg":248.644,"certificate":0.0,"selected":false}
+{"route_id":"route_2","route_signature":"222cc194c8ecd6f8f012d6caa60a572138c63892","candidate_ids":["bc50d7c2ca841a22de9352a37a764eb6e5efbdab"],"distance_km":132.285,"duration_s":9823.07,"monetary_cost":148.68,"emissions_kg":212.739,"certificate":1.0,"selected":true}

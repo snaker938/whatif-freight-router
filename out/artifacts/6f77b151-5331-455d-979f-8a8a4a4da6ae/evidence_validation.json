@@ -1,0 +1,266 @@
+{
+  "status": "ok",
+  "issues": [],
+  "validations": [
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_0"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_13"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_3"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_8"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_10"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_7"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_5"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_12"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_4"
+    },
+    {
+      "status": "ok",
+      "issues": [],
+      "active_families": [
+        "scenario",
+        "toll",
+        "terrain",
+        "fuel",
+        "carbon",
+        "stochastic"
+      ],
+      "family_modes": {
+        "scenario": "live",
+        "toll": "live",
+        "terrain": "live",
+        "fuel": "live",
+        "carbon": "live",
+        "weather": "live",
+        "stochastic": "model"
+      },
+      "freshness_coverage": 0.833333,
+      "live_family_count": 6,
+      "snapshot_family_count": 0,
+      "model_family_count": 1,
+      "route_id": "route_9"
+    }
+  ]
+}

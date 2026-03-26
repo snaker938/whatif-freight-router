@@ -1,0 +1,1671 @@
+{
+  "seed": 20260330,
+  "requested_world_count": 84,
+  "world_count": 120,
+  "unique_world_count": 120,
+  "active_families": [
+    "carbon",
+    "fuel",
+    "scenario",
+    "stochastic",
+    "terrain",
+    "toll"
+  ],
+  "state_catalog": [
+    "nominal",
+    "mildly_stale",
+    "severely_stale",
+    "low_confidence",
+    "proxy",
+    "refreshed"
+  ],
+  "state_weights": {
+    "carbon": {
+      "nominal": 0.36142663906810496,
+      "mildly_stale": 0.1515621019427669,
+      "severely_stale": 0.11532107671592257,
+      "low_confidence": 0.0955939582521244,
+      "proxy": 0.05657645944315652,
+      "refreshed": 0.21951976457792466
+    },
+    "fuel": {
+      "nominal": 0.36142663906810496,
+      "mildly_stale": 0.1515621019427669,
+      "severely_stale": 0.11532107671592257,
+      "low_confidence": 0.0955939582521244,
+      "proxy": 0.05657645944315652,
+      "refreshed": 0.21951976457792466
+    },
+    "scenario": {
+      "nominal": 0.3557759933085378,
+      "mildly_stale": 0.1519989363435285,
+      "severely_stale": 0.11970998346464493,
+      "low_confidence": 0.09630757465622747,
+      "proxy": 0.053104063032052985,
+      "refreshed": 0.22310344919500835
+    },
+    "stochastic": {
+      "nominal": 0.3409544884189201,
+      "mildly_stale": 0.15504613768663084,
+      "severely_stale": 0.12830661258352213,
+      "low_confidence": 0.10124859042498506,
+      "proxy": 0.058509187539507394,
+      "refreshed": 0.21593498334643446
+    },
+    "terrain": {
+      "nominal": 0.37182239451449134,
+      "mildly_stale": 0.1492384623306089,
+      "severely_stale": 0.10961359566025689,
+      "low_confidence": 0.09189461242282843,
+      "proxy": 0.051597098586837205,
+      "refreshed": 0.22583383648497735
+    },
+    "toll": {
+      "nominal": 0.33185359887532223,
+      "mildly_stale": 0.15817221200146184,
+      "severely_stale": 0.1315572769160167,
+      "low_confidence": 0.10611757084199178,
+      "proxy": 0.0707413596755382,
+      "refreshed": 0.20155798168966918
+    }
+  },
+  "ambiguity_context": {
+    "od_ambiguity_index": 0.036667,
+    "od_ambiguity_confidence": 0.864,
+    "od_engine_disagreement_prior": 0.32603,
+    "od_hard_case_prior": 0.331127,
+    "od_ambiguity_source_count": 2,
+    "od_ambiguity_source_mix": "{\"historical_results_bootstrap\":8,\"routing_graph_probe\":2}",
+    "od_ambiguity_support_ratio": 0.474005,
+    "od_ambiguity_source_mix_count": 2,
+    "od_ambiguity_source_entropy": 0.721928,
+    "od_ambiguity_prior_strength": 0.036667,
+    "od_ambiguity_family_density": 0.181818,
+    "od_ambiguity_margin_pressure": 0.0,
+    "od_ambiguity_spread_pressure": 0.0,
+    "od_ambiguity_toll_instability": 0.0,
+    "od_candidate_path_count": 11,
+    "od_corridor_family_count": 2,
+    "od_objective_spread": 0.0,
+    "od_nominal_margin_proxy": 1.0,
+    "ambiguity_budget_prior": 0.036667,
+    "ambiguity_budget_band": "high"
+  },
+  "hard_case_stress_pack_count": 72,
+  "supported_ambiguity_stress_pack_count": 0,
+  "targeted_stress_pack_count": 72,
+  "mixed_targeted_stress_pack_count": 36,
+  "single_family_targeted_stress_pack_count": 36,
+  "world_reuse_rate": 0.0,
+  "stress_world_fraction": 0.6,
+  "refc_stress_world_fraction": 0.6,
+  "hard_case_stress_world_fraction": 0.6,
+  "supported_ambiguity_stress_world_fraction": 0.0,
+  "worlds": [
+    {
+      "world_id": "f93812232673b2211691ee5de5e9ff044f4118e8",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "low_confidence",
+        "scenario": "proxy",
+        "stochastic": "nominal",
+        "terrain": "refreshed",
+        "toll": "severely_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "2f03ae47bba219620516e1e21103d4bbde3be431",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "mildly_stale",
+        "scenario": "nominal",
+        "stochastic": "refreshed",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "17760b608ea89e3de181769c0f0af0b2c525b56f",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "mildly_stale",
+        "scenario": "proxy",
+        "stochastic": "proxy",
+        "terrain": "severely_stale",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "d59367726af035ab38c21e2c25f07524d4b5af92",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "mildly_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "proxy",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "6f6654234370cc35102cc43cd7af3021f07f23f1",
+      "states": {
+        "carbon": "severely_stale",
+        "fuel": "nominal",
+        "scenario": "low_confidence",
+        "stochastic": "low_confidence",
+        "terrain": "low_confidence",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "70dc49a43439a1690b00cfb526e22a76e494189c",
+      "states": {
+        "carbon": "proxy",
+        "fuel": "refreshed",
+        "scenario": "nominal",
+        "stochastic": "low_confidence",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "fb9a9bd0c0d35b0ba0404a7a63695b0153b8f26d",
+      "states": {
+        "carbon": "severely_stale",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "low_confidence",
+        "terrain": "refreshed",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "80245b126a75e8f2252a36ddad3902852ecc95fa",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "refreshed",
+        "terrain": "nominal",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "1f51f12dfcc2f8091fd62b162b049b619f6c246c",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "fde804bdaaf2777dbfc7137c25fcf026c6accbe7",
+      "states": {
+        "carbon": "mildly_stale",
+        "fuel": "nominal",
+        "scenario": "refreshed",
+        "stochastic": "severely_stale",
+        "terrain": "refreshed",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "ca76f89c5d87c60ab0ac55612af2a9f43b628e8f",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "mildly_stale",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "dc5315530a2ba151d039db7f7f3b086ab34fecd0",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "refreshed",
+        "scenario": "mildly_stale",
+        "stochastic": "proxy",
+        "terrain": "severely_stale",
+        "toll": "severely_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "cd8763cdf3eb33efbf655d083e3005d52986ff0b",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "severely_stale",
+        "scenario": "nominal",
+        "stochastic": "refreshed",
+        "terrain": "mildly_stale",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "c526089a1147ec6d5c4e482f65029197a26fe644",
+      "states": {
+        "carbon": "low_confidence",
+        "fuel": "refreshed",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "429b02255a2660e42fd9d1f37bbfd77298b182c1",
+      "states": {
+        "carbon": "proxy",
+        "fuel": "proxy",
+        "scenario": "nominal",
+        "stochastic": "refreshed",
+        "terrain": "nominal",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "bc408eb254fed88b588da5ea111fd37e6b754f19",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "refreshed",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "a40a7c0c858ad7570a7b04967681ff6ae0b66056",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "low_confidence",
+        "stochastic": "nominal",
+        "terrain": "mildly_stale",
+        "toll": "proxy"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "b47e8737646c58b1c0da49e7e75eb9c3a3aefbbc",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "refreshed",
+        "scenario": "mildly_stale",
+        "stochastic": "severely_stale",
+        "terrain": "proxy",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "35bdeffd3fd259ccabe6606577ee00ea72f1f099",
+      "states": {
+        "carbon": "low_confidence",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "mildly_stale",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "a0148c35cb03f0a62901d3d163fde9e21f2814a8",
+      "states": {
+        "carbon": "proxy",
+        "fuel": "proxy",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "mildly_stale",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "c656f63a81aad8fd6f2c47226f06523a7c6bb65f",
+      "states": {
+        "carbon": "mildly_stale",
+        "fuel": "low_confidence",
+        "scenario": "mildly_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "30fa8f56e8391eb5e4b931e721c3d5b1f57dedac",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "refreshed",
+        "stochastic": "refreshed",
+        "terrain": "low_confidence",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "6bfe46693f5911f89f74942a773d46bcaf300f0b",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "refreshed",
+        "stochastic": "refreshed",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "ab67c424feec9c3128c17a65d1bd4a6d40843b0d",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "severely_stale",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "mildly_stale",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "e5e44f82478d28bbcbc98e929a711d0029d60a10",
+      "states": {
+        "carbon": "severely_stale",
+        "fuel": "mildly_stale",
+        "scenario": "refreshed",
+        "stochastic": "severely_stale",
+        "terrain": "mildly_stale",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "c0478e2c7ac4901186abf1ccc0a9d3ec258209b9",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "refreshed",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "f7e2cc3eeb1023a3906882810156128c1bd201c2",
+      "states": {
+        "carbon": "severely_stale",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "refreshed",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "1c39b3e26e9677e721bdd41d559e8487d85b495c",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "proxy",
+        "scenario": "low_confidence",
+        "stochastic": "nominal",
+        "terrain": "mildly_stale",
+        "toll": "severely_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "90e5a46df768a124196fc87418cb54f5ffd049ed",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "severely_stale",
+        "scenario": "mildly_stale",
+        "stochastic": "low_confidence",
+        "terrain": "severely_stale",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "51c575a0fe24366974066108d064538f560e6e9f",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "a74d45e55e2d85754c8faa048f47c3a915f4d588",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "low_confidence",
+        "stochastic": "refreshed",
+        "terrain": "refreshed",
+        "toll": "severely_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "ff20f17a56d523a7530fa721f59135e8eb543581",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "refreshed",
+        "terrain": "proxy",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "feb09a3ca9e4f45f5021dab22a65927dbb9c4379",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "low_confidence",
+        "stochastic": "refreshed",
+        "terrain": "low_confidence",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "87084dbbed90237f1d8f44ca4d57ec13a2542d43",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "severely_stale",
+        "scenario": "refreshed",
+        "stochastic": "proxy",
+        "terrain": "refreshed",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "2fc6b5a53c7e979734b79ca71093adb90e42c703",
+      "states": {
+        "carbon": "severely_stale",
+        "fuel": "refreshed",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "severely_stale",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "bd2156f05526d016373fd11322b82b2027fd95d7",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "severely_stale",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "1ec96b020c4df2f75f215006fde4c5c08b326ee4",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "severely_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "2ab6aaf1c14950d60eca2a82b8aa2560d613aa03",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "severely_stale",
+        "scenario": "low_confidence",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "df182fd4f1f2410a7957b75b6ff1007437e35c27",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "severely_stale",
+        "scenario": "proxy",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "5e7862f8d3721096a0620bfe5eae7f69b2e3dfdd",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "low_confidence",
+        "terrain": "severely_stale",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "d039d4876b9ca11855e26a682249f447936eb957",
+      "states": {
+        "carbon": "mildly_stale",
+        "fuel": "proxy",
+        "scenario": "severely_stale",
+        "stochastic": "refreshed",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "e5d34c519424060423192cef676092304d020f94",
+      "states": {
+        "carbon": "proxy",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "proxy",
+        "toll": "refreshed"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "cd722ba3703fa207745b6a6d0b38632333346435",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "refreshed",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "refreshed",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "60d7421aaffe6eb617d7dec45725f5be3e895d2f",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "mildly_stale",
+        "scenario": "low_confidence",
+        "stochastic": "nominal",
+        "terrain": "proxy",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "58cb52406e7aa698773c9321a0b95eaf7a63936e",
+      "states": {
+        "carbon": "severely_stale",
+        "fuel": "severely_stale",
+        "scenario": "nominal",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "low_confidence"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "59395dda9ba1567b6c852896251f1c0ae8b13638",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "proxy",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "2e291727dc906781eb55151205ffc53de050ba61",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "proxy",
+        "scenario": "severely_stale",
+        "stochastic": "refreshed",
+        "terrain": "refreshed",
+        "toll": "proxy"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "efdbee5c1e431390ddb9f5c8bee5d888ca99fb39",
+      "states": {
+        "carbon": "refreshed",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "refreshed",
+        "toll": "mildly_stale"
+      },
+      "stress_factor": 1.0,
+      "world_kind": "sampled"
+    },
+    {
+      "world_id": "a21e9b500745d3b883f28c4e08ddd7ae3dfb284e",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "720b0e443dbd22c520452b4116e5995ccd8a6f5d",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "188bf917ccfaf630bb25ab1e571c315121f660e6",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "13f47026c14971bb1dcbd95c5185baab2e389b45",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "5176a4e29420ac9e89d4f1bea886f9b3b93b8a9a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "17f474767ff1256e4a83b912cf5842ef240713fd",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "de2c9003adcf211b079fc381110407dabf9cefff",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "0660504e9afc40a06d44c50b64335e192bfe58b8",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "10df1e0261815f015fc75234131a319f8b622f66",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "2cbaf250297e5b761ffa7221e894eaf4d0edbdc5",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "1b56d25e60713651023979a56eb14b6b471c645a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "e20d9a0027c890abb4478b4ae4b2fe69636a61d6",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "08d8d54bec28dd506ac4cbc9a57580d8ca3a4ae6",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "eb1328b7019b9034634ee7bef3f855bbdb4b3042",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "77503a81809b7f7ecea45a3faa06d5716e5f52f0",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "ff8023611e908bfdec237b89dcab35c0ee73e4e0",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "11743f5147577682b45f8bc267b6ad17a0385b1f",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "a3800b31fc832ca1e6d1401e211764247b181968",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "nominal",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "e6ab5dbd3cc4cb60086e622abd0a8beb0bca0061",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "9892429630514bb5da78f305449cfaf47c8e8bfd",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "8c05c79a24b7138a9f86c271fb158712eb3e020a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "fdadfc158ba958db99048feef3e237c89d03d553",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "62c2023cb440723fc846718634f18f64056ed088",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "b6e3452ab1e162a134a8a8a80c4ab97913604c76",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "64fb15ee0cee8f1be5dcb1ccba7e67ed99287adb",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "4556489eab6cd11f27c6f8a8c249a8287fde9d65",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "71f10c4cdbf3820615246efba80edb7a9a6d7fe4",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "d4e20d60a82654f82a4dbfb2ad7453929b966784",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "3449acfd3683e2397ac7939423370963457cd016",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "74e1753a031bdaad24886e2f6877209efbe5314e",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "634c03d0f7cefb9677d82ccad257e0b1014cf5f6",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "b2cf2bc1e7f55fb6f78952a5cf6141b16599db71",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "eff2ae7b64076bf29f91743f76c6885ada41b1c9",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "db0a9e74ad7dde152189fc7c223af5e45135bc3e",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "4ec530db5ccc8a451495a6f8adbb01f0e983170b",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "6d2e50df1a677c53ac3fc4b168e05be4528e995a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "nominal",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_targeted"
+    },
+    {
+      "world_id": "7f4036cb7b6eb446c34ea92e87d3b955100c8747",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "828f55371a7c614499c62fd9afacca7ff983fcfd",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "909fcb3d51254dd1d61887eb1e92e9c1c39434db",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "f89e39f56e772ca9aac48e44eda23479ed87973c",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "d6baf09ce6c8e9f57c9039d5f532bf05229d1ef6",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "95a9c130c6f09510d104cee1f0cc18f304d07b0a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "c1ceb2dded73e4f37d64484cea597ceb6e53abfa",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "d76b4ed8dc6cf0e0ff2e888e80d9012deb7a26e5",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "a8ef8c5c7bae1163c5cd9e6f79445e8ab9ad9c51",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "91b84fb076c47aa5e5252f851b329c7cffaa1cdf",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "722aeaf20a12fbe2c8e0e8d459464c988bdc3814",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "6f3a3007c966f045e66c8e82ca7bed2d8feb9983",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "3dc6e2c39aa579ef5f923801378dc71eb1ab9999",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "4af1c4b13b9727c75f2b6e9f20cc227734e8882b",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "5f1a94dfbe1e89b4ae3282aa4e30502a342a98b3",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "bff7298311a69c4ad663b9d1c98e3d2be8cb4a41",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "ed7fc2a2eefe62b3e026ac78eaa0a1868ba1a088",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "03c420332195aef024214d439271ac179cc1761a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "nominal",
+        "scenario": "severely_stale",
+        "stochastic": "mildly_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "43cece618b508293212f2d6b20e02e813e12a2f9",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "3e23df555dc5cf409203acd11b27acace6af2f4a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "b3b492ca02dde3855fea0b4daaa590c2ce14a5e1",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "7ac73613a1eaa02ca2a56cd9ab3db8debb276d04",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "7a89b794ec7eb3bb9364108436ae246a6be0e4f8",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "61ed3d381d4f3f4a69a8a2d25895ebd44dd23092",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "da69bb1f72970c8fefb45c8c9b2097bb87f7f10a",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "6bc224d06011ffa9563f684b37a976cc6cd1899c",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "02e06b3d689958a86229283ed7b1731801d6649e",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "2b4e0ea270674f74bd087833f962234003c61456",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "e6dd4e3bce06782418297a251fd13ceef72dd801",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "f45b6ebd3ed4c2b2943876e46097d58ed7aee3a1",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "c6a57add69c97fef76549b2252e4b7997fdf4c3b",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "720d16dae29ee5200916da53a6dc5218ccf185ab",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "3482e521a6f0523b712711b16bd717c50fc6ec05",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "e9d49d67bd262ec4c5fcf74cfd10d63729e6f7f7",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "bdfb0819f6439ea2dcf0ec93744e121ff17d6860",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    },
+    {
+      "world_id": "a73f197c1bcc268fd1219fc367776d0928afd804",
+      "states": {
+        "carbon": "nominal",
+        "fuel": "low_confidence",
+        "scenario": "severely_stale",
+        "stochastic": "severely_stale",
+        "terrain": "nominal",
+        "toll": "nominal"
+      },
+      "stress_factor": 2.2558459342611097,
+      "world_kind": "hard_case_mixed_targeted"
+    }
+  ],
+  "manifest_hash": "a6b40e771e5effa36e24b95b853c72464b1979a6",
+  "forced_refreshed_families": [],
+  "selected_route_id": "route_2",
+  "effective_world_count": 48,
+  "world_count_policy": "adaptive_medium_ambiguity"
+}
