@@ -25,6 +25,13 @@ def _default_osrm_base_url() -> str:
     return "http://osrm:5000" if _running_in_docker() else "http://localhost:5000"
 
 
+def _default_ors_base_url() -> str:
+    # In docker-compose, openrouteservice is reachable by service name "ors".
+    # When running directly on the host, expose ORS on localhost:8082 so it does
+    # not collide with the backend on :8000.
+    return "http://ors:8082/ors" if _running_in_docker() else "http://localhost:8082/ors"
+
+
 def _default_model_asset_dir() -> str:
     # Keep model artifacts in backend/out by default to avoid polluting source assets.
     return str(Path(__file__).resolve().parents[1] / "out" / "model_assets")
@@ -105,6 +112,43 @@ class Settings(BaseSettings):
     batch_concurrency: int = Field(default=8, alias="BATCH_CONCURRENCY")
     route_cache_ttl_s: int = Field(default=600, alias="ROUTE_CACHE_TTL_S")
     route_cache_max_entries: int = Field(default=1024, alias="ROUTE_CACHE_MAX_ENTRIES")
+    route_cache_max_estimated_bytes: int = Field(
+        default=256_000_000,
+        ge=0,
+        alias="ROUTE_CACHE_MAX_ESTIMATED_BYTES",
+    )
+    route_k_raw_cache_ttl_s: int = Field(default=1800, alias="ROUTE_K_RAW_CACHE_TTL_S")
+    route_k_raw_cache_max_entries: int = Field(default=1024, alias="ROUTE_K_RAW_CACHE_MAX_ENTRIES")
+    route_certification_cache_ttl_s: int = Field(default=1800, alias="ROUTE_CERTIFICATION_CACHE_TTL_S")
+    route_certification_cache_max_entries: int = Field(default=1024, alias="ROUTE_CERTIFICATION_CACHE_MAX_ENTRIES")
+    route_certification_cache_max_estimated_bytes: int = Field(
+        default=128_000_000,
+        ge=0,
+        alias="ROUTE_CERTIFICATION_CACHE_MAX_ESTIMATED_BYTES",
+    )
+    route_state_cache_ttl_s: int = Field(default=1200, alias="ROUTE_STATE_CACHE_TTL_S")
+    route_state_cache_max_entries: int = Field(default=48, alias="ROUTE_STATE_CACHE_MAX_ENTRIES")
+    route_state_cache_max_estimated_bytes: int = Field(
+        default=384_000_000,
+        ge=0,
+        alias="ROUTE_STATE_CACHE_MAX_ESTIMATED_BYTES",
+    )
+    route_option_cache_enabled: bool = Field(default=True, alias="ROUTE_OPTION_CACHE_ENABLED")
+    route_option_cache_ttl_s: int = Field(default=1800, alias="ROUTE_OPTION_CACHE_TTL_S")
+    route_option_cache_max_entries: int = Field(default=256, alias="ROUTE_OPTION_CACHE_MAX_ENTRIES")
+    route_option_cache_max_estimated_bytes: int = Field(
+        default=192_000_000,
+        ge=0,
+        alias="ROUTE_OPTION_CACHE_MAX_ESTIMATED_BYTES",
+    )
+    voi_dccs_cache_ttl_s: int = Field(default=1800, alias="VOI_DCCS_CACHE_TTL_S")
+    voi_dccs_cache_max_entries: int = Field(default=256, alias="VOI_DCCS_CACHE_MAX_ENTRIES")
+    voi_dccs_cache_max_estimated_bytes: int = Field(
+        default=96_000_000,
+        ge=0,
+        alias="VOI_DCCS_CACHE_MAX_ESTIMATED_BYTES",
+    )
+    live_source_policy: str = Field(default="repo_local_fresh", alias="LIVE_SOURCE_POLICY")
     live_runtime_data_enabled: bool = Field(default=True, alias="LIVE_RUNTIME_DATA_ENABLED")
     strict_live_data_required: bool = Field(default=True, alias="STRICT_LIVE_DATA_REQUIRED")
     live_route_compute_refresh_mode: str = Field(
@@ -120,7 +164,7 @@ class Settings(BaseSettings):
         alias="LIVE_ROUTE_COMPUTE_FORCE_NO_CACHE_HEADERS",
     )
     live_route_compute_force_uncached: bool = Field(
-        default=True,
+        default=False,
         alias="LIVE_ROUTE_COMPUTE_FORCE_UNCACHED",
     )
     live_route_compute_prefetch_timeout_ms: int = Field(
@@ -522,6 +566,18 @@ class Settings(BaseSettings):
         ge=0.0,
         alias="ROUTE_PIPELINE_TAU_STOP",
     )
+    route_pipeline_search_completeness_threshold: float = Field(
+        default=0.84,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_PIPELINE_SEARCH_COMPLETENESS_THRESHOLD",
+    )
+    route_pipeline_search_completeness_action_bonus: float = Field(
+        default=0.22,
+        ge=0.0,
+        le=2.0,
+        alias="ROUTE_PIPELINE_SEARCH_COMPLETENESS_ACTION_BONUS",
+    )
     route_pipeline_world_increment: int = Field(
         default=32,
         ge=1,
@@ -588,8 +644,18 @@ class Settings(BaseSettings):
         le=2.0,
         alias="ROUTE_ORS_BASELINE_DISTANCE_MULTIPLIER",
     )
+    ors_base_url: str = Field(default_factory=_default_ors_base_url, alias="ORS_BASE_URL")
+    ors_health_path: str = Field(default="/v2/health", alias="ORS_HEALTH_PATH")
+    route_ors_baseline_mode: str = Field(
+        default="local_service",
+        alias="ROUTE_ORS_BASELINE_MODE",
+    )
+    route_ors_baseline_policy: str = Field(
+        default="engine_shortest_path",
+        alias="ROUTE_ORS_BASELINE_POLICY",
+    )
     route_ors_baseline_allow_proxy_fallback: bool = Field(
-        default=True,
+        default=False,
         alias="ROUTE_ORS_BASELINE_ALLOW_PROXY_FALLBACK",
     )
     ors_directions_api_key: str = Field(default="", alias="ORS_DIRECTIONS_API_KEY")
@@ -675,6 +741,46 @@ class Settings(BaseSettings):
         le=3600,
         alias="ROUTE_COMPUTE_SINGLE_ATTEMPT_TIMEOUT_S",
     )
+    route_candidate_refine_max_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        alias="ROUTE_CANDIDATE_REFINE_MAX_CONCURRENCY",
+    )
+    route_dccs_preemptive_comparator_seed_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_DCCS_PREEMPTIVE_COMPARATOR_SEED_ENABLED",
+    )
+    route_dccs_preemptive_comparator_min_ambiguity: float = Field(
+        default=0.38,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_AMBIGUITY",
+    )
+    route_dccs_preemptive_comparator_min_engine_disagreement: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_ENGINE_DISAGREEMENT",
+    )
+    route_dccs_preemptive_comparator_min_hard_case: float = Field(
+        default=0.32,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_HARD_CASE",
+    )
+    route_dccs_preemptive_comparator_min_corridor_count: int = Field(
+        default=2,
+        ge=1,
+        le=20,
+        alias="ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_CORRIDOR_COUNT",
+    )
+    route_dccs_preemptive_comparator_max_candidates: int = Field(
+        default=4,
+        ge=1,
+        le=12,
+        alias="ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MAX_CANDIDATES",
+    )
     route_context_probe_timeout_ms: int = Field(
         default=2_500,
         ge=100,
@@ -752,6 +858,22 @@ class Settings(BaseSettings):
     route_graph_binary_cache_path: str = Field(
         default="",
         alias="ROUTE_GRAPH_BINARY_CACHE_PATH",
+    )
+    route_graph_binary_cache_warmup_max_bytes: int = Field(
+        # `0` means "do not cap warmup cache size". The checked-in UK cache is
+        # several GB, so a small fixed limit would force the slow JSON path.
+        default=0,
+        ge=0,
+        le=20_000_000_000,
+        alias="ROUTE_GRAPH_BINARY_CACHE_WARMUP_MAX_BYTES",
+    )
+    route_graph_compact_bundle_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_COMPACT_BUNDLE_ENABLED",
+    )
+    route_graph_compact_bundle_path: str = Field(
+        default="",
+        alias="ROUTE_GRAPH_COMPACT_BUNDLE_PATH",
     )
     route_graph_k_paths: int = Field(default=24, ge=1, le=128, alias="ROUTE_GRAPH_K_PATHS")
     route_graph_max_hops: int = Field(default=220, ge=8, le=2000, alias="ROUTE_GRAPH_MAX_HOPS")
@@ -837,6 +959,10 @@ class Settings(BaseSettings):
         default=True,
         alias="ROUTE_GRAPH_REDUCED_INITIAL_FOR_LONG_CORRIDOR",
     )
+    route_graph_skip_retry_rescue_reliability_corridor: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_SKIP_RETRY_RESCUE_RELIABILITY_CORRIDOR",
+    )
     route_graph_long_corridor_threshold_km: float = Field(
         default=150.0,
         ge=10.0,
@@ -852,6 +978,46 @@ class Settings(BaseSettings):
     route_graph_skip_initial_search_long_corridor: bool = Field(
         default=True,
         alias="ROUTE_GRAPH_SKIP_INITIAL_SEARCH_LONG_CORRIDOR",
+    )
+    route_graph_skip_initial_search_reliability_low_ambiguity: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_SKIP_INITIAL_SEARCH_RELIABILITY_LOW_AMBIGUITY",
+    )
+    route_graph_skip_supplemental_probe_low_ambiguity: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_SKIP_SUPPLEMENTAL_PROBE_LOW_AMBIGUITY",
+    )
+    route_graph_direct_k_raw_fallback_include_ors_seed: bool = Field(
+        default=False,
+        alias="ROUTE_GRAPH_DIRECT_K_RAW_FALLBACK_INCLUDE_ORS_SEED",
+    )
+    route_graph_fast_path_max_ambiguity: float = Field(
+        default=0.22,
+        ge=0.0,
+        le=1.0,
+        alias="ROUTE_GRAPH_FAST_PATH_MAX_AMBIGUITY",
+    )
+    route_refc_adaptive_world_count_enabled: bool = Field(
+        default=True,
+        alias="ROUTE_REFC_ADAPTIVE_WORLD_COUNT_ENABLED",
+    )
+    route_refc_low_ambiguity_world_cap: int = Field(
+        default=24,
+        ge=1,
+        le=512,
+        alias="ROUTE_REFC_LOW_AMBIGUITY_WORLD_CAP",
+    )
+    route_refc_medium_ambiguity_world_cap: int = Field(
+        default=48,
+        ge=1,
+        le=512,
+        alias="ROUTE_REFC_MEDIUM_AMBIGUITY_WORLD_CAP",
+    )
+    route_refc_high_ambiguity_world_floor: int = Field(
+        default=72,
+        ge=1,
+        le=512,
+        alias="ROUTE_REFC_HIGH_AMBIGUITY_WORLD_FLOOR",
     )
     route_graph_a_star_heuristic_enabled: bool = Field(
         default=True,
@@ -1036,6 +1202,10 @@ class Settings(BaseSettings):
         le=3650,
         alias="LIVE_TERRAIN_TILE_MAX_AGE_DAYS",
     )
+    live_terrain_reuse_fresh_cache_across_routes: bool = Field(
+        default=True,
+        alias="LIVE_TERRAIN_REUSE_FRESH_CACHE_ACROSS_ROUTES",
+    )
     live_terrain_cache_dir: str = Field(default="", alias="LIVE_TERRAIN_CACHE_DIR")
     live_terrain_cache_max_tiles: int = Field(
         default=1024,
@@ -1128,38 +1298,48 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _enforce_strict_runtime_defaults(self) -> Settings:
-        # Hard-strict runtime policy: production paths are always strict and
-        # synthetic generation is disallowed outside explicit test tooling.
+        # Source policy controls whether strict runtime insists on external live
+        # URLs everywhere or allows freshly rebuilt repo-local artifacts.
+        policy = str(self.live_source_policy or "repo_local_fresh").strip().lower()
+        if policy not in {"strict_external", "repo_local_fresh"}:
+            policy = "repo_local_fresh"
+        self.live_source_policy = policy
+
+        # Production paths remain strict about freshness and route feasibility.
         self.live_runtime_data_enabled = True
         self.strict_live_data_required = True
         self.live_route_compute_require_all_expected = True
         self.route_graph_enabled = True
         self.route_graph_strict_required = True
+        # Strict runtime must wait for the full graph, otherwise request-time
+        # candidate generation can fail with routing_graph_deferred_load even
+        # though readiness has already reported success.
+        self.route_graph_fast_startup_enabled = False
         self.departure_require_empirical_profiles = True
         self.departure_allow_synthetic_profiles = False
-        self.stochastic_require_empirical_calibration = True
+        self.stochastic_require_empirical_calibration = policy == "strict_external"
         self.stochastic_allow_synthetic_calibration = False
         self.terrain_allow_synthetic_grid = False
-        self.live_terrain_require_url_in_strict = True
+        self.live_terrain_require_url_in_strict = policy == "strict_external"
         self.live_terrain_allow_signed_fallback = False
-        self.live_departure_require_url_in_strict = True
+        self.live_departure_require_url_in_strict = policy == "strict_external"
         self.live_departure_allow_signed_fallback = False
-        self.live_stochastic_require_url_in_strict = True
+        self.live_stochastic_require_url_in_strict = policy == "strict_external"
         self.live_stochastic_allow_signed_fallback = False
-        self.live_toll_topology_require_url_in_strict = True
+        self.live_toll_topology_require_url_in_strict = policy == "strict_external"
         self.live_toll_topology_allow_signed_fallback = False
-        self.live_toll_tariffs_require_url_in_strict = True
+        self.live_toll_tariffs_require_url_in_strict = policy == "strict_external"
         self.live_toll_tariffs_allow_signed_fallback = False
-        self.live_fuel_require_url_in_strict = True
+        self.live_fuel_require_url_in_strict = policy == "strict_external"
         self.live_fuel_allow_signed_fallback = False
         self.live_fuel_require_signature = True
-        self.live_carbon_require_url_in_strict = True
+        self.live_carbon_require_url_in_strict = policy == "strict_external"
         self.live_carbon_allow_signed_fallback = False
-        self.live_scenario_require_url_in_strict = True
+        self.live_scenario_require_url_in_strict = policy == "strict_external"
         self.live_scenario_allow_signed_fallback = False
-        self.live_scenario_allow_partial_sources_strict = False
-        self.live_scenario_min_source_count_strict = 4
-        self.live_scenario_min_coverage_overall_strict = 1.0
+        self.live_scenario_allow_partial_sources_strict = policy != "strict_external"
+        self.live_scenario_min_source_count_strict = 3 if policy != "strict_external" else 4
+        self.live_scenario_min_coverage_overall_strict = 0.75 if policy != "strict_external" else 1.0
         self.scenario_require_signature = True
         legacy_graph_env_keys = (
             "ROUTE_GRAPH_STREAMING_MAX_NODES",

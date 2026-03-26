@@ -6,6 +6,7 @@ dependencies = [
   "fastapi>=0.110,<1.0",
   "uvicorn[standard]>=0.27,<1.0",
   "httpx>=0.27,<1.0",
+  "psutil>=7.0,<8.0",
   "pydantic>=2.7,<3.0",
   "pydantic-settings>=2.2,<3.0",
   "python-json-logger>=2.0,<3.0",
@@ -20,6 +21,10 @@ dependencies = [
   "osmium>=3.7,<5.0",
   "ijson>=3.3,<4.0",
 ]
+
+[project.scripts]
+thesis-eval = "scripts.run_thesis_evaluation:main"
+thesis-lane = "scripts.run_thesis_lane:main"
 
 [dependency-groups]
 dev = [
@@ -41,3 +46,8 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "thesis: thesis-results generation lane",
+  "thesis_results: thesis result-lane and artifact-contract coverage",
+  "thesis_modules: deterministic DCCS/REFC/VOI thesis module coverage",
+]

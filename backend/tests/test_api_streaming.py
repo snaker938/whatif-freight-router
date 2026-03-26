@@ -10,6 +10,7 @@ import app.main as main_module
 from app.main import CandidateDiagnostics, TerrainDiagnostics
 from app.main import app, osrm_client
 from app.models import (
+    CostToggles,
     GeoJSONLineString,
     RouteCertificationSummary,
     RouteMetrics,
@@ -17,10 +18,17 @@ from app.models import (
     ScenarioSummary,
     VoiStopSummary,
 )
+from app.run_store import artifact_dir_for_run
 from app.routing_graph import GraphCandidateDiagnostics
 from app.routing_osrm import OSRMError
 from app.scenario import ScenarioMode
 from app.settings import settings
+
+
+def test_cache_key_component_handles_literals_and_models() -> None:
+    assert main_module._cache_key_component("flat") == "flat"
+    assert main_module._cache_key_component(3) == 3
+    assert main_module._cache_key_component(CostToggles()) == CostToggles().model_dump(mode="json")
 
 
 def _make_route(
@@ -494,6 +502,23 @@ def test_route_uses_direct_pipeline_for_voi_mode(
             },
             "extra_jsonl_artifacts": {
                 "dccs_candidates.jsonl": [{"candidate_id": "cand-1", "decision": "refine"}],
+                "voi_controller_state.jsonl": [
+                    {
+                        "iteration_index": 0,
+                        "search_completeness_score": 0.74,
+                        "search_completeness_gap": 0.11,
+                        "prior_support_strength": 0.67,
+                        "pending_challenger_mass": 0.28,
+                        "best_pending_flip_probability": 0.32,
+                        "corridor_family_recall": 0.8,
+                        "frontier_recall_at_budget": 0.76,
+                        "top_refresh_gain": 0.045,
+                        "top_fragility_mass": 0.018,
+                        "competitor_pressure": 0.62,
+                        "credible_search_uncertainty": True,
+                        "credible_evidence_uncertainty": True,
+                    }
+                ],
             },
             "extra_csv_artifacts": {
                 "voi_action_scores.csv": (
@@ -534,6 +559,68 @@ def test_route_uses_direct_pipeline_for_voi_mode(
     assert data["selected_certificate"]["certified"] is True
     assert data["voi_stop_summary"]["stop_reason"] == "certified"
     assert data["run_id"]
+
+    artifact_dir = artifact_dir_for_run(data["run_id"])
+    controller_path = artifact_dir / "voi_controller_state.jsonl"
+    assert controller_path.exists()
+    controller_rows = [
+        json.loads(line)
+        for line in controller_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert controller_rows
+    first_row = controller_rows[0]
+    assert first_row["top_refresh_gain"] == pytest.approx(0.045, rel=0.0, abs=1e-6)
+    assert first_row["top_fragility_mass"] == pytest.approx(0.018, rel=0.0, abs=1e-6)
+    assert first_row["competitor_pressure"] == pytest.approx(0.62, rel=0.0, abs=1e-6)
+    assert first_row["credible_search_uncertainty"] is True
+    assert first_row["credible_evidence_uncertainty"] is True
+
+
+def test_route_legacy_persists_strict_frontier_and_final_trace(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+
+    resp = client.post(
+        "/route",
+        json={
+            **_pareto_payload(),
+            "pipeline_mode": "legacy",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    run_id = data["run_id"]
+    artifact_dir = artifact_dir_for_run(run_id)
+
+    frontier_path = artifact_dir / "strict_frontier.jsonl"
+    assert frontier_path.exists()
+    frontier_rows = [
+        json.loads(line)
+        for line in frontier_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert frontier_rows
+    assert any(row.get("route_id") == data["selected"]["id"] for row in frontier_rows)
+    assert any(bool(row.get("selected")) for row in frontier_rows)
+    assert all("route_signature" in row for row in frontier_rows)
+    assert all("candidate_ids" in row for row in frontier_rows)
+
+    trace_path = artifact_dir / "final_route_trace.json"
+    assert trace_path.exists()
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert trace["pipeline_mode"] == "legacy"
+    assert trace["selected_route_id"] == data["selected"]["id"]
+    assert isinstance(trace.get("stage_timings_ms"), dict)
+    assert trace["counts"]["strict_frontier"] == len(frontier_rows)
+    assert trace["artifact_pointers"]["strict_frontier"] == "strict_frontier.jsonl"
+
+    metadata = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert "strict_frontier.jsonl" in metadata["artifact_names"]
+    assert "final_route_trace.json" in metadata["artifact_names"]
 
 
 def test_pareto_timeout_returns_route_compute_timeout(

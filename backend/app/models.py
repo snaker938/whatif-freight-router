@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -64,12 +64,14 @@ class CostToggles(BaseModel):
 
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
 PipelineMode = Literal["legacy", "dccs", "dccs_refc", "voi"]
+RouteRefinementPolicy = Literal["dccs", "first_n", "random_n", "corridor_uniform"]
 TerrainProfile = Literal["flat", "rolling", "hilly"]
 OptimizationMode = Literal["expected_value", "robust"]
 FuelType = Literal["diesel", "petrol", "lng", "ev"]
 EuroClass = Literal["euro4", "euro5", "euro6"]
 WeatherProfile = Literal["clear", "rain", "storm", "snow", "fog"]
 IncidentEventType = Literal["dwell", "accident", "closure"]
+AmbiguityBudgetBand = Literal["low", "medium", "high", "unspecified"]
 
 
 class EpsilonConstraints(BaseModel):
@@ -124,12 +126,36 @@ class StochasticConfig(BaseModel):
     samples: int = Field(default=25, ge=5, le=200)
 
 
+class AmbiguityContextFields(BaseModel):
+    od_ambiguity_index: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_engine_disagreement_prior: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_hard_case_prior: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_source_count: int | None = Field(default=None, ge=0, le=64)
+    od_ambiguity_source_mix: str | None = None
+    od_ambiguity_source_mix_count: int | None = Field(default=None, ge=0, le=64)
+    od_ambiguity_source_entropy: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_support_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_prior_strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_family_density: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_margin_pressure: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_spread_pressure: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_ambiguity_toll_instability: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_candidate_path_count: int | None = Field(default=None, ge=0, le=512)
+    od_corridor_family_count: int | None = Field(default=None, ge=0, le=128)
+    od_objective_spread: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_nominal_margin_proxy: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_toll_disagreement_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    ambiguity_budget_prior: float | None = Field(default=None, ge=0.0, le=1.0)
+    ambiguity_budget_band: AmbiguityBudgetBand | None = None
+
+
 class GeoJSONLineString(BaseModel):
     type: Literal["LineString"]
     coordinates: list[tuple[float, float]]  # [lon, lat]
 
 
-class RouteRequest(BaseModel):
+class RouteRequest(AmbiguityContextFields):
     origin: LatLng
     destination: LatLng
     waypoints: list[Waypoint] = Field(default_factory=list, max_length=48)
@@ -149,15 +175,17 @@ class RouteRequest(BaseModel):
     pareto_method: ParetoMethod = "dominance"
     epsilon: EpsilonConstraints | None = None
     pipeline_mode: PipelineMode | None = None
+    refinement_policy: RouteRefinementPolicy | None = None
     pipeline_seed: int | None = None
     search_budget: int | None = Field(default=None, ge=1, le=128)
     evidence_budget: int | None = Field(default=None, ge=0, le=64)
     cert_world_count: int | None = Field(default=None, ge=10, le=500)
     certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     tau_stop: float | None = Field(default=None, ge=0.0)
+    evaluation_lean_mode: bool = False
 
 
-class ParetoRequest(BaseModel):
+class ParetoRequest(AmbiguityContextFields):
     origin: LatLng
     destination: LatLng
     waypoints: list[Waypoint] = Field(default_factory=list, max_length=48)
@@ -181,12 +209,12 @@ class ParetoRequest(BaseModel):
     pipeline_seed: int | None = None
 
 
-class ODPair(BaseModel):
+class ODPair(AmbiguityContextFields):
     origin: LatLng
     destination: LatLng
 
 
-class BatchParetoRequest(BaseModel):
+class BatchParetoRequest(AmbiguityContextFields):
     pairs: list[ODPair] = Field(..., min_length=1, max_length=500)
     waypoints: list[Waypoint] = Field(default_factory=list, max_length=48)
     vehicle_type: str = Field(default="rigid_hgv")
@@ -216,7 +244,7 @@ class BatchParetoRequest(BaseModel):
     tau_stop: float | None = Field(default=None, ge=0.0)
 
 
-class BatchCSVImportRequest(BaseModel):
+class BatchCSVImportRequest(AmbiguityContextFields):
     csv_text: str = Field(..., min_length=1)
     waypoints: list[Waypoint] = Field(default_factory=list, max_length=48)
     vehicle_type: str = Field(default="rigid_hgv")
@@ -321,6 +349,7 @@ class RouteCertificationSummary(BaseModel):
     top_fragility_families: list[str] = Field(default_factory=list)
     top_competitor_route_id: str | None = None
     top_value_of_refresh_family: str | None = None
+    ambiguity_context: dict[str, float | int | str | bool | None] | None = None
 
 
 class VoiStopSummary(BaseModel):
@@ -333,6 +362,9 @@ class VoiStopSummary(BaseModel):
     stop_reason: str
     best_rejected_action: str | None = None
     best_rejected_q: float | None = None
+    search_completeness_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    search_completeness_gap: float | None = Field(default=None, ge=0.0)
+    credible_search_uncertainty: bool | None = None
 
 
 class RouteOption(BaseModel):
@@ -375,8 +407,14 @@ class RouteResponse(BaseModel):
 
 class RouteBaselineResponse(BaseModel):
     baseline: RouteOption
-    method: Literal["osrm_quick_baseline", "ors_reference", "ors_proxy_baseline"]
+    method: str
     compute_ms: float
+    provider_mode: str | None = None
+    baseline_policy: str | None = None
+    asset_manifest_hash: str | None = None
+    asset_recorded_at: str | None = None
+    asset_freshness_status: str | None = None
+    engine_manifest: dict[str, Any] | None = None
     notes: list[str] = Field(default_factory=list)
 
 

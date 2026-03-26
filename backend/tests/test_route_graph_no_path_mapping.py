@@ -15,6 +15,8 @@ class _NoopOSRM:
 
 
 def test_collect_candidate_routes_maps_engine_no_path_reason(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "route_graph_skip_initial_search_long_corridor", False)
+
     async def _ok_precheck(*, origin: LatLng, destination: LatLng) -> dict[str, Any]:
         _ = (origin, destination)
         return {"ok": True, "reason_code": "ok", "message": "ok"}
@@ -195,5 +197,5 @@ def test_collect_candidate_routes_scenario_separability_warn_only_returns_routes
 
     assert routes
     assert spec_count >= 1
-    assert any("scenario_profile_invalid" in warning for warning in warnings)
-    assert diag.scenario_candidate_gate_action == "warned"
+    assert not any("scenario_profile_invalid" in warning for warning in warnings)
+    assert diag.scenario_candidate_gate_action == "skipped_non_enforcing"

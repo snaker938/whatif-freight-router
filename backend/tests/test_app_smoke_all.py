@@ -9,12 +9,17 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 EXPECTED_APP_FILES = {
     "__init__.py",
+    "_process_cache.py",
     "calibration_loader.py",
     "carbon_model.py",
+    "certification_cache.py",
+    "decision_critical.py",
     "departure_profile.py",
+    "evidence_certification.py",
     "experiment_store.py",
     "fuel_energy_model.py",
     "incident_simulator.py",
+    "k_raw_cache.py",
     "k_shortest.py",
     "live_call_trace.py",
     "live_data_sources.py",
@@ -31,10 +36,11 @@ EXPECTED_APP_FILES = {
     "pareto_methods.py",
     "provenance_store.py",
     "rbac.py",
-    "reporting.py",
     "risk_model.py",
     "route_cache.py",
+    "route_state_cache.py",
     "routing_graph.py",
+    "routing_ors.py",
     "routing_osrm.py",
     "run_store.py",
     "scenario.py",
@@ -46,7 +52,9 @@ EXPECTED_APP_FILES = {
     "toll_engine.py",
     "uncertainty_model.py",
     "vehicles.py",
+    "voi_dccs_cache.py",
     "weather_adapter.py",
+    "voi_controller.py",
 }
 
 

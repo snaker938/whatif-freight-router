@@ -238,9 +238,11 @@ def _purge_locked(now_monotonic_s: float) -> None:
         stale_lookup = set(stale_ids)
         for request_id in stale_ids:
             _TRACE_STORE.pop(request_id, None)
-        _TRACE_ORDER[:] = deque(
+        retained = deque(
             request_id for request_id in _TRACE_ORDER if request_id not in stale_lookup
         )
+        _TRACE_ORDER.clear()
+        _TRACE_ORDER.extend(retained)
 
     max_traces = max(1, int(settings.dev_route_debug_max_request_traces))
     while len(_TRACE_ORDER) > max_traces:

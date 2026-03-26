@@ -240,6 +240,7 @@ export type VoiStopSummary = {
   stop_reason: string;
   best_rejected_action?: string | null;
   best_rejected_q?: number | null;
+  credible_search_uncertainty?: boolean | null;
 };
 
 export type GeoJSONLineString = {

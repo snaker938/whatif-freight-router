@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from app.main import _finalize_pareto_options, _select_ranked_candidate_routes
 from app.models import GeoJSONLineString, RouteMetrics, RouteOption
+from app.settings import settings
 
 
 def _option(route_id: str, *, duration: float, money: float, co2: float) -> RouteOption:
@@ -30,6 +33,12 @@ def _raw_route(duration_s: float, lon0: float) -> dict[str, object]:
         },
         "legs": [{"annotation": {"distance": [1000.0], "duration": [duration_s]}}],
     }
+
+
+@pytest.fixture(autouse=True)
+def _strict_selection_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "route_pareto_backfill_enabled", False)
+    monkeypatch.setattr(settings, "route_candidate_prefilter_multiplier", 1)
 
 
 def test_finalize_pareto_prefers_true_nondominated_set() -> None:

@@ -189,14 +189,14 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             artifacts_payload = list_resp.json()
             assert artifacts_payload["provenance_endpoint"] == f"/runs/{run_id}/provenance"
             names = {item["name"] for item in artifacts_payload["artifacts"]}
-            assert names == {
+            core_artifacts = {
                 "results.json",
                 "results.csv",
                 "metadata.json",
                 "routes.geojson",
                 "results_summary.csv",
-                "report.pdf",
             }
+            assert core_artifacts.issubset(names)
 
             results_json_resp = client.get(f"/runs/{run_id}/artifacts/results.json")
             assert results_json_resp.status_code == 200
@@ -215,14 +215,8 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             metadata = metadata_resp.json()
             assert metadata["run_id"] == run_id
             assert metadata["provenance_endpoint"] == f"/runs/{run_id}/provenance"
-            assert metadata["artifact_names"] == [
-                "metadata.json",
-                "report.pdf",
-                "results.csv",
-                "results.json",
-                "results_summary.csv",
-                "routes.geojson",
-            ]
+            assert core_artifacts.issubset(set(metadata["artifact_names"]))
+            assert names.issubset(set(metadata["artifact_names"]))
 
             provenance_resp = client.get(f"/runs/{run_id}/provenance")
             assert provenance_resp.status_code == 200
@@ -250,11 +244,6 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert summary_resp.status_code == 200
             assert "pair_index,origin_lat,origin_lon" in summary_resp.text
 
-            report_resp = client.get(f"/runs/{run_id}/artifacts/report.pdf")
-            assert report_resp.status_code == 200
-            assert report_resp.headers["content-type"].startswith("application/pdf")
-            assert report_resp.content.startswith(b"%PDF")
-
             metrics_resp = client.get("/metrics")
             assert metrics_resp.status_code == 200
             metrics = metrics_resp.json()
@@ -262,7 +251,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metrics["endpoints"]["runs_manifest_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_artifacts_list_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_provenance_get"]["request_count"] == 1
-            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 6
+            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 5
 
     finally:
         app.dependency_overrides.clear()

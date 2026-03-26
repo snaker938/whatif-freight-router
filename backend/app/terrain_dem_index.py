@@ -395,6 +395,7 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
     strict, require_live, allow_fallback = _terrain_live_policy()
     tile_key = (int(z), int(x), int(y))
     path = _tile_path(z=z, x=x, y=y)
+    max_age_days = int(settings.live_terrain_tile_max_age_days)
     trace_base_extra = {
         "tile_z": int(z),
         "tile_x": int(x),
@@ -420,6 +421,26 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
                 stale_cache_used=False,
                 extra={**trace_base_extra, "served_from": "route_tile_cache"},
             )
+        return path, None
+
+    if (
+        path.exists()
+        and bool(settings.live_terrain_reuse_fresh_cache_across_routes)
+        and _is_fresh_file(path, max_age_days=max_age_days)
+    ):
+        _incr_live_diag("cache_hits")
+        _mark_tile_seen_for_route(tile_key)
+        record_live_call(
+            source_key="terrain_live_tile",
+            component="terrain_dem_index",
+            url="",
+            method="GET",
+            requested=False,
+            success=True,
+            cache_hit=True,
+            stale_cache_used=False,
+            extra={**trace_base_extra, "served_from": "fresh_cache"},
+        )
         return path, None
 
     url = _render_live_tile_url(z=z, x=x, y=y)
@@ -502,7 +523,6 @@ def _fetch_live_tile_path(*, z: int, x: int, y: int) -> tuple[Path | None, str |
         return None, f"host_not_allowed:{host}"
 
     timeout_s = float(settings.live_data_request_timeout_s)
-    max_age_days = int(settings.live_terrain_tile_max_age_days)
     if _circuit_open():
         _incr_live_diag("fetch_failures")
         _set_live_diag(fetch_error="terrain_live_circuit_open", source_url=url)

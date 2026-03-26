@@ -72,6 +72,9 @@ def filter_by_epsilon(
 
     filtered: list[RouteOption] = []
     for route in options:
+        # Classical epsilon-constraint filtering treats some objectives as hard
+        # upper bounds while optimizing within the feasible subset:
+        # Haimes, Lasdon, Wismer (1971) https://doi.org/10.1109/TSSC.1971.233258
         # Epsilon bounds are always interpreted against raw physical objectives
         # (duration/money/co2), independent of any robust utility objective keying.
         duration_s = float(route.metrics.duration_s)
@@ -108,6 +111,10 @@ def annotate_knee_scores(
 
     scores: list[tuple[float, RouteOption]] = []
     for route, values in zip(routes, objective_values, strict=True):
+        # This is a closest-to-ideal heuristic in normalized objective space,
+        # not a canonical knee-point detector from the multi-objective
+        # optimization literature. See the distinction discussed by
+        # Branke et al. (2004): https://publikationen.bibliothek.kit.edu/1000018439
         score = math.sqrt(
             sum(
                 (_norm(values[idx], mins[idx], maxs[idx]) ** 2)

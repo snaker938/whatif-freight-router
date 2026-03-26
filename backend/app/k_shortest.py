@@ -42,6 +42,10 @@ def _dijkstra_shortest_path(
     if start in banned_nodes or goal in banned_nodes:
         raise PathNotFoundError("start/goal blocked")
     initial_state: Hashable = "start"
+    # When `heuristic_fn` is provided, this becomes an A* search over the
+    # augmented state space. Optimality still relies on the heuristic being
+    # admissible / consistent:
+    # Hart, Nilsson, Raphael (1968) https://doi.org/10.1109/TSSC.1968.300136
     initial_h = max(0.0, float(heuristic_fn(start))) if heuristic_fn is not None else 0.0
     heap: list[tuple[float, float, int, str, tuple[str, ...], Hashable]] = [
         (initial_h, 0.0, 0, start, (start,), initial_state)

@@ -14,6 +14,10 @@ def pick_best_by_weighted_sum(
     options: list[RouteOption], *, w_time: float, w_money: float, w_co2: float
 ) -> RouteOption:
     """Pick best option by weighted sum after min-max normalisation per objective."""
+    # Min-max normalization makes the weighted sum dimensionless before adding
+    # heterogeneous objectives. That keeps the implementation closer to the
+    # standard weighted-sum scalarization assumptions discussed in
+    # Marler & Arora (2010): https://doi.org/10.1007/s00158-009-0460-7
     wt, wm, we = normalise_weights(w_time, w_money, w_co2)
 
     times = [o.metrics.duration_s for o in options]
@@ -36,7 +40,7 @@ def pick_best_by_weighted_sum(
             + wm * norm(o.metrics.monetary_cost, mmin, mmax)
             + we * norm(o.metrics.emissions_kg, emin, emax)
         )
-        if score < best_score:
+        if score < best_score or (abs(score - best_score) <= 1e-12 and o.id < best.id):
             best = o
             best_score = score
 

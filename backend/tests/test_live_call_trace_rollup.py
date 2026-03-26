@@ -8,6 +8,7 @@ from app.live_call_trace import (
     reset_trace,
     start_trace,
 )
+import app.live_call_trace as live_trace
 from app.settings import settings
 
 
@@ -268,3 +269,24 @@ def test_expected_rollup_matches_fuel_cache_key_family(monkeypatch) -> None:
     assert row.get("source_family") == "fuel_prices"
     assert row.get("observed_calls") == 1
     assert row.get("status") == "ok"
+
+
+def test_start_trace_purges_stale_traces_without_deque_slice_assignment(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "dev_route_debug_console_enabled", True)
+    monkeypatch.setattr(settings, "dev_route_debug_trace_ttl_seconds", 30)
+    token_old = start_trace("test-stale-a", endpoint="/route", expected_calls=[])
+    token_new = start_trace("test-stale-b", endpoint="/route", expected_calls=[])
+    try:
+        stale_record = live_trace._TRACE_STORE["test-stale-a"]
+        fresh_record = live_trace._TRACE_STORE["test-stale-b"]
+        stale_record.finished_monotonic_s = stale_record.started_monotonic_s
+        fresh_record.started_monotonic_s = stale_record.started_monotonic_s + 20.0
+        fresh_record.finished_monotonic_s = None
+
+        live_trace._purge_locked(stale_record.started_monotonic_s + 45.0)
+
+        assert "test-stale-a" not in live_trace._TRACE_STORE
+        assert list(live_trace._TRACE_ORDER) == ["test-stale-b"]
+    finally:
+        reset_trace(token_old)
+        reset_trace(token_new)
