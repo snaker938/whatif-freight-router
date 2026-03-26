@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import os
 from typing import Any
 
 import pytest
@@ -163,6 +164,49 @@ def _fuel_payload(now_iso: str) -> dict[str, Any]:
     }
 
 
+def test_process_resource_snapshot_uses_windows_fallback_when_psutil_missing(monkeypatch) -> None:
+    monkeypatch.setattr(main_module, "psutil", None)
+    monkeypatch.setattr(
+        main_module,
+        "_process_resource_snapshot_windows",
+        lambda: {"rss_bytes": 1234, "vms_bytes": 5678},
+    )
+
+    assert main_module._process_resource_snapshot() == {
+        "rss_bytes": 1234,
+        "vms_bytes": 5678,
+    }
+
+
+def test_process_resource_snapshot_falls_back_on_psutil_failure(monkeypatch) -> None:
+    class _BrokenPsutil:
+        @staticmethod
+        def Process(_pid: int) -> Any:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(main_module, "psutil", _BrokenPsutil())
+    monkeypatch.setattr(
+        main_module,
+        "_process_resource_snapshot_windows",
+        lambda: {"rss_bytes": 4321, "vms_bytes": 8765},
+    )
+
+    assert main_module._process_resource_snapshot() == {
+        "rss_bytes": 4321,
+        "vms_bytes": 8765,
+    }
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only resource snapshot test")
+def test_process_resource_snapshot_windows_returns_live_metrics_when_available() -> None:
+    payload = main_module._process_resource_snapshot_windows()
+
+    assert payload
+    assert payload["rss_bytes"] > 0
+    assert payload["vms_bytes"] > 0
+    assert payload["private_bytes"] > 0
+
+
 def _toll_tariffs_payload(now_iso: str) -> dict[str, Any]:
     return {
         "as_of_utc": now_iso,
@@ -288,6 +332,18 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
     monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(
+        main_module,
+        "_validate_route_options_evidence",
+        lambda options: {
+            "status": "ok",
+            "issues": [],
+            "validations": [
+                {"status": "ok", "issues": [], "route_id": getattr(option, "id", "")}
+                for option in options
+            ],
+        },
+    )
     now_iso = _now_iso()
     monkeypatch.setattr(settings, "scenario_require_signature", False)
     monkeypatch.setattr(settings, "live_fuel_require_signature", False)

@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
+
 from .settings import settings
 from .signatures import build_signature_metadata
 
@@ -42,7 +44,6 @@ ARTIFACT_FILES: tuple[str, ...] = (
     "metadata.json",
     "routes.geojson",
     "results_summary.csv",
-    "report.pdf",
     "dccs_candidates.jsonl",
     "dccs_summary.json",
     "refined_routes.jsonl",
@@ -53,17 +54,26 @@ ARTIFACT_FILES: tuple[str, ...] = (
     "competitor_fragility_breakdown.json",
     "value_of_refresh.json",
     "sampled_world_manifest.json",
+    "evidence_snapshot_manifest.json",
     "voi_action_trace.json",
+    "voi_controller_state.jsonl",
     "voi_action_scores.csv",
     "voi_stop_certificate.json",
     "final_route_trace.json",
     "od_corpus.csv",
+    "od_corpus.json",
     "od_corpus_summary.json",
+    "od_corpus_rejected.json",
     "ors_snapshot.json",
     "thesis_results.csv",
+    "thesis_results.json",
     "thesis_summary.csv",
+    "thesis_summary.json",
+    "thesis_metrics.json",
+    "thesis_plots.json",
     "methods_appendix.md",
     "thesis_report.md",
+    "evaluation_manifest.json",
 )
 
 _SAFE_ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -122,11 +132,15 @@ def list_artifact_paths_for_run(run_id: str) -> dict[str, Path]:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    normalized = jsonable_encoder(payload)
+    path.write_text(json.dumps(normalized, indent=2, default=str), encoding="utf-8")
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    lines = [json.dumps(row, separators=(",", ":"), ensure_ascii=False) for row in rows]
+    lines = [
+        json.dumps(jsonable_encoder(row), separators=(",", ":"), ensure_ascii=False, default=str)
+        for row in rows
+    ]
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
@@ -140,7 +154,8 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def write_json_artifact(run_id: str, artifact_name: str, payload: dict[str, Any] | list[Any]) -> Path:
     path = artifact_path_for_name(run_id, artifact_name)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    normalized = jsonable_encoder(payload)
+    path.write_text(json.dumps(normalized, indent=2, default=str), encoding="utf-8")
     return path
 
 
