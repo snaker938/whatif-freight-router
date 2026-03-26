@@ -46,17 +46,52 @@ services:
     command: >
       sh -c 'echo "Waiting for OSRM on :5000..."; until curl -sS http://osrm:5000/ >/dev/null; do sleep 2; done; echo "OSRM is up."'
 
+  ors:
+    image: openrouteservice/openrouteservice:v9.7.1
+    container_name: freight_ors
+    environment:
+      ORS_CONFIG_LOCATION: /home/ors/config/ors-config.yml
+      REBUILD_GRAPHS: "False"
+      XMS: 2g
+      XMX: 6g
+      NO_PROXY: osrm,ors,localhost,127.0.0.1
+      no_proxy: osrm,ors,localhost,127.0.0.1
+    ports:
+      - '8082:8082'
+    volumes:
+      - ./osrm/data/pbf:/home/ors/files:ro
+      - ./ors/data:/home/ors/graphs
+      - ./ors/config:/home/ors/config:ro
+      - ./ors/logs:/home/ors/logs
+    depends_on:
+      osrm_download:
+        condition: service_completed_successfully
+
+  ors_ready:
+    image: curlimages/curl:8.7.1
+    container_name: freight_ors_ready
+    restart: 'no'
+    depends_on:
+      ors:
+        condition: service_started
+    environment:
+      NO_PROXY: ors,localhost,127.0.0.1
+      no_proxy: ors,localhost,127.0.0.1
+    command: >
+      sh -c 'echo "Waiting for ORS on :8082..."; until curl -sS http://ors:8082/ors/v2/health >/dev/null; do sleep 5; done; echo "ORS is up."'
+
   backend:
     build:
       context: ./backend
     container_name: freight_backend
     environment:
       OSRM_BASE_URL: http://osrm:5000
+      ORS_BASE_URL: http://ors:8082/ors
       OUT_DIR: /app/out
       LOG_LEVEL: INFO
       # Ensure backend -> OSRM calls never go via a corporate proxy.
-      NO_PROXY: osrm,localhost,127.0.0.1
-      no_proxy: osrm,localhost,127.0.0.1
+      NO_PROXY: osrm,ors,localhost,127.0.0.1
+      no_proxy: osrm,ors,localhost,127.0.0.1
       # CORS_ALLOW_ORIGINS: '["http://localhost:3000"]'
     volumes:
       - ./backend/out:/app/out
@@ -64,6 +99,8 @@ services:
       - '8000:8000'
     depends_on:
       osrm_ready:
+        condition: service_completed_successfully
+      ors_ready:
         condition: service_completed_successfully
 
   frontend:

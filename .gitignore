@@ -7,6 +7,9 @@ osrm/data/pbf/*
 osrm/data/osrm/*
 !osrm/data/osrm/.gitkeep
 
+# ORS data (large, machine-generated)
+ors/data/
+
 # Backend
 backend/.venv/
 backend/**/__pycache__/

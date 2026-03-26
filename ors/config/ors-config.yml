@@ -1,0 +1,71 @@
+ors:
+  endpoints:
+    routing:
+      enabled: true
+    matrix:
+      enabled: false
+    isochrones:
+      enabled: false
+    snap:
+      enabled: false
+    match:
+      enabled: false
+    export:
+      enabled: false
+  engine:
+    init_threads: 1
+    preparation_mode: false
+    graphs_data_access: MMAP
+    elevation:
+      preprocessed: false
+      cache_clear: false
+    profile_default:
+      enabled: false
+      graph_path: /home/ors/graphs
+      build:
+        source_file: /home/ors/files/region.osm.pbf
+        instructions: true
+        traffic: false
+        interpolate_bridges_and_tunnels: true
+      service:
+        maximum_distance: 1000000
+        maximum_distance_dynamic_weights: 1000000
+        maximum_distance_avoid_areas: 1000000
+        maximum_distance_alternative_routes: 1000000
+        maximum_distance_round_trip_routes: 1000000
+        maximum_waypoints: 50
+        maximum_visited_nodes: 1000000
+    profiles:
+      # Thesis benchmarking uses the freight-relevant local ORS profile directly.
+      # Keeping only driving-hgv avoids building unrelated graphs and reduces warmup.
+      driving-hgv:
+        enabled: true
+        encoder_name: driving-hgv
+        build:
+          encoder_options:
+            turn_costs: true
+            block_fords: false
+            use_acceleration: true
+            enable_custom_models: false
+          preparation:
+            min_network_size: 200
+            methods:
+              ch:
+                enabled: true
+                threads: 1
+                weightings: recommended
+              lm:
+                enabled: false
+              core:
+                enabled: false
+          ext_storages:
+            WayCategory:
+            HeavyVehicle:
+              restrictions: true
+            Tollways:
+            WaySurfaceType:
+        service:
+          execution:
+            methods:
+              ch:
+                enabled: true
