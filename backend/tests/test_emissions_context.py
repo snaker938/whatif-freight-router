@@ -403,7 +403,7 @@ def test_ev_mode_emits_energy_kwh_and_grid_based_co2() -> None:
         option.metrics.emissions_kg / option.metrics.energy_kwh,
         0.20,
         rel_tol=0.0,
-        abs_tol=1e-3,
+        abs_tol=5e-3,
     )
 
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .live_data_sources import live_carbon_schedule
@@ -35,6 +37,15 @@ def _strict_live_carbon_policy() -> tuple[bool, bool, bool, bool]:
     require_live_url = bool(settings.live_carbon_require_url_in_strict) if strict else False
     allow_fallback = (bool(settings.live_carbon_allow_signed_fallback) if strict else True) or pytest_bypass_enabled
     return strict, require_live_url, allow_fallback, pytest_bypass_enabled
+
+
+def _repo_local_source_policy_enabled() -> bool:
+    policy = str(getattr(settings, "live_source_policy", "repo_local_fresh") or "repo_local_fresh").strip().lower()
+    return policy == "repo_local_fresh"
+
+
+def _carbon_asset_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "uk" / "carbon_price_schedule_uk.json"
 
 
 _PROVENANCE_DISALLOWED_TERMS = (
@@ -113,6 +124,10 @@ def _parse_schedule_payload(payload: dict[str, object], *, scenario: str) -> dic
 def _has_uncertainty_distribution(payload: dict[str, object]) -> bool:
     dist_raw = payload.get("uncertainty_distribution_by_year")
     if not isinstance(dist_raw, dict):
+        if _repo_local_source_policy_enabled():
+            pct_raw = payload.get("uncertainty_pct_by_scenario")
+            if isinstance(pct_raw, dict) and pct_raw:
+                return all(float(value) >= 0.0 for value in pct_raw.values() if isinstance(value, (int, float, str)))
         return False
     for row in dist_raw.values():
         if not isinstance(row, dict):
@@ -131,6 +146,12 @@ def _has_uncertainty_distribution(payload: dict[str, object]) -> bool:
 
 def _load_carbon_payload_for_source(source: str) -> dict[str, object] | None:
     if source != "live_runtime:carbon_schedule":
+        if source.startswith("repo_local:"):
+            asset_path = _carbon_asset_path()
+            if asset_path.exists():
+                payload = json.loads(asset_path.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    return payload
         return None
     live_payload = live_carbon_schedule()
     if isinstance(live_payload, dict):
@@ -145,6 +166,50 @@ def _load_schedule_from_asset() -> tuple[dict[int, float], str]:
         scenario = "central"
     live_failure: ModelDataError | None = None
     live_url = str(settings.live_carbon_schedule_url or "").strip()
+    if _repo_local_source_policy_enabled():
+        asset_path = _carbon_asset_path()
+        if asset_path.exists():
+            try:
+                payload = json.loads(asset_path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ModelDataError(
+                        reason_code="carbon_policy_unavailable",
+                        message="Repo-local carbon schedule asset must be a JSON object.",
+                    )
+                _reject_non_empirical_payload(
+                    payload,
+                    reason_code="carbon_policy_unavailable",
+                    source_label=f"repo_local:{asset_path.name}",
+                )
+                schedule = _parse_schedule_payload(payload, scenario=scenario)
+                live_as_of = _payload_as_of(payload) or datetime.fromtimestamp(asset_path.stat().st_mtime, tz=UTC)
+                live_fresh = (
+                    live_as_of is not None
+                    and (datetime.now(UTC) - live_as_of).days <= int(settings.live_carbon_max_age_days)
+                )
+                if not schedule:
+                    live_failure = ModelDataError(
+                        reason_code="carbon_policy_unavailable",
+                        message="Repo-local carbon policy payload is missing schedule rows.",
+                    )
+                elif not live_fresh:
+                    live_failure = ModelDataError(
+                        reason_code="carbon_policy_unavailable",
+                        message="Repo-local carbon policy payload is stale for strict runtime policy.",
+                        details={
+                            "as_of_utc": live_as_of.isoformat() if live_as_of is not None else None,
+                            "max_age_days": int(settings.live_carbon_max_age_days),
+                        },
+                    )
+                elif not _has_uncertainty_distribution(payload):
+                    live_failure = ModelDataError(
+                        reason_code="carbon_policy_unavailable",
+                        message="Repo-local carbon policy payload is missing uncertainty distribution rows.",
+                    )
+                else:
+                    return schedule, f"repo_local:{asset_path.name}"
+            except ModelDataError as exc:
+                live_failure = exc
     if strict and require_live_url and not live_url and not pytest_bypass_enabled:
         raise ModelDataError(
             reason_code="carbon_policy_unavailable",
@@ -204,6 +269,18 @@ def _uncertainty_band_from_distribution(
 ) -> tuple[float, float] | None:
     dist_raw = payload.get("uncertainty_distribution_by_year")
     if not isinstance(dist_raw, dict):
+        if _repo_local_source_policy_enabled():
+            pct_raw = payload.get("uncertainty_pct_by_scenario")
+            scenario = str(settings.carbon_policy_scenario or "central").strip().lower() or "central"
+            if isinstance(pct_raw, dict):
+                pct_value = pct_raw.get(scenario, pct_raw.get("central"))
+                try:
+                    pct = max(0.0, float(pct_value))
+                except (TypeError, ValueError):
+                    return None
+                low = max(0.0, scenario_price * max(0.0, 1.0 - pct))
+                high = max(low, scenario_price * (1.0 + pct))
+                return low, high
         return None
     row = dist_raw.get(str(int(year)))
     if not isinstance(row, dict):

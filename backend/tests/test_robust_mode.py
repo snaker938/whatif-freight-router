@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.main import _finalize_pareto_options, _pick_best_option, settings
+from app.main import _finalize_pareto_options, _pick_best_option, _route_selection_score_map, settings
 from app.models import GeoJSONLineString, RouteMetrics, RouteOption
 
 
@@ -247,3 +247,114 @@ def test_pick_best_option_supports_vikor_profiles() -> None:
             assert picked.id in {"a", "b"}
     finally:
         settings.route_selection_math_profile = original_profile
+
+
+def test_route_selection_score_map_matches_robust_pick() -> None:
+    option_a = _option(
+        route_id="a",
+        duration_s=100.0,
+        money=80.0,
+        co2=110.0,
+        mean_duration_s=96.0,
+        std_duration_s=22.0,
+        cvar95_duration_s=150.0,
+        mean_money=82.0,
+        cvar95_money=95.0,
+        mean_co2=112.0,
+        cvar95_co2=120.0,
+    )
+    option_b = _option(
+        route_id="b",
+        duration_s=104.0,
+        money=79.0,
+        co2=109.0,
+        mean_duration_s=102.0,
+        std_duration_s=4.0,
+        cvar95_duration_s=110.0,
+        mean_money=80.0,
+        cvar95_money=84.0,
+        mean_co2=110.0,
+        cvar95_co2=114.0,
+    )
+    option_c = _option(
+        route_id="c",
+        duration_s=98.0,
+        money=92.0,
+        co2=118.0,
+        mean_duration_s=97.0,
+        std_duration_s=10.0,
+        cvar95_duration_s=118.0,
+        mean_money=93.0,
+        cvar95_money=101.0,
+        mean_co2=119.0,
+        cvar95_co2=127.0,
+    )
+
+    options = [option_a, option_b, option_c]
+    picked = _pick_best_option(
+        options,
+        w_time=0.6,
+        w_money=0.2,
+        w_co2=0.2,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+    score_map = _route_selection_score_map(
+        options,
+        w_time=0.6,
+        w_money=0.2,
+        w_co2=0.2,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    assert picked.id == min(score_map, key=score_map.get)
+
+
+def test_robust_pick_respects_weighted_tradeoff_across_objectives() -> None:
+    motorway_fast = _option(
+        route_id="motorway_fast",
+        duration_s=96.0,
+        money=98.0,
+        co2=126.0,
+        mean_duration_s=96.0,
+        std_duration_s=18.0,
+        cvar95_duration_s=125.0,
+        mean_money=100.0,
+        cvar95_money=122.0,
+        mean_co2=129.0,
+        cvar95_co2=150.0,
+    )
+    balanced_corridor = _option(
+        route_id="balanced_corridor",
+        duration_s=101.0,
+        money=84.0,
+        co2=108.0,
+        mean_duration_s=102.0,
+        std_duration_s=4.0,
+        cvar95_duration_s=109.0,
+        mean_money=84.0,
+        cvar95_money=89.0,
+        mean_co2=108.0,
+        cvar95_co2=114.0,
+    )
+
+    picked = _pick_best_option(
+        [motorway_fast, balanced_corridor],
+        w_time=0.2,
+        w_money=0.4,
+        w_co2=0.4,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+    score_map = _route_selection_score_map(
+        [motorway_fast, balanced_corridor],
+        w_time=0.2,
+        w_money=0.4,
+        w_co2=0.4,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    assert picked.id == "balanced_corridor"
+    assert picked.id == min(score_map, key=score_map.get)

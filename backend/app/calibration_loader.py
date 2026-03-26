@@ -83,11 +83,26 @@ def _model_asset_root() -> Path:
     return Path(settings.model_asset_dir)
 
 
+def _live_source_policy() -> str:
+    policy = str(getattr(settings, "live_source_policy", "repo_local_fresh") or "repo_local_fresh").strip().lower()
+    if policy not in {"strict_external", "repo_local_fresh"}:
+        return "repo_local_fresh"
+    return policy
+
+
+def _repo_local_source_policy_enabled() -> bool:
+    return _live_source_policy() == "repo_local_fresh"
+
+
 def _resolve_asset_path(filename: str) -> Path:
     generated = _model_asset_root() / filename
+    bundled = _assets_root() / filename
+    if _repo_local_source_policy_enabled() and generated.exists() and bundled.exists():
+        generated_mtime = generated.stat().st_mtime
+        bundled_mtime = bundled.stat().st_mtime
+        return bundled if bundled_mtime >= generated_mtime else generated
     if generated.exists():
         return generated
-    bundled = _assets_root() / filename
     if bundled.exists():
         return bundled
     raise FileNotFoundError(f"model asset not found: {filename}")
@@ -132,6 +147,27 @@ def _infer_as_of_from_payload(payload: dict[str, Any]) -> datetime | None:
 
 def _infer_as_of_from_path(path: Path) -> datetime:
     return datetime.fromtimestamp(float(path.stat().st_mtime), tz=UTC)
+
+
+def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ModelDataError(
+            reason_code="model_asset_invalid",
+            message=f"{label} asset could not be read: {path}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ModelDataError(
+            reason_code="model_asset_invalid",
+            message=f"{label} asset must be a JSON object: {path}",
+        )
+    return payload
+
+
+def _load_repo_local_asset_payload(filename: str, *, label: str) -> tuple[dict[str, Any], Path]:
+    path = _resolve_asset_path(filename)
+    return _load_json_object(path, label=label), path
 
 
 def _is_fresh(as_of_utc: datetime | None, *, max_age_days: int) -> bool:
@@ -1164,6 +1200,26 @@ def load_scenario_profiles() -> ScenarioProfiles:
     pytest_bypass_enabled = _strict_runtime_test_bypass_enabled()
     enforce_freshness = strict and not pytest_bypass_enabled
     live_coeff_url = str(settings.live_scenario_coefficient_url or "").strip()
+    if _repo_local_source_policy_enabled():
+        try:
+            local_payload, local_path = _load_repo_local_asset_payload(
+                "scenario_profiles_uk.json",
+                label="scenario profiles",
+            )
+            parsed = _parse_scenario_profiles_payload(
+                local_payload,
+                source=f"repo_local:{local_path.name}",
+            )
+            _raise_if_strict_stale_minutes(
+                reason_code="scenario_profile_unavailable",
+                message="Repo-local scenario coefficient payload is stale for repo-local strict runtime policy.",
+                as_of_utc=_infer_as_of_from_payload(local_payload) or _infer_as_of_from_path(local_path),
+                max_age_minutes=int(settings.live_scenario_coefficient_max_age_minutes),
+                enforce=enforce_freshness,
+            )
+            return parsed
+        except ModelDataError as exc:
+            last_invalid = exc
     # Legacy LIVE_SCENARIO_PROFILE_URL compatibility has been removed from the
     # strict scenario coefficient path to keep source policy explicit.
 
@@ -1238,6 +1294,110 @@ def _raise_if_strict_stale_minutes(
         details={
             "as_of_utc": as_of_utc.isoformat() if as_of_utc is not None else None,
             "max_age_minutes": int(max_age_minutes),
+        },
+    )
+
+
+def _repo_local_live_scenario_context(
+    *,
+    corridor_bucket: str,
+    road_mix_bucket: str,
+    vehicle_class: str,
+    day_kind: str,
+    hour_slot_local: int | None,
+    weather_bucket: str,
+    centroid_lat: float | None,
+    centroid_lon: float | None,
+    road_hint: str | None,
+) -> ScenarioLiveContext:
+    from .scenario import ScenarioRouteContext, _profile_context_distance
+
+    payload = load_scenario_profiles()
+    contexts = payload.contexts or {}
+    if not contexts:
+        raise ModelDataError(
+            reason_code="scenario_profile_unavailable",
+            message="Repo-local scenario profile payload is missing contextual profiles.",
+        )
+
+    route_context = ScenarioRouteContext(
+        corridor_geohash5=_canonical_context_token(corridor_bucket, fallback="uk000"),
+        hour_slot_local=int(max(0, min(23, int(_safe_float(hour_slot_local, 12.0))))),
+        day_kind=_canonical_context_token(day_kind, fallback="weekday"),
+        road_mix_bucket=_canonical_context_token(road_mix_bucket, fallback="mixed"),
+        road_mix_vector={_canonical_context_token(road_mix_bucket, fallback="mixed"): 1.0},
+        vehicle_class=_canonical_context_token(vehicle_class, fallback="rigid_hgv"),
+        weather_regime=_canonical_context_token(weather_bucket, fallback="clear"),
+        centroid_lat=centroid_lat,
+        centroid_lon=centroid_lon,
+        road_hint=road_hint,
+    )
+
+    selected_key = route_context.context_key
+    selected_profile = contexts.get(selected_key)
+    if selected_profile is None:
+        best_distance = float("inf")
+        best_key = ""
+        best_profile = None
+        for context_key, context_profile in contexts.items():
+            distance = _profile_context_distance(
+                context=route_context,
+                context_key=context_key,
+                context_profile=context_profile,
+            )
+            if distance < best_distance:
+                best_distance = distance
+                best_key = context_key
+                best_profile = context_profile
+        if best_profile is None:
+            raise ModelDataError(
+                reason_code="scenario_profile_unavailable",
+                message="Repo-local scenario profile payload has no usable contextual match.",
+            )
+        selected_key = best_key
+        selected_profile = best_profile
+
+    coverage_raw = getattr(selected_profile, "source_coverage", None)
+    if not isinstance(coverage_raw, dict):
+        coverage_raw = {}
+    coverage = {
+        "webtris": max(0.0, min(1.0, _safe_float(coverage_raw.get("webtris"), 1.0))),
+        "traffic_england": max(0.0, min(1.0, _safe_float(coverage_raw.get("traffic_england"), 1.0))),
+        "dft": max(0.0, min(1.0, _safe_float(coverage_raw.get("dft"), 1.0))),
+        "open_meteo": max(0.0, min(1.0, _safe_float(coverage_raw.get("open_meteo"), 1.0))),
+        "overall": max(0.0, min(1.0, _safe_float(coverage_raw.get("overall"), 1.0))),
+    }
+    if coverage["overall"] <= 0.0:
+        coverage["overall"] = min(
+            1.0,
+            max(
+                coverage["webtris"],
+                coverage["traffic_england"],
+                coverage["dft"],
+                coverage["open_meteo"],
+            ),
+        )
+
+    as_of = str(payload.as_of_utc or payload.generated_at_utc or "").strip()
+    if not as_of:
+        as_of = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return ScenarioLiveContext(
+        as_of_utc=as_of,
+        source_set={
+            "webtris": "repo_local:scenario_profiles_context",
+            "traffic_england": "repo_local:scenario_profiles_context",
+            "dft_counts": "repo_local:scenario_profiles_context",
+            "open_meteo": "repo_local:scenario_profiles_context",
+        },
+        coverage=coverage,
+        traffic_pressure=1.0,
+        incident_pressure=1.0,
+        weather_pressure=1.0,
+        weather_bucket=_canonical_context_token(weather_bucket, fallback="clear"),
+        diagnostics={
+            "source_label": "repo_local:scenario_profiles_context",
+            "selected_context_key": selected_key,
+            "mode_observation_source": getattr(selected_profile, "mode_observation_source", None),
         },
     )
 
@@ -1634,6 +1794,18 @@ def load_live_scenario_context(
     road_hint: str | None = None,
     transform_params_json: str | None = None,
 ) -> ScenarioLiveContext:
+    if _repo_local_source_policy_enabled():
+        return _repo_local_live_scenario_context(
+            corridor_bucket=corridor_bucket,
+            road_mix_bucket=road_mix_bucket,
+            vehicle_class=vehicle_class,
+            day_kind=day_kind,
+            hour_slot_local=hour_slot_local,
+            weather_bucket=weather_bucket,
+            centroid_lat=centroid_lat,
+            centroid_lon=centroid_lon,
+            road_hint=road_hint,
+        )
     transform_params: dict[str, Any] | None = None
     if transform_params_json:
         try:
@@ -2168,6 +2340,35 @@ def load_departure_profile() -> DepartureProfile:
     require_live_url = bool(settings.live_departure_require_url_in_strict) if strict else False
     rejected_synthetic = False
     live_failure: ModelDataError | None = None
+    if _repo_local_source_policy_enabled():
+        try:
+            local_payload, local_path = _load_repo_local_asset_payload(
+                "departure_profiles_uk.json",
+                label="departure profiles",
+            )
+            parsed = _parse_departure_profile_payload(
+                local_payload,
+                source=f"repo_local:{local_path.name}",
+            )
+            if parsed is not None:
+                local_as_of = _infer_as_of_from_payload(local_payload) or _infer_as_of_from_path(local_path)
+                if (
+                    strict_empirical_required
+                    and not settings.departure_allow_synthetic_profiles
+                    and _payload_is_synthetic(local_payload, version=parsed.version)
+                ):
+                    rejected_synthetic = True
+                else:
+                    _raise_if_strict_stale(
+                        reason_code="departure_profile_unavailable",
+                        message="Repo-local departure profile payload is stale for repo-local strict runtime policy.",
+                        as_of_utc=local_as_of,
+                        max_age_days=int(settings.live_departure_max_age_days),
+                        enforce=True,
+                    )
+                    return parsed
+        except ModelDataError as exc:
+            live_failure = exc
     if strict and require_live_url and not live_url and not pytest_bypass_enabled:
         raise ModelDataError(
             reason_code="departure_profile_unavailable",
@@ -2429,6 +2630,26 @@ def load_toll_tariffs() -> TollTariffTable:
     live_url = str(settings.live_toll_tariffs_url or "").strip()
     require_live_url = bool(settings.live_toll_tariffs_require_url_in_strict) if strict else False
     live_failure: ModelDataError | None = None
+    if _repo_local_source_policy_enabled():
+        try:
+            local_payload, local_path = _load_repo_local_asset_payload(
+                "toll_tariffs_uk.json",
+                label="toll tariffs",
+            )
+            local_table = _parse_tariff_payload(local_payload, source=f"repo_local:{local_path.name}")
+            local_as_of = _infer_as_of_from_payload(local_payload) or _infer_as_of_from_path(local_path)
+            if local_table.rules and _is_fresh(local_as_of, max_age_days=int(settings.live_toll_tariffs_max_age_days)):
+                return local_table
+            live_failure = ModelDataError(
+                reason_code="toll_tariff_unavailable",
+                message="Repo-local toll tariff payload is unavailable/stale for strict runtime policy.",
+                details={
+                    "as_of_utc": local_as_of.isoformat() if local_as_of is not None else None,
+                    "max_age_days": int(settings.live_toll_tariffs_max_age_days),
+                },
+            )
+        except ModelDataError as exc:
+            live_failure = exc
     if strict and require_live_url and not live_url and not pytest_bypass_enabled:
         raise ModelDataError(
             reason_code="toll_tariff_unavailable",
@@ -2481,12 +2702,33 @@ def load_toll_segments_seed() -> tuple[TollSegmentSeed, ...]:
     payload: Any = None
     source_label = "unknown"
     live_failure: ModelDataError | None = None
+    if _repo_local_source_policy_enabled():
+        try:
+            local_payload, local_path = _load_repo_local_asset_payload(
+                "toll_topology_uk.json",
+                label="toll topology",
+            )
+            local_as_of = _infer_as_of_from_payload(local_payload) or _infer_as_of_from_path(local_path)
+            if _is_fresh(local_as_of, max_age_days=int(settings.live_toll_topology_max_age_days)):
+                payload = local_payload
+                source_label = f"repo_local:{local_path.name}"
+            else:
+                live_failure = ModelDataError(
+                    reason_code="toll_topology_unavailable",
+                    message="Repo-local toll topology payload is stale for strict runtime policy.",
+                    details={
+                        "as_of_utc": local_as_of.isoformat() if local_as_of is not None else None,
+                        "max_age_days": int(settings.live_toll_topology_max_age_days),
+                    },
+                )
+        except ModelDataError as exc:
+            live_failure = exc
     if strict and require_live_url and not live_url and not pytest_bypass_enabled:
         raise ModelDataError(
             reason_code="toll_topology_unavailable",
             message="LIVE_TOLL_TOPOLOGY_URL is required in strict runtime.",
         )
-    if settings.live_runtime_data_enabled and live_url:
+    if not isinstance(payload, dict) and settings.live_runtime_data_enabled and live_url:
         live_payload = live_toll_topology()
         if isinstance(live_payload, dict):
             live_as_of = _infer_as_of_from_payload(live_payload)
@@ -2885,6 +3127,29 @@ def load_fuel_price_snapshot(as_of_utc: datetime | None = None) -> FuelPriceSnap
     require_live_url = bool(settings.live_fuel_require_url_in_strict) if strict else False
 
     live_failure: ModelDataError | None = None
+    if _repo_local_source_policy_enabled():
+        try:
+            local_payload, local_path = _load_repo_local_asset_payload(
+                "fuel_prices_uk.json",
+                label="fuel prices",
+            )
+            local_snapshot = _coerce_fuel_snapshot(
+                payload=local_payload,
+                source_label=f"repo_local:{local_path.name}",
+                as_of_utc=as_of_utc,
+                require_signature=require_signature,
+            )
+            local_as_of = _infer_as_of_from_payload(local_payload) or _parse_iso_datetime(local_snapshot.as_of) or _infer_as_of_from_path(local_path)
+            _raise_if_strict_stale(
+                reason_code="fuel_price_source_unavailable",
+                message="Repo-local fuel price source is stale for repo-local strict runtime policy.",
+                as_of_utc=local_as_of,
+                max_age_days=int(settings.live_fuel_max_age_days),
+                enforce=True,
+            )
+            return local_snapshot
+        except ModelDataError as exc:
+            live_failure = exc
     if settings.live_runtime_data_enabled and live_url:
         live_payload = live_fuel_prices(as_of_utc)
         if isinstance(live_payload, dict) and "_live_error" in live_payload:
@@ -2976,12 +3241,47 @@ def load_stochastic_regimes() -> StochasticRegimeTable:
     source: str = ""
     rejected_synthetic = False
     live_failure: ModelDataError | None = None
+    if _repo_local_source_policy_enabled():
+        try:
+            local_payload, local_path = _load_repo_local_asset_payload(
+                "stochastic_regimes_uk.json",
+                label="stochastic regimes",
+            )
+            local_as_of = _infer_as_of_from_payload(local_payload) or _infer_as_of_from_path(local_path)
+            local_is_synthetic = _payload_is_synthetic(
+                local_payload,
+                version=str(local_payload.get("calibration_version", "")),
+            )
+            if (
+                strict_empirical_required
+                and local_is_synthetic
+                and not settings.stochastic_allow_synthetic_calibration
+            ):
+                rejected_synthetic = True
+                live_failure = ModelDataError(
+                    reason_code="stochastic_calibration_unavailable",
+                    message="Repo-local stochastic calibration payload uses synthetic/legacy basis in strict runtime.",
+                )
+            elif _is_fresh(local_as_of, max_age_days=int(settings.live_stochastic_max_age_days)):
+                payload = local_payload
+                source = f"repo_local:{local_path.name}"
+            else:
+                live_failure = ModelDataError(
+                    reason_code="stochastic_calibration_unavailable",
+                    message="Repo-local stochastic calibration payload is stale for strict runtime policy.",
+                    details={
+                        "as_of_utc": local_as_of.isoformat() if local_as_of is not None else None,
+                        "max_age_days": int(settings.live_stochastic_max_age_days),
+                    },
+                )
+        except ModelDataError as exc:
+            live_failure = exc
     if strict and require_live_url and not live_url and not pytest_bypass_enabled:
         raise ModelDataError(
             reason_code="stochastic_calibration_unavailable",
             message="LIVE_STOCHASTIC_REGIMES_URL is required in strict runtime.",
         )
-    if settings.live_runtime_data_enabled and live_url:
+    if not payload and settings.live_runtime_data_enabled and live_url:
         live_payload = live_stochastic_regimes()
         if isinstance(live_payload, dict):
             live_as_of = _infer_as_of_from_payload(live_payload)

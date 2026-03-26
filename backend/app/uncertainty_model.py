@@ -291,6 +291,9 @@ def _bounded(value: float, *, low: float, high: float) -> float:
 
 
 def _cholesky_5x5(matrix: tuple[tuple[float, ...], ...]) -> tuple[tuple[float, ...], ...]:
+    # Standard Cholesky factorization for a symmetric positive semidefinite
+    # covariance / correlation matrix:
+    # Golub & Van Loan, Matrix Computations (2013)
     n = 5
     out = [[0.0 for _ in range(n)] for _ in range(n)]
     for i in range(n):
@@ -315,6 +318,8 @@ def _correlated_standard_normals(
     *,
     l_factor: tuple[tuple[float, ...], ...],
 ) -> tuple[float, float, float, float, float]:
+    # Correlated Gaussian draws are produced by multiplying iid N(0,1) shocks by
+    # the lower-triangular Cholesky factor of the target correlation matrix.
     z = [rng.gauss(0.0, 1.0) for _ in range(5)]
     out = [0.0] * 5
     for i in range(5):
@@ -326,6 +331,7 @@ def _correlated_standard_normals(
 
 
 def _interp_quantile_mapping(points: tuple[tuple[float, float], ...], z_value: float) -> tuple[float, bool]:
+    # Piecewise-linear interpolation over empirical shock-quantile anchors.
     if not points:
         return 1.0, False
     z = float(z_value)
@@ -482,7 +488,10 @@ def _factors_from_shocks(
     regime: StochasticRegime,
 ) -> tuple[float, float, float, int]:
     traffic_z, incident_z, weather_z, price_z, eco_z = shocks
-    # Calibrated regime parameters are loaded from artifact tables.
+    # Calibrated regime parameters are loaded from artifact tables. The
+    # multiplicative factor construction below is thesis-specific; it combines
+    # empirical quantile mappings with bounded regime-weighted mixes rather than
+    # claiming a standard published transform family.
     sigma_scaled = sigma * regime.sigma_scale
 
     clip_events = 0
@@ -618,6 +627,9 @@ def compute_uncertainty_summary(
     for _ in range(half):
         z = _correlated_standard_normals(rng, l_factor=l_factor)
         _append_from_shocks(z)
+        # Use classical antithetic variates to pair each Gaussian draw with its
+        # negation and reduce Monte Carlo variance in the sampled summaries:
+        # Hammersley & Morton (1956) https://doi.org/10.1017/S0305004100031440
         antithetic = (-z[0], -z[1], -z[2], -z[3], -z[4])
         _append_from_shocks(antithetic)
 
@@ -665,8 +677,14 @@ def compute_uncertainty_summary(
     cvar95_emissions = max(cvar(emissions_samples, alpha=alpha), q95_emissions)
     utility_q95 = q(utility_samples, 0.95)
     utility_cvar = max(utility_cvar, utility_q95)
-    sample_clip_ratio = max(0.0, min(1.0, float(sample_count != requested_samples)))
-    sigma_clip_ratio = max(0.0, min(1.0, float(abs(sigma_clamped - requested_sigma) > 1e-9)))
+    sample_clip_ratio = (
+        abs(float(sample_count) - float(requested_samples)) / max(1.0, float(requested_samples))
+    )
+    sigma_clip_ratio = (
+        abs(float(sigma_clamped) - float(requested_sigma)) / max(1e-9, abs(float(requested_sigma)))
+        if abs(float(requested_sigma)) > 1e-9
+        else 0.0
+    )
     factor_clip_rate = max(
         0.0,
         min(

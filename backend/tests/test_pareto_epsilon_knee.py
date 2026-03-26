@@ -51,6 +51,19 @@ def test_knee_selection_is_deterministic() -> None:
     assert all(route.knee_score is not None for route in first)
 
 
+def test_knee_score_uses_closest_to_ideal_heuristic() -> None:
+    options = [
+        _option("r1", duration_s=1000, monetary_cost=260, emissions_kg=100),
+        _option("r2", duration_s=1200, monetary_cost=200, emissions_kg=80),
+        _option("r3", duration_s=1600, monetary_cost=150, emissions_kg=55),
+    ]
+
+    scored = annotate_knee_scores(options)
+    knee = [route.id for route in scored if route.is_knee]
+
+    assert knee == ["r2"]
+
+
 def test_pareto_truncation_preserves_extremes_via_crowding_distance() -> None:
     options = [
         _option("r_fast", duration_s=1000, monetary_cost=320, emissions_kg=120),

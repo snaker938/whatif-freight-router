@@ -76,7 +76,8 @@ def quantile(values: list[float], q: float) -> float:
     q_clamped = min(1.0, max(0.0, float(q)))
     if len(ordered) == 1:
         return ordered[0]
-    # Linear interpolation quantile for smoother and less biased tails.
+    # Use the Hyndman-Fan type-7 sample quantile convention:
+    # Hyndman & Fan (1996) https://doi.org/10.1080/00031305.1996.10473566
     pos = q_clamped * (len(ordered) - 1)
     lo = int(math.floor(pos))
     hi = int(math.ceil(pos))
@@ -98,7 +99,9 @@ def cvar(values: Iterable[float], *, alpha: float = 0.95) -> float:
     if alpha_clamped >= 1.0:
         return ordered[-1]
 
-    # Integrate the interpolated quantile function on [alpha, 1].
+    # Empirical CVaR / expected shortfall integrates the tail quantile
+    # function on [alpha, 1], following Rockafellar & Uryasev (2000):
+    # https://doi.org/10.21314/JOR.2000.038
     knots: list[float] = [alpha_clamped]
     for idx in range(n):
         p = idx / (n - 1)
@@ -134,11 +137,14 @@ def robust_objective(
     family = str(risk_family or "cvar_excess").strip().lower()
     if family == "entropic":
         theta = max(1e-6, float(risk_theta))
-        # Entropic-style penalty over tail excess; remains monotone in tail and risk.
+        # This is a thesis-specific entropic-style tail penalty, not the
+        # canonical entropic risk measure on the full loss distribution.
         penalty = math.log1p(risk * math.expm1(theta * tail_excess)) / theta
         return float(mean_value) + penalty
     if family == "downside_semivariance":
         scale = max(1.0, abs(float(mean_value)))
+        # This is a thesis-specific quadratic penalty on CVaR excess, not the
+        # textbook downside semivariance definition over centered tail losses.
         penalty = (tail_excess * tail_excess) / scale
         return float(mean_value) + (risk * penalty)
     return float(mean_value) + (risk * tail_excess)

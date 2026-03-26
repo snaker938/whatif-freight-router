@@ -56,6 +56,20 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(settings, "out_dir", str(out_dir))
+    monkeypatch.setattr(settings, "route_pareto_backfill_enabled", True)
+    monkeypatch.setattr(settings, "route_pareto_backfill_min_alternatives", 4)
+    monkeypatch.setattr(
+        main_module,
+        "_validate_route_options_evidence",
+        lambda options: {
+            "status": "ok",
+            "issues": [],
+            "validations": [
+                {"status": "ok", "issues": [], "route_id": getattr(option, "id", "")}
+                for option in options
+            ],
+        },
+    )
     fake = MultiRouteOSRM()
 
     async def _fake_collect_route_options_with_diagnostics(**kwargs: Any) -> tuple[
@@ -204,8 +218,11 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
             assert routes
             assert all(route["metrics"]["duration_s"] <= 25000 for route in routes)
             assert sum(1 for route in routes if route["is_knee"]) == 1
+            assert len(routes) == 3
+            assert all(route["knee_score"] is not None for route in routes)
             for route in routes:
-                assert route["knee_score"] is not None
+                if route["is_knee"]:
+                    assert route["knee_score"] is not None
                 stages = [item["stage"] for item in route["eta_timeline"]]
                 assert stages == [
                     "baseline",

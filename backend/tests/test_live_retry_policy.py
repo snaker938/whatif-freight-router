@@ -4,9 +4,19 @@ import time
 from typing import Any
 
 import httpx
+import pytest
 
 import app.live_data_sources as live_data_sources
 from app.settings import settings
+
+
+@pytest.fixture(autouse=True)
+def _reset_live_http_client() -> None:
+    live_data_sources._close_live_http_client()
+    live_data_sources.clear_live_data_source_cache()
+    yield
+    live_data_sources._close_live_http_client()
+    live_data_sources.clear_live_data_source_cache()
 
 
 class _FakeClient:
@@ -19,7 +29,15 @@ class _FakeClient:
     def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
         return False
 
-    def get(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:  # noqa: ARG002
+    def close(self) -> None:
+        return None
+
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> httpx.Response:  # noqa: ARG002
         item = self._responses.pop(0)
         if isinstance(item, Exception):
             raise item

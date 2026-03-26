@@ -401,6 +401,15 @@ def test_scenario_delay_increases_duration_cost_and_emissions() -> None:
 
 
 def test_build_option_uses_segment_totals_when_top_level_missing() -> None:
+    baseline_route = _route(distance_m=10_000.0, duration_s=1_000.0)
+    baseline = build_option(
+        baseline_route,
+        option_id="seg_reference",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.FULL_SHARING,
+        cost_toggles=CostToggles(),
+    )
+
     route = _route(distance_m=10_000.0, duration_s=1_000.0)
     route["distance"] = 0.0
     route["duration"] = 0.0
@@ -413,8 +422,8 @@ def test_build_option_uses_segment_totals_when_top_level_missing() -> None:
         cost_toggles=CostToggles(),
     )
 
-    assert math.isclose(option.metrics.distance_km, 10.0, rel_tol=0.0, abs_tol=0.001)
-    assert math.isclose(option.metrics.duration_s, 1_000.0, rel_tol=0.0, abs_tol=0.01)
+    assert math.isclose(option.metrics.distance_km, baseline.metrics.distance_km, rel_tol=0.0, abs_tol=0.001)
+    assert math.isclose(option.metrics.duration_s, baseline.metrics.duration_s, rel_tol=0.0, abs_tol=0.01)
 
 
 def test_carbon_price_toggle_increases_monetary_cost() -> None:
@@ -668,6 +677,8 @@ def test_segment_breakdown_includes_cost_decomposition_keys() -> None:
 def test_strict_live_url_missing_with_fallback_disabled_returns_source_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "strict_live_data_required", True)
+    monkeypatch.setattr(settings, "live_source_policy", "strict_external")
     monkeypatch.setattr(settings, "live_fuel_price_url", "")
     monkeypatch.setattr(settings, "live_fuel_require_url_in_strict", True)
     monkeypatch.setattr(settings, "live_fuel_allow_signed_fallback", False)
@@ -683,6 +694,8 @@ def test_strict_live_url_missing_with_fallback_disabled_returns_source_unavailab
 def test_strict_live_auth_failure_maps_to_auth_reason_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "strict_live_data_required", True)
+    monkeypatch.setattr(settings, "live_source_policy", "strict_external")
     monkeypatch.setattr(settings, "live_fuel_price_url", "https://live.example/fuel")
     monkeypatch.setattr(settings, "live_fuel_require_url_in_strict", True)
     monkeypatch.setattr(settings, "live_fuel_allow_signed_fallback", False)
@@ -709,6 +722,8 @@ def test_strict_live_auth_failure_maps_to_auth_reason_code(
 def test_strict_live_stale_without_fallback_returns_source_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "strict_live_data_required", True)
+    monkeypatch.setattr(settings, "live_source_policy", "strict_external")
     monkeypatch.setattr(settings, "live_fuel_price_url", "https://live.example/fuel")
     monkeypatch.setattr(settings, "live_fuel_require_url_in_strict", True)
     monkeypatch.setattr(settings, "live_fuel_allow_signed_fallback", False)

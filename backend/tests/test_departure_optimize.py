@@ -339,6 +339,18 @@ def _strict_runtime_test_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
     monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
     monkeypatch.setattr(settings, "live_route_compute_probe_terrain", False)
+    monkeypatch.setattr(
+        main_module,
+        "_validate_route_options_evidence",
+        lambda options: {
+            "status": "ok",
+            "issues": [],
+            "validations": [
+                {"status": "ok", "issues": [], "route_id": getattr(option, "id", "")}
+                for option in options
+            ],
+        },
+    )
     now_iso = _now_iso()
     monkeypatch.setattr(settings, "scenario_require_signature", False)
     monkeypatch.setattr(settings, "live_fuel_require_signature", False)
@@ -495,7 +507,7 @@ def test_departure_optimize_time_window_feasible_and_infeasible(tmp_path: Path, 
                     "window_end_utc": "2026-02-12T08:00:00Z",
                     "step_minutes": 180,
                     "time_window": {
-                        "latest_arrival_utc": "2026-02-12T03:30:00Z",
+                        "latest_arrival_utc": "2026-02-12T04:30:00Z",
                     },
                 },
             )
