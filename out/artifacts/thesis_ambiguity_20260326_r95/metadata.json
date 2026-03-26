@@ -1,0 +1,100 @@
+{
+  "run_id": "thesis_ambiguity_20260326_r95",
+  "variant_count": 4,
+  "row_count": 32,
+  "failure_count": 0,
+  "corpus_hash": "44490ad7ee3b9b41e7d9060bb69d71cef8221b63b25c8054ed994de9b7134bbc",
+  "strict_evidence_policy": "no_synthetic_no_proxy_no_fallback",
+  "ors_baseline_policy": "local_service",
+  "repo_asset_preflight_required_ok": true,
+  "repo_asset_preflight_path": "out\\artifacts\\thesis_ambiguity_20260326_r95\\repo_asset_preflight.json",
+  "backend_ready_summary": {
+    "status": "ready",
+    "strict_route_ready": true,
+    "recommended_action": "ready",
+    "route_graph": {
+      "ok": true,
+      "status": "ok",
+      "state": "ready",
+      "ready_mode": "full",
+      "phase": "ready",
+      "started_at_utc": "2026-03-26T23:00:18Z",
+      "ready_at_utc": "2026-03-26T23:04:00Z",
+      "elapsed_ms": 221887.92,
+      "timeout_s": 1200,
+      "timed_out": false,
+      "last_error": null,
+      "graph_source": "C:\\\\Users\\\\jmend\\\\Documents\\\\GitHub\\\\whatif-freight-router\\\\backend\\\\assets\\\\uk\\\\uk-latest.osm.pbf",
+      "graph_version": "uk-routing-graph-v1",
+      "asset_path": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\out\\model_assets\\routing_graph_uk.json",
+      "asset_exists": true,
+      "asset_size_mb": 4123.27,
+      "nodes_seen": 16782614,
+      "nodes_kept": 16782614,
+      "edges_seen": 32920150,
+      "edges_kept": 32920150,
+      "component_count": 5359,
+      "largest_component_nodes": 15564399,
+      "largest_component_ratio": 0.9274120825277874,
+      "graph_fragmented": false,
+      "edge_count": 32920150,
+      "load_strategy": "compact_bundle",
+      "max_nearest_node_distance_m": 10000.0,
+      "thread_alive": true,
+      "cache_loaded": true
+    },
+    "strict_live": {
+      "ok": true,
+      "status": "ok",
+      "reason_code": "ok",
+      "message": "Strict live scenario coefficients are ready.",
+      "as_of_utc": "2026-03-23T23:24:37+00:00",
+      "age_minutes": 4299.4,
+      "max_age_minutes": 4320,
+      "checked_at_utc": "2026-03-26T23:04:01.181454+00:00"
+    },
+    "compute_ms": 1350.67,
+    "wait_elapsed_ms": 217529.19,
+    "attempt_count": 29
+  },
+  "baseline_smoke_summary": {
+    "checked_at_utc": "2026-03-26T23:04:01.492805+00:00",
+    "payload": {
+      "origin": {
+        "lat": 52.4862,
+        "lon": -1.8904
+      },
+      "destination": {
+        "lat": 51.5072,
+        "lon": -0.1276
+      },
+      "vehicle_type": "rigid_hgv"
+    },
+    "ors_baseline_policy": "local_service",
+    "ors_snapshot_mode": "off",
+    "osrm": {
+      "ok": true,
+      "method": "osrm_engine_baseline",
+      "provider_mode": "repo_local",
+      "compute_ms": 1820.27,
+      "distance_km": 189.471,
+      "duration_s": 12966.73
+    },
+    "ors": {
+      "ok": true,
+      "method": "ors_local_engine_baseline",
+      "provider_mode": "local_service",
+      "baseline_policy": "engine_shortest_path",
+      "compute_ms": 925.7,
+      "distance_km": 203.868,
+      "duration_s": 18107.6,
+      "asset_manifest_hash": "6bbc27f2cff7983598de1ee9fe5272c67b4b3fab6c732dd696d909151261d063",
+      "asset_freshness_status": "graph_identity_verified",
+      "graph_identity_status": "graph_identity_verified",
+      "engine_image": "openrouteservice/openrouteservice:v9.7.1"
+    },
+    "required_ok": true
+  },
+  "strict_proxy_ors_allowed": false,
+  "strict_evidence_fallbacks_allowed": false
+}

@@ -1,0 +1,20 @@
+{
+  "run_id": "thesis_ambiguity_20260326_r92",
+  "created_at": "2026-03-26T21:46:01.253449+00:00",
+  "request": {
+    "evaluation": {
+      "corpus_hash": "44490ad7ee3b9b41e7d9060bb69d71cef8221b63b25c8054ed994de9b7134bbc",
+      "backend_url": "http://localhost:8000"
+    }
+  },
+  "execution": {
+    "pair_count": 8,
+    "variant_count": 4,
+    "duration_ms": 13060.673125
+  },
+  "signature": {
+    "algorithm": "HMAC-SHA256",
+    "signed_at": "2026-03-26T21:46:01.253459+00:00",
+    "signature": "232e2770d356004c8d21c79a1554abb8d5e913eabf57fb83704a79d011d1090c"
+  }
+}

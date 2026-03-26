@@ -1,0 +1,12 @@
+{
+  "row_count": 8,
+  "corpus_hash": "44490ad7ee3b9b41e7d9060bb69d71cef8221b63b25c8054ed994de9b7134bbc",
+  "corpus_kinds": [],
+  "mean_ambiguity_index": 0.261995,
+  "mean_od_ambiguity_confidence": 0.893498,
+  "mean_od_ambiguity_source_count": 2.5,
+  "mean_candidate_probe_path_count": 8.5,
+  "mean_candidate_probe_objective_spread": 0.1825,
+  "mean_candidate_probe_engine_disagreement_prior": 0.399693,
+  "mean_hard_case_prior": 0.402663
+}
