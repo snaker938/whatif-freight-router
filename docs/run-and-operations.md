@@ -1,16 +1,16 @@
 # Run and Operations Guide
 
-Last Updated: 2026-02-25  
-Applies To: local backend/frontend runtime, full rebuilds, docs checks, and low-resource test execution
+Last Updated: 2026-03-31  
+Applies To: local backend/frontend runtime, rebuilds, evaluation runs, hot-rerun cache restore, docs checks, and low-resource test execution
 
-This runbook is the operational reference for running and rebuilding the project safely.
+This runbook is the operational reference for running, rebuilding, validating, and reporting on the project safely.
 
 ## Prerequisites
 
-- PowerShell (Windows)
-- Docker Desktop (for OSRM and compose workflows)
-- Python + `uv` (backend)
-- Node.js + `pnpm` (frontend)
+- PowerShell
+- Docker Desktop
+- Python with `uv`
+- Node.js with `pnpm`
 
 ## Environment Setup
 
@@ -20,97 +20,107 @@ From repo root:
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-Then review strict live URL/auth settings in `.env`:
+Then review the current strict runtime controls in `.env`:
 
-- scenario: `LIVE_SCENARIO_COEFFICIENT_URL`
-- scenario coefficient freshness: `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES` (default `4320`)
-- fuel: `LIVE_FUEL_PRICE_URL`, optional auth fields
-- carbon: `LIVE_CARBON_SCHEDULE_URL`
-- departure/stochastic/toll URLs
-- terrain: `LIVE_TERRAIN_DEM_URL_TEMPLATE`
-- strict host allow-lists: `LIVE_*_ALLOWED_HOSTS`
-- retry/query knobs: `LIVE_HTTP_RETRY_*`, `LIVE_SCENARIO_DFT_MAX_PAGES`
-- strict scenario-source resiliency knobs:
-  - `LIVE_SCENARIO_COEFFICIENT_URL` (default points to `main` scenario artifact)
-  - `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES` (default `4320`)
+- strict live sources and auth:
+  - `LIVE_SCENARIO_COEFFICIENT_URL`
+  - `LIVE_FUEL_PRICE_URL`
+  - `LIVE_CARBON_SCHEDULE_URL`
+  - departure, stochastic, toll, and terrain URLs
+- scenario resiliency:
+  - `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES`
   - `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT`
   - `LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT`
   - `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT`
-- backend stream attempt ceiling: `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S`
-- bounded OD probe knobs:
+- backend attempt ceiling:
+  - `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S`
+- bounded OD probe controls:
   - `ROUTE_CONTEXT_PROBE_TIMEOUT_MS`
   - `ROUTE_CONTEXT_PROBE_MAX_PATHS`
-- route graph warmup knobs:
+- graph warmup and connectivity controls:
   - `ROUTE_GRAPH_WARMUP_ON_STARTUP`
   - `ROUTE_GRAPH_WARMUP_FAILFAST`
-  - `ROUTE_GRAPH_WARMUP_TIMEOUT_S` (default `1200`)
+  - `ROUTE_GRAPH_WARMUP_TIMEOUT_S`
   - `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS`
-  - `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES` (default `50000`)
-  - `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO` (default `0.20`)
-  - `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M` (default `10000`)
-- strict terrain knobs:
-  - `TERRAIN_DEM_FAIL_CLOSED_UK` (default `true`)
-  - `TERRAIN_DEM_COVERAGE_MIN_UK` (default `0.96`)
-- frontend compute fallback knobs:
-  - `COMPUTE_ATTEMPT_TIMEOUT_MS` (server route-handler timeout override; default `420000`)
-  - `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (server route-handler fallback timeout override; default `180000`)
+  - `ROUTE_GRAPH_FAST_STARTUP_ENABLED`
+  - `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES`
+  - `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO`
+  - `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M`
+- strict terrain controls:
+  - `TERRAIN_DEM_FAIL_CLOSED_UK`
+  - `TERRAIN_DEM_COVERAGE_MIN_UK`
+- frontend compute fallback controls:
+  - `COMPUTE_ATTEMPT_TIMEOUT_MS`
+  - `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS`
   - `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS`
   - `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS`
-  - `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS` (default `12,6,3`)
-- dev live-call tracing knobs (development only; sensitive when enabled):
+  - `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS`
+- development live-call tracing and raw-body helpers:
   - `DEV_ROUTE_DEBUG_CONSOLE_ENABLED`
   - `DEV_ROUTE_DEBUG_INCLUDE_SENSITIVE`
   - `DEV_ROUTE_DEBUG_MAX_CALLS_PER_REQUEST`
   - `DEV_ROUTE_DEBUG_TRACE_TTL_SECONDS`
   - `DEV_ROUTE_DEBUG_MAX_REQUEST_TRACES`
+  - `DEV_ROUTE_DEBUG_RETURN_RAW_PAYLOADS`
+  - `DEV_ROUTE_DEBUG_MAX_RAW_BODY_CHARS`
+- request-time live refresh controls:
+  - `LIVE_ROUTE_COMPUTE_REFRESH_MODE`
+  - `LIVE_ROUTE_COMPUTE_REQUIRE_ALL_EXPECTED`
+  - `LIVE_ROUTE_COMPUTE_FORCE_NO_CACHE_HEADERS`
+  - `LIVE_ROUTE_COMPUTE_FORCE_UNCACHED`
+  - `LIVE_ROUTE_COMPUTE_PREFETCH_TIMEOUT_MS`
+  - `LIVE_ROUTE_COMPUTE_PREFETCH_MAX_CONCURRENCY`
+  - `LIVE_ROUTE_COMPUTE_PROBE_TERRAIN`
+
+Strict runtime defaults are enforced in `backend/app/settings.py`. In practice that means:
+
+- `STRICT_LIVE_DATA_REQUIRED=true`
+- `LIVE_ROUTE_COMPUTE_REQUIRE_ALL_EXPECTED=true`
+- route graph strict readiness is required
+- route graph fast startup is disabled in strict mode
+- terrain probing is enabled when strict route-compute requires a full expected-source set
+
+## Operations Endpoints
+
+Operational endpoints worth knowing:
+
+- backend readiness: `GET /health/ready`
+- basic health: `GET /health`
+- metrics snapshot: `GET /metrics`
+- cache stats: `GET /cache/stats`
+- cache clear: `DELETE /cache`
+- hot-rerun route-cache restore: `POST /cache/hot-rerun/restore`
+- dev-only live call trace: `GET /debug/live-calls/{request_id}`
+
+The frontend devtools proxy some of these routes, but not all of them. The hot-rerun restore route is a backend/operator tool and is not exposed by the current frontend Ops Diagnostics panel.
 
 ## Route Compute Fallback Policy
 
-Frontend route compute now runs bounded attempts with explicit degradation:
+Frontend route compute uses bounded degradation:
 
-1. Stream Pareto (`/api/pareto/stream`)
-2. JSON Pareto fallback (`/api/pareto`)
-3. Single-route fallback (`/api/route`)
+1. stream Pareto via `/api/pareto/stream`
+2. JSON Pareto via `/api/pareto`
+3. single-route fallback via `/api/route`
 
 Default degrade policy: `12 -> 6 -> 3`.
 
-Each fallback aborts the previous attempt before moving on, to avoid orphan backend work.
-Strict business failures (`HTTP 4xx` from route/pareto endpoints) are terminal and intentionally halt additional fallback attempts.
+Each fallback aborts the previous attempt before moving on. Strict business failures from route-producing endpoints are terminal and intentionally stop additional fallback attempts.
 
-Strict-live refresh is hybrid:
+Strict live refresh is hybrid:
 
-- Scenario coefficients are refreshed on each route attempt.
-- Expensive live context feeds (DfT/WebTRIS/Traffic/Meteo) are short-cached by TTL instead of being force-cleared per request.
+- scenario coefficients are refreshed on each route attempt
+- expensive live context feeds stay short-cached by TTL instead of being force-cleared per request
 
-Route graph warmup lifecycle (strict mode):
+Route graph warmup lifecycle in strict mode:
 
-- Backend starts graph warmup in the background on startup.
-- If warmup is still running, strict route endpoints fail fast with `reason_code=routing_graph_warming_up`.
-- If warmup exceeds timeout or errors, strict route endpoints fail fast with `reason_code=routing_graph_warmup_failed`.
-- If the loaded graph fails connectivity quality gates, strict failures use `reason_code=routing_graph_fragmented`.
-- OD-specific strict graph failures surface as:
-  - `reason_code=routing_graph_coverage_gap`
-  - `reason_code=routing_graph_disconnected_od`
-- Check readiness at `GET /health/ready` and retry when `strict_route_ready=true`.
-- `/health/ready` now includes `strict_live` diagnostics for scenario coefficients:
-  - `ok`, `status`, `reason_code`, `message`
-  - `as_of_utc`, `age_minutes`, `max_age_minutes`, `checked_at_utc`
-- If graph is ready but strict live freshness is not, `recommended_action=refresh_live_sources`.
-- Frontend compute is readiness-gated and remains disabled until `strict_route_ready=true`.
+- backend starts graph warmup on startup
+- if warmup is still running, strict route endpoints fail fast with `routing_graph_warming_up`
+- if warmup exceeds timeout or errors, strict route endpoints fail fast with `routing_graph_warmup_failed`
+- if the graph fails connectivity quality gates, strict failures use `routing_graph_fragmented`
+- OD-specific failures may surface as `routing_graph_coverage_gap`, `routing_graph_disconnected_od`, or `routing_graph_no_path`
+- if graph is ready but strict live freshness is not, `/health/ready` may recommend `refresh_live_sources`
 
-Diagnostics panel (`Route compute diagnostics`) now shows:
-
-- active attempt/endpoint/stage
-- backend heartbeat age
-- attempt-level timeout and alternative count
-- grouped trace entries by attempt
-- per-attempt live API call table (URL, requested/success, status/error, cache/retry, headers/extra)
-
-Terrain trace note: repeated same-tile route-cache hits are deduplicated per request in live-call rows; rely on summary counts/terrain diagnostics for full cache-hit volume.
-
-Backend dev endpoint for this trace:
-
-- `GET /debug/live-calls/{request_id}` (dev-gated)
+Frontend compute remains readiness-gated until `strict_route_ready=true`.
 
 ## Start Full Local Stack
 
@@ -120,7 +130,7 @@ From repo root:
 .\scripts\dev.ps1
 ```
 
-`dev.ps1` now runs strict live preflight before backend/frontend launch. If a required live payload is stale/invalid, startup stops and writes:
+`dev.ps1` runs strict preflight before backend/frontend launch. If a required live payload is stale or invalid, startup stops and writes:
 
 - `backend/out/model_assets/preflight_live_runtime.json`
 
@@ -132,7 +142,7 @@ Expected services:
 - Backend readiness: `http://localhost:8000/health/ready`
 - Frontend: `http://localhost:3000`
 
-## Run Backend Only (Known-Good)
+## Run Backend Only
 
 From repo root:
 
@@ -160,11 +170,11 @@ pnpm install
 pnpm dev
 ```
 
-## Full Refresh / Rebuild (Long Path)
+## Full Refresh / Rebuild
 
-Use this when OSRM + backend assets + caches should be rebuilt end-to-end.
+Use this when OSRM, backend assets, or caches should be rebuilt end-to-end.
 
-1. Stop active app terminals (`Ctrl+C`).
+1. Stop active terminals.
 2. Clean compose/runtime caches:
 
 ```powershell
@@ -177,20 +187,13 @@ Use this when OSRM + backend assets + caches should be rebuilt end-to-end.
 .\scripts\dev.ps1
 ```
 
-4. Rebuild backend model assets:
+4. Rebuild backend assets:
 
 ```powershell
 Set-Location backend
 uv run python scripts/build_model_assets.py
 uv run python scripts/publish_live_artifacts_uk.py
 ```
-
-This publish step updates strict runtime tracked artifact targets:
-
-- `backend/assets/uk/departure_profiles_uk.json`
-- `backend/assets/uk/stochastic_regimes_uk.json`
-- `backend/assets/uk/toll_topology_uk.json`
-- `backend/assets/uk/toll_tariffs_uk.json`
 
 5. Optional subsystem rebuilds:
 
@@ -199,18 +202,46 @@ uv run python scripts/build_routing_graph_uk.py
 uv run python scripts/build_terrain_tiles_uk.py --source-dem-glob "assets/uk/dem/*.tif"
 ```
 
+## Evaluation and Reporting Commands
+
+From repo root:
+
+```powershell
+uv run --project backend python backend/scripts/run_headless_scenario.py --input-json docs/examples/sample_batch_request.json
+uv run --project backend python backend/scripts/run_thesis_lane.py --help
+uv run --project backend python backend/scripts/run_thesis_evaluation.py
+uv run --project backend python backend/scripts/run_hot_rerun_benchmark.py
+uv run --project backend python backend/scripts/compose_thesis_suite_report.py
+uv run --project backend python backend/scripts/check_eta_concept_drift.py --help
+```
+
+Use the evaluation ladder in this order:
+
+1. targeted tests
+2. lane-local checks with `backend/scripts/run_thesis_lane.py`
+3. full thesis suite with `backend/scripts/run_thesis_evaluation.py`
+4. dedicated hot-rerun proof with `backend/scripts/run_hot_rerun_benchmark.py`
+5. suite composition with `backend/scripts/compose_thesis_suite_report.py`
+
 ## Runtime Output Locations
 
 Under `backend/out/`:
 
 - `model_assets/`
-- `artifacts/{run_id}/`
-- `manifests/{run_id}.json`
-- `scenario_manifests/{run_id}.json`
-- `provenance/{run_id}.jsonl`
-- `test_runs/{timestamp}/` (safe test runner outputs)
+- `artifacts/<run_id>/`
+- `manifests/<run_id>.json`
+- `scenario_manifests/<run_id>.json`
+- `provenance/<run_id>.jsonl`
+- `test_runs/<timestamp>/`
 
-## Safe Test Execution (Low Resource)
+Common run artifact families:
+
+- route outputs: results.json, results.csv, metadata.json, routes.geojson
+- DCCS/REFC/VOI outputs: dccs_summary.json, certificate_summary.json, value_of_refresh.json, voi_action_trace.json, voi_stop_certificate.json
+- thesis outputs: thesis_results.*, thesis_summary.*, thesis_metrics.json, thesis_plots.json, evaluation_manifest.json, thesis_report.md
+- hot-rerun outputs: hot_rerun_vs_cold_comparison.json, hot_rerun_vs_cold_comparison.csv, hot_rerun_gate.json, hot_rerun_report.md
+
+## Safe Test Execution
 
 From repo root:
 
@@ -246,7 +277,7 @@ Docs URL: `http://localhost:8088/`
 
 ## Stop Local Stack
 
-1. Stop running terminals (`Ctrl+C`).
+1. Stop running terminals.
 2. From repo root:
 
 ```powershell

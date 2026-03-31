@@ -1,9 +1,9 @@
 # Strict Error Contract Reference
 
-Last Updated: 2026-02-23  
+Last Updated: 2026-03-31  
 Applies To: `backend/app/main.py`, `backend/app/model_data_errors.py`
 
-This document describes strict reason-code failures used across route-producing APIs.
+This document describes the current frozen strict reason-code failures used across route-producing APIs.
 
 ## Canonical Error Shape (`422`)
 
@@ -19,11 +19,17 @@ This document describes strict reason-code failures used across route-producing 
 }
 ```
 
-Optional keys are included when relevant:
+Optional keys are included when relevant, for example terrain coverage fields or strict-live freshness diagnostics.
 
-- `terrain_dem_version`
-- `terrain_coverage_required`
-- `terrain_coverage_min_observed`
+Strict-runtime behavior is also shaped by settings such as:
+
+- `STRICT_LIVE_DATA_REQUIRED`
+- `LIVE_ROUTE_COMPUTE_REFRESH_MODE`
+- `LIVE_ROUTE_COMPUTE_REQUIRE_ALL_EXPECTED`
+- `LIVE_ROUTE_COMPUTE_PROBE_TERRAIN`
+- `ROUTE_GRAPH_FAST_STARTUP_ENABLED`
+
+In current strict paths, the backend forces live-data freshness, requires the expected live route-compute sources, probes terrain when full strict evidence is needed, and disables route-graph fast startup.
 
 ## Canonical Stream Fatal Shape
 
@@ -38,9 +44,19 @@ Optional keys are included when relevant:
 
 ## Frozen Reason Codes
 
-The backend normalizes to the frozen set below (`FROZEN_REASON_CODES`).
+The backend normalizes route-producing failures to the current `FROZEN_REASON_CODES` set:
 
 - `routing_graph_unavailable`
+- `routing_graph_fragmented`
+- `routing_graph_disconnected_od`
+- `routing_graph_coverage_gap`
+- `routing_graph_no_path`
+- `routing_graph_precheck_timeout`
+- `routing_graph_deferred_load`
+- `routing_graph_warming_up`
+- `routing_graph_warmup_failed`
+- `live_source_refresh_failed`
+- `route_compute_timeout`
 - `departure_profile_unavailable`
 - `holiday_data_unavailable`
 - `stochastic_calibration_unavailable`
@@ -62,58 +78,74 @@ The backend normalizes to the frozen set below (`FROZEN_REASON_CODES`).
 - `carbon_intensity_unavailable`
 - `epsilon_infeasible`
 - `no_route_candidates`
+- `baseline_route_unavailable`
+- `baseline_provider_unconfigured`
 - `model_asset_unavailable`
 
 ## Primary Failure Families
 
-### Terrain and Graph
+### Graph Readiness and Connectivity
 
-- `terrain_region_unsupported`: non-UK request under UK-only terrain policy.
-- `terrain_dem_asset_unavailable`: DEM asset/load/live tile unavailable.
-- `terrain_dem_coverage_insufficient`: coverage below strict threshold.
-- `routing_graph_unavailable`: routing graph missing/invalid for strict run.
+- `routing_graph_unavailable`: graph asset missing or unusable
+- `routing_graph_fragmented`: graph loaded but failed connectivity quality gates
+- `routing_graph_disconnected_od`: origin and destination are disconnected in the strict graph
+- `routing_graph_coverage_gap`: graph coverage does not adequately support the requested OD
+- `routing_graph_no_path`: graph search completed but found no route
+- `routing_graph_precheck_timeout`: bounded graph precheck timed out
+- `routing_graph_deferred_load`: graph not yet loaded for the requested path
+- `routing_graph_warming_up`: startup warmup still in progress
+- `routing_graph_warmup_failed`: warmup exceeded timeout or failed
 
-### Toll and Cost Inputs
+### Live Refresh and Runtime Timeouts
 
-- `toll_topology_unavailable`: live or strict topology unavailable.
-- `toll_tariff_unavailable`: tariff source unavailable.
-- `toll_tariff_unresolved`: candidate could not resolve toll tariff mapping.
-
-### Fuel and Carbon Inputs
-
-- `fuel_price_auth_unavailable`: required auth/API credentials missing/invalid.
-- `fuel_price_source_unavailable`: missing/stale/invalid price payload.
-- `carbon_policy_unavailable`: carbon policy schedule unavailable.
-- `carbon_intensity_unavailable`: carbon intensity lookup unavailable.
+- `live_source_refresh_failed`: strict route-compute refresh could not obtain the required live data
+- `route_compute_timeout`: route-producing attempt exceeded its configured timeout budget
 
 ### Scenario and Stochastic Inputs
 
-- `scenario_profile_unavailable`: scenario profile/context not retrievable or too stale.
-- `scenario_profile_invalid`: schema/monotonicity/transform violations.
-- `stochastic_calibration_unavailable`: strict stochastic asset missing/invalid.
+- `scenario_profile_unavailable`: scenario profile or required live context not retrievable or too stale
+- `scenario_profile_invalid`: schema, transform, or monotonicity validation failed
+- `stochastic_calibration_unavailable`: strict stochastic calibration missing or invalid
+- `departure_profile_unavailable`: departure profile unavailable
+- `holiday_data_unavailable`: holiday calendar input unavailable
 
-For stale scenario coefficients, diagnostics now prioritize freshness fields (`as_of_utc`, `age_minutes`, `max_age_minutes`) and only include scenario coverage-gate summaries when those fields are actually present in the failure payload.
+### Risk and Asset Inputs
 
-### Vehicle and Risk Inputs
+- `risk_normalization_unavailable`: normalization artifact unavailable
+- `risk_prior_unavailable`: uncertainty prior unavailable
+- `model_asset_unavailable`: generic strict model-asset availability failure
 
-- `vehicle_profile_unavailable`: unknown/missing vehicle profile in strict flow.
-- `vehicle_profile_invalid`: strict validation failed for vehicle profile payload.
-- `risk_normalization_unavailable`: normalization artifact unavailable.
-- `risk_prior_unavailable`: uncertainty prior missing for strict requirements.
+### Terrain, Toll, Fuel, and Carbon Inputs
 
-### Selection and Feasibility
+- `terrain_region_unsupported`: request outside supported terrain region
+- `terrain_dem_asset_unavailable`: DEM asset or live tile unavailable
+- `terrain_dem_coverage_insufficient`: DEM coverage below strict threshold
+- `toll_topology_unavailable`: toll topology unavailable
+- `toll_tariff_unavailable`: toll tariff source unavailable
+- `toll_tariff_unresolved`: toll tariff could not be resolved for a route segment
+- `fuel_price_auth_unavailable`: required fuel auth or credentials missing
+- `fuel_price_source_unavailable`: fuel source missing, stale, or invalid
+- `carbon_policy_unavailable`: carbon policy schedule unavailable
+- `carbon_intensity_unavailable`: carbon intensity input unavailable
 
-- `epsilon_infeasible`: no candidate satisfies provided epsilon constraints.
-- `no_route_candidates`: no viable candidates after strict filtering.
-- `model_asset_unavailable`: generic strict model asset availability failure.
+### Vehicle and Baseline Inputs
 
-## Notes for Batch and Stream Consumers
+- `vehicle_profile_unavailable`: unknown or missing vehicle profile
+- `vehicle_profile_invalid`: vehicle profile failed validation
+- `baseline_route_unavailable`: requested baseline route could not be produced
+- `baseline_provider_unconfigured`: baseline provider is not configured for the requested path
 
-- Batch per-pair failures are serialized into `error` text in strict format:
-  `reason_code:<code>; message:<message>`
-- Stream fatal events preserve reason code and warning list for machine parsing.
-- Unknown/internal codes are normalized to the frozen set before emission.
-- Route readiness should be checked via `GET /health/ready`; strict mode now includes `strict_live` and may return `recommended_action=refresh_live_sources` when scenario coefficients are stale.
+### Feasibility and Selection
+
+- `epsilon_infeasible`: no route satisfies the supplied epsilon constraints
+- `no_route_candidates`: no viable candidates remained after strict filtering
+
+## Notes for Consumers
+
+- batch per-pair failures are serialized into `error` text using `reason_code:<code>; message:<message>`
+- stream fatal events preserve reason code and warnings for machine parsing
+- unknown or internal error labels are normalized into the frozen set before emission
+- readiness-related failures should be interpreted alongside `GET /health/ready`
 
 ## Related Docs
 
@@ -121,4 +153,3 @@ For stale scenario coefficients, diagnostics now prioritize freshness fields (`a
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)
 - [API Cookbook](api-cookbook.md)
-

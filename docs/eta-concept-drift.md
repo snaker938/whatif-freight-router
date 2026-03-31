@@ -1,11 +1,18 @@
 # ETA Concept Drift Checks
 
-Last Updated: 2026-02-23  
+Last Updated: 2026-03-31  
 Applies To: `backend/scripts/check_eta_concept_drift.py`
 
 ## Purpose
 
-Checks drift between predicted and observed ETAs and emits machine-readable outputs for monitoring.
+Checks drift between predicted and observed ETAs and emits machine-readable outputs for offline monitoring.
+
+## Scope
+
+- this is an offline analysis helper
+- it is not part of the route API response contract
+- it is not itself a thesis proof artifact family
+- use it as supporting monitoring or investigative analysis alongside the main evaluation/reporting pipeline
 
 ## Input Requirements
 
@@ -18,7 +25,7 @@ Optional:
 
 - `trip_id`
 
-## Command
+## Commands
 
 From `backend/`:
 
@@ -41,15 +48,24 @@ uv run python scripts/check_eta_concept_drift.py `
 
 ## Output Payload
 
-Script writes:
+The script writes:
 
-- JSON summary (metrics + thresholds + alerts)
+- JSON summary with metrics, thresholds, and alerts
 - CSV with per-row error breakdown
+
+The JSON summary includes:
+
+- computed drift metrics
+- configured threshold values
+- alert booleans
+- resolved output paths
 
 Default locations are auto-generated under:
 
 - `backend/out/analysis/eta_concept_drift_<timestamp>.json`
 - `backend/out/analysis/eta_concept_drift_rows_<timestamp>.csv`
+
+If `--json-output` or `--csv-output` is supplied, those explicit paths override the defaults.
 
 ## Metrics
 
@@ -71,4 +87,3 @@ Alert flags:
 - [Reproducibility Capsule](reproducibility-capsule.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
 - [Performance Profiling Notes](performance-profiling-notes.md)
-
