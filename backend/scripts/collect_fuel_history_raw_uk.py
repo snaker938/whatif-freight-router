@@ -57,7 +57,7 @@ def _load_local_json(path: Path) -> dict[str, Any]:
 
 
 def _load_remote_json(*, url: str, timeout_s: float) -> dict[str, Any]:
-    with httpx.Client(timeout=max(2.0, float(timeout_s))) as client:
+    with httpx.Client(timeout=max(2.0, float(timeout_s)), follow_redirects=True, trust_env=False) as client:
         resp = client.get(url)
         resp.raise_for_status()
         payload = resp.json()
@@ -110,7 +110,7 @@ def _parse_gov_uk_day(raw: Any) -> date | None:
 
 
 def _gov_uk_history_payload(*, url: str, timeout_s: float, output_json: Path) -> dict[str, Any]:
-    with httpx.Client(timeout=max(2.0, float(timeout_s))) as client:
+    with httpx.Client(timeout=max(2.0, float(timeout_s)), follow_redirects=True, trust_env=False) as client:
         resp = client.get(url)
         resp.raise_for_status()
         text = resp.text
@@ -141,7 +141,7 @@ def _gov_uk_history_payload(*, url: str, timeout_s: float, output_json: Path) ->
         )
     return {
         "source": "gov_uk_weekly_road_fuel_prices",
-        "source_url": url,
+        "source_url": str(resp.url),
         "history": history,
         "regional_multipliers": regional,
     }

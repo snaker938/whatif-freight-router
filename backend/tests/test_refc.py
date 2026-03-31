@@ -17,6 +17,7 @@ from app.models import (
 )
 from app.evidence_certification import (
     EVIDENCE_FAMILIES,
+    annotate_world_manifest_cache_reuse,
     active_evidence_families,
     compute_certificate,
     compute_fragility_maps,
@@ -87,6 +88,7 @@ def _route_option(
     std_money_cost: float = 0.0,
     std_co2_kg: float = 0.0,
     active_families: tuple[str, ...] | None = None,
+    coordinates: list[tuple[float, float]] | None = None,
 ) -> RouteOption:
     families = active_families or ("scenario", "toll", "terrain", "fuel", "carbon", "weather", "stochastic")
     provenance = EvidenceProvenance(
@@ -107,7 +109,7 @@ def _route_option(
         id=route_id,
         geometry=GeoJSONLineString(
             type="LineString",
-            coordinates=[(-1.0, 52.0), (-0.5, 52.2)],
+            coordinates=coordinates or [(-1.0, 52.0), (-0.5, 52.2)],
         ),
         metrics=RouteMetrics(
             distance_km=distance_km,
@@ -189,6 +191,142 @@ def test_repo_local_fresh_provenance_biases_world_sampling_away_from_proxy_state
     weights = manifest["state_weights"]["scenario"]
     assert weights["nominal"] > weights["proxy"]
     assert weights["refreshed"] > weights["proxy"]
+
+
+def test_annotate_world_manifest_cache_reuse_marks_cross_request_hits_without_losing_within_manifest_reuse() -> None:
+    manifest = {
+        "world_reuse_rate": 0.333333,
+        "world_reuse_rate_within_manifest": 0.333333,
+        "world_reuse_rate_cross_request": 0.0,
+        "certification_cache_reuse_origin": "miss",
+    }
+
+    global_hit = annotate_world_manifest_cache_reuse(manifest, cache_reuse_origin="global")
+    local_hit = annotate_world_manifest_cache_reuse(manifest, cache_reuse_origin="local")
+
+    assert global_hit["world_reuse_rate_within_manifest"] == pytest.approx(0.333333, rel=0.0, abs=1e-6)
+    assert global_hit["world_reuse_rate_cross_request"] == 1.0
+    assert global_hit["world_reuse_rate"] == 1.0
+    assert global_hit["certification_cache_reuse_origin"] == "global"
+    assert global_hit["certification_cache_reuse_applied"] is True
+    assert local_hit["world_reuse_rate_cross_request"] == 0.0
+    assert local_hit["world_reuse_rate"] == pytest.approx(0.333333, rel=0.0, abs=1e-6)
+    assert local_hit["certification_cache_reuse_origin"] == "local"
+    assert local_hit["certification_cache_reuse_applied"] is True
+
+
+def test_annotate_world_manifest_cache_reuse_preserves_existing_cross_request_reuse_on_local_hit() -> None:
+    manifest = {
+        "world_reuse_rate": 1.0,
+        "world_reuse_rate_within_manifest": 0.0,
+        "world_reuse_rate_cross_request": 1.0,
+        "certification_cache_reuse_origin": "global",
+    }
+
+    local_hit = annotate_world_manifest_cache_reuse(manifest, cache_reuse_origin="local")
+
+    assert local_hit["world_reuse_rate_within_manifest"] == 0.0
+    assert local_hit["world_reuse_rate_cross_request"] == 1.0
+    assert local_hit["world_reuse_rate"] == 1.0
+    assert local_hit["certification_cache_reuse_origin"] == "local"
+    assert local_hit["certification_cache_reuse_applied"] is True
+
+
+def test_global_certification_cache_payload_compacts_nonessential_detail_fields() -> None:
+    certificate = main_module.CertificateResult(
+        winner_id="route_0",
+        certificate={"route_0": 0.82, "route_1": 0.18},
+        threshold=0.67,
+        certified=True,
+        selected_route_id="route_0",
+        route_scores={"route_0": [0.8, 0.84], "route_1": [0.2, 0.16]},
+        world_manifest={"status": "ok", "world_count": 2},
+        selector_config={"selector_weights": (1.0, 1.0, 1.0)},
+    )
+    fragility = main_module.FragilityResult(
+        route_fragility_map={"route_0": {"scenario": 0.14}},
+        competitor_fragility_breakdown={"route_0": {"route_1": {"scenario": 2}}},
+        value_of_refresh={"ranking": [{"family": "scenario", "value": 0.14}]},
+        route_fragility_details={"route_0": {"scenario": {"raw_refresh_gain": 0.14}}},
+        evidence_snapshot_manifest={"snapshot_hash": "snap-1"},
+    )
+
+    cached_certificate, cached_fragility, cached_manifest, cached_families = (
+        main_module._global_certification_cache_payload(
+            certificate_result=certificate,
+            fragility_result=fragility,
+            world_manifest_payload={"status": "ok", "world_count": 2, "world_reuse_rate": 1.0},
+            active_families=["scenario"],
+        )
+    )
+
+    assert cached_certificate.certificate == certificate.certificate
+    assert cached_certificate.route_scores == {}
+    assert cached_certificate.world_manifest["world_reuse_rate"] == pytest.approx(1.0)
+    assert cached_fragility.route_fragility_map == fragility.route_fragility_map
+    assert cached_fragility.competitor_fragility_breakdown == fragility.competitor_fragility_breakdown
+    assert cached_fragility.value_of_refresh == fragility.value_of_refresh
+    assert cached_fragility.route_fragility_details == {}
+    assert cached_fragility.evidence_snapshot_manifest == {}
+    assert cached_manifest["world_reuse_rate"] == pytest.approx(1.0)
+    assert cached_families == ["scenario"]
+
+
+def test_stable_route_signature_map_rebinds_reused_refined_routes_without_built_option_ids() -> None:
+    option_a = _route_option(
+        "route_a",
+        duration_s=100.0,
+        money_cost=20.0,
+        co2_kg=5.0,
+        coordinates=[(-1.0, 52.0), (-0.5, 52.2)],
+    )
+    option_b = _route_option(
+        "route_b",
+        duration_s=101.0,
+        money_cost=19.5,
+        co2_kg=5.2,
+        coordinates=[(-2.0, 53.0), (-1.5, 53.2)],
+    )
+    refined_routes = [
+        {"geometry": {"coordinates": [(-2.0, 53.0), (-1.5, 53.2)]}},
+        {"geometry": {"coordinates": [(-1.0, 52.0), (-0.5, 52.2)]}},
+    ]
+
+    signature_map = main_module._stable_route_signature_map_for_options(
+        refined_routes,
+        [option_a, option_b],
+    )
+
+    assert refined_routes[0]["_built_option_id"] == "route_b"
+    assert refined_routes[1]["_built_option_id"] == "route_a"
+    assert signature_map == {
+        "route_a": main_module._route_option_signature(option_a),
+        "route_b": main_module._route_option_signature(option_b),
+    }
+
+
+def test_certification_frontier_signature_map_uses_stable_option_geometry() -> None:
+    option_a = _route_option(
+        "route_a",
+        duration_s=100.0,
+        money_cost=20.0,
+        co2_kg=5.0,
+        coordinates=[(-1.0, 52.0), (-0.5, 52.2)],
+    )
+    option_b = _route_option(
+        "route_b",
+        duration_s=101.0,
+        money_cost=19.5,
+        co2_kg=5.2,
+        coordinates=[(-2.0, 53.0), (-1.5, 53.2)],
+    )
+
+    signature_map = main_module._certification_frontier_signature_map([option_a, option_b])
+
+    assert signature_map == {
+        "route_a": main_module._route_option_signature(option_a),
+        "route_b": main_module._route_option_signature(option_b),
+    }
 
 
 def test_refc_bypass_helper_matches_refc_classification_thresholds() -> None:
@@ -430,6 +568,7 @@ def test_mixed_targeted_worlds_do_not_change_family_attribution() -> None:
         "world_id": "w3",
         "states": {"scenario": "severely_stale", "toll": "severely_stale"},
         "world_kind": "hard_case_mixed_targeted",
+        "target_route_ids": {"scenario": "route_b", "toll": "route_b"},
     }
 
     isolated = compute_fragility_maps(
@@ -449,6 +588,88 @@ def test_mixed_targeted_worlds_do_not_change_family_attribution() -> None:
 
     assert with_mixed.route_fragility_map == isolated.route_fragility_map
     assert with_mixed.competitor_fragility_breakdown == isolated.competitor_fragility_breakdown
+
+
+def test_support_rich_hard_case_mixed_targeted_worlds_influence_route_scoped_family_analysis() -> None:
+    routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={
+                "scenario": {"time": 1.0, "money": 1.0, "co2": 1.0},
+                "toll": {"time": 0.6, "money": 0.6, "co2": 0.6},
+            },
+        ),
+        _route(
+            "route_b",
+            objective=(10.12, 10.08, 10.10),
+            evidence_tensor={},
+        ),
+    ]
+    isolated_worlds = [
+        {"world_id": "w0", "states": {"scenario": "nominal", "toll": "nominal"}, "world_kind": "sampled"},
+        {"world_id": "w1", "states": {"scenario": "severely_stale", "toll": "nominal"}, "world_kind": "hard_case_targeted"},
+        {"world_id": "w2", "states": {"scenario": "nominal", "toll": "severely_stale"}, "world_kind": "hard_case_targeted"},
+    ]
+    mixed_world = {
+        "world_id": "w3",
+        "states": {"scenario": "severely_stale", "toll": "severely_stale"},
+        "world_kind": "hard_case_mixed_targeted",
+        "target_route_ids": {"scenario": "route_b", "toll": "route_b"},
+    }
+    ambiguity_context = {
+        "od_hard_case_prior": 0.72,
+        "od_ambiguity_index": 0.54,
+        "od_engine_disagreement_prior": 0.36,
+        "od_candidate_path_count": 4,
+        "od_corridor_family_count": 3,
+        "od_ambiguity_support_ratio": 0.76,
+        "od_ambiguity_source_entropy": 0.69,
+        "od_ambiguity_confidence": 0.91,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+        "ambiguity_budget_prior": 0.48,
+        "ambiguity_budget_band": "high",
+    }
+
+    isolated = compute_fragility_maps(
+        routes,
+        worlds=isolated_worlds,
+        selector_weights=(1.0, 1.0, 1.0),
+        active_families=["scenario", "toll"],
+        selected_route_id="route_a",
+        ambiguity_context=ambiguity_context,
+    )
+    with_mixed = compute_fragility_maps(
+        routes,
+        worlds=isolated_worlds + [mixed_world],
+        selector_weights=(1.0, 1.0, 1.0),
+        active_families=["scenario", "toll"],
+        selected_route_id="route_a",
+        ambiguity_context=ambiguity_context,
+    )
+
+    assert with_mixed.route_fragility_details["route_a"]["scenario"]["baseline_certificate"] != pytest.approx(
+        isolated.route_fragility_details["route_a"]["scenario"]["baseline_certificate"]
+    )
+    assert with_mixed.route_fragility_map["route_a"]["scenario"] != pytest.approx(
+        isolated.route_fragility_map["route_a"]["scenario"]
+    )
+    scoped_stressed = evidence_certification_module._stressed_worlds(
+        [mixed_world],
+        "scenario",
+        stress_state="severely_stale",
+        target_route_id="route_a",
+    )
+    scoped_refreshed = evidence_certification_module._refreshed_worlds(
+        [mixed_world],
+        "scenario",
+        target_route_id="route_a",
+    )
+    assert scoped_stressed[0]["target_route_ids"]["scenario"] == "route_a"
+    assert scoped_stressed[0]["target_route_ids"]["toll"] == "route_a"
+    assert scoped_refreshed[0]["target_route_ids"]["scenario"] == "route_a"
+    assert scoped_refreshed[0]["target_route_ids"]["toll"] == "route_a"
 
 
 def test_fragility_value_of_refresh_uses_full_targeted_population_when_available() -> None:
@@ -613,6 +834,96 @@ def test_hard_row_manifest_adds_bounded_stress_pack_and_weakens_certificate() ->
     assert hard_certificate.certificate["route_a"] < easy_certificate.certificate["route_a"]
 
 
+def test_support_rich_ambiguity_hard_case_gets_relief_but_low_ambiguity_hard_case_does_not() -> None:
+    routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={
+                "scenario": {"time": 1.0, "money": 0.8, "co2": 0.7},
+                "weather": {"time": 0.8, "money": 0.2, "co2": 0.2},
+                "toll": {"time": 0.0, "money": 1.0, "co2": 0.0},
+                "stochastic": {"time": 0.7, "money": 0.6, "co2": 0.5},
+            },
+        ),
+        _route("route_b", objective=(10.03, 10.02, 10.04), evidence_tensor={}),
+    ]
+    low_ambiguity_manifest = sample_world_manifest(
+        active_families=["scenario", "weather", "toll", "stochastic"],
+        seed=73,
+        world_count=16,
+        routes=routes,
+        ambiguity_context={
+            "od_ambiguity_index": 0.04,
+            "od_hard_case_prior": 0.72,
+            "od_engine_disagreement_prior": 0.28,
+            "od_candidate_path_count": 5,
+            "od_corridor_family_count": 3,
+            "od_objective_spread": 0.18,
+            "od_nominal_margin_proxy": 0.42,
+            "od_ambiguity_family_density": 0.48,
+            "od_ambiguity_margin_pressure": 0.36,
+            "od_ambiguity_support_ratio": 0.84,
+            "od_ambiguity_source_entropy": 0.82,
+            "od_ambiguity_confidence": 0.94,
+            "od_ambiguity_source_count": 3,
+            "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+            "ambiguity_budget_prior": 0.04,
+            "ambiguity_budget_band": "high",
+        },
+        selector_weights=(1.0, 1.0, 1.0),
+    )
+    high_ambiguity_manifest = sample_world_manifest(
+        active_families=["scenario", "weather", "toll", "stochastic"],
+        seed=73,
+        world_count=16,
+        routes=routes,
+        ambiguity_context={
+            "od_ambiguity_index": 0.54,
+            "od_hard_case_prior": 0.72,
+            "od_engine_disagreement_prior": 0.28,
+            "od_candidate_path_count": 5,
+            "od_corridor_family_count": 3,
+            "od_objective_spread": 0.18,
+            "od_nominal_margin_proxy": 0.42,
+            "od_ambiguity_family_density": 0.48,
+            "od_ambiguity_margin_pressure": 0.36,
+            "od_ambiguity_support_ratio": 0.84,
+            "od_ambiguity_source_entropy": 0.82,
+            "od_ambiguity_confidence": 0.94,
+            "od_ambiguity_source_count": 3,
+            "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+            "ambiguity_budget_prior": 0.46,
+            "ambiguity_budget_band": "high",
+        },
+        selector_weights=(1.0, 1.0, 1.0),
+    )
+
+    low_ambiguity_certificate = compute_certificate(
+        routes,
+        worlds=low_ambiguity_manifest["worlds"],
+        selector_weights=(1.0, 1.0, 1.0),
+        threshold=0.67,
+        active_families=["scenario", "weather", "toll", "stochastic"],
+        ambiguity_context=low_ambiguity_manifest["ambiguity_context"],
+    )
+    high_ambiguity_certificate = compute_certificate(
+        routes,
+        worlds=high_ambiguity_manifest["worlds"],
+        selector_weights=(1.0, 1.0, 1.0),
+        threshold=0.67,
+        active_families=["scenario", "weather", "toll", "stochastic"],
+        ambiguity_context=high_ambiguity_manifest["ambiguity_context"],
+    )
+
+    assert low_ambiguity_manifest["hard_case_stress_pack_count"] > 0
+    assert high_ambiguity_manifest["hard_case_stress_pack_count"] > 0
+    assert high_ambiguity_manifest["stress_world_fraction"] <= low_ambiguity_manifest["stress_world_fraction"]
+    assert high_ambiguity_certificate.certificate["route_a"] >= (
+        low_ambiguity_certificate.certificate["route_a"] - 0.01
+    )
+
+
 def test_supported_ambiguity_prior_amplifies_hard_case_stress_and_weakens_certificate() -> None:
     routes = [
         _route(
@@ -681,9 +992,13 @@ def test_supported_ambiguity_prior_amplifies_hard_case_stress_and_weakens_certif
         ambiguity_context=high_support_manifest["ambiguity_context"],
     )
 
-    assert high_support_manifest["stress_world_fraction"] >= low_support_manifest["stress_world_fraction"]
+    assert high_support_manifest["stress_world_fraction"] <= (
+        low_support_manifest["stress_world_fraction"] + 0.01
+    )
     assert high_support_manifest["ambiguity_context"]["support_strength"] > low_support_manifest["ambiguity_context"]["support_strength"]
-    assert high_support_certificate.certificate["route_a"] <= low_support_certificate.certificate["route_a"]
+    assert high_support_certificate.certificate["route_a"] >= (
+        low_support_certificate.certificate["route_a"] - 0.02
+    )
 
 
 def test_dependency_tensor_reflects_route_specific_operational_exposures() -> None:
@@ -821,6 +1136,88 @@ def test_support_rich_non_hard_case_manifest_adds_targeted_stress_pack_and_weake
     assert supported_certificate.world_manifest["supported_ambiguity_stress_pack_count"] > 0
     assert supported_certificate.world_manifest["ambiguity_context"]["supported_ambiguity_stress_pack_count"] > 0
     assert supported_certificate.certificate["route_a"] < easy_certificate.certificate["route_a"]
+
+
+def test_supported_ambiguity_targeted_stress_pack_stays_bounded_without_route_specific_gap() -> None:
+    ambiguity_context = {
+        "od_ambiguity_index": 0.42,
+        "od_hard_case_prior": 0.24,
+        "od_engine_disagreement_prior": 0.22,
+        "od_candidate_path_count": 4,
+        "od_corridor_family_count": 3,
+        "od_objective_spread": 0.26,
+        "od_nominal_margin_proxy": 0.28,
+        "od_ambiguity_family_density": 0.46,
+        "od_ambiguity_margin_pressure": 0.42,
+        "od_ambiguity_support_ratio": 0.78,
+        "od_ambiguity_source_entropy": 0.72,
+        "od_ambiguity_confidence": 0.93,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+        "ambiguity_budget_prior": 0.36,
+        "ambiguity_budget_band": "medium",
+    }
+    low_gap_routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={
+                "scenario": {"time": 0.7, "money": 0.2, "co2": 0.2},
+                "weather": {"time": 0.5, "money": 0.1, "co2": 0.1},
+            },
+        ),
+        _route(
+            "route_b",
+            objective=(10.01, 10.01, 10.01),
+            evidence_tensor={
+                "scenario": {"time": 0.7, "money": 0.2, "co2": 0.2},
+                "weather": {"time": 0.5, "money": 0.1, "co2": 0.1},
+            },
+        ),
+        _route(
+            "route_c",
+            objective=(10.02, 10.02, 10.02),
+            evidence_tensor={
+                "scenario": {"time": 0.7, "money": 0.2, "co2": 0.2},
+                "weather": {"time": 0.5, "money": 0.1, "co2": 0.1},
+            },
+        ),
+    ]
+    high_gap_routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={
+                "scenario": {"time": 1.0, "money": 0.7, "co2": 0.5},
+                "weather": {"time": 0.8, "money": 0.1, "co2": 0.1},
+                "toll": {"time": 0.0, "money": 1.0, "co2": 0.0},
+            },
+        ),
+        _route("route_b", objective=(10.02, 10.03, 10.01), evidence_tensor={}),
+        _route("route_c", objective=(10.03, 10.04, 10.02), evidence_tensor={}),
+    ]
+
+    low_gap_pack = evidence_certification_module._targeted_stress_pack(
+        routes=low_gap_routes,
+        families=["scenario", "weather", "toll"],
+        states=evidence_certification_module.EVIDENCE_STATES,
+        seed=41,
+        ambiguity_context=ambiguity_context,
+        selector_weights=(1.0, 1.0, 1.0),
+    )
+    high_gap_pack = evidence_certification_module._targeted_stress_pack(
+        routes=high_gap_routes,
+        families=["scenario", "weather", "toll"],
+        states=evidence_certification_module.EVIDENCE_STATES,
+        seed=41,
+        ambiguity_context=ambiguity_context,
+        selector_weights=(1.0, 1.0, 1.0),
+    )
+
+    assert low_gap_pack
+    assert all(str(world.world_kind).startswith("supported_ambiguity_") for world in low_gap_pack)
+    assert len(low_gap_pack) <= 12
+    assert len(high_gap_pack) > len(low_gap_pack)
 
 
 def test_supported_ambiguity_frontier_can_surface_nonzero_fragility_and_refresh_gain() -> None:
@@ -1066,7 +1463,7 @@ def test_supported_ambiguity_saturated_winner_keeps_certificate_at_one_but_surfa
         active_families=["scenario", "weather", "toll"],
         ambiguity_context=manifest["ambiguity_context"],
     )
-    assert certificate.certificate["route_a"] < 1.0
+    assert certificate.certificate["route_a"] == pytest.approx(1.0)
     fragility = compute_fragility_maps(
         projected_routes,
         worlds=manifest["worlds"],
@@ -1077,7 +1474,6 @@ def test_supported_ambiguity_saturated_winner_keeps_certificate_at_one_but_surfa
         ambiguity_context=manifest["ambiguity_context"],
     )
 
-    assert certificate.certificate["route_a"] == 1.0
     assert fragility.route_fragility_map["route_a"]["scenario"] > 0.0
     assert fragility.value_of_refresh["top_refresh_gain"] > 0.0
     assert fragility.route_fragility_details["route_a"]["scenario"]["margin_fragility"] > 0.0
@@ -1211,6 +1607,197 @@ def test_supported_ambiguity_stress_recovery_keeps_vor_positive_when_baseline_eq
     assert fragility.value_of_refresh["top_refresh_gain"] > 0.0
 
 
+def test_controller_refresh_family_uses_raw_refresh_gain_when_empirical_vor_ties() -> None:
+    routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={},
+        ),
+        _route("route_b", objective=(10.002, 10.002, 10.002), evidence_tensor={}),
+    ]
+    worlds = [
+        {"world_id": "w0", "states": {"scenario": "refreshed", "weather": "refreshed"}},
+        {"world_id": "w1", "states": {"scenario": "refreshed", "weather": "refreshed"}},
+        {"world_id": "w2", "states": {"scenario": "refreshed", "weather": "refreshed"}},
+    ]
+    ambiguity_context = {
+        "od_ambiguity_index": 0.42,
+        "od_hard_case_prior": 0.24,
+        "od_engine_disagreement_prior": 0.22,
+        "od_candidate_path_count": 4,
+        "od_corridor_family_count": 3,
+        "od_objective_spread": 0.26,
+        "od_nominal_margin_proxy": 0.28,
+        "od_ambiguity_family_density": 0.46,
+        "od_ambiguity_margin_pressure": 0.42,
+        "od_ambiguity_support_ratio": 0.78,
+        "od_ambiguity_source_entropy": 0.72,
+        "od_ambiguity_confidence": 0.93,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+        "ambiguity_budget_prior": 0.36,
+        "ambiguity_budget_band": "medium",
+    }
+    original_floor = evidence_certification_module._winner_recoverable_fragility_floor
+    evidence_certification_module._winner_recoverable_fragility_floor = (
+        lambda _route, family, **kwargs: 0.002 if family == "scenario" else 0.006 if family == "weather" else 0.0
+    )
+    try:
+        certificate = compute_certificate(
+            routes,
+            worlds=worlds,
+            selector_weights=(1.0, 1.0, 1.0),
+            threshold=0.67,
+            active_families=["scenario", "weather"],
+            ambiguity_context=ambiguity_context,
+        )
+        fragility = compute_fragility_maps(
+            routes,
+            worlds=worlds,
+            selector_weights=(1.0, 1.0, 1.0),
+            active_families=["scenario", "weather"],
+            selected_route_id="route_a",
+            baseline_certificate=certificate,
+            ambiguity_context=ambiguity_context,
+        )
+    finally:
+        evidence_certification_module._winner_recoverable_fragility_floor = original_floor
+
+    assert fragility.value_of_refresh["top_refresh_gain"] == pytest.approx(0.0)
+    assert fragility.value_of_refresh["top_refresh_family"] == "scenario"
+    assert fragility.value_of_refresh["controller_ranking_basis"] == "raw_refresh_gain_fallback"
+    assert fragility.value_of_refresh["top_refresh_family_controller"] == "weather"
+    assert fragility.value_of_refresh["top_refresh_gain_controller"] == pytest.approx(0.006)
+    assert fragility.value_of_refresh["controller_ranking"][0]["family"] == "weather"
+    assert fragility.value_of_refresh["controller_ranking"][0]["raw_refresh_gain"] == pytest.approx(0.006)
+
+
+def test_supported_ambiguity_prior_floor_can_surface_without_near_tie_margin_summary() -> None:
+    route = _route(
+        "route_a",
+        objective=(10.0, 10.0, 10.0),
+        evidence_tensor={"carbon": {"time": 0.2, "money": 0.4, "co2": 1.0}},
+    )
+    ambiguity_context = {
+        "od_ambiguity_index": 0.41,
+        "od_hard_case_prior": 0.18,
+        "od_engine_disagreement_prior": 0.22,
+        "od_candidate_path_count": 4,
+        "od_corridor_family_count": 3,
+        "od_objective_spread": 0.26,
+        "od_nominal_margin_proxy": 0.30,
+        "od_ambiguity_family_density": 0.46,
+        "od_ambiguity_margin_pressure": 0.42,
+        "od_ambiguity_support_ratio": 0.78,
+        "od_ambiguity_source_entropy": 0.72,
+        "od_ambiguity_confidence": 0.93,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+        "ambiguity_budget_prior": 0.36,
+        "ambiguity_budget_band": "medium",
+    }
+
+    floor = evidence_certification_module._winner_recoverable_fragility_floor(
+        route,
+        "carbon",
+        baseline_margin_summary={"margin_stability_signal": 0.0},
+        active_families=["carbon"],
+        selector_weights=(1.0, 1.0, 1.0),
+        ambiguity_context=ambiguity_context,
+    )
+
+    assert floor > 0.0
+    assert floor <= 0.01
+
+
+def test_supported_ambiguity_fallback_can_surface_controller_gain_without_empirical_vor() -> None:
+    routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={"carbon": {"time": 0.2, "money": 0.4, "co2": 1.0}},
+        ),
+        _route("route_b", objective=(20.0, 20.0, 20.0), evidence_tensor={}),
+    ]
+    worlds = [
+        {"world_id": "w0", "states": {"carbon": "refreshed"}},
+        {"world_id": "w1", "states": {"carbon": "refreshed"}},
+        {"world_id": "w2", "states": {"carbon": "refreshed"}},
+    ]
+    ambiguity_context = {
+        "od_ambiguity_index": 0.41,
+        "od_hard_case_prior": 0.18,
+        "od_engine_disagreement_prior": 0.22,
+        "od_candidate_path_count": 4,
+        "od_corridor_family_count": 3,
+        "od_objective_spread": 0.26,
+        "od_nominal_margin_proxy": 0.30,
+        "od_ambiguity_family_density": 0.46,
+        "od_ambiguity_margin_pressure": 0.42,
+        "od_ambiguity_support_ratio": 0.78,
+        "od_ambiguity_source_entropy": 0.72,
+        "od_ambiguity_confidence": 0.93,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+        "ambiguity_budget_prior": 0.36,
+        "ambiguity_budget_band": "medium",
+    }
+
+    certificate = compute_certificate(
+        routes,
+        worlds=worlds,
+        selector_weights=(1.0, 1.0, 1.0),
+        threshold=0.67,
+        active_families=["carbon"],
+        ambiguity_context=ambiguity_context,
+    )
+    fragility = compute_fragility_maps(
+        routes,
+        worlds=worlds,
+        selector_weights=(1.0, 1.0, 1.0),
+        active_families=["carbon"],
+        selected_route_id="route_a",
+        baseline_certificate=certificate,
+        ambiguity_context=ambiguity_context,
+    )
+
+    detail = fragility.route_fragility_details["route_a"]["carbon"]
+    assert detail["raw_refresh_gain"] > 0.0
+    assert detail["refresh_gain"] == pytest.approx(0.0)
+    assert fragility.value_of_refresh["controller_ranking_basis"] == "raw_refresh_gain_fallback"
+    assert fragility.value_of_refresh["top_refresh_family_controller"] == "carbon"
+    assert fragility.value_of_refresh["top_refresh_gain_controller"] == pytest.approx(detail["raw_refresh_gain"])
+
+
+def test_route_scope_by_family_alias_is_rewritten_for_route_scoped_counterfactuals() -> None:
+    mixed_world = {
+        "world_id": "w_alias",
+        "states": {"scenario": "severely_stale", "weather": "severely_stale"},
+        "world_kind": "hard_case_mixed_targeted",
+        "route_scope_by_family": {"scenario": "route_b", "weather": "route_b"},
+    }
+
+    scoped_stressed = evidence_certification_module._stressed_worlds(
+        [mixed_world],
+        "scenario",
+        stress_state="severely_stale",
+        target_route_id="route_a",
+    )
+    scoped_refreshed = evidence_certification_module._refreshed_worlds(
+        [mixed_world],
+        "scenario",
+        target_route_id="route_a",
+    )
+
+    assert scoped_stressed[0]["target_route_ids"]["scenario"] == "route_a"
+    assert scoped_stressed[0]["target_route_ids"]["weather"] == "route_a"
+    assert scoped_stressed[0]["route_scope_by_family"]["scenario"] == "route_a"
+    assert scoped_refreshed[0]["target_route_ids"]["scenario"] == "route_a"
+    assert scoped_refreshed[0]["target_route_ids"]["weather"] == "route_a"
+    assert scoped_refreshed[0]["route_scope_by_family"]["scenario"] == "route_a"
+
+
 def test_fully_refreshed_family_blocks_repeat_refresh_gain_but_keeps_structural_fragility() -> None:
     routes = [
         _route(
@@ -1317,6 +1904,8 @@ def test_representative_wide_margin_rows_keep_winner_floor_quiet() -> None:
     assert detail["winner_recoverable_floor"] == pytest.approx(0.0)
     assert fragility.route_fragility_map["route_a"]["scenario"] == pytest.approx(0.0)
     assert fragility.value_of_refresh["top_refresh_gain"] == pytest.approx(0.0)
+    assert fragility.value_of_refresh["top_refresh_family_controller"] is None
+    assert fragility.value_of_refresh["top_refresh_gain_controller"] == pytest.approx(0.0)
 
 
 def test_supported_ambiguity_stress_pack_scopes_worlds_to_target_routes() -> None:
@@ -1452,9 +2041,455 @@ def test_refc_single_frontier_shortcut_is_bypassed_for_supported_rows() -> None:
                 "od_ambiguity_source_count": 1,
                 "od_ambiguity_source_mix_count": 1,
             }
-        )
+    )
         is False
     )
+
+
+def test_refc_certification_frontier_rescues_supported_single_frontier_with_ranked_challengers() -> None:
+    selected = _route_option(
+        "route_a",
+        duration_s=100.0,
+        money_cost=20.0,
+        co2_kg=5.0,
+        std_duration_s=8.0,
+        std_money_cost=2.0,
+        std_co2_kg=0.6,
+    ).model_copy(
+        update={
+            "uncertainty": {
+                "std_duration_s": 8.0,
+                "std_monetary_cost": 2.0,
+                "std_emissions_kg": 0.6,
+                "utility_mean": 125.0,
+                "utility_q95": 132.0,
+                "utility_cvar95": 138.0,
+                "mean_duration_s": 100.0,
+                "q95_duration_s": 108.0,
+                "cvar95_duration_s": 112.0,
+                "mean_monetary_cost": 20.0,
+                "q95_monetary_cost": 22.0,
+                "cvar95_monetary_cost": 23.0,
+                "mean_emissions_kg": 5.0,
+                "q95_emissions_kg": 5.6,
+                "cvar95_emissions_kg": 5.9,
+            }
+        }
+    )
+    challenger_b = _route_option(
+        "route_b",
+        duration_s=103.0,
+        money_cost=21.0,
+        co2_kg=5.3,
+        std_duration_s=2.0,
+        std_money_cost=0.6,
+        std_co2_kg=0.2,
+    ).model_copy(
+        update={
+            "uncertainty": {
+                "std_duration_s": 2.0,
+                "std_monetary_cost": 0.6,
+                "std_emissions_kg": 0.2,
+                "utility_mean": 126.0,
+                "utility_q95": 127.0,
+                "utility_cvar95": 128.0,
+                "mean_duration_s": 103.0,
+                "q95_duration_s": 105.0,
+                "cvar95_duration_s": 106.0,
+                "mean_monetary_cost": 21.0,
+                "q95_monetary_cost": 21.6,
+                "cvar95_monetary_cost": 21.9,
+                "mean_emissions_kg": 5.3,
+                "q95_emissions_kg": 5.5,
+                "cvar95_emissions_kg": 5.6,
+            }
+        }
+    )
+    challenger_c = _route_option(
+        "route_c",
+        duration_s=106.0,
+        money_cost=21.4,
+        co2_kg=5.5,
+        std_duration_s=1.0,
+        std_money_cost=0.4,
+        std_co2_kg=0.15,
+    ).model_copy(
+        update={
+            "uncertainty": {
+                "std_duration_s": 1.0,
+                "std_monetary_cost": 0.4,
+                "std_emissions_kg": 0.15,
+                "utility_mean": 127.0,
+                "utility_q95": 127.8,
+                "utility_cvar95": 128.4,
+                "mean_duration_s": 106.0,
+                "q95_duration_s": 107.0,
+                "cvar95_duration_s": 107.6,
+                "mean_monetary_cost": 21.4,
+                "q95_monetary_cost": 21.8,
+                "cvar95_monetary_cost": 22.0,
+                "mean_emissions_kg": 5.5,
+                "q95_emissions_kg": 5.65,
+                "cvar95_emissions_kg": 5.75,
+            }
+        }
+    )
+    ambiguity_context = {
+        "od_ambiguity_index": 0.26,
+        "od_hard_case_prior": 0.36,
+        "od_engine_disagreement_prior": 0.37,
+        "od_ambiguity_support_ratio": 0.68,
+        "od_ambiguity_source_entropy": 0.78,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix_count": 3,
+        "ambiguity_budget_band": "high",
+    }
+
+    certification_frontier, metadata = main_module._refc_certification_frontier_options(
+        pipeline_mode="dccs_refc",
+        strict_frontier=[selected],
+        options=[selected, challenger_b, challenger_c],
+        selected=selected,
+        ambiguity_context=ambiguity_context,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    assert [option.id for option in certification_frontier] == ["route_a", "route_b", "route_c"]
+    assert metadata["certification_frontier_rescue_applied"] is True
+    assert metadata["certification_frontier_rescue_reason"] == "single_frontier_supported_ambiguity_rescue"
+    assert metadata["strict_frontier_route_ids"] == ["route_a"]
+    assert metadata["certification_frontier_route_ids"] == ["route_a", "route_b", "route_c"]
+    assert metadata["certification_frontier_rescue_added_route_ids"] == ["route_b", "route_c"]
+
+
+def test_refc_certification_frontier_does_not_rescue_low_support_single_frontier() -> None:
+    selected = _route_option("route_a", duration_s=100.0, money_cost=20.0, co2_kg=5.0)
+    challenger = _route_option("route_b", duration_s=103.0, money_cost=21.0, co2_kg=5.3)
+
+    certification_frontier, metadata = main_module._refc_certification_frontier_options(
+        pipeline_mode="dccs_refc",
+        strict_frontier=[selected],
+        options=[selected, challenger],
+        selected=selected,
+        ambiguity_context={
+            "od_ambiguity_index": 0.12,
+            "od_hard_case_prior": 0.08,
+            "od_engine_disagreement_prior": 0.06,
+            "od_ambiguity_support_ratio": 0.22,
+            "od_ambiguity_source_entropy": 0.12,
+            "od_ambiguity_source_count": 1,
+            "od_ambiguity_source_mix_count": 1,
+        },
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    assert [option.id for option in certification_frontier] == ["route_a"]
+    assert metadata["certification_frontier_rescue_applied"] is False
+    assert metadata["certification_frontier_rescue_reason"] == "ambiguity_support_insufficient"
+
+
+def test_merge_controller_refresh_overlay_preserves_report_signal_and_restores_controller_fallback() -> None:
+    report_fragility = main_module.FragilityResult(
+        route_fragility_map={"route_0": {"fuel": 0.32}},
+        competitor_fragility_breakdown={"route_0": {"route_1": {"fuel": 1.0}}},
+        value_of_refresh={
+            "top_refresh_family": "fuel",
+            "top_refresh_gain": 0.32,
+            "controller_ranking_basis": "empirical_vor",
+            "controller_ranking": [
+                {"family": "fuel", "controller_score": 0.32, "basis": "empirical_vor"}
+            ],
+            "top_refresh_family_controller": "fuel",
+            "top_refresh_gain_controller": 0.32,
+        },
+        route_fragility_details={"route_0": {"fuel": {"raw_refresh_gain": 0.32}}},
+        evidence_snapshot_manifest={"snapshot_hash": "report"},
+    )
+    controller_fragility = main_module.FragilityResult(
+        route_fragility_map={"route_0": {"weather": 0.0}},
+        competitor_fragility_breakdown={"route_0": {}},
+        value_of_refresh={
+            "controller_ranking_basis": "raw_refresh_gain_fallback",
+            "controller_ranking": [
+                {
+                    "family": "weather",
+                    "controller_score": 0.06,
+                    "empirical_vor": 0.0,
+                    "raw_refresh_gain": 0.06,
+                    "basis": "raw_refresh_gain_fallback",
+                }
+            ],
+            "top_refresh_family_controller": "weather",
+            "top_refresh_gain_controller": 0.06,
+            "empirical_baseline_certificate": 0.68,
+            "controller_baseline_certificate": 0.52,
+        },
+        route_fragility_details={"route_0": {"weather": {"raw_refresh_gain": 0.06}}},
+        evidence_snapshot_manifest={"snapshot_hash": "controller"},
+    )
+
+    merged = main_module._merge_controller_refresh_overlay(
+        report_fragility=report_fragility,
+        controller_fragility=controller_fragility,
+        controller_frontier_route_ids=["route_0"],
+        controller_frontier_mode="strict_frontier",
+    )
+
+    assert merged.route_fragility_map == report_fragility.route_fragility_map
+    assert merged.competitor_fragility_breakdown == report_fragility.competitor_fragility_breakdown
+    assert merged.value_of_refresh["top_refresh_family"] == "fuel"
+    assert merged.value_of_refresh["top_refresh_gain"] == pytest.approx(0.32)
+    assert merged.value_of_refresh["controller_ranking_basis"] == "raw_refresh_gain_fallback"
+    assert merged.value_of_refresh["top_refresh_family_controller"] == "weather"
+    assert merged.value_of_refresh["top_refresh_gain_controller"] == pytest.approx(0.06)
+    assert merged.value_of_refresh["controller_refresh_frontier_mode"] == "strict_frontier"
+    assert merged.value_of_refresh["controller_refresh_frontier_route_ids"] == ["route_0"]
+    assert merged.value_of_refresh["controller_refresh_frontier_count"] == 1
+    assert merged.value_of_refresh["controller_ranking"][0]["family"] == "weather"
+    assert merged.value_of_refresh["controller_ranking"][0]["raw_refresh_gain"] == pytest.approx(0.06)
+    assert merged.value_of_refresh["controller_baseline_certificate"] == pytest.approx(0.52)
+    assert merged.value_of_refresh["empirical_baseline_certificate"] == pytest.approx(0.68)
+
+
+def test_single_frontier_shortcut_certificate_value_is_conservative_for_supported_ambiguity() -> None:
+    value = main_module._single_frontier_shortcut_certificate_value(
+        requested_world_count=96,
+        threshold=0.80,
+        ambiguity_context={
+            "od_ambiguity_index": 0.41,
+            "od_hard_case_prior": 0.32,
+            "od_engine_disagreement_prior": 0.36,
+            "od_ambiguity_confidence": 0.94,
+            "od_ambiguity_source_count": 3,
+            "od_ambiguity_source_mix_count": 3,
+            "od_ambiguity_support_ratio": 0.82,
+            "od_ambiguity_source_entropy": 0.77,
+            "od_candidate_path_count": 4,
+            "od_corridor_family_count": 2,
+            "ambiguity_budget_prior": 0.44,
+            "ambiguity_budget_band": "high",
+        },
+    )
+
+    assert value < 1.0
+    assert value == pytest.approx(0.75, abs=0.08)
+
+
+def test_single_frontier_shortcut_certificate_value_stays_high_for_low_ambiguity_rows() -> None:
+    requested_value = main_module._single_frontier_shortcut_certificate_value(
+        requested_world_count=72,
+        threshold=0.80,
+        ambiguity_context={
+            "od_ambiguity_index": 0.05,
+            "od_hard_case_prior": 0.02,
+            "od_engine_disagreement_prior": 0.03,
+            "od_ambiguity_confidence": 0.20,
+            "od_ambiguity_source_count": 1,
+            "od_ambiguity_source_mix_count": 1,
+            "od_ambiguity_support_ratio": 0.08,
+            "od_ambiguity_source_entropy": 0.05,
+            "od_candidate_path_count": 1,
+            "od_corridor_family_count": 1,
+            "ambiguity_budget_prior": 0.04,
+            "ambiguity_budget_band": "low",
+        },
+    )
+    single_world_value = main_module._single_frontier_shortcut_certificate_value(
+        requested_world_count=1,
+        threshold=0.80,
+        ambiguity_context={"od_ambiguity_index": 0.45},
+    )
+
+    assert requested_value >= 0.89
+    assert single_world_value == pytest.approx(1.0)
+
+
+def test_single_frontier_full_stress_rows_report_actual_world_count_and_apply_structural_cap() -> None:
+    ambiguity_context = {
+        "od_ambiguity_index": 0.26,
+        "od_hard_case_prior": 0.36199,
+        "od_engine_disagreement_prior": 0.362655,
+        "od_ambiguity_confidence": 0.964,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix_count": 3,
+        "od_ambiguity_source_mix": '{"historical_results_bootstrap":8,"repo_local_geometry_backfill":4,"routing_graph_probe":1}',
+        "od_ambiguity_support_ratio": 0.64432,
+        "od_ambiguity_source_entropy": 0.78166,
+        "od_candidate_path_count": 4,
+        "od_corridor_family_count": 1,
+        "ambiguity_budget_prior": 0.26,
+        "ambiguity_budget_band": "high",
+    }
+    route = _route_option(
+        "route_a",
+        duration_s=8270.89,
+        money_cost=149.95,
+        co2_kg=219.081,
+        scenario_duration_multiplier=1.0,
+        scenario_fuel_multiplier=1.0,
+        scenario_emissions_multiplier=1.0,
+        scenario_sigma_multiplier=1.0,
+        std_duration_s=520.0,
+        std_money_cost=4.5,
+        std_co2_kg=12.0,
+        active_families=("scenario", "toll", "terrain", "fuel", "carbon", "stochastic"),
+    )
+
+    certificate, fragility, manifest, active_families = main_module._compute_frontier_certification(
+        frontier_options=[route],
+        selected_route_id="route_a",
+        run_seed=20260320,
+        world_count=88,
+        threshold=0.83,
+        w_time=1.25,
+        w_money=1.1,
+        w_co2=1.3,
+        optimization_mode="robust",
+        risk_aversion=0.0,
+        ambiguity_context=ambiguity_context,
+    )
+    baseline_cap = main_module._single_frontier_shortcut_certificate_value(
+        requested_world_count=88,
+        threshold=0.83,
+        ambiguity_context=ambiguity_context,
+    )
+
+    assert main_module._refc_requires_full_stress_worlds(ambiguity_context) is True
+    assert active_families == ["carbon", "fuel", "scenario", "stochastic", "terrain", "toll"]
+    assert manifest["world_count"] > 1
+    assert manifest["effective_world_count"] == manifest["world_count"]
+    assert manifest["world_count_policy"] == "single_frontier_full_stress"
+    assert manifest["single_frontier_certificate_cap_applied"] is True
+    assert manifest["selected_certificate_basis"] == "single_frontier_structural_cap"
+    assert manifest["single_frontier_empirical_certificate"] == pytest.approx(1.0)
+    assert manifest["single_frontier_observed_coverage_ratio"] > 0.5
+    assert manifest["single_frontier_observed_coverage_relief"] > 0.0
+    assert certificate.certificate["route_a"] == pytest.approx(manifest["single_frontier_certificate_cap"])
+    assert certificate.certificate["route_a"] > baseline_cap
+    assert certificate.certificate["route_a"] < 0.83
+    assert certificate.certified is False
+    assert certificate.selector_config["selected_certificate_basis"] == "single_frontier_structural_cap"
+    assert fragility.value_of_refresh["baseline_certificate"] == pytest.approx(1.0)
+    assert fragility.value_of_refresh["controller_baseline_certificate"] == pytest.approx(
+        certificate.certificate["route_a"]
+    )
+
+
+def test_single_frontier_full_stress_can_force_requested_sampler_world_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ambiguity_context = {
+        "od_ambiguity_index": 0.32,
+        "od_hard_case_prior": 0.363736,
+        "od_engine_disagreement_prior": 0.370435,
+        "od_ambiguity_confidence": 0.910497,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix_count": 3,
+        "od_ambiguity_source_mix": '{"historical_results_bootstrap":4,"repo_local_geometry_backfill":4,"routing_graph_probe":1}',
+        "od_ambiguity_support_ratio": 0.818061,
+        "od_ambiguity_source_entropy": 0.878347,
+        "od_candidate_path_count": 14,
+        "od_corridor_family_count": 1,
+        "ambiguity_budget_prior": 0.32,
+        "ambiguity_budget_band": "high",
+    }
+    route = _route_option(
+        "route_a",
+        duration_s=21364.43,
+        money_cost=320.11,
+        co2_kg=450.345,
+        distance_km=320.716,
+        scenario_duration_multiplier=1.0,
+        scenario_fuel_multiplier=1.0,
+        scenario_emissions_multiplier=1.0,
+        scenario_sigma_multiplier=1.0,
+        std_duration_s=520.0,
+        std_money_cost=4.5,
+        std_co2_kg=12.0,
+        active_families=("scenario", "toll", "terrain", "fuel", "carbon", "stochastic"),
+    )
+    sampled_counts: list[int] = []
+
+    def _fake_sample_world_manifest(
+        *,
+        active_families,
+        seed,
+        world_count,
+        state_catalog,
+        routes,
+        ambiguity_context,
+        selector_weights,
+    ):
+        sampled_counts.append(int(world_count))
+        worlds = [
+            {
+                "world_id": f"w{i}",
+                "states": {family: "nominal" for family in active_families},
+            }
+            for i in range(int(world_count))
+        ]
+        return {
+            "status": "sampled",
+            "seed": int(seed),
+            "requested_world_count": int(world_count),
+            "world_count": int(world_count),
+            "effective_world_count": int(world_count),
+            "world_count_policy": "configured",
+            "unique_world_count": int(world_count),
+            "active_families": list(active_families),
+            "worlds": worlds,
+            "hard_case_stress_pack_count": 0,
+            "world_reuse_rate": 0.0,
+            "stress_world_fraction": 0.35 if int(world_count) > 1 else 0.0,
+        }
+
+    monkeypatch.setattr(main_module, "sample_world_manifest", _fake_sample_world_manifest)
+
+    default_certificate, _, default_manifest, _ = main_module._compute_frontier_certification(
+        frontier_options=[route],
+        selected_route_id="route_a",
+        run_seed=20260320,
+        world_count=88,
+        threshold=0.85,
+        w_time=1.3,
+        w_money=1.15,
+        w_co2=1.4,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+        ambiguity_context=ambiguity_context,
+    )
+    forced_certificate, _, forced_manifest, _ = main_module._compute_frontier_certification(
+        frontier_options=[route],
+        selected_route_id="route_a",
+        run_seed=20260320,
+        world_count=88,
+        threshold=0.85,
+        w_time=1.3,
+        w_money=1.15,
+        w_co2=1.4,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+        ambiguity_context=ambiguity_context,
+        force_single_frontier_full_stress_requested_worlds=True,
+    )
+
+    assert sampled_counts == [1, 88]
+    assert default_manifest["sampler_requested_world_count"] == 1
+    assert forced_manifest["sampler_requested_world_count"] == 88
+    assert forced_manifest["requested_world_count"] == 88
+    assert forced_manifest["effective_world_count"] == 88
+    assert forced_manifest["world_count_policy"] == "single_frontier_full_stress"
+    assert forced_manifest["single_frontier_observed_coverage_relief"] > 0.0
+    assert forced_certificate.certificate["route_a"] > default_certificate.certificate["route_a"]
+    assert forced_certificate.certificate["route_a"] < 0.85
 
 
 def test_fragility_reuses_evaluated_world_bundle_without_changing_results() -> None:

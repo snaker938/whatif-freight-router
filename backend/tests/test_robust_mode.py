@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.main import _finalize_pareto_options, _pick_best_option, _route_selection_score_map, settings
+from app.main import _clone_option_with_objectives, _finalize_pareto_options, _pick_best_option, _route_selection_score_map, settings
 from app.models import GeoJSONLineString, RouteMetrics, RouteOption
 
 
@@ -358,3 +358,110 @@ def test_robust_pick_respects_weighted_tradeoff_across_objectives() -> None:
 
     assert picked.id == "balanced_corridor"
     assert picked.id == min(score_map, key=score_map.get)
+
+
+def test_pick_best_option_preserves_time_when_savings_are_marginal() -> None:
+    time_preserving = _option(
+        route_id="time_preserving",
+        duration_s=15433.39,
+        money=328.77,
+        co2=500.293,
+        mean_duration_s=15433.39,
+        std_duration_s=5.0,
+        cvar95_duration_s=15445.0,
+        mean_money=328.77,
+        cvar95_money=329.5,
+        mean_co2=500.293,
+        cvar95_co2=501.0,
+        distance_km=311.33,
+    )
+    marginal_savings = _option(
+        route_id="marginal_savings",
+        duration_s=16599.31,
+        money=327.23,
+        co2=492.071,
+        mean_duration_s=16599.31,
+        std_duration_s=5.0,
+        cvar95_duration_s=16612.0,
+        mean_money=327.23,
+        cvar95_money=328.0,
+        mean_co2=492.071,
+        cvar95_co2=493.0,
+        distance_km=309.193,
+    )
+
+    options = [time_preserving, marginal_savings]
+    picked = _pick_best_option(
+        options,
+        w_time=1.05,
+        w_money=1.0,
+        w_co2=1.05,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+    score_map = _route_selection_score_map(
+        options,
+        w_time=1.05,
+        w_money=1.0,
+        w_co2=1.05,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    assert picked.id == "time_preserving"
+    assert picked.id == min(score_map, key=score_map.get)
+
+
+def test_clone_option_with_objectives_scales_uncertainty_tails_for_robust_selection() -> None:
+    perturbed = _option(
+        route_id="perturbed",
+        duration_s=100.0,
+        money=80.0,
+        co2=90.0,
+        mean_duration_s=110.0,
+        std_duration_s=10.0,
+        cvar95_duration_s=135.0,
+        mean_money=88.0,
+        std_money=4.0,
+        cvar95_money=96.0,
+        mean_co2=95.0,
+        std_co2=5.0,
+        cvar95_co2=103.0,
+    )
+    stable = _option(
+        route_id="stable",
+        duration_s=130.0,
+        money=95.0,
+        co2=100.0,
+        mean_duration_s=130.0,
+        std_duration_s=2.0,
+        cvar95_duration_s=132.0,
+        mean_money=95.0,
+        std_money=1.0,
+        cvar95_money=96.0,
+        mean_co2=100.0,
+        std_co2=1.0,
+        cvar95_co2=101.0,
+    )
+
+    cloned = _clone_option_with_objectives(perturbed, (160.0, 120.0, 135.0))
+
+    assert cloned.uncertainty is not None
+    assert cloned.uncertainty["mean_duration_s"] == 176.0
+    assert cloned.uncertainty["std_duration_s"] == 16.0
+    assert cloned.uncertainty["cvar95_duration_s"] == 216.0
+    assert cloned.uncertainty["mean_monetary_cost"] == 132.0
+    assert cloned.uncertainty["cvar95_monetary_cost"] == 144.0
+    assert cloned.uncertainty["mean_emissions_kg"] == 142.5
+    assert cloned.uncertainty["cvar95_emissions_kg"] == 154.5
+
+    robust_score_map = _route_selection_score_map(
+        [cloned, stable],
+        w_time=1.0,
+        w_money=0.0,
+        w_co2=0.0,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    assert min(robust_score_map, key=robust_score_map.get) == "stable"

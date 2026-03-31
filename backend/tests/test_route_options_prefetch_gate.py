@@ -494,6 +494,7 @@ def test_build_option_lightweight_coarsens_segment_economics_and_keeps_summary_f
         ],
     }
     energy_calls = {"count": 0}
+    segment_grade_probe_flags: list[bool] = []
 
     monkeypatch.setattr(main_module, "terrain_begin_route_run", lambda: None)
     monkeypatch.setattr(
@@ -506,11 +507,11 @@ def test_build_option_lightweight_coarsens_segment_economics_and_keeps_summary_f
         "extract_segment_annotations",
         lambda _route: ([1_000.0] * 120, [60.0] * 120),
     )
-    monkeypatch.setattr(
-        main_module,
-        "segment_grade_profile",
-        lambda **kwargs: [0.0] * len(kwargs["segment_distances_m"]),
-    )
+    def _segment_grade_profile(**kwargs: Any) -> list[float]:
+        segment_grade_probe_flags.append(bool(kwargs.get("probe_segment_boundaries", True)))
+        return [0.0] * len(kwargs["segment_distances_m"])
+
+    monkeypatch.setattr(main_module, "segment_grade_profile", _segment_grade_profile)
     monkeypatch.setattr(
         main_module,
         "build_scenario_route_context",
@@ -679,6 +680,7 @@ def test_build_option_lightweight_coarsens_segment_economics_and_keeps_summary_f
     )
 
     assert energy_calls["count"] <= 8
+    assert segment_grade_probe_flags == [False]
     assert len(option.segment_breakdown) == 1
     summary = option.segment_breakdown[0]
     assert summary["segment_index"] == 0
@@ -948,6 +950,7 @@ def test_build_option_lightweight_preserves_uncertainty_when_forced(monkeypatch)
     }
     energy_calls = {"count": 0}
     uncertainty_calls = {"count": 0}
+    observed_uncertainty_samples: list[int] = []
 
     monkeypatch.setattr(main_module, "terrain_begin_route_run", lambda: None)
     monkeypatch.setattr(
@@ -1113,6 +1116,7 @@ def test_build_option_lightweight_preserves_uncertainty_when_forced(monkeypatch)
     def _route_stochastic_uncertainty(*args: Any, **kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         _ = (args, kwargs)
         uncertainty_calls["count"] += 1
+        observed_uncertainty_samples.append(int(kwargs["stochastic"].samples))
         return (
             {
                 "mean_duration_s": 3600.0,
@@ -1148,7 +1152,7 @@ def test_build_option_lightweight_preserves_uncertainty_when_forced(monkeypatch)
         scenario_mode=main_module.ScenarioMode.NO_SHARING,
         cost_toggles=CostToggles(),
         terrain_profile="flat",
-        stochastic=StochasticConfig(enabled=True, samples=24),
+        stochastic=StochasticConfig(enabled=True, samples=72),
         emissions_context=EmissionsContext(),
         weather=WeatherImpactConfig(),
         incident_simulation=IncidentSimulatorConfig(),
@@ -1162,8 +1166,11 @@ def test_build_option_lightweight_preserves_uncertainty_when_forced(monkeypatch)
 
     assert energy_calls["count"] <= int(settings.route_option_segment_cap_long)
     assert uncertainty_calls["count"] == 1
+    assert observed_uncertainty_samples == [24]
     assert option.uncertainty is not None
     assert option.uncertainty_samples_meta is not None
+    assert option.uncertainty_samples_meta["lightweight_uncertainty_sample_cap_applied"] is True
+    assert option.uncertainty_samples_meta["lightweight_uncertainty_requested_samples"] == 72
     assert len(option.segment_breakdown) == 1
     summary = option.segment_breakdown[0]
     assert summary["segment_index"] == 0

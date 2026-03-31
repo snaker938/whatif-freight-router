@@ -141,6 +141,34 @@ class ProcessGlobalCacheStore(Generic[PayloadT]):
             self._estimated_bytes = 0
             return cleared
 
+    def export_items(self) -> list[tuple[str, PayloadT]]:
+        with self._lock:
+            expired_keys = [
+                key
+                for key, entry in self._items.items()
+                if self._is_expired(entry)
+            ]
+            for key in expired_keys:
+                self._remove_key(key)
+            return [
+                (key, copy.deepcopy(entry.payload))
+                for key, entry in self._items.items()
+            ]
+
+    def import_items(
+        self,
+        items: list[tuple[str, PayloadT]],
+        *,
+        clear_first: bool = False,
+    ) -> int:
+        if clear_first:
+            self.clear()
+        inserted = 0
+        for key, payload in items:
+            if self.set(key, payload):
+                inserted += 1
+        return inserted
+
     def snapshot(self) -> dict[str, int]:
         with self._lock:
             return {

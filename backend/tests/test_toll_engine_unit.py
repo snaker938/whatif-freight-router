@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 import app.toll_engine as toll_engine
 from app.calibration_loader import (
     TollConfidenceBin,
@@ -179,3 +181,65 @@ def test_compute_toll_cost_unresolved_when_no_tariff_match(monkeypatch) -> None:
     assert result.toll_cost_gbp == 0.0
     assert result.confidence == 0.0
     assert result.details["pricing_unresolved"] is True
+
+
+def test_compute_toll_cost_skips_far_seed_before_overlap(monkeypatch) -> None:
+    near_seed = _seed()
+    far_seed = TollSegmentSeed(
+        segment_id="seg_far",
+        name="Far toll segment",
+        operator="nh",
+        road_class="motorway",
+        crossing_id="far",
+        direction="both",
+        crossing_fee_gbp=2.5,
+        distance_fee_gbp_per_km=0.10,
+        coordinates=((55.8609, -4.2514), (55.8709, -4.2414)),
+    )
+    tariff = TollTariffRule(
+        rule_id="rule_a",
+        operator="nh",
+        crossing_id="dartford",
+        road_class="motorway",
+        direction="both",
+        start_minute=0,
+        end_minute=1439,
+        crossing_fee_gbp=2.5,
+        distance_fee_gbp_per_km=0.2,
+        vehicle_classes=("rigid_hgv",),
+        axle_classes=("3to4",),
+        payment_classes=("electronic",),
+        exemptions=(),
+    )
+    table = TollTariffTable(
+        default_crossing_fee_gbp=0.0,
+        default_distance_fee_gbp_per_km=0.0,
+        rules=(tariff,),
+        source="unit",
+    )
+    overlap_calls: list[str] = []
+
+    monkeypatch.setattr(toll_engine, "load_toll_tariffs", lambda: table)
+    monkeypatch.setattr(toll_engine, "load_toll_segments_seed", lambda: (far_seed, near_seed))
+    monkeypatch.setattr(toll_engine, "load_toll_confidence_calibration", _calibration)
+
+    def _segment_overlap(seed_obj: TollSegmentSeed, route_points: list[tuple[float, float]]) -> float:
+        _ = route_points
+        overlap_calls.append(seed_obj.segment_id)
+        if seed_obj.segment_id == near_seed.segment_id:
+            return 1.2
+        pytest.fail("far seed should have been rejected by bbox prefilter")
+
+    monkeypatch.setattr(toll_engine, "_segment_overlap_km", _segment_overlap)
+
+    result = toll_engine.compute_toll_cost(
+        route=_route(),
+        distance_km=8.0,
+        vehicle_type="rigid_hgv",
+        departure_time_utc=datetime(2026, 2, 23, 9, 30, tzinfo=UTC),
+        use_tolls=True,
+    )
+
+    assert overlap_calls == [near_seed.segment_id]
+    assert result.contains_toll is True
+    assert result.toll_cost_gbp > 0.0

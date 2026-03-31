@@ -22,6 +22,8 @@ from .models import (
 )
 from .settings import settings
 
+ROUTE_OPTION_CACHE_SCHEMA_VERSION = 2
+
 
 @dataclass(frozen=True)
 class CachedRouteOptionBuild:
@@ -266,7 +268,7 @@ def _build_route_option_cache_key(
         return None
 
     cache_payload = {
-        "schema_version": 1,
+        "schema_version": ROUTE_OPTION_CACHE_SCHEMA_VERSION,
         "route": route_payload,
         "settings": {
             "strict_live_data_required": bool(settings.strict_live_data_required),

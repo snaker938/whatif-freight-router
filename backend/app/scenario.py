@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from datetime import UTC, datetime
 from enum import Enum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -345,6 +345,150 @@ def _context_similarity_config(transform_params: dict[str, object] | None) -> tu
     return normalized_weights, max_distance
 
 
+_SCENARIO_PROFILE_SPREAD_FIELDS = (
+    "duration_multiplier",
+    "incident_rate_multiplier",
+    "incident_delay_multiplier",
+    "fuel_consumption_multiplier",
+    "emissions_multiplier",
+    "stochastic_sigma_multiplier",
+)
+_COLLAPSED_CONTEXT_MAX_SPREAD = 1e-9
+_RICHER_PAIRED_CONTEXT_MIN_SPREAD = 0.05
+_RICHER_PAIRED_CONTEXT_MAX_DISTANCE_PENALTY = 0.08
+
+
+def _paired_day_context_key(context_key: str) -> str | None:
+    parts = [p.strip().lower() for p in str(context_key or "").split("|")]
+    if len(parts) != 6:
+        return None
+    day_kind = parts[2]
+    if day_kind == "weekday":
+        parts[2] = "weekend"
+    elif day_kind == "weekend":
+        parts[2] = "weekday"
+    else:
+        return None
+    return "|".join(parts)
+
+
+def _scenario_profile_quantile_spread(profile: object | None) -> float:
+    quantiles = getattr(profile, "quantiles", None)
+    if not isinstance(quantiles, dict):
+        return 0.0
+    spread = 0.0
+    for field in _SCENARIO_PROFILE_SPREAD_FIELDS:
+        row = quantiles.get(field)
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            continue
+        try:
+            q10 = float(row[0])
+            q90 = float(row[2])
+        except (TypeError, ValueError):
+            continue
+        spread += max(0.0, q90 - q10)
+    return spread
+
+
+def _support_richer_paired_day_context(
+    *,
+    request_context: ScenarioRouteContext | None = None,
+    context_key: str,
+    mode_key: str,
+    contexts: dict[str, object] | None,
+    exact_context: object,
+    exact_profile: object,
+    similarity_weights: dict[str, float] | None = None,
+    max_distance: float | None = None,
+    conservative_duration_transfer: bool = False,
+) -> tuple[object, str, object] | None:
+    if not isinstance(contexts, dict):
+        return None
+    paired_key = _paired_day_context_key(context_key)
+    if not paired_key:
+        return None
+    paired_context = contexts.get(paired_key)
+    if paired_context is None:
+        return None
+    paired_profiles = getattr(paired_context, "profiles", None)
+    if not isinstance(paired_profiles, dict):
+        return None
+    paired_profile = paired_profiles.get(mode_key)
+    if paired_profile is None:
+        return None
+    exact_spread = _scenario_profile_quantile_spread(exact_profile)
+    paired_spread = _scenario_profile_quantile_spread(paired_profile)
+    if exact_spread > _COLLAPSED_CONTEXT_MAX_SPREAD:
+        return None
+    if paired_spread < _RICHER_PAIRED_CONTEXT_MIN_SPREAD:
+        return None
+    if request_context is not None:
+        selected_distance = _profile_context_distance(
+            context=request_context,
+            context_key=context_key,
+            context_profile=exact_context,
+            weights=similarity_weights,
+        )
+        paired_distance = _profile_context_distance(
+            context=request_context,
+            context_key=paired_key,
+            context_profile=paired_context,
+            weights=similarity_weights,
+        )
+        if paired_distance > (selected_distance + _RICHER_PAIRED_CONTEXT_MAX_DISTANCE_PENALTY):
+            return None
+        if max_distance is not None and paired_distance > (float(max_distance) + 1e-9):
+            return None
+    if conservative_duration_transfer:
+        paired_profile = _conservative_paired_day_transfer_profile(paired_profile)
+    return paired_profile, paired_key, paired_context
+
+
+def _profile_quantile(profile: object, field: str, quantile_index: int, fallback: float) -> float:
+    quantiles = getattr(profile, "quantiles", None)
+    if not isinstance(quantiles, dict):
+        return fallback
+    row = quantiles.get(field)
+    if not isinstance(row, (list, tuple)) or len(row) <= quantile_index:
+        return fallback
+    try:
+        return float(row[quantile_index])
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _conservative_paired_day_transfer_profile(profile: object) -> object:
+    if not is_dataclass(profile):
+        return profile
+    return replace(
+        profile,
+        duration_multiplier=_profile_quantile(
+            profile,
+            "duration_multiplier",
+            2,
+            float(getattr(profile, "duration_multiplier", 1.0)),
+        ),
+        incident_rate_multiplier=_profile_quantile(
+            profile,
+            "incident_rate_multiplier",
+            2,
+            float(getattr(profile, "incident_rate_multiplier", 1.0)),
+        ),
+        incident_delay_multiplier=_profile_quantile(
+            profile,
+            "incident_delay_multiplier",
+            2,
+            float(getattr(profile, "incident_delay_multiplier", 1.0)),
+        ),
+        stochastic_sigma_multiplier=_profile_quantile(
+            profile,
+            "stochastic_sigma_multiplier",
+            2,
+            float(getattr(profile, "stochastic_sigma_multiplier", 1.0)),
+        ),
+    )
+
+
 def resolve_scenario_profile(
     mode: ScenarioMode,
     *,
@@ -368,10 +512,26 @@ def resolve_scenario_profile(
                 message="Scenario profile payload must include contextual profiles in strict runtime.",
             )
         exact_context = payload.contexts.get(context.context_key)
-        if exact_context is not None and exact_context.profiles.get(key) is not None:
-            selected = exact_context.profiles[key]
-            selected_context_key = context.context_key
-            selected_context_profile = exact_context
+        exact_profile = exact_context.profiles.get(key) if exact_context is not None else None
+        if exact_context is not None and exact_profile is not None:
+            # Exact day buckets with fully collapsed quantiles are usually low-support;
+            # reuse the paired day bucket when it carries materially richer uncertainty.
+            paired_fallback = _support_richer_paired_day_context(
+                request_context=context,
+                context_key=context.context_key,
+                mode_key=key,
+                contexts=payload.contexts,
+                exact_context=exact_context,
+                exact_profile=exact_profile,
+                similarity_weights=context_similarity_weights,
+                max_distance=context_similarity_max_distance,
+            )
+            if paired_fallback is not None:
+                selected, selected_context_key, selected_context_profile = paired_fallback
+            else:
+                selected = exact_profile
+                selected_context_key = context.context_key
+                selected_context_profile = exact_context
         else:
             best_key = ""
             best_profile = None
@@ -405,6 +565,19 @@ def resolve_scenario_profile(
                         f"(best_distance={best_distance:.4f}, max_distance={float(context_similarity_max_distance):.4f})."
                     ),
                 )
+            paired_fallback = _support_richer_paired_day_context(
+                request_context=context,
+                context_key=best_key,
+                mode_key=key,
+                contexts=payload.contexts,
+                exact_context=best_context_profile,
+                exact_profile=best_profile,
+                similarity_weights=context_similarity_weights,
+                max_distance=context_similarity_max_distance,
+                conservative_duration_transfer=True,
+            )
+            if paired_fallback is not None:
+                best_profile, best_key, best_context_profile = paired_fallback
             selected = best_profile
             selected_context_key = best_key
             selected_context_profile = best_context_profile

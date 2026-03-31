@@ -285,6 +285,48 @@ def _recent_no_gain_refine_streak(
     return streak
 
 
+def _recent_certificate_stalled_search_progress_count(
+    state: "VOIControllerState",
+    *,
+    max_depth: int = 3,
+) -> int:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    streak = 0
+    for raw_entry in reversed(trace):
+        if streak >= max_depth:
+            break
+        if not isinstance(raw_entry, Mapping):
+            break
+        chosen_action = raw_entry.get("chosen_action")
+        if not isinstance(chosen_action, Mapping):
+            break
+        kind = str(chosen_action.get("kind", "")).strip()
+        if kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+            break
+        realized_certificate_delta = max(0.0, _as_float(raw_entry.get("realized_certificate_delta")))
+        if realized_certificate_delta > 1e-9:
+            break
+        realized_frontier_gain = max(0.0, _as_float(raw_entry.get("realized_frontier_gain")))
+        realized_selected_route_improvement = max(
+            0.0,
+            _as_float(raw_entry.get("realized_selected_route_improvement")),
+        )
+        realized_runner_up_gap_delta = max(0.0, _as_float(raw_entry.get("realized_runner_up_gap_delta")))
+        realized_productive = bool(raw_entry.get("realized_productive", False))
+        search_only_progress = bool(
+            realized_productive
+            and realized_selected_route_improvement <= 1e-9
+            and (
+                realized_frontier_gain > 0.0
+                or realized_runner_up_gap_delta > 1e-9
+            )
+        )
+        if not search_only_progress:
+            break
+        streak += 1
+    return streak
+
+
 def _recent_no_gain_controller_streak(
     state: "VOIControllerState",
     *,
@@ -393,6 +435,150 @@ def _trace_has_prior_evidence_action_attempt(state: "VOIControllerState") -> boo
     return False
 
 
+def _trace_has_prior_meaningful_evidence_certificate_lift(
+    state: "VOIControllerState",
+    *,
+    minimum_lift: float = 0.05,
+) -> bool:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    lift_threshold = max(1e-9, _as_float(minimum_lift))
+    for raw_entry in trace:
+        if not isinstance(raw_entry, Mapping):
+            continue
+        chosen_action = raw_entry.get("chosen_action")
+        kind = ""
+        if isinstance(chosen_action, Mapping):
+            kind = str(chosen_action.get("kind", "")).strip()
+        if not kind:
+            kind = str(raw_entry.get("kind", "")).strip()
+        if kind not in {"refresh_top1_vor", "increase_stochastic_samples"}:
+            continue
+        realized_certificate_delta = max(0.0, _as_float(raw_entry.get("realized_certificate_delta")))
+        realized_evidence_uncertainty_delta = _as_float(raw_entry.get("realized_evidence_uncertainty_delta"))
+        realized_productive = bool(raw_entry.get("realized_productive", False))
+        if (
+            realized_certificate_delta >= lift_threshold
+            and (realized_productive or realized_evidence_uncertainty_delta < -1e-9)
+        ):
+            return True
+    return False
+
+
+def _recent_no_gain_evidence_discovery_bridge(
+    state: "VOIControllerState",
+    *,
+    max_depth: int = 1,
+) -> bool:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    inspected = 0
+    eligible_kinds = {"refresh_top1_vor", "increase_stochastic_samples"}
+    for raw_entry in reversed(trace):
+        if inspected >= max_depth:
+            break
+        if not isinstance(raw_entry, Mapping):
+            break
+        chosen_action = raw_entry.get("chosen_action")
+        kind = ""
+        metadata: Mapping[str, object] = {}
+        if isinstance(chosen_action, Mapping):
+            kind = str(chosen_action.get("kind", "")).strip()
+            metadata = chosen_action.get("metadata") if isinstance(chosen_action.get("metadata"), Mapping) else {}
+        if not kind:
+            kind = str(raw_entry.get("kind", "")).strip()
+        if kind not in eligible_kinds:
+            break
+        if not bool(metadata.get("evidence_discovery_bridge")):
+            return False
+        realized_certificate_delta = max(0.0, _as_float(raw_entry.get("realized_certificate_delta")))
+        realized_frontier_gain = max(0.0, _as_float(raw_entry.get("realized_frontier_gain")))
+        realized_selected_route_improvement = max(
+            0.0,
+            _as_float(raw_entry.get("realized_selected_route_improvement")),
+        )
+        realized_runner_up_gap_delta = max(0.0, _as_float(raw_entry.get("realized_runner_up_gap_delta")))
+        realized_evidence_uncertainty_delta = _as_float(raw_entry.get("realized_evidence_uncertainty_delta"))
+        realized_productive = bool(raw_entry.get("realized_productive", False))
+        if (
+            realized_productive
+            or realized_certificate_delta > 1e-9
+            or realized_frontier_gain > 0.0
+            or realized_selected_route_improvement > 1e-9
+            or realized_runner_up_gap_delta > 1e-9
+            or realized_evidence_uncertainty_delta < -1e-9
+        ):
+            return False
+        inspected += 1
+        return True
+    return False
+
+
+def _recent_harmful_evidence_certificate_drift(
+    state: "VOIControllerState",
+    *,
+    minimum_certificate_drop: float = 0.01,
+) -> bool:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    if not trace:
+        return False
+    raw_entry = trace[-1]
+    if not isinstance(raw_entry, Mapping):
+        return False
+    chosen_action = raw_entry.get("chosen_action")
+    kind = ""
+    if isinstance(chosen_action, Mapping):
+        kind = str(chosen_action.get("kind", "")).strip()
+    if not kind:
+        kind = str(raw_entry.get("kind", "")).strip()
+    if kind not in {"refresh_top1_vor", "increase_stochastic_samples"}:
+        return False
+    realized_certificate_delta = _as_float(raw_entry.get("realized_certificate_delta"))
+    if realized_certificate_delta > -max(1e-9, _as_float(minimum_certificate_drop)):
+        return False
+    realized_frontier_gain = max(0.0, _as_float(raw_entry.get("realized_frontier_gain")))
+    if realized_frontier_gain > 0.0:
+        return False
+    if bool(raw_entry.get("realized_selected_route_changed", False)):
+        return False
+    realized_selected_route_improvement = max(
+        0.0,
+        _as_float(raw_entry.get("realized_selected_route_improvement")),
+    )
+    if realized_selected_route_improvement > 1e-9:
+        return False
+    return True
+
+
+def _recent_productive_refine_route_change(
+    state: "VOIControllerState",
+    *,
+    max_depth: int = 1,
+) -> bool:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    inspected = 0
+    for raw_entry in reversed(trace):
+        if inspected >= max_depth:
+            break
+        if not isinstance(raw_entry, Mapping):
+            continue
+        chosen_action = raw_entry.get("chosen_action")
+        kind = ""
+        if isinstance(chosen_action, Mapping):
+            kind = str(chosen_action.get("kind", "")).strip()
+        if not kind:
+            kind = str(raw_entry.get("kind", "")).strip()
+        if kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+            return False
+        if not bool(raw_entry.get("realized_productive", False)):
+            return False
+        if not bool(raw_entry.get("realized_selected_route_changed", False)):
+            return False
+        realized_frontier_gain = max(0.0, _as_float(raw_entry.get("realized_frontier_gain")))
+        if realized_frontier_gain <= 0.0:
+            return False
+        return True
+    return False
+
+
 def _actual_refc_world_count(state: "VOIControllerState") -> float:
     context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
     return max(
@@ -413,6 +599,50 @@ def _requested_refc_world_count(state: "VOIControllerState") -> float:
     )
 
 
+def _sampler_requested_refc_world_count(state: "VOIControllerState") -> float:
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    sampled_requested_world_count = _as_float(context.get("refc_sampler_requested_world_count"))
+    if sampled_requested_world_count > 0.0:
+        return sampled_requested_world_count
+    return _requested_refc_world_count(state)
+
+
+def _resample_shortfall_available(state: "VOIControllerState") -> bool:
+    actual_world_count = _actual_refc_world_count(state)
+    requested_world_count = (
+        _sampler_requested_refc_world_count(state)
+        if state.stochastic_enabled
+        else _requested_refc_world_count(state)
+    )
+    return requested_world_count > actual_world_count + 1e-9
+
+
+def _resample_shortfall_ratio(state: "VOIControllerState") -> float:
+    actual_world_count = _actual_refc_world_count(state)
+    requested_world_count = (
+        _sampler_requested_refc_world_count(state)
+        if state.stochastic_enabled
+        else _requested_refc_world_count(state)
+    )
+    if requested_world_count <= 0.0:
+        return 1.0 if actual_world_count <= 0.0 else 0.0
+    return max(0.0, requested_world_count - actual_world_count) / requested_world_count
+
+
+def _cert_world_shortfall_available(state: "VOIControllerState") -> bool:
+    actual_world_count = _actual_refc_world_count(state)
+    requested_world_count = _requested_refc_world_count(state)
+    return requested_world_count > actual_world_count + 1e-9
+
+
+def _cert_world_shortfall_ratio(state: "VOIControllerState") -> float:
+    actual_world_count = _actual_refc_world_count(state)
+    requested_world_count = _requested_refc_world_count(state)
+    if requested_world_count <= 0.0:
+        return 1.0 if actual_world_count <= 0.0 else 0.0
+    return max(0.0, requested_world_count - actual_world_count) / requested_world_count
+
+
 def _resample_world_expandable(state: "VOIControllerState") -> bool:
     actual_world_count = _actual_refc_world_count(state)
     requested_world_count = _requested_refc_world_count(state)
@@ -421,6 +651,29 @@ def _resample_world_expandable(state: "VOIControllerState") -> bool:
     shortfall = max(0.0, requested_world_count - actual_world_count)
     tolerance = max(2.0, 0.05 * requested_world_count)
     return shortfall < tolerance
+
+
+def _single_frontier_structural_cap_gap(
+    state: "VOIControllerState",
+) -> tuple[float, float, float, float]:
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    empirical_baseline = _as_float(context.get("empirical_baseline_certificate"), float("nan"))
+    controller_baseline = _as_float(
+        context.get("controller_baseline_certificate"),
+        _certificate_value_from_map(state.certificate, state.winner_id),
+    )
+    actual_world_count = _actual_refc_world_count(state)
+    requested_world_count = _requested_refc_world_count(state)
+    if requested_world_count <= 0.0:
+        shortfall_ratio = 1.0 if actual_world_count <= 0.0 else 0.0
+    else:
+        shortfall_ratio = max(0.0, requested_world_count - actual_world_count) / requested_world_count
+    return (
+        empirical_baseline,
+        controller_baseline,
+        actual_world_count,
+        _clamp01(shortfall_ratio),
+    )
 
 
 @dataclass(frozen=True)
@@ -600,16 +853,24 @@ def _top_k_candidates(
     return ranked[: max(1, min(config.top_k_refine, len(ranked)))]
 
 
-def _pending_dccs_candidates(dccs: DCCSResult) -> list[DCCSCandidateRecord]:
-    selected_ids = {record.candidate_id for record in dccs.selected}
-    ranked_pool = [
-        record
-        for record in [*dccs.skipped, *dccs.candidate_ledger]
-        if record.candidate_id not in selected_ids
-        and record.decision_reason not in {"duplicate_signature", "duplicate_corridor_bootstrap"}
-    ]
+def _frontier_candidate_ids(state: VOIControllerState | None) -> set[str]:
+    if state is None:
+        return set()
+    ids: set[str] = set()
+    for route in state.frontier:
+        if not isinstance(route, Mapping):
+            continue
+        candidate_id = str(route.get("candidate_id", "")).strip()
+        if candidate_id:
+            ids.add(candidate_id)
+    return ids
+
+
+def _dedupe_pending_dccs_candidates(
+    records: Sequence[DCCSCandidateRecord],
+) -> list[DCCSCandidateRecord]:
     deduped: dict[str, DCCSCandidateRecord] = {}
-    for record in ranked_pool:
+    for record in records:
         if record.near_duplicate and record.decision_reason not in {"budget_exhausted", "not_selected"}:
             continue
         deduped.setdefault(record.candidate_id, record)
@@ -624,6 +885,36 @@ def _pending_dccs_candidates(dccs: DCCSResult) -> list[DCCSCandidateRecord]:
         ),
         reverse=True,
     )
+
+
+def _pending_dccs_candidates(
+    dccs: DCCSResult,
+    *,
+    state: VOIControllerState | None = None,
+) -> list[DCCSCandidateRecord]:
+    selected_ids = {record.candidate_id for record in dccs.selected}
+    frontier_candidate_ids = _frontier_candidate_ids(state)
+    candidate_pool = [
+        record
+        for record in [*dccs.skipped, *dccs.candidate_ledger]
+        if record.decision_reason not in {"duplicate_signature", "duplicate_corridor_bootstrap"}
+    ]
+    ranked_pool = [
+        record
+        for record in candidate_pool
+        if record.candidate_id not in selected_ids
+        and record.candidate_id not in frontier_candidate_ids
+    ]
+    if ranked_pool:
+        return _dedupe_pending_dccs_candidates(ranked_pool)
+    if not frontier_candidate_ids:
+        return []
+    fallback_pool = [
+        record
+        for record in candidate_pool
+        if record.candidate_id not in frontier_candidate_ids
+    ]
+    return _dedupe_pending_dccs_candidates(fallback_pool)
 
 
 def _candidate_group_signature(candidates: Sequence[DCCSCandidateRecord]) -> str:
@@ -651,6 +942,18 @@ def _aggregate_candidate_group(
 
 
 def _best_vor_family(fragility: FragilityResult) -> str | None:
+    controller_family = str(
+        fragility.value_of_refresh.get("top_refresh_family_controller", "")
+    ).strip()
+    if controller_family:
+        return controller_family
+    controller_ranking = fragility.value_of_refresh.get("controller_ranking", [])
+    if isinstance(controller_ranking, list) and controller_ranking:
+        first_controller = controller_ranking[0]
+        if isinstance(first_controller, Mapping) and _as_float(first_controller.get("controller_score")) > 0.0:
+            family = str(first_controller.get("family", "")).strip()
+            if family:
+                return family
     ranking = fragility.value_of_refresh.get("ranking", [])
     if not isinstance(ranking, list) or not ranking:
         return None
@@ -659,6 +962,45 @@ def _best_vor_family(fragility: FragilityResult) -> str | None:
         return None
     family = str(first.get("family", "")).strip()
     return family or None
+
+
+def _controller_refresh_bridge_stats(
+    fragility: FragilityResult | Any | None,
+) -> tuple[bool, bool, float]:
+    value_of_refresh = (
+        fragility.value_of_refresh
+        if fragility is not None and isinstance(getattr(fragility, "value_of_refresh", None), Mapping)
+        else {}
+    )
+    controller_ranking_basis = str(value_of_refresh.get("controller_ranking_basis", "")).strip()
+    controller_ranking = value_of_refresh.get("controller_ranking", [])
+    controller_top_family = str(value_of_refresh.get("top_refresh_family_controller", "")).strip()
+    controller_top_gain = _as_float(value_of_refresh.get("top_refresh_gain_controller"), float("nan"))
+    if isinstance(controller_ranking, list) and controller_ranking:
+        first = controller_ranking[0] if isinstance(controller_ranking[0], Mapping) else {}
+        if not controller_top_family:
+            controller_top_family = str(first.get("family", "")).strip()
+        if not math.isfinite(controller_top_gain):
+            controller_top_gain = _as_float(first.get("controller_score"), float("nan"))
+    if not math.isfinite(controller_top_gain):
+        controller_top_gain = 0.0
+    empirical_top_family = str(value_of_refresh.get("top_refresh_family", "")).strip()
+    empirical_top_gain = max(0.0, _as_float(value_of_refresh.get("top_refresh_gain")))
+    fallback_activated = controller_ranking_basis == "raw_refresh_gain_fallback"
+    zero_to_nonzero_signal_upgrade = bool(
+        fallback_activated
+        and controller_top_gain > 1e-9
+        and empirical_top_gain <= 1e-9
+    )
+    disagreement = bool(
+        fallback_activated
+        and (
+            controller_top_family != empirical_top_family
+            or zero_to_nonzero_signal_upgrade
+            or controller_top_gain > empirical_top_gain + 1e-9
+        )
+    )
+    return fallback_activated, disagreement, max(0.0, controller_top_gain)
 
 
 def _family_competitor_pressure(
@@ -692,7 +1034,7 @@ def compute_search_completeness_metrics(
     config: VOIConfig | None = None,
 ) -> dict[str, float]:
     cfg = config or VOIConfig()
-    pending = _pending_dccs_candidates(dccs)
+    pending = _pending_dccs_candidates(dccs, state=state)
     candidate_pool = [record for record in dccs.candidate_ledger if isinstance(record, DCCSCandidateRecord)]
     selected = [record for record in dccs.selected if isinstance(record, DCCSCandidateRecord)]
     ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
@@ -943,6 +1285,36 @@ def _certified_supported_hard_case_refine_penalty(
         return action
     mechanism_gap = _clamp01(action.metadata.get("normalized_mechanism_gap"))
     objective_gap = _clamp01(action.metadata.get("normalized_objective_gap"))
+    threshold = _as_float(config.certificate_threshold)
+    frontier_recall = _clamp01(state.frontier_recall_at_budget)
+    corridor_family_recall = _clamp01(state.corridor_family_recall)
+    search_completeness_gap = max(0.0, _as_float(state.search_completeness_gap))
+    pending_challenger_mass = _clamp01(state.pending_challenger_mass)
+    pending_flip_probability = _clamp01(state.best_pending_flip_probability)
+    predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    certified_frontier_completion_bridge = bool(
+        recent_no_gain_refine_streak <= 0
+        and state.remaining_search_budget > 0
+        and current_certificate <= min(1.0, threshold + 0.18)
+        and _refine_action_has_genuine_novel_search_promise(action, state=state)
+        and (
+            max(0.0, 1.0 - frontier_recall) >= 0.24
+            or max(0.0, 1.0 - corridor_family_recall) >= 0.20
+            or search_completeness_gap >= 0.16
+        )
+        and (
+            predicted_frontier >= 0.18
+            or objective_gap >= 0.18
+        )
+        and (
+            pending_challenger_mass >= 0.28
+            or pending_flip_probability >= 0.35
+        )
+    )
+    if certified_frontier_completion_bridge:
+        metadata = dict(action.metadata)
+        metadata["certified_supported_hard_case_frontier_bridge"] = True
+        return replace(action, metadata=metadata)
     if mechanism_gap >= 0.14 and objective_gap < 0.40:
         return action
     flip_probability = _clamp01(action.metadata.get("mean_flip_probability"))
@@ -1062,19 +1434,92 @@ def _build_refresh_action(
     normalized_pressure = _saturating_gain(0.10 * competitor_pressure)
     certificate_ratio = max(0.0, min(1.0, current_certificate / max(config.certificate_threshold, 1e-9)))
     evidence_stability_factor = 0.35 + (0.65 * certificate_ratio)
+    value_of_refresh = (
+        fragility.value_of_refresh
+        if isinstance(fragility.value_of_refresh, Mapping)
+        else {}
+    )
+    structured_refresh_signal = False
+    empirical_refresh_certificate_uplift: float | None = None
+    empirical_refresh_certificate_delta: float | None = None
+    empirical_refresh_certificate_drop: float | None = None
+    family_certificate: float | None = None
+    empirical_baseline_certificate: float | None = None
+    controller_baseline_certificate: float | None = None
+    structural_cap_only = False
+    per_family_certificate = value_of_refresh.get("per_family_certificate")
+    if isinstance(per_family_certificate, Mapping):
+        candidate_family_certificate = _as_float(per_family_certificate.get(family), float("nan"))
+        baseline_certificate = _as_float(value_of_refresh.get("baseline_certificate"), float("nan"))
+        empirical_baseline_value = _as_float(
+            value_of_refresh.get("empirical_baseline_certificate"),
+            baseline_certificate,
+        )
+        controller_baseline_value = _as_float(
+            value_of_refresh.get("controller_baseline_certificate"),
+            current_certificate,
+        )
+        if math.isfinite(candidate_family_certificate) and math.isfinite(empirical_baseline_value):
+            structured_refresh_signal = True
+            family_certificate = candidate_family_certificate
+            empirical_baseline_certificate = empirical_baseline_value
+            if math.isfinite(controller_baseline_value):
+                controller_baseline_certificate = controller_baseline_value
+            empirical_refresh_certificate_delta = (
+                candidate_family_certificate - empirical_baseline_value
+            )
+            empirical_refresh_certificate_uplift = max(
+                0.0,
+                float(empirical_refresh_certificate_delta),
+            )
+            empirical_refresh_certificate_drop = max(
+                0.0,
+                -float(empirical_refresh_certificate_delta),
+            )
+            structural_cap_only = bool(
+                value_of_refresh.get("single_frontier_certificate_cap_applied")
+                and controller_baseline_certificate is not None
+                and empirical_baseline_value > controller_baseline_certificate + 1e-9
+                and empirical_refresh_certificate_uplift <= 1e-9
+            )
+    if structured_refresh_signal:
+        uncertainty_only_scale = 0.10 if current_certificate < _as_float(config.certificate_threshold) else 0.02
+        if structural_cap_only:
+            uncertainty_only_scale = 0.0
+        predicted_delta_certificate = max(
+            0.0,
+            float(empirical_refresh_certificate_uplift or 0.0)
+            + (
+                evidence_stability_factor
+                * uncertainty_only_scale
+                * ((0.60 * route_fragility) + (0.20 * normalized_pressure))
+            ),
+        )
+        predicted_delta_margin = max(
+            0.0,
+            (0.75 * float(empirical_refresh_certificate_uplift or 0.0))
+            + (
+                evidence_stability_factor
+                * uncertainty_only_scale
+                * ((0.35 * route_fragility) + (0.15 * normalized_pressure))
+            ),
+        )
+    else:
+        predicted_delta_certificate = max(
+            0.0,
+            evidence_stability_factor * (vor_gain + (0.35 * route_fragility) + (0.10 * normalized_pressure)),
+        )
+        predicted_delta_margin = max(
+            0.0,
+            evidence_stability_factor * ((0.60 * vor_gain) + (0.25 * route_fragility) + (0.10 * normalized_pressure)),
+        )
     return VOIAction(
         action_id=f"refresh:{family}",
         kind="refresh_top1_vor",
         target=family,
         cost_evidence=1,
-        predicted_delta_certificate=max(
-            0.0,
-            evidence_stability_factor * (vor_gain + (0.35 * route_fragility) + (0.10 * normalized_pressure)),
-        ),
-        predicted_delta_margin=max(
-            0.0,
-            evidence_stability_factor * ((0.60 * vor_gain) + (0.25 * route_fragility) + (0.10 * normalized_pressure)),
-        ),
+        predicted_delta_certificate=predicted_delta_certificate,
+        predicted_delta_margin=predicted_delta_margin,
         predicted_delta_frontier=0.0,
         preconditions=("evidence_budget_available", "vor_available"),
         reason="refresh_evidence_family",
@@ -1085,6 +1530,34 @@ def _build_refresh_action(
             "normalized_competitor_pressure": normalized_pressure,
             "current_certificate": current_certificate,
             "evidence_stability_factor": evidence_stability_factor,
+            "structured_refresh_signal": structured_refresh_signal,
+            "empirical_refresh_certificate_uplift": (
+                round(empirical_refresh_certificate_uplift, 6)
+                if empirical_refresh_certificate_uplift is not None
+                else None
+            ),
+            "empirical_refresh_certificate_delta": (
+                round(empirical_refresh_certificate_delta, 6)
+                if empirical_refresh_certificate_delta is not None
+                else None
+            ),
+            "empirical_refresh_certificate_drop": (
+                round(empirical_refresh_certificate_drop, 6)
+                if empirical_refresh_certificate_drop is not None
+                else None
+            ),
+            "family_certificate": round(family_certificate, 6) if family_certificate is not None else None,
+            "empirical_baseline_certificate": (
+                round(empirical_baseline_certificate, 6)
+                if empirical_baseline_certificate is not None
+                else None
+            ),
+            "controller_baseline_certificate": (
+                round(controller_baseline_certificate, 6)
+                if controller_baseline_certificate is not None
+                else None
+            ),
+            "structural_cap_only": structural_cap_only,
         },
     )
 
@@ -1132,6 +1605,105 @@ def _certified_refresh_priority_bonus(
     return min(0.120, bonus)
 
 
+def _allow_certified_negative_refresh_revelation(
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    signed_refresh_delta: float,
+    evidence_uncertainty: bool,
+    supported_fragility_uncertainty: bool,
+) -> bool:
+    if current_certificate < _as_float(config.certificate_threshold):
+        return False
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    saturation_certificate = min(
+        1.0,
+        max(0.95, _as_float(config.certificate_threshold) + 0.20),
+    )
+    if not math.isfinite(signed_refresh_delta) or signed_refresh_delta >= -1e-9:
+        return False
+    if state.remaining_search_budget <= 0 or state.remaining_evidence_budget <= 0:
+        return False
+    if not evidence_uncertainty or not supported_fragility_uncertainty:
+        return False
+    if not _support_rich_ambiguity_window(state):
+        return False
+    if _trace_has_prior_evidence_action_attempt(state):
+        return False
+    strong_winner_side_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.10
+        or _clamp01(state.top_fragility_mass) >= 0.15
+        or _clamp01(state.competitor_pressure) >= 0.75
+    )
+    if not strong_winner_side_signal:
+        return False
+    supported_search_pressure = bool(
+        max(0.0, _as_float(state.search_completeness_gap)) >= 0.12
+        or _clamp01(state.pending_challenger_mass) >= 0.35
+        or _clamp01(state.best_pending_flip_probability) >= 0.40
+        or max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)) >= 0.20
+        or (
+            len(state.frontier) >= 2
+            and _clamp01(state.near_tie_mass) >= max(_as_float(config.near_tie_threshold), 0.05)
+        )
+    )
+    if current_certificate >= saturation_certificate - 1e-9:
+        tie_like_decision_ambiguity = _has_strong_saturated_reveal_ambiguity(
+            state,
+            config=config,
+        )
+        saturation_reveal_pressure = bool(
+            max(0.0, _as_float(state.search_completeness_gap)) >= 0.20
+            or _clamp01(state.pending_challenger_mass) >= 0.45
+            or _clamp01(state.best_pending_flip_probability) >= 0.90
+            or max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)) >= 0.25
+        )
+        return bool(
+            strong_winner_side_signal
+            and supported_search_pressure
+            and saturation_reveal_pressure
+            and tie_like_decision_ambiguity
+            and max(0.0, _as_float(state.top_refresh_gain)) >= 0.25
+            and abs(signed_refresh_delta) >= 0.08
+        )
+    return supported_search_pressure
+
+
+def _has_strong_saturated_reveal_ambiguity(
+    state: "VOIControllerState",
+    *,
+    config: VOIConfig,
+) -> bool:
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    nominal_margin_proxy = _as_float(ambiguity_context.get("od_nominal_margin_proxy"), float("nan"))
+    live_near_tie = bool(
+        _clamp01(state.near_tie_mass) >= max(_as_float(config.near_tie_threshold), 0.05)
+    )
+    strong_structural_ambiguity = bool(
+        (math.isfinite(nominal_margin_proxy) and nominal_margin_proxy <= 0.18)
+        or _clamp01(ambiguity_context.get("od_objective_spread")) >= 0.25
+        or _clamp01(ambiguity_context.get("od_ambiguity_margin_pressure")) >= 0.85
+        or _clamp01(ambiguity_context.get("od_ambiguity_spread_pressure")) >= 0.25
+    )
+    return bool(live_near_tie or strong_structural_ambiguity)
+
+
+def _has_tie_like_decision_ambiguity(state: "VOIControllerState") -> bool:
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    nominal_margin_proxy = _as_float(ambiguity_context.get("od_nominal_margin_proxy"), float("nan"))
+    low_nominal_margin_proxy = bool(
+        math.isfinite(nominal_margin_proxy) and nominal_margin_proxy <= 0.40
+    )
+    return bool(
+        _clamp01(state.near_tie_mass) >= 0.10
+        or _clamp01(ambiguity_context.get("od_ambiguity_margin_pressure")) >= 0.20
+        or _clamp01(ambiguity_context.get("od_ambiguity_spread_pressure")) >= 0.20
+        or _clamp01(ambiguity_context.get("od_objective_spread")) >= 0.08
+        or low_nominal_margin_proxy
+    )
+
+
 def _search_action_shows_strong_decision_movement(
     action: VOIAction | None,
     *,
@@ -1146,6 +1718,23 @@ def _search_action_shows_strong_decision_movement(
     predicted_certificate = max(0.0, _as_float(action.predicted_delta_certificate))
     predicted_margin = max(0.0, _as_float(action.predicted_delta_margin))
     predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    single_frontier_structural_cap = bool(
+        len(state.frontier) <= 1
+        and ambiguity_context.get("single_frontier_certificate_cap_applied")
+        and _as_float(ambiguity_context.get("empirical_baseline_certificate"), float("nan"))
+        > _as_float(ambiguity_context.get("controller_baseline_certificate"), float("nan")) + 1e-9
+        and max(0.0, _as_float(state.top_refresh_gain)) <= 0.0
+        and _clamp01(state.top_fragility_mass) <= 0.01
+        and _clamp01(state.competitor_pressure) <= 0.05
+    )
+    structural_cap_objective_support = bool(
+        objective_gap >= 0.05
+        or predicted_frontier >= 0.08
+        or (objective_gap >= 0.03 and overlap_gain >= 0.35)
+    )
+    if single_frontier_structural_cap and not structural_cap_objective_support:
+        return False
     state_pending_signal = max(
         _clamp01(state.best_pending_flip_probability),
         _clamp01(state.pending_challenger_mass),
@@ -1178,8 +1767,26 @@ def _refine_action_has_genuine_novel_search_promise(
     flip_probability = _clamp01(action.metadata.get("mean_flip_probability"))
     objective_gap = _clamp01(action.metadata.get("normalized_objective_gap"))
     mechanism_gap = _clamp01(action.metadata.get("normalized_mechanism_gap"))
-    predicted_frontier = _clamp01(_as_float(action.predicted_delta_frontier) / 0.10)
+    raw_predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    predicted_frontier = _clamp01(raw_predicted_frontier / 0.10)
     competitor_pressure = _clamp01(state.competitor_pressure)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    single_frontier_structural_cap = bool(
+        len(state.frontier) <= 1
+        and ambiguity_context.get("single_frontier_certificate_cap_applied")
+        and _as_float(ambiguity_context.get("empirical_baseline_certificate"), float("nan"))
+        > _as_float(ambiguity_context.get("controller_baseline_certificate"), float("nan")) + 1e-9
+        and max(0.0, _as_float(state.top_refresh_gain)) <= 0.0
+        and _clamp01(state.top_fragility_mass) <= 0.01
+        and _clamp01(state.competitor_pressure) <= 0.05
+    )
+    structural_cap_objective_support = bool(
+        objective_gap >= 0.05
+        or raw_predicted_frontier >= 0.08
+        or (objective_gap >= 0.03 and competitor_pressure >= 0.20)
+    )
+    if single_frontier_structural_cap and not structural_cap_objective_support:
+        return False
     mechanism_novelty = bool(
         mechanism_gap >= 0.12
         and (
@@ -1254,6 +1861,165 @@ def _should_stop_certified_refine_churn(
         return False
     no_evidence_path = bool((not evidence_uncertainty) or best_evidence_q is None or best_evidence_q <= 0.0)
     if not no_evidence_path:
+        return False
+    return True
+
+
+def _should_stop_evidence_exhausted_certified_search_tail(
+    action: VOIAction | None,
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> bool:
+    if action is None or action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return False
+    certificate_threshold = _as_float(config.certificate_threshold)
+    saturation_certificate = min(
+        1.0,
+        max(0.95, certificate_threshold + 0.20),
+    )
+    headroom_capped_post_refresh_tail = bool(
+        current_certificate >= (certificate_threshold + 0.05)
+        and current_certificate < saturation_certificate
+        and bool(action.metadata.get("certificate_headroom_cap_applied"))
+        and _trace_has_prior_meaningful_evidence_certificate_lift(state, minimum_lift=0.03)
+    )
+    if current_certificate < saturation_certificate and not headroom_capped_post_refresh_tail:
+        return False
+    if state.remaining_evidence_budget > 0:
+        return False
+    if not _trace_has_prior_evidence_action_attempt(state):
+        return False
+    if not _support_rich_ambiguity_window(state):
+        return False
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.04):
+        return False
+    mechanism_gap = _clamp01(action.metadata.get("normalized_mechanism_gap"))
+    if headroom_capped_post_refresh_tail:
+        if mechanism_gap >= 0.45:
+            return False
+    elif mechanism_gap >= 0.12:
+        return False
+    if (
+        max(0.0, _as_float(action.predicted_delta_certificate)) > 1e-9
+        and not headroom_capped_post_refresh_tail
+    ):
+        return False
+    objective_gap = _clamp01(action.metadata.get("normalized_objective_gap"))
+    predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    if objective_gap >= 0.18 or predicted_frontier >= 0.20:
+        return False
+    q_score = _as_float(action.q_score)
+    if headroom_capped_post_refresh_tail:
+        if q_score > max(0.16, _as_float(config.stop_threshold) + 0.12):
+            return False
+    else:
+        low_ranked_search_tail = bool(
+            q_score <= max(0.12, _as_float(config.stop_threshold) + 0.10)
+        )
+        if not low_ranked_search_tail:
+            return False
+    return True
+
+
+def _should_stop_saturated_certified_low_decision_ambiguity_reopen(
+    action: VOIAction | None,
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    certified_frontier_fill_bridge: bool = False,
+) -> bool:
+    if action is None or action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return False
+    saturation_certificate = min(
+        1.0,
+        max(0.95, _as_float(config.certificate_threshold) + 0.20),
+    )
+    if current_certificate < saturation_certificate - 1e-9:
+        return False
+    if certified_frontier_fill_bridge:
+        return False
+    if state.action_trace:
+        return False
+    if len(state.frontier) > 2:
+        return False
+    if _has_tie_like_decision_ambiguity(state):
+        return False
+    strong_winner_side_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.25
+        or _clamp01(state.top_fragility_mass) >= 0.25
+        or _clamp01(state.competitor_pressure) >= 0.75
+    )
+    if not strong_winner_side_signal:
+        return False
+    metadata = action.metadata if isinstance(action.metadata, Mapping) else {}
+    if not bool(metadata.get("certificate_headroom_cap_applied")):
+        return False
+    if max(0.0, _as_float(metadata.get("certificate_headroom_remaining"), 0.0)) > 1e-9:
+        return False
+    if max(0.0, _as_float(action.predicted_delta_certificate)) > 1e-9:
+        return False
+    objective_gap = _clamp01(metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    if objective_gap >= 0.14 or predicted_frontier >= 0.14:
+        return False
+    if mechanism_gap >= 0.45 and predicted_frontier >= 0.10:
+        return False
+    return True
+
+
+def _should_stop_evidence_exhausted_uncertified_search_tail(
+    action: VOIAction | None,
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> bool:
+    if action is None or action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return False
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return False
+    if state.remaining_evidence_budget > 0:
+        return False
+    if state.remaining_search_budget > 2:
+        return False
+    if len(state.action_trace) < 5:
+        return False
+    if current_certificate < max(0.65, certificate_threshold - 0.20):
+        return False
+    if not _trace_has_prior_meaningful_evidence_certificate_lift(state, minimum_lift=0.05):
+        return False
+    if not _support_rich_ambiguity_window(state):
+        return False
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return False
+    strong_winner_side_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.25
+        or _clamp01(state.top_fragility_mass) >= 0.25
+        or _clamp01(state.competitor_pressure) >= 0.75
+    )
+    if not strong_winner_side_signal:
+        return False
+    objective_gap = _clamp01(action.metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(action.metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    corridor_recall = _clamp01(action.metadata.get("corridor_family_recall", state.corridor_family_recall))
+    frontier_recall = _clamp01(action.metadata.get("frontier_recall_at_budget", state.frontier_recall_at_budget))
+    low_value_terminal_search_tail = bool(
+        _as_float(action.q_score) <= max(0.18, _as_float(config.stop_threshold) + 0.04)
+        and objective_gap < 0.26
+        and mechanism_gap < 0.12
+        and predicted_frontier < 0.36
+        and corridor_recall <= 0.25
+        and frontier_recall <= 0.30
+    )
+    if low_value_terminal_search_tail:
+        return True
+    if objective_gap >= 0.30 or predicted_frontier >= 0.30:
         return False
     return True
 
@@ -1350,6 +2116,18 @@ def _certified_support_rich_first_refine_discount(
     )
 
 
+def _best_refresh_action_entry(actions: Sequence[VOIAction]) -> tuple[int, VOIAction] | None:
+    return max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "refresh_top1_vor"
+        ),
+        key=lambda item: (_as_float(item[1].q_score), -item[0]),
+        default=None,
+    )
+
+
 def _apply_support_rich_certified_refresh_preference(
     actions: Sequence[VOIAction],
     *,
@@ -1362,6 +2140,11 @@ def _apply_support_rich_certified_refresh_preference(
 ) -> list[VOIAction]:
     ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
     support_rich_window = _support_rich_ambiguity_window(state)
+    certificate_threshold = _as_float(config.certificate_threshold)
+    frontier_probe_progress_count = _recent_certificate_stalled_search_progress_count(
+        state,
+        max_depth=1,
+    )
     top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
     top_fragility_mass = _clamp01(state.top_fragility_mass)
     direct_winner_side_evidence_signal = bool(top_refresh_gain > 0.0 or top_fragility_mass > 0.0)
@@ -1387,7 +2170,7 @@ def _apply_support_rich_certified_refresh_preference(
         and first_iteration_search_tension
         and hard_case_pressure >= 0.35
     )
-    if current_certificate < _as_float(config.certificate_threshold):
+    if current_certificate < certificate_threshold:
         return list(actions)
     if (
         (not evidence_uncertainty or not supported_fragility_uncertainty)
@@ -1398,10 +2181,31 @@ def _apply_support_rich_certified_refresh_preference(
         return list(actions)
     if not direct_winner_side_evidence_signal:
         return list(actions)
-    if recent_no_gain_refine_streak <= 0 and not first_iteration_supported_hard_case:
+    refresh_entry = _best_refresh_action_entry(actions)
+    if refresh_entry is None:
         return list(actions)
-    refresh_index = next((idx for idx, action in enumerate(actions) if action.kind == "refresh_top1_vor"), None)
-    if refresh_index is None:
+    refresh_index, refresh_action = refresh_entry
+    refresh_metadata = refresh_action.metadata if isinstance(refresh_action.metadata, Mapping) else {}
+    certified_frontier_probe_refresh_recovery = bool(
+        frontier_probe_progress_count >= 1
+        and _selected_route_uses_cached_direct_fallback(state)
+        and current_certificate >= max(certificate_threshold, 0.90)
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.05
+        and top_refresh_gain >= 0.05
+        and top_fragility_mass >= 0.05
+    )
+    post_harmful_refresh_recovery = bool(
+        _recent_harmful_evidence_certificate_drift(state)
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.05
+    )
+    if (
+        recent_no_gain_refine_streak <= 0
+        and not first_iteration_supported_hard_case
+        and not post_harmful_refresh_recovery
+        and not certified_frontier_probe_refresh_recovery
+    ):
         return list(actions)
     best_resample_action = max(
         (action for action in actions if action.kind == "increase_stochastic_samples"),
@@ -1424,12 +2228,16 @@ def _apply_support_rich_certified_refresh_preference(
     if (
         _refine_action_has_genuine_novel_search_promise(best_search_action, state=state)
         and recent_no_gain_refine_streak <= 0
+        and not post_harmful_refresh_recovery
+        and not certified_frontier_probe_refresh_recovery
     ):
         return list(actions)
     if (
         _search_action_shows_strong_decision_movement(best_search_action, state=state)
         and recent_no_gain_refine_streak <= 0
         and not first_iteration_supported_hard_case
+        and not post_harmful_refresh_recovery
+        and not certified_frontier_probe_refresh_recovery
     ):
         return list(actions)
     best_competing_q = max(
@@ -1440,7 +2248,6 @@ def _apply_support_rich_certified_refresh_preference(
         ),
         default=0.0,
     )
-    refresh_action = actions[refresh_index]
     evidence_signal = _clamp01(
         (0.45 * top_fragility_mass)
         + (0.35 * min(1.0, top_refresh_gain / 0.01))
@@ -1460,6 +2267,10 @@ def _apply_support_rich_certified_refresh_preference(
     metadata["support_rich_certified_refresh_preference_applied"] = True
     if first_iteration_supported_hard_case:
         metadata["support_rich_certified_refresh_preference_first_action_bridge"] = True
+    if post_harmful_refresh_recovery:
+        metadata["support_rich_certified_refresh_preference_post_harmful_refresh_recovery"] = True
+    if certified_frontier_probe_refresh_recovery:
+        metadata["support_rich_certified_refresh_preference_frontier_probe_recovery"] = True
     updated = list(actions)
     updated[refresh_index] = replace(
         refresh_action,
@@ -1467,6 +2278,2377 @@ def _apply_support_rich_certified_refresh_preference(
         metadata=metadata,
     )
     return updated
+
+
+def _apply_strong_winner_side_refresh_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+    supported_fragility_uncertainty: bool,
+    recent_no_gain_refine_streak: int,
+) -> list[VOIAction]:
+    if not evidence_uncertainty or not supported_fragility_uncertainty:
+        return list(actions)
+    if not _support_rich_ambiguity_window(state):
+        return list(actions)
+    refresh_entry = _best_refresh_action_entry(actions)
+    if refresh_entry is None:
+        return list(actions)
+    refresh_index, refresh_action = refresh_entry
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None:
+        return list(actions)
+    best_search_index, best_search_action = best_search_entry
+    certificate_threshold = _as_float(config.certificate_threshold)
+    refresh_metadata = refresh_action.metadata if isinstance(refresh_action.metadata, Mapping) else {}
+    top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
+    top_fragility_mass = _clamp01(state.top_fragility_mass)
+    competitor_pressure = _clamp01(state.competitor_pressure)
+    strong_structured_uncertified_bridge = bool(
+        current_certificate < certificate_threshold
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.12
+        and _clamp01(best_search_action.metadata.get("normalized_objective_gap")) < 0.08
+    )
+    empirical_uncertified_refresh_bridge = bool(
+        current_certificate < certificate_threshold
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.05
+        and _clamp01(best_search_action.metadata.get("normalized_objective_gap")) < 0.03
+        and _clamp01(best_search_action.metadata.get("normalized_mechanism_gap")) < 0.16
+    )
+    post_route_change_uncertified_refresh_bridge = bool(
+        current_certificate < certificate_threshold
+        and _recent_productive_refine_route_change(state)
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.20
+        and _clamp01(state.pending_challenger_mass) >= 0.55
+    )
+    cached_direct_fallback_refresh_bridge = bool(
+        current_certificate < certificate_threshold
+        and current_certificate >= 0.60
+        and _selected_route_uses_cached_direct_fallback(state)
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and _clamp01(best_search_action.metadata.get("normalized_objective_gap")) < 0.03
+        and max(0.0, _as_float(best_search_action.predicted_delta_frontier)) < 0.08
+        and top_refresh_gain >= 0.50
+        and top_fragility_mass >= 0.50
+        and competitor_pressure >= 0.95
+    )
+    preferred_uncertified_refresh_bridge = bool(
+        strong_structured_uncertified_bridge
+        or empirical_uncertified_refresh_bridge
+        or post_route_change_uncertified_refresh_bridge
+        or cached_direct_fallback_refresh_bridge
+    )
+    if (
+        _clamp01(best_search_action.metadata.get("normalized_mechanism_gap")) >= 0.12
+        and not preferred_uncertified_refresh_bridge
+    ):
+        return list(actions)
+    if top_refresh_gain < 0.18 or top_fragility_mass < 0.15 or competitor_pressure < 0.75:
+        return list(actions)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    hard_case_pressure = max(
+        _clamp01(state.ambiguity_pressure),
+        _clamp01(ambiguity_context.get("od_hard_case_prior")),
+        _clamp01(ambiguity_context.get("ambiguity_budget_prior")),
+    )
+    if hard_case_pressure < 0.45:
+        return list(actions)
+    if (
+        current_certificate >= (certificate_threshold + 0.10)
+        and recent_no_gain_refine_streak <= 0
+    ):
+        return list(actions)
+    q_gap = max(0.0, _as_float(best_search_action.q_score) - _as_float(refresh_action.q_score))
+    if q_gap > 0.12 and recent_no_gain_refine_streak <= 0 and not preferred_uncertified_refresh_bridge:
+        return list(actions)
+    evidence_signature = _clamp01(
+        (0.46 * min(1.0, top_refresh_gain / 0.25))
+        + (0.32 * top_fragility_mass)
+        + (0.22 * competitor_pressure)
+    )
+    bonus = min(
+        0.24,
+        q_gap
+        + 0.008
+        + (0.024 * evidence_signature)
+        + (0.010 * hard_case_pressure),
+    )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    refresh_metadata = dict(refresh_metadata)
+    refresh_metadata["winner_side_refresh_preference_bonus"] = round(bonus, 6)
+    refresh_metadata["winner_side_refresh_preference_applied"] = True
+    refresh_metadata["winner_side_refresh_preference_uncertified_bridge"] = bool(
+        current_certificate < certificate_threshold
+    )
+    refresh_metadata["winner_side_refresh_preference_structured_bridge"] = strong_structured_uncertified_bridge
+    refresh_metadata["winner_side_refresh_preference_empirical_bridge"] = empirical_uncertified_refresh_bridge
+    refresh_metadata["winner_side_refresh_preference_post_route_change_bridge"] = (
+        post_route_change_uncertified_refresh_bridge
+    )
+    refresh_metadata["winner_side_refresh_preference_cached_direct_fallback_bridge"] = (
+        cached_direct_fallback_refresh_bridge
+    )
+    updated[refresh_index] = replace(
+        refresh_action,
+        q_score=_as_float(refresh_action.q_score) + bonus,
+        metadata=refresh_metadata,
+    )
+    search_discount = min(0.08, 0.015 + (0.040 * evidence_signature))
+    if search_discount > 0.0:
+        search_metadata = dict(best_search_action.metadata)
+        search_metadata["winner_side_refresh_refine_discount"] = round(search_discount, 6)
+        search_metadata["winner_side_refresh_refine_discount_applied"] = True
+        updated[best_search_index] = replace(
+            best_search_action,
+            q_score=max(0.0, _as_float(best_search_action.q_score) - search_discount),
+            metadata=search_metadata,
+        )
+    return updated
+
+
+def _apply_uncertified_evidence_plateau_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+    supported_fragility_uncertainty: bool,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    if not evidence_uncertainty:
+        return list(actions)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    plateau_progress_count = _recent_certificate_stalled_search_progress_count(state)
+    recent_no_gain_refine_streak = _recent_no_gain_refine_streak(state, max_depth=1)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    best_evidence_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refresh_top1_vor", "increase_stochastic_samples"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None or best_evidence_entry is None:
+        return list(actions)
+    best_search_index, best_search_action = best_search_entry
+    best_evidence_index, best_evidence_action = best_evidence_entry
+    evidence_q = _as_float(best_evidence_action.q_score)
+    search_q = _as_float(best_search_action.q_score)
+    if evidence_q <= 0.0 or search_q <= evidence_q:
+        return list(actions)
+    support_rich_window = _support_rich_ambiguity_window(state)
+    top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
+    top_fragility_mass = _clamp01(state.top_fragility_mass)
+    competitor_pressure = _clamp01(state.competitor_pressure)
+    evidence_metadata = (
+        best_evidence_action.metadata
+        if isinstance(best_evidence_action.metadata, Mapping)
+        else {}
+    )
+    near_tie_mass = max(
+        _clamp01(state.near_tie_mass),
+        _clamp01(evidence_metadata.get("near_tie_mass")),
+    )
+    objective_spread = _clamp01(ambiguity_context.get("od_objective_spread"))
+    budget_prior = _clamp01(ambiguity_context.get("ambiguity_budget_prior"))
+    objective_gap = _clamp01(
+        (best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}).get(
+            "normalized_objective_gap"
+        )
+    )
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    first_iteration_near_tie_plateau = bool(
+        plateau_progress_count <= 0
+        and near_tie_mass >= 0.65
+        and objective_spread <= 0.02
+        and objective_gap < 0.05
+        and predicted_frontier < 0.10
+        and top_refresh_gain >= 0.18
+        and top_fragility_mass >= 0.15
+        and competitor_pressure >= 0.75
+        and budget_prior <= 0.10
+    )
+    direct_winner_side_signal = bool(
+        top_refresh_gain >= 0.18
+        and top_fragility_mass >= 0.15
+        and competitor_pressure >= 0.75
+    )
+    direct_fallback_probe_stall_count = max(
+        plateau_progress_count,
+        recent_no_gain_refine_streak,
+    )
+    direct_fallback_frontier_probe_plateau = bool(
+        direct_fallback_probe_stall_count >= 1
+        and _selected_route_uses_cached_direct_fallback(state)
+        and support_rich_window
+        and supported_fragility_uncertainty
+        and state.remaining_search_budget <= 1
+        and len(state.frontier) >= 3
+        and best_evidence_action.kind == "increase_stochastic_samples"
+        and max(0.0, _as_float(best_evidence_action.predicted_delta_certificate)) >= 0.06
+        and direct_winner_side_signal
+        and _clamp01(state.pending_challenger_mass) >= 0.55
+        and _clamp01(state.best_pending_flip_probability) >= 0.95
+        and max(0.0, _as_float(state.certificate_margin)) <= 0.08
+    )
+    structural_search_incomplete = bool(
+        max(0.0, _as_float(state.search_completeness_gap)) >= 0.22
+        and _clamp01(state.pending_challenger_mass) >= 0.60
+        and _clamp01(state.best_pending_flip_probability) >= 0.95
+        and (
+            _clamp01(state.corridor_family_recall) < 0.50
+            or _clamp01(state.frontier_recall_at_budget) < 0.40
+        )
+    )
+    frontier_completion_search_bridge = bool(
+        plateau_progress_count >= 2
+        and state.remaining_search_budget > 0
+        and structural_search_incomplete
+        and _refine_action_has_genuine_novel_search_promise(best_search_action, state=state)
+        and (
+            predicted_frontier >= 0.16
+            or objective_gap >= 0.14
+        )
+    )
+    near_tie_frontier_completion_resample_bridge = bool(
+        frontier_completion_search_bridge
+        and best_evidence_action.kind == "increase_stochastic_samples"
+        and max(0.0, _as_float(best_evidence_action.predicted_delta_certificate)) >= 0.10
+        and top_fragility_mass >= 0.45
+        and competitor_pressure >= 0.90
+        and near_tie_mass >= 0.20
+        and max(0.0, _as_float(state.certificate_margin)) <= 0.05
+    )
+    if first_iteration_near_tie_plateau and direct_winner_side_signal and structural_search_incomplete:
+        return list(actions)
+    # Keep search in control when repeated stalled refinements still expose
+    # credible frontier-completion upside on a support-rich hard row.
+    if (
+        frontier_completion_search_bridge
+        and not near_tie_frontier_completion_resample_bridge
+        and not direct_fallback_frontier_probe_plateau
+    ):
+        return list(actions)
+    if not supported_fragility_uncertainty and not first_iteration_near_tie_plateau:
+        return list(actions)
+    if not support_rich_window and not first_iteration_near_tie_plateau:
+        return list(actions)
+    if (
+        plateau_progress_count < 2
+        and not first_iteration_near_tie_plateau
+        and not direct_fallback_frontier_probe_plateau
+    ):
+        return list(actions)
+    if top_refresh_gain < 0.18 or top_fragility_mass < 0.15 or competitor_pressure < 0.75:
+        return list(actions)
+    hard_case_pressure = max(
+        _clamp01(state.ambiguity_pressure),
+        _clamp01(ambiguity_context.get("od_hard_case_prior")),
+        _clamp01(ambiguity_context.get("ambiguity_budget_prior")),
+    )
+    if hard_case_pressure < 0.45:
+        return list(actions)
+    evidence_signature = _clamp01(
+        (0.40 * min(1.0, top_refresh_gain / 0.25))
+        + (0.35 * top_fragility_mass)
+        + (0.25 * competitor_pressure)
+    )
+    q_gap = max(0.0, search_q - evidence_q)
+    plateau_signal = _clamp01(min(1.0, plateau_progress_count / 3.0))
+    if first_iteration_near_tie_plateau:
+        plateau_signal = max(
+            plateau_signal,
+            _clamp01(
+                (0.50 * near_tie_mass)
+                + (0.30 * evidence_signature)
+                + (0.20 * max(0.0, 1.0 - objective_spread))
+            ),
+        )
+        bonus = min(
+            0.32,
+            q_gap
+            + 0.02
+            + (0.05 * evidence_signature)
+            + (0.03 * near_tie_mass),
+        )
+    else:
+        bonus = min(
+            0.40,
+            q_gap
+            + 0.012
+            + (0.022 * evidence_signature)
+            + (0.018 * plateau_signal),
+        )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    evidence_metadata = dict(evidence_metadata)
+    evidence_metadata["uncertified_evidence_plateau_preference_bonus"] = round(bonus, 6)
+    evidence_metadata["uncertified_evidence_plateau_preference_applied"] = True
+    evidence_metadata["uncertified_evidence_plateau_progress_count"] = plateau_progress_count
+    if first_iteration_near_tie_plateau:
+        evidence_metadata["uncertified_evidence_plateau_first_iteration_near_tie"] = True
+    if direct_fallback_frontier_probe_plateau:
+        evidence_metadata["uncertified_evidence_plateau_direct_fallback_probe_recovery"] = True
+        if recent_no_gain_refine_streak > plateau_progress_count:
+            evidence_metadata["uncertified_evidence_plateau_direct_fallback_dead_probe_recovery"] = True
+    updated[best_evidence_index] = replace(
+        best_evidence_action,
+        q_score=evidence_q + bonus,
+        metadata=evidence_metadata,
+    )
+    if first_iteration_near_tie_plateau:
+        search_discount = min(
+            0.18,
+            0.08
+            + (0.03 * evidence_signature)
+            + (0.02 * near_tie_mass),
+        )
+    else:
+        search_discount = min(
+            0.14,
+            0.04
+            + (0.02 * max(0.0, plateau_progress_count - 1.0))
+            + (0.02 * evidence_signature),
+        )
+    if search_discount > 0.0:
+        search_metadata = dict(best_search_action.metadata)
+        search_metadata["uncertified_evidence_plateau_search_discount"] = round(search_discount, 6)
+        search_metadata["uncertified_evidence_plateau_search_discount_applied"] = True
+        if first_iteration_near_tie_plateau:
+            search_metadata["uncertified_evidence_plateau_first_iteration_search_discount"] = True
+        if direct_fallback_frontier_probe_plateau:
+            search_metadata["uncertified_evidence_plateau_direct_fallback_probe_discount"] = True
+            if recent_no_gain_refine_streak > plateau_progress_count:
+                search_metadata["uncertified_evidence_plateau_direct_fallback_dead_probe_discount"] = True
+        updated[best_search_index] = replace(
+            best_search_action,
+            q_score=max(0.0, search_q - search_discount),
+            metadata=search_metadata,
+    )
+    return updated
+
+
+def _apply_uncertified_first_iteration_near_tie_resample_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if state.action_trace:
+        return list(actions)
+    if not evidence_uncertainty:
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    best_resample_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None or best_resample_entry is None:
+        return list(actions)
+    search_index, search_action = best_search_entry
+    resample_index, resample_action = best_resample_entry
+    search_q = max(0.0, _as_float(search_action.q_score))
+    resample_q = max(0.0, _as_float(resample_action.q_score))
+    if resample_q <= 0.0 or search_q <= resample_q:
+        return list(actions)
+    if current_certificate > max(0.68, certificate_threshold - 0.12):
+        return list(actions)
+    near_tie_mass = max(
+        _clamp01(state.near_tie_mass),
+        _clamp01(
+            (resample_action.metadata if isinstance(resample_action.metadata, Mapping) else {}).get(
+                "near_tie_mass"
+            )
+        ),
+    )
+    if near_tie_mass < 0.75:
+        return list(actions)
+    top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
+    top_fragility_mass = _clamp01(state.top_fragility_mass)
+    competitor_pressure = _clamp01(state.competitor_pressure)
+    if top_refresh_gain < 0.12 and top_fragility_mass < 0.20 and competitor_pressure < 0.75:
+        return list(actions)
+    search_metadata = search_action.metadata if isinstance(search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(search_action.predicted_delta_frontier))
+    if objective_gap >= 0.06 or predicted_frontier >= 0.10:
+        return list(actions)
+    if mechanism_gap >= 0.28 and objective_gap >= 0.05:
+        return list(actions)
+    resample_certificate = max(0.0, _as_float(resample_action.predicted_delta_certificate))
+    q_gap = max(0.0, search_q - resample_q)
+    evidence_signature = _clamp01(
+        (0.45 * top_fragility_mass)
+        + (0.30 * competitor_pressure)
+        + (0.15 * min(1.0, top_refresh_gain / 0.20))
+        + (0.10 * near_tie_mass)
+    )
+    bonus = min(
+        0.22,
+        q_gap
+        + 0.02
+        + (0.05 * min(1.0, resample_certificate / 0.25))
+        + (0.03 * evidence_signature)
+        + (0.03 * near_tie_mass),
+    )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    resample_metadata = dict(resample_action.metadata if isinstance(resample_action.metadata, Mapping) else {})
+    resample_metadata["uncertified_first_iteration_near_tie_resample_bonus"] = round(bonus, 6)
+    resample_metadata["uncertified_first_iteration_near_tie_resample_preference_applied"] = True
+    updated[resample_index] = replace(
+        resample_action,
+        q_score=resample_q + bonus,
+        metadata=resample_metadata,
+    )
+    search_discount = min(
+        0.12,
+        0.04
+        + (0.03 * min(1.0, resample_certificate / 0.25))
+        + (0.02 * evidence_signature)
+        + (0.02 * near_tie_mass),
+    )
+    if search_discount > 0.0:
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["uncertified_first_iteration_near_tie_resample_search_discount"] = round(
+            search_discount,
+            6,
+        )
+        updated_search_metadata["uncertified_first_iteration_near_tie_resample_search_discount_applied"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, search_q - search_discount),
+            metadata=updated_search_metadata,
+        )
+    return updated
+
+
+def _apply_uncertified_resample_recovery_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+    supported_fragility_uncertainty: bool,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    threshold_gap = certificate_threshold - current_certificate
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if threshold_gap <= 0.0 or threshold_gap > 0.08:
+        return list(actions)
+    if not evidence_uncertainty or not supported_fragility_uncertainty:
+        return list(actions)
+    if not _support_rich_ambiguity_window(state):
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    best_resample_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None or best_resample_entry is None:
+        return list(actions)
+    search_index, search_action = best_search_entry
+    resample_index, resample_action = best_resample_entry
+    search_q = max(0.0, _as_float(search_action.q_score))
+    resample_q = max(0.0, _as_float(resample_action.q_score))
+    if resample_q <= 0.0 or search_q <= resample_q:
+        return list(actions)
+    search_metadata = search_action.metadata if isinstance(search_action.metadata, Mapping) else {}
+    resample_metadata = resample_action.metadata if isinstance(resample_action.metadata, Mapping) else {}
+    if not bool(search_metadata.get("certificate_headroom_cap_applied")):
+        return list(actions)
+    remaining_headroom = max(0.0, 1.0 - _clamp01(current_certificate))
+    predicted_before_cap = _as_float(
+        search_metadata.get("certificate_headroom_predicted_before_cap"),
+        _as_float(search_action.predicted_delta_certificate),
+    )
+    if predicted_before_cap < remaining_headroom + 0.12:
+        return list(actions)
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(search_action.predicted_delta_frontier))
+    if objective_gap >= 0.08 or mechanism_gap >= 0.20 or predicted_frontier >= 0.10:
+        return list(actions)
+    resample_certificate = max(0.0, _as_float(resample_action.predicted_delta_certificate))
+    if resample_certificate < 0.06:
+        return list(actions)
+    top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
+    top_fragility_mass = _clamp01(state.top_fragility_mass)
+    competitor_pressure = _clamp01(state.competitor_pressure)
+    if top_refresh_gain < 0.20 and top_fragility_mass < 0.18 and competitor_pressure < 0.75:
+        return list(actions)
+    structured_negative_refresh = False
+    for action in actions:
+        if action.kind != "refresh_top1_vor":
+            continue
+        refresh_metadata = action.metadata if isinstance(action.metadata, Mapping) else {}
+        signed_refresh_delta = _as_float(
+            refresh_metadata.get("empirical_refresh_certificate_delta"),
+            float("nan"),
+        )
+        if bool(refresh_metadata.get("structured_refresh_signal")) and signed_refresh_delta < -1e-9:
+            structured_negative_refresh = True
+            break
+    if not structured_negative_refresh and top_refresh_gain < 0.28:
+        return list(actions)
+    q_gap = max(0.0, search_q - resample_q)
+    bonus = min(
+        0.18,
+        q_gap
+        + 0.015
+        + (0.05 * min(1.0, resample_certificate / 0.18))
+        + (0.03 * top_fragility_mass)
+        + (0.02 if structured_negative_refresh else 0.0),
+    )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    updated_resample_metadata = dict(resample_metadata)
+    updated_resample_metadata["uncertified_resample_recovery_preference_bonus"] = round(bonus, 6)
+    updated_resample_metadata["uncertified_resample_recovery_preference_applied"] = True
+    updated_resample_metadata["uncertified_resample_recovery_structured_negative_refresh"] = (
+        structured_negative_refresh
+    )
+    updated[resample_index] = replace(
+        resample_action,
+        q_score=resample_q + bonus,
+        metadata=updated_resample_metadata,
+    )
+    search_discount = min(
+        0.10,
+        0.03
+        + (0.02 * min(1.0, resample_certificate / 0.18))
+        + (0.015 * top_fragility_mass)
+        + (0.015 if structured_negative_refresh else 0.0),
+    )
+    if search_discount > 0.0:
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["uncertified_resample_recovery_search_discount"] = round(
+            search_discount,
+            6,
+        )
+        updated_search_metadata["uncertified_resample_recovery_search_discount_applied"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, search_q - search_discount),
+            metadata=updated_search_metadata,
+        )
+    return updated
+
+
+def _apply_uncertified_post_evidence_resample_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+    supported_fragility_uncertainty: bool,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    threshold_gap = certificate_threshold - current_certificate
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if threshold_gap <= 0.0 or threshold_gap > 0.30:
+        return list(actions)
+    if not evidence_uncertainty or not supported_fragility_uncertainty:
+        return list(actions)
+    if not _support_rich_ambiguity_window(state):
+        return list(actions)
+    if len(state.action_trace) < 3:
+        return list(actions)
+    if not _trace_has_prior_meaningful_evidence_certificate_lift(state, minimum_lift=0.05):
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    best_resample_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    refresh_entry = _best_refresh_action_entry(actions)
+    if best_search_entry is None or best_resample_entry is None or refresh_entry is None:
+        return list(actions)
+    _, refresh_action = refresh_entry
+    refresh_metadata = refresh_action.metadata if isinstance(refresh_action.metadata, Mapping) else {}
+    signed_refresh_delta = _as_float(
+        refresh_metadata.get("empirical_refresh_certificate_delta"),
+        float("nan"),
+    )
+    structured_negative_refresh = bool(
+        bool(refresh_metadata.get("structured_refresh_signal"))
+        and math.isfinite(signed_refresh_delta)
+        and signed_refresh_delta < -1e-9
+    )
+    if not structured_negative_refresh:
+        return list(actions)
+    if current_certificate < 0.55:
+        return list(actions)
+    if _clamp01(state.top_fragility_mass) < 0.45 or _clamp01(state.competitor_pressure) < 0.75:
+        return list(actions)
+    if _stress_world_fraction_from_context(state.ambiguity_context) < 0.20:
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.search_completeness_gap)) < 0.30
+        and _clamp01(state.pending_challenger_mass) < 0.55
+        and max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)) < 0.60
+    ):
+        return list(actions)
+    search_index, search_action = best_search_entry
+    resample_index, resample_action = best_resample_entry
+    search_q = max(0.0, _as_float(search_action.q_score))
+    resample_q = max(0.0, _as_float(resample_action.q_score))
+    if resample_q <= 0.0 or search_q <= resample_q:
+        return list(actions)
+    resample_certificate = max(0.0, _as_float(resample_action.predicted_delta_certificate))
+    if resample_certificate < 0.05:
+        return list(actions)
+    q_gap = max(0.0, search_q - resample_q)
+    stress_signal = _clamp01(
+        (0.40 * _clamp01(state.top_fragility_mass))
+        + (0.30 * _clamp01(state.competitor_pressure))
+        + (0.20 * _stress_world_fraction_from_context(state.ambiguity_context))
+        + (0.10 * min(1.0, max(0.0, threshold_gap) / 0.12))
+    )
+    bonus = min(
+        0.40,
+        q_gap
+        + 0.02
+        + (0.06 * min(1.0, resample_certificate / 0.12))
+        + (0.04 * stress_signal),
+    )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    resample_metadata = dict(resample_action.metadata if isinstance(resample_action.metadata, Mapping) else {})
+    resample_metadata["uncertified_post_evidence_resample_preference_bonus"] = round(bonus, 6)
+    resample_metadata["uncertified_post_evidence_resample_preference_applied"] = True
+    resample_metadata["uncertified_post_evidence_resample_structured_negative_refresh"] = True
+    updated[resample_index] = replace(
+        resample_action,
+        q_score=resample_q + bonus,
+        metadata=resample_metadata,
+    )
+    search_discount = min(
+        0.22,
+        0.10
+        + (0.05 * min(1.0, resample_certificate / 0.12))
+        + (0.03 * stress_signal),
+    )
+    if search_discount > 0.0:
+        search_metadata = dict(search_action.metadata if isinstance(search_action.metadata, Mapping) else {})
+        search_metadata["uncertified_post_evidence_resample_search_discount"] = round(search_discount, 6)
+        search_metadata["uncertified_post_evidence_resample_search_discount_applied"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, search_q - search_discount),
+            metadata=search_metadata,
+    )
+    return updated
+
+
+def _apply_uncertified_last_search_token_resample_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+    supported_fragility_uncertainty: bool,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    threshold_gap = certificate_threshold - current_certificate
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if current_certificate < max(0.45, certificate_threshold - 0.34):
+        return list(actions)
+    if threshold_gap <= 0.0 or threshold_gap > 0.35:
+        return list(actions)
+    if not evidence_uncertainty or not supported_fragility_uncertainty:
+        return list(actions)
+    if not _support_rich_ambiguity_window(state):
+        return list(actions)
+    if state.remaining_search_budget > 1 or state.remaining_evidence_budget <= 0:
+        return list(actions)
+    recent_no_gain_refine_streak = _recent_no_gain_refine_streak(state, max_depth=2)
+    if recent_no_gain_refine_streak <= 0:
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    best_resample_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None or best_resample_entry is None:
+        return list(actions)
+    search_index, search_action = best_search_entry
+    resample_index, resample_action = best_resample_entry
+    search_q = max(0.0, _as_float(search_action.q_score))
+    resample_q = max(0.0, _as_float(resample_action.q_score))
+    if resample_q <= 0.0 or search_q <= resample_q:
+        return list(actions)
+    search_metadata = search_action.metadata if isinstance(search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(search_action.predicted_delta_frontier))
+    q_gap = max(0.0, search_q - resample_q)
+    cached_direct_fallback_resample_exception = bool(
+        _selected_route_uses_cached_direct_fallback(state)
+        and q_gap <= 0.35
+        and current_certificate >= max(0.55, certificate_threshold - 0.24)
+        and max(0.0, _as_float(state.top_refresh_gain)) >= 0.20
+        and _clamp01(state.top_fragility_mass) >= 0.55
+        and _clamp01(state.competitor_pressure) >= 0.95
+        and _clamp01(state.corridor_family_recall) >= 0.85
+        and _clamp01(state.frontier_recall_at_budget) <= 0.35
+    )
+    if (
+        objective_gap >= 0.30
+        or mechanism_gap >= 0.20
+        or predicted_frontier >= 0.35
+    ) and not cached_direct_fallback_resample_exception:
+        return list(actions)
+    resample_certificate = max(0.0, _as_float(resample_action.predicted_delta_certificate))
+    if resample_certificate < 0.08:
+        return list(actions)
+    top_fragility_mass = _clamp01(state.top_fragility_mass)
+    competitor_pressure = _clamp01(state.competitor_pressure)
+    if top_fragility_mass < 0.45 or competitor_pressure < 0.75:
+        return list(actions)
+    certificate_margin = max(0.0, _as_float(state.certificate_margin))
+    near_tie_mass = _clamp01(state.near_tie_mass)
+    if certificate_margin > 0.03 and near_tie_mass < 0.20 and not cached_direct_fallback_resample_exception:
+        return list(actions)
+    stall_signal = _clamp01(
+        (0.60 * min(1.0, recent_no_gain_refine_streak / 2.0))
+        + (0.40 * min(1.0, max(0, 1 - state.remaining_search_budget)))
+    )
+    evidence_signature = _clamp01(
+        (0.45 * top_fragility_mass)
+        + (0.30 * competitor_pressure)
+        + (0.15 * min(1.0, threshold_gap / 0.25))
+        + (0.10 * max(near_tie_mass, _clamp01(1.0 - min(1.0, certificate_margin / 0.03))))
+    )
+    bonus = min(
+        0.42,
+        q_gap
+        + 0.05
+        + (0.05 * min(1.0, resample_certificate / 0.15))
+        + (0.03 * stall_signal)
+        + (0.03 * evidence_signature),
+    )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    resample_metadata = dict(resample_action.metadata if isinstance(resample_action.metadata, Mapping) else {})
+    resample_metadata["uncertified_last_search_token_resample_preference_bonus"] = round(bonus, 6)
+    resample_metadata["uncertified_last_search_token_resample_preference_applied"] = True
+    resample_metadata["uncertified_last_search_token_resample_recent_no_gain_refine_streak"] = (
+        recent_no_gain_refine_streak
+    )
+    updated[resample_index] = replace(
+        resample_action,
+        q_score=resample_q + bonus,
+        metadata=resample_metadata,
+    )
+    search_discount = min(
+        0.18,
+        0.08
+        + (0.03 * min(1.0, resample_certificate / 0.15))
+        + (0.02 * stall_signal)
+        + (0.02 * evidence_signature),
+    )
+    if search_discount > 0.0:
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["uncertified_last_search_token_resample_search_discount"] = round(
+            search_discount,
+            6,
+        )
+        updated_search_metadata["uncertified_last_search_token_resample_search_discount_applied"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, search_q - search_discount),
+            metadata=updated_search_metadata,
+        )
+    return updated
+
+
+def _apply_uncertified_structural_cap_bridge_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if len(state.frontier) > 1:
+        return list(actions)
+    if not bool(ambiguity_context.get("single_frontier_certificate_cap_applied")):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    bridge_index = next(
+        (
+            idx
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+            and bool((action.metadata if isinstance(action.metadata, Mapping) else {}).get("uncertified_structural_cap_bridge"))
+        ),
+        None,
+    )
+    if bridge_index is None:
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None:
+        return list(actions)
+    search_index, search_action = best_search_entry
+    search_metadata = search_action.metadata if isinstance(search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    predicted_frontier = max(0.0, _as_float(search_action.predicted_delta_frontier))
+    if objective_gap >= 0.08 or predicted_frontier >= 0.14:
+        return list(actions)
+    bridge_action = actions[bridge_index]
+    bridge_metadata = bridge_action.metadata if isinstance(bridge_action.metadata, Mapping) else {}
+    if max(0.0, _as_float(bridge_action.predicted_delta_certificate)) < 0.12:
+        return list(actions)
+    bridge_support = max(
+        _clamp01(bridge_metadata.get("search_pressure")),
+        _clamp01(bridge_metadata.get("support_signal")),
+    )
+    bridge_gap = max(0.0, _as_float(search_action.q_score) - _as_float(bridge_action.q_score))
+    bridge_bonus = min(
+        0.12,
+        bridge_gap + 0.01 + (0.02 * bridge_support),
+    )
+    if bridge_bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    updated_bridge_metadata = dict(bridge_metadata)
+    updated_bridge_metadata["structural_cap_bridge_preference_bonus"] = round(bridge_bonus, 6)
+    updated_bridge_metadata["structural_cap_bridge_preference_applied"] = True
+    updated[bridge_index] = replace(
+        bridge_action,
+        q_score=_as_float(bridge_action.q_score) + bridge_bonus,
+        metadata=updated_bridge_metadata,
+    )
+    search_discount = min(0.04, 0.01 + (0.015 * bridge_support))
+    if search_discount > 0.0:
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["structural_cap_bridge_search_discount"] = round(search_discount, 6)
+        updated_search_metadata["structural_cap_bridge_search_discount_applied"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, _as_float(search_action.q_score) - search_discount),
+            metadata=updated_search_metadata,
+        )
+    return updated
+
+
+def _apply_uncertified_support_rich_zero_signal_bridge_preference(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    bridge_index = next(
+        (
+            idx
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+            and bool(
+                (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                    "uncertified_support_rich_zero_signal_bridge"
+                )
+            )
+        ),
+        None,
+    )
+    if bridge_index is None:
+        return list(actions)
+    bridge_action = actions[bridge_index]
+    bridge_metadata = bridge_action.metadata if isinstance(bridge_action.metadata, Mapping) else {}
+    live_sampler_bridge = bool(
+        bridge_metadata.get("uncertified_support_rich_zero_signal_live_sampler_bridge")
+    )
+    cert_world_bridge = bool(
+        bridge_metadata.get("uncertified_support_rich_zero_signal_cert_world_bridge")
+    )
+    severe_sampler_undercoverage = bool(
+        bridge_metadata.get("uncertified_support_rich_zero_signal_extreme_undercoverage")
+    )
+    fallback_activated = bool(bridge_metadata.get("controller_refresh_fallback_activated"))
+    controller_disagreement = bool(
+        bridge_metadata.get("controller_empirical_vs_raw_refresh_disagreement")
+    )
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    single_frontier_structural_cap = bool(
+        len(state.frontier) <= 1
+        and ambiguity_context.get("single_frontier_certificate_cap_applied")
+    )
+    structural_cap_live_bridge_override = bool(
+        (live_sampler_bridge or cert_world_bridge)
+        and single_frontier_structural_cap
+        and (fallback_activated or controller_disagreement)
+        and (_resample_shortfall_available(state) or _cert_world_shortfall_available(state))
+    )
+    extreme_undercoverage_live_bridge_override = bool(
+        live_sampler_bridge
+        and severe_sampler_undercoverage
+        and _resample_shortfall_available(state)
+    )
+    if state.stochastic_enabled and not (live_sampler_bridge or cert_world_bridge):
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    if best_search_entry is None:
+        return list(actions)
+    search_index, search_action = best_search_entry
+    search_metadata = search_action.metadata if isinstance(search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(search_action.predicted_delta_frontier))
+    if objective_gap >= 0.12 or predicted_frontier >= 0.15:
+        return list(actions)
+    if (
+        mechanism_gap >= 0.35
+        and not structural_cap_live_bridge_override
+        and not extreme_undercoverage_live_bridge_override
+    ):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    if max(0.0, _as_float(bridge_action.predicted_delta_certificate)) < 0.12:
+        return list(actions)
+    bridge_support = max(
+        _clamp01(bridge_metadata.get("search_pressure")),
+        _clamp01(bridge_metadata.get("support_signal")),
+        _clamp01(bridge_metadata.get("hard_case_support")),
+    )
+    bridge_q = max(0.0, _as_float(bridge_action.q_score))
+    search_q = max(0.0, _as_float(search_action.q_score))
+    certificate_threshold = _as_float(config.certificate_threshold)
+    threshold_gap = max(0.0, certificate_threshold - current_certificate)
+    search_certificate = max(0.0, _as_float(search_action.predicted_delta_certificate))
+    single_frontier_zero_signal = bool(
+        len(state.frontier) <= 1
+        and _clamp01(state.near_tie_mass) <= max(_as_float(config.near_tie_threshold), 0.03)
+        and max(0.0, _as_float(state.top_refresh_gain)) <= 0.0
+        and _clamp01(state.top_fragility_mass) <= 0.01
+        and _clamp01(state.competitor_pressure) <= 0.05
+    )
+    single_frontier_search_finish_supported = bool(
+        not single_frontier_zero_signal
+        or objective_gap >= 0.04
+        or predicted_frontier >= 0.05
+    )
+    near_threshold_search_finish = bool(
+        threshold_gap <= 0.07
+        and bridge_q >= search_q - 1e-9
+        and abs(search_q - bridge_q) <= 0.08
+        and search_q >= max((4.0 * _as_float(config.stop_threshold)), 0.10)
+        and search_certificate >= min(0.30, threshold_gap + 0.10)
+        and (
+            objective_gap >= 0.04
+            or mechanism_gap >= 0.45
+            or predicted_frontier >= 0.05
+        )
+        and single_frontier_search_finish_supported
+        and not structural_cap_live_bridge_override
+    )
+    if near_threshold_search_finish:
+        updated = list(actions)
+        search_finish_signal = min(
+            1.0,
+            search_certificate / max(0.05, threshold_gap + 0.10),
+        )
+        search_finish_bonus = min(
+            0.18,
+            max(0.0, bridge_q - search_q)
+            + 0.012
+            + (0.03 * bridge_support)
+            + (0.02 * search_finish_signal),
+        )
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["uncertified_support_rich_zero_signal_search_finish_bonus"] = round(
+            search_finish_bonus,
+            6,
+        )
+        updated_search_metadata["uncertified_support_rich_zero_signal_search_finish_preferred"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=search_q + search_finish_bonus,
+            metadata=updated_search_metadata,
+        )
+        bridge_finish_discount = min(
+            0.10,
+            0.015
+            + (0.02 * bridge_support)
+            + (0.02 * min(1.0, threshold_gap / 0.07)),
+        )
+        updated_bridge_metadata = dict(bridge_metadata)
+        updated_bridge_metadata["uncertified_support_rich_zero_signal_bridge_finish_discount"] = round(
+            bridge_finish_discount,
+            6,
+        )
+        updated_bridge_metadata["uncertified_support_rich_zero_signal_bridge_finish_deferred"] = True
+        updated[bridge_index] = replace(
+            bridge_action,
+            q_score=max(0.0, bridge_q - bridge_finish_discount),
+            metadata=updated_bridge_metadata,
+        )
+        return updated
+    controller_bridge_bonus = 0.0
+    if fallback_activated:
+        controller_bridge_bonus += 0.01
+    if controller_disagreement:
+        controller_bridge_bonus += 0.02
+    if live_sampler_bridge:
+        controller_bridge_bonus += 0.01
+    if cert_world_bridge:
+        controller_bridge_bonus += 0.02
+    if severe_sampler_undercoverage:
+        controller_bridge_bonus += 0.03
+    if structural_cap_live_bridge_override:
+        controller_bridge_bonus += 0.03 if controller_disagreement else 0.015
+    bridge_gap = max(0.0, search_q - bridge_q)
+    bridge_bonus = min(
+        (
+            0.18
+            if structural_cap_live_bridge_override
+            else (
+                0.16
+                if severe_sampler_undercoverage
+                else (0.14 if (live_sampler_bridge or cert_world_bridge) else 0.10)
+            )
+        ),
+        bridge_gap + 0.01 + (0.03 * bridge_support) + controller_bridge_bonus,
+    )
+    if bridge_bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    updated_bridge_metadata = dict(bridge_metadata)
+    updated_bridge_metadata["uncertified_support_rich_zero_signal_bridge_preference_bonus"] = round(
+        bridge_bonus,
+        6,
+    )
+    updated_bridge_metadata["uncertified_support_rich_zero_signal_bridge_preference_applied"] = True
+    updated[bridge_index] = replace(
+        bridge_action,
+        q_score=_as_float(bridge_action.q_score) + bridge_bonus,
+        metadata=updated_bridge_metadata,
+    )
+    search_discount = min(
+        (
+            0.08
+            if structural_cap_live_bridge_override
+            else (
+                0.06
+                if severe_sampler_undercoverage
+                else (0.05 if (live_sampler_bridge or cert_world_bridge) else 0.04)
+            )
+        ),
+        0.01
+        + (0.015 * bridge_support)
+        + (0.01 if (live_sampler_bridge or cert_world_bridge) else 0.0)
+        + (0.015 if severe_sampler_undercoverage else 0.0)
+        + (0.02 if structural_cap_live_bridge_override else 0.0),
+    )
+    if search_discount > 0.0:
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["uncertified_support_rich_zero_signal_bridge_search_discount"] = round(
+            search_discount,
+            6,
+        )
+        updated_search_metadata["uncertified_support_rich_zero_signal_bridge_search_discount_applied"] = True
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, _as_float(search_action.q_score) - search_discount),
+            metadata=updated_search_metadata,
+        )
+    return updated
+
+
+def _should_stop_uncertified_weak_search_tail(
+    action: VOIAction | None,
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_uncertainty: bool,
+) -> bool:
+    if action is None or action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return False
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return False
+    if current_certificate < max(0.72, _as_float(config.certificate_threshold) - 0.10):
+        return False
+    if evidence_uncertainty:
+        direct_winner_side_evidence_signal = bool(
+            max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+            or _clamp01(state.top_fragility_mass) > 0.0
+            or _clamp01(state.competitor_pressure) > 0.05
+        )
+        if direct_winner_side_evidence_signal:
+            return False
+    if len(state.frontier) > 1:
+        return False
+    metadata = action.metadata if isinstance(action.metadata, Mapping) else {}
+    objective_gap = _clamp01(metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    world_count_policy = str(ambiguity_context.get("refc_world_count_policy", "")).strip()
+    actual_world_count = _actual_refc_world_count(state)
+    single_frontier_world_saturation = bool(
+        len(state.frontier) <= 1
+        and actual_world_count > 0.0
+        and not _resample_shortfall_available(state)
+        and (
+            "single_frontier" in world_count_policy
+            or bool(ambiguity_context.get("single_frontier_certificate_cap_applied"))
+        )
+    )
+    if objective_gap >= 0.08 or mechanism_gap >= 0.40 or predicted_frontier >= 0.12:
+        if not single_frontier_world_saturation:
+            return False
+        if objective_gap >= 0.12 or mechanism_gap >= 0.28 or predicted_frontier >= 0.14:
+            return False
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return False
+    if max(0.0, _as_float(state.top_refresh_gain)) > 0.0 or _clamp01(state.top_fragility_mass) > 0.01:
+        return False
+    return True
+
+
+def _suppress_certified_zero_signal_controller_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    evidence_discovery_bridge: bool,
+) -> list[VOIAction]:
+    saturation_certificate = min(
+        1.0,
+        max(0.95, _as_float(config.certificate_threshold) + 0.20),
+    )
+    if current_certificate < saturation_certificate:
+        return list(actions)
+    support_rich_window = _support_rich_ambiguity_window(state)
+    corridor_complete = _clamp01(state.corridor_family_recall) >= 0.75
+    if not support_rich_window and not corridor_complete:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > 0.03:
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.0
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    if evidence_discovery_bridge:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if _search_action_shows_strong_decision_movement(best_search_action, state=state):
+        if _trace_has_prior_evidence_action_attempt(state):
+            return list(actions)
+        low_coverage_reopen = bool(
+            _clamp01(state.corridor_family_recall) < 0.50
+            and _clamp01(state.frontier_recall_at_budget) < 0.40
+        )
+        if low_coverage_reopen:
+            search_metadata = best_search_action.metadata if best_search_action is not None else {}
+            structural_reopen_signal = bool(
+                _clamp01(search_metadata.get("normalized_objective_gap")) >= 0.10
+                or _clamp01(search_metadata.get("normalized_mechanism_gap")) >= 0.08
+                or max(
+                    0.0,
+                    _as_float(best_search_action.predicted_delta_frontier if best_search_action is not None else 0.0),
+                ) >= 0.10
+            )
+            if structural_reopen_signal:
+                return list(actions)
+    if _refine_action_has_genuine_novel_search_promise(best_search_action, state=state):
+        return list(actions)
+    if _clamp01((best_search_action.metadata if best_search_action is not None else {}).get("normalized_mechanism_gap")) >= 0.12:
+        return list(actions)
+    return [
+        action
+        for action in actions
+        if action.kind not in {"refine_top1_dccs", "refine_topk_dccs", "refresh_top1_vor", "increase_stochastic_samples"}
+    ]
+
+
+def _suppress_certified_single_frontier_zero_signal_search_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    threshold = _as_float(config.certificate_threshold)
+    near_certified_floor = max(0.75, threshold - 0.05)
+    saturation_certificate = min(
+        1.0,
+        max(0.95, threshold + 0.20),
+    )
+    if current_certificate < near_certified_floor or current_certificate >= saturation_certificate:
+        return list(actions)
+    if len(state.frontier) > 1:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.0
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is None:
+        return list(actions)
+    metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    if not bool(metadata.get("certificate_headroom_cap_applied")):
+        return list(actions)
+    objective_gap = _clamp01(metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    corridor_recall = _clamp01(metadata.get("corridor_family_recall", state.corridor_family_recall))
+    frontier_recall = _clamp01(metadata.get("frontier_recall_at_budget", state.frontier_recall_at_budget))
+    if (
+        objective_gap >= 0.16
+        or mechanism_gap >= 0.22
+        or predicted_frontier >= 0.18
+        or corridor_recall > 0.15
+        or frontier_recall > 0.20
+    ):
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_uncertified_structural_cap_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if len(state.frontier) > 1:
+        return list(actions)
+    if not bool(ambiguity_context.get("single_frontier_certificate_cap_applied")):
+        return list(actions)
+    empirical_baseline = _as_float(ambiguity_context.get("empirical_baseline_certificate"), float("nan"))
+    controller_baseline = _as_float(ambiguity_context.get("controller_baseline_certificate"), float("nan"))
+    if not math.isfinite(empirical_baseline) or not math.isfinite(controller_baseline):
+        return list(actions)
+    if empirical_baseline <= controller_baseline + 1e-9:
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    bridge_resample_action = next(
+        (
+            action
+            for action in actions
+            if action.kind == "increase_stochastic_samples"
+            and bool(
+                (action.metadata if isinstance(action.metadata, Mapping) else {}).get("uncertified_structural_cap_bridge")
+                or (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                    "uncertified_support_rich_zero_signal_live_sampler_bridge"
+                )
+                or (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                    "uncertified_support_rich_zero_signal_cert_world_bridge"
+                )
+            )
+        ),
+        None,
+    )
+    if bridge_resample_action is not None:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    actual_world_count = _actual_refc_world_count(state)
+    if best_search_action is not None and actual_world_count > 0.0:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        structural_cap_only_refresh = any(
+            action.kind == "refresh_top1_vor"
+            and bool((action.metadata if isinstance(action.metadata, Mapping) else {}).get("structured_refresh_signal"))
+            and bool((action.metadata if isinstance(action.metadata, Mapping) else {}).get("structural_cap_only"))
+            and _as_float(
+                (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                    "empirical_refresh_certificate_uplift"
+                ),
+                float("nan"),
+            )
+            <= 1e-9
+            for action in actions
+        )
+        if (
+            current_certificate >= max(0.72, _as_float(config.certificate_threshold) - 0.10)
+            and objective_gap < 0.08
+            and predicted_frontier < 0.12
+        ):
+            return [action for action in actions if action.kind == "stop"]
+        if (
+            structural_cap_only_refresh
+            and actual_world_count <= 1.0
+            and not _resample_shortfall_available(state)
+            and current_certificate >= max(0.72, _as_float(config.certificate_threshold) - 0.10)
+            and objective_gap < 0.12
+            and mechanism_gap < 0.24
+            and predicted_frontier < 0.14
+        ):
+            return [action for action in actions if action.kind == "stop"]
+    if _refine_action_has_genuine_novel_search_promise(best_search_action, state=state):
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_uncertified_stochastic_disabled_zero_signal_controller_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    if current_certificate < max(0.72, _as_float(config.certificate_threshold) - 0.10):
+        return list(actions)
+    if state.stochastic_enabled:
+        return list(actions)
+    if state.remaining_evidence_budget <= 0:
+        return list(actions)
+    if _trace_has_prior_evidence_action_attempt(state):
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    actual_world_count = _actual_refc_world_count(state)
+    if not _resample_shortfall_available(state):
+        return list(actions)
+    if actual_world_count > 1.0 and not bool(context.get("single_frontier_certificate_cap_applied")):
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is not None:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        if objective_gap >= 0.12 or mechanism_gap >= 0.35 or predicted_frontier >= 0.15:
+            return list(actions)
+    preferred_bridge_action = next(
+        (
+            action
+            for action in actions
+            if action.kind == "increase_stochastic_samples"
+            and bool(
+                (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                    "structural_cap_bridge_preference_applied"
+                )
+                or (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                    "uncertified_support_rich_zero_signal_bridge_preference_applied"
+                )
+            )
+        ),
+        None,
+    )
+    if preferred_bridge_action is not None:
+        return [
+            action
+            for action in actions
+            if action.kind == "stop" or action.action_id == preferred_bridge_action.action_id
+        ]
+    if best_search_action is not None:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        support_rich_hard_case_pressure = max(
+            _clamp01(context.get("od_hard_case_prior")),
+            _clamp01(context.get("ambiguity_budget_prior")),
+            _clamp01(context.get("od_ambiguity_support_ratio")),
+            _clamp01(state.support_richness),
+            _clamp01(state.ambiguity_pressure),
+        )
+        structural_search_incomplete = bool(
+            max(0.0, _as_float(state.search_completeness_gap)) >= 0.22
+            and _clamp01(state.pending_challenger_mass) >= 0.60
+            and _clamp01(state.best_pending_flip_probability) >= 0.97
+            and (
+                _clamp01(state.frontier_recall_at_budget) < 0.40
+                or _clamp01(state.corridor_family_recall) < 0.50
+            )
+        )
+        material_search_upside = bool(
+            objective_gap >= 0.08
+            or mechanism_gap >= 0.18
+            or predicted_frontier >= 0.08
+        )
+        if (
+            support_rich_hard_case_pressure >= 0.45
+            and structural_search_incomplete
+            and material_search_upside
+        ):
+            return [
+                action
+                for action in actions
+                if action.kind == "stop" or action.action_id == best_search_action.action_id
+            ]
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_uncertified_single_frontier_zero_signal_search_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if state.action_trace:
+        return list(actions)
+    if current_certificate < max(0.72, certificate_threshold - 0.10):
+        return list(actions)
+    if len(state.frontier) > 1:
+        return list(actions)
+    if _trace_has_prior_evidence_action_attempt(state):
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    evidence_path_available = any(
+        action.kind in {"refresh_top1_vor", "increase_stochastic_samples"}
+        and max(0.0, _as_float(action.q_score)) > 0.0
+        for action in actions
+    )
+    if evidence_path_available:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is None:
+        return list(actions)
+    search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    if objective_gap >= 0.12 or predicted_frontier >= 0.14:
+        return list(actions)
+    if mechanism_gap >= 0.30 and objective_gap >= 0.08:
+        return list(actions)
+    if max(0.0, _as_float(state.search_completeness_gap)) < 0.25:
+        return list(actions)
+    if _clamp01(state.pending_challenger_mass) < 0.55:
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_uncertified_sampler_only_zero_signal_bridge_tail(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if state.action_trace:
+        return list(actions)
+    if len(state.frontier) > 1:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if bool(state.credible_evidence_uncertainty):
+        return list(actions)
+    if current_certificate < max(0.74, certificate_threshold - 0.08):
+        return list(actions)
+    if max(0.0, _as_float(state.search_completeness_gap)) >= 0.10:
+        return list(actions)
+    if _clamp01(state.frontier_recall_at_budget) < 0.95:
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    bridge_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+            and isinstance(action.metadata, Mapping)
+            and action.metadata.get("uncertified_support_rich_zero_signal_bridge")
+        ),
+        key=lambda item: _as_float(item[1].q_score),
+        default=None,
+    )
+    if bridge_entry is None:
+        return list(actions)
+    _, bridge_action = bridge_entry
+    bridge_metadata = bridge_action.metadata if isinstance(bridge_action.metadata, Mapping) else {}
+    if not bool(bridge_metadata.get("uncertified_support_rich_zero_signal_live_sampler_bridge")):
+        return list(actions)
+    if bool(bridge_metadata.get("uncertified_support_rich_zero_signal_cert_world_bridge")):
+        return list(actions)
+    if bool(bridge_metadata.get("controller_refresh_fallback_activated")):
+        return list(actions)
+    if bool(bridge_metadata.get("controller_empirical_vs_raw_refresh_disagreement")):
+        return list(actions)
+    if (
+        state.ambiguity_context.get("single_frontier_certificate_cap_applied")
+        if isinstance(state.ambiguity_context, Mapping)
+        else False
+    ):
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is not None:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        if (
+            max(0.0, _as_float(state.search_completeness_gap)) >= 0.15
+            or _clamp01(state.frontier_recall_at_budget) < 0.80
+        ) and (
+            objective_gap >= 0.12
+            or predicted_frontier >= 0.12
+            or (mechanism_gap >= 0.55 and objective_gap >= 0.10)
+        ):
+            return [
+                action
+                for action in actions
+                if action.kind == "stop" or action.action_id == best_search_action.action_id
+            ]
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_uncertified_low_support_cert_world_zero_signal_bridge_tail(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if state.action_trace:
+        return list(actions)
+    if len(state.frontier) > 1:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if current_certificate < max(0.78, certificate_threshold - 0.06):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if _clamp01(state.prior_support_strength) >= 0.18:
+        return list(actions)
+    if _clamp01(ambiguity_context.get("od_hard_case_prior")) > 0.15:
+        return list(actions)
+    if _clamp01(ambiguity_context.get("od_engine_disagreement_prior")) > 0.15:
+        return list(actions)
+    if max(
+        _clamp01(ambiguity_context.get("od_ambiguity_index")),
+        _clamp01(ambiguity_context.get("ambiguity_budget_prior")),
+    ) > 0.10:
+        return list(actions)
+    bridge_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind == "increase_stochastic_samples"
+            and isinstance(action.metadata, Mapping)
+            and action.metadata.get("uncertified_support_rich_zero_signal_bridge")
+        ),
+        key=lambda item: _as_float(item[1].q_score),
+        default=None,
+    )
+    if bridge_entry is None:
+        return list(actions)
+    _, bridge_action = bridge_entry
+    bridge_metadata = bridge_action.metadata if isinstance(bridge_action.metadata, Mapping) else {}
+    if not bool(bridge_metadata.get("uncertified_support_rich_zero_signal_cert_world_bridge")):
+        return list(actions)
+    if bool(bridge_metadata.get("uncertified_support_rich_zero_signal_live_sampler_bridge")):
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_post_nonproductive_bridge_zero_signal_search_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    if state.remaining_search_budget <= 0:
+        return list(actions)
+    if not _recent_no_gain_evidence_discovery_bridge(state):
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return list(actions)
+    actual_world_count = _actual_refc_world_count(state)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    world_count_policy = str(ambiguity_context.get("refc_world_count_policy", "")).strip()
+    bridge_retry_available = any(action.kind == "increase_stochastic_samples" for action in actions)
+    sampler_dead_end = bool(
+        len(state.frontier) <= 1
+        and actual_world_count <= 1.0
+        and not bridge_retry_available
+        and (
+            "single_frontier" in world_count_policy
+            or bool(ambiguity_context.get("single_frontier_certificate_cap_applied"))
+        )
+    )
+    if not _resample_shortfall_available(state) and not sampler_dead_end:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is not None:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        if (objective_gap >= 0.10 or predicted_frontier >= 0.14) and not sampler_dead_end:
+            return list(actions)
+        if mechanism_gap >= 0.45 and objective_gap >= 0.06 and not sampler_dead_end:
+            return list(actions)
+        if sampler_dead_end and (objective_gap >= 0.12 or predicted_frontier >= 0.12):
+            return list(actions)
+        if sampler_dead_end and mechanism_gap >= 0.72 and objective_gap >= 0.09:
+            return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_post_harmful_evidence_drift_search_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if current_certificate < max(0.72, certificate_threshold - 0.10):
+        return list(actions)
+    if not _recent_harmful_evidence_certificate_drift(state):
+        return list(actions)
+    if not _support_rich_ambiguity_window(state):
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
+    top_fragility_mass = _clamp01(state.top_fragility_mass)
+    competitor_pressure = _clamp01(state.competitor_pressure)
+    if top_refresh_gain < 0.20 and top_fragility_mass < 0.15 and competitor_pressure < 0.75:
+        return list(actions)
+    structured_negative_refresh = any(
+        action.kind == "refresh_top1_vor"
+        and bool((action.metadata if isinstance(action.metadata, Mapping) else {}).get("structured_refresh_signal"))
+        and _as_float(
+            (action.metadata if isinstance(action.metadata, Mapping) else {}).get(
+                "empirical_refresh_certificate_delta"
+            ),
+            float("nan"),
+        )
+        < -1e-9
+        for action in actions
+    )
+    if not structured_negative_refresh:
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_settled_certified_revelation_only_actions(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    saturation_certificate = min(
+        1.0,
+        max(0.95, _as_float(config.certificate_threshold) + 0.20),
+    )
+    if current_certificate < saturation_certificate:
+        return list(actions)
+    if len(state.frontier) > 2:
+        return list(actions)
+    if max(0.0, _as_float(state.certificate_margin)) < 0.18:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    refresh_entry = _best_refresh_action_entry(actions)
+    if refresh_entry is None:
+        return list(actions)
+    _, refresh_action = refresh_entry
+    refresh_metadata = refresh_action.metadata if isinstance(refresh_action.metadata, Mapping) else {}
+    if not bool(refresh_metadata.get("structured_refresh_signal")):
+        return list(actions)
+    if _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"), float("nan")) > 1e-9:
+        return list(actions)
+    strong_winner_side_evidence_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.10
+        or _clamp01(state.top_fragility_mass) >= 0.15
+        or _clamp01(state.competitor_pressure) >= 0.75
+    )
+    supported_hard_case_reopen = bool(
+        _support_rich_ambiguity_window(state)
+        and strong_winner_side_evidence_signal
+        and (
+            max(0.0, _as_float(state.search_completeness_gap)) >= 0.12
+            or _clamp01(state.pending_challenger_mass) >= 0.35
+            or _clamp01(state.best_pending_flip_probability) >= 0.40
+            or max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)) >= 0.20
+        )
+    )
+    credible_controller_hard_case_reopen = bool(
+        bool(state.credible_search_uncertainty)
+        and strong_winner_side_evidence_signal
+        and (
+            _clamp01(state.support_richness) >= 0.50
+            or _clamp01(state.ambiguity_pressure) >= 0.50
+            or _clamp01(state.prior_support_strength) >= 0.25
+        )
+        and (
+            max(0.0, _as_float(state.search_completeness_gap)) >= 0.20
+            or _clamp01(state.pending_challenger_mass) >= 0.55
+            or _clamp01(state.best_pending_flip_probability) >= 0.95
+            or max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)) >= 0.45
+        )
+    )
+    if supported_hard_case_reopen or credible_controller_hard_case_reopen:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if _trace_has_prior_evidence_action_attempt(state):
+        if best_search_action is not None and (
+            _refine_action_has_genuine_novel_search_promise(best_search_action, state=state)
+            or _search_action_shows_strong_decision_movement(best_search_action, state=state)
+        ):
+            return list(actions)
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _search_action_has_substantial_post_evidence_support(
+    action: VOIAction | None,
+    *,
+    state: VOIControllerState,
+) -> bool:
+    if action is None or action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return False
+    objective_gap = _clamp01(action.metadata.get("normalized_objective_gap"))
+    overlap_gain = _clamp01(action.metadata.get("normalized_overlap_reduction"))
+    predicted_frontier = max(0.0, _as_float(action.predicted_delta_frontier))
+    flip_probability = _clamp01(action.metadata.get("mean_flip_probability"))
+    pending_signal = max(
+        _clamp01(state.pending_challenger_mass),
+        _clamp01(state.best_pending_flip_probability),
+        max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)),
+    )
+    return bool(
+        objective_gap >= 0.08
+        or predicted_frontier >= 0.10
+        or (
+            objective_gap >= 0.05
+            and overlap_gain >= 0.40
+            and (flip_probability >= 0.35 or pending_signal >= 0.40)
+        )
+    )
+
+
+def _suppress_post_evidence_certified_search_backslide(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    saturation_certificate = min(
+        1.0,
+        max(0.95, certificate_threshold + 0.20),
+    )
+    support_rich_direct_fallback_backslide = bool(
+        current_certificate >= certificate_threshold
+        and _selected_route_uses_cached_direct_fallback(state)
+        and _support_rich_ambiguity_window(state)
+        and max(0.0, _as_float(state.top_refresh_gain)) >= 0.18
+        and _clamp01(state.top_fragility_mass) >= 0.12
+        and _clamp01(state.competitor_pressure) >= 0.25
+    )
+    if current_certificate < saturation_certificate and not support_rich_direct_fallback_backslide:
+        return list(actions)
+    if not _trace_has_prior_meaningful_evidence_certificate_lift(state):
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.04):
+        return list(actions)
+    refresh_entry = _best_refresh_action_entry(actions)
+    refresh_action = refresh_entry[1] if refresh_entry is not None else None
+    refresh_metadata = (
+        refresh_action.metadata
+        if refresh_action is not None and isinstance(refresh_action.metadata, Mapping)
+        else {}
+    )
+    if (
+        refresh_action is not None
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"), float("nan")) > 1e-9
+    ):
+        return [
+            action
+            for action in actions
+            if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
+        ]
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    evidence_actions_available = any(
+        action.kind in {"refresh_top1_vor", "increase_stochastic_samples"}
+        for action in actions
+    )
+    if best_search_action is not None and not evidence_actions_available:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        overlap_gain = _clamp01(search_metadata.get("normalized_overlap_reduction"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        modest_post_evidence_reopen = bool(
+            objective_gap < 0.12
+            and predicted_frontier < 0.16
+            and not (objective_gap >= 0.08 and predicted_frontier >= 0.10 and overlap_gain >= 0.75)
+            and not (mechanism_gap >= 0.45 and predicted_frontier >= 0.12)
+        )
+        if modest_post_evidence_reopen:
+            return [action for action in actions if action.kind == "stop"]
+    if _search_action_has_substantial_post_evidence_support(best_search_action, state=state):
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_saturated_certified_search_without_certificate_upside(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    certified_frontier_fill_bridge: bool = False,
+) -> list[VOIAction]:
+    saturation_certificate = min(
+        1.0,
+        max(0.95, _as_float(config.certificate_threshold) + 0.20),
+    )
+    if current_certificate < saturation_certificate:
+        return list(actions)
+    if certified_frontier_fill_bridge:
+        return list(actions)
+    if len(state.frontier) > 2:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if max(0.0, _as_float(state.certificate_margin)) < 0.18:
+        return list(actions)
+    if _trace_has_prior_meaningful_evidence_certificate_lift(state):
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is None:
+        return list(actions)
+    if max(0.0, _as_float(best_search_action.predicted_delta_certificate)) > 1e-9:
+        return list(actions)
+    search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    if objective_gap >= 0.12 or predicted_frontier >= 0.12:
+        return list(actions)
+    refresh_entry = _best_refresh_action_entry(actions)
+    refresh_action = refresh_entry[1] if refresh_entry is not None else None
+    refresh_metadata = (
+        refresh_action.metadata
+        if refresh_action is not None and isinstance(refresh_action.metadata, Mapping)
+        else {}
+    )
+    if (
+        refresh_action is not None
+        and _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"), float("nan")) > 1e-9
+    ):
+        return list(actions)
+    strong_winner_side_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.10
+        or _clamp01(state.top_fragility_mass) >= 0.15
+        or _clamp01(state.competitor_pressure) >= 0.75
+    )
+    supported_hard_case_reopen = bool(
+        _support_rich_ambiguity_window(state)
+        and strong_winner_side_signal
+        and (
+            max(0.0, _as_float(state.search_completeness_gap)) >= 0.12
+            or _clamp01(state.pending_challenger_mass) >= 0.35
+            or _clamp01(state.best_pending_flip_probability) >= 0.40
+            or max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)) >= 0.20
+            or (
+                len(state.frontier) >= 2
+                and _clamp01(state.near_tie_mass) >= max(_as_float(config.near_tie_threshold), 0.05)
+            )
+        )
+    )
+    search_only_reveal_reopen = bool(
+        supported_hard_case_reopen
+        and not _trace_has_prior_evidence_action_attempt(state)
+        and refresh_action is None
+        and mechanism_gap >= 0.35
+        and objective_gap < 0.05
+        and predicted_frontier < 0.08
+    )
+    if search_only_reveal_reopen:
+        return [action for action in actions if action.kind == "stop"]
+    if supported_hard_case_reopen:
+        return list(actions)
+    if not strong_winner_side_signal:
+        return list(actions)
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _suppress_saturated_certified_zero_headroom_search_probe(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+    certified_frontier_fill_bridge: bool = False,
+) -> list[VOIAction]:
+    saturation_certificate = min(
+        1.0,
+        max(0.95, _as_float(config.certificate_threshold) + 0.20),
+    )
+    if current_certificate < saturation_certificate:
+        return list(actions)
+    if len(state.frontier) > 3:
+        return list(actions)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return list(actions)
+    if max(0.0, _as_float(state.certificate_margin)) < 0.18:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is None:
+        return list(actions)
+    search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    if max(0.0, _as_float(best_search_action.predicted_delta_certificate)) > 1e-9:
+        return list(actions)
+    if not bool(search_metadata.get("certificate_headroom_cap_applied")):
+        return list(actions)
+    if max(0.0, _as_float(search_metadata.get("certificate_headroom_remaining"), 0.0)) > 1e-9:
+        return list(actions)
+    if certified_frontier_fill_bridge:
+        corridor_recall = _clamp01(
+            search_metadata.get("corridor_family_recall", state.corridor_family_recall)
+        )
+        if corridor_recall <= 0.25:
+            return list(actions)
+    preserve_failed_reopen = bool(
+        (
+            _recent_no_gain_evidence_discovery_bridge(state)
+            or _recent_no_gain_refine_streak(state) > 0
+        )
+        and (
+            _refine_action_has_genuine_novel_search_promise(best_search_action, state=state)
+            or _search_action_shows_strong_decision_movement(best_search_action, state=state)
+        )
+    )
+    if preserve_failed_reopen:
+        return list(actions)
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    evidence_actions = [
+        action
+        for action in actions
+        if action.kind in {"refresh_top1_vor", "increase_stochastic_samples"}
+    ]
+    support_rich_direct_fallback_zero_headroom_probe = bool(
+        _selected_route_uses_cached_direct_fallback(state)
+        and _support_rich_ambiguity_window(state)
+        and len(state.frontier) <= 3
+        and objective_gap < 0.22
+        and predicted_frontier < 0.20
+        and mechanism_gap < 0.30
+        and not certified_frontier_fill_bridge
+    )
+    if support_rich_direct_fallback_zero_headroom_probe:
+        if evidence_actions:
+            return [
+                action
+                for action in actions
+                if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
+            ]
+        return [action for action in actions if action.kind == "stop"]
+    if objective_gap >= 0.05 or predicted_frontier >= 0.05:
+        if evidence_actions:
+            strong_winner_side_signal = bool(
+                max(0.0, _as_float(state.top_refresh_gain)) >= 0.10
+                or _clamp01(state.top_fragility_mass) >= 0.15
+                or _clamp01(state.competitor_pressure) >= 0.75
+            )
+            if not strong_winner_side_signal:
+                return list(actions)
+            preserve_search_reopen = bool(
+                objective_gap >= 0.18
+                or predicted_frontier >= 0.18
+                or (objective_gap >= 0.10 and predicted_frontier >= 0.10 and mechanism_gap >= 0.45)
+            )
+            if not preserve_search_reopen:
+                return [
+                    action
+                    for action in actions
+                    if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
+                ]
+        return list(actions)
+    if any(action.kind in {"refresh_top1_vor", "increase_stochastic_samples"} for action in actions):
+        return [
+            action
+            for action in actions
+            if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
+        ]
+    return [action for action in actions if action.kind == "stop"]
+
+
+def _has_direct_fallback_source_marker(value: object) -> bool:
+    marker = str(value or "").strip().lower()
+    return "direct_k_raw_fallback" in marker
+
+
+def _selected_route_uses_cached_direct_fallback(state: "VOIControllerState") -> bool:
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if bool(ambiguity_context.get("supplemental_challenger_activated")):
+        return False
+    source_markers = (
+        ambiguity_context.get("selected_candidate_source_stage"),
+        ambiguity_context.get("selected_final_route_source_stage"),
+        ambiguity_context.get("selected_candidate_source_label"),
+        ambiguity_context.get("selected_final_route_source_label"),
+    )
+    return any(_has_direct_fallback_source_marker(marker) for marker in source_markers)
+
+
+def _suppress_cached_direct_fallback_search_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if not _selected_route_uses_cached_direct_fallback(state):
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is None:
+        return list(actions)
+    search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    threshold = _as_float(config.certificate_threshold)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    fast_path_shortcut = bool(
+        ambiguity_context.get("graph_low_ambiguity_fast_path")
+        or ambiguity_context.get("graph_supported_ambiguity_fast_fallback")
+    )
+    remove_search_only = [
+        action
+        for action in actions
+        if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
+    ]
+
+    if (
+        current_certificate >= threshold
+        and fast_path_shortcut
+        and len(state.frontier) <= 2
+        and max(0.0, _as_float(best_search_action.predicted_delta_certificate)) <= 1e-9
+    ):
+        if not (
+            _refine_action_has_genuine_novel_search_promise(best_search_action, state=state)
+            and _search_action_shows_strong_decision_movement(best_search_action, state=state)
+        ):
+            return remove_search_only or [action for action in actions if action.kind == "stop"]
+
+    near_certified_floor = max(0.75, threshold - 0.05)
+    very_near_threshold = bool(current_certificate >= max(0.79, threshold - 0.03))
+    direct_fallback_objective_cap = 0.12 if very_near_threshold else 0.10
+    no_winner_side_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) <= 1e-9
+        and _clamp01(state.top_fragility_mass) <= 0.01
+        and _clamp01(state.competitor_pressure) <= 0.05
+    )
+    shortcut_single_frontier_reopen = bool(
+        current_certificate >= max(0.75, threshold - 0.08)
+        and len(state.frontier) <= 1
+        and "single_frontier_shortcut" in str(ambiguity_context.get("refc_world_count_policy") or "")
+        and int(max(0.0, _as_float(ambiguity_context.get("od_candidate_path_count"), 0.0))) <= 1
+        and int(max(0.0, _as_float(ambiguity_context.get("od_corridor_family_count"), 0.0))) <= 1
+        and _clamp01(state.corridor_family_recall) >= 0.65
+        and _clamp01(state.frontier_recall_at_budget) >= 0.65
+        and no_winner_side_signal
+    )
+    if shortcut_single_frontier_reopen:
+        return remove_search_only or [action for action in actions if action.kind == "stop"]
+    support_rich_zero_signal_near_threshold_probe = bool(
+        near_certified_floor <= current_certificate < threshold
+        and len(state.frontier) <= 1
+        and no_winner_side_signal
+        and _support_rich_ambiguity_window(state)
+        and objective_gap < min(0.08, direct_fallback_objective_cap)
+        and predicted_frontier < 0.14
+        and mechanism_gap < 0.40
+    )
+    if support_rich_zero_signal_near_threshold_probe:
+        return remove_search_only or [action for action in actions if action.kind == "stop"]
+    if (
+        near_certified_floor <= current_certificate < threshold
+        and len(state.frontier) <= 1
+        and _clamp01(state.near_tie_mass) <= max(_as_float(config.near_tie_threshold), 0.03)
+        and no_winner_side_signal
+        and objective_gap < direct_fallback_objective_cap
+        and predicted_frontier < 0.16
+        and not ((not very_near_threshold) and mechanism_gap >= 0.55 and predicted_frontier >= 0.08)
+    ):
+        return remove_search_only or [action for action in actions if action.kind == "stop"]
+    return list(actions)
+
+
+def _suppress_post_nonproductive_uncertified_evidence_plateau_churn(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return list(actions)
+    if not _recent_no_gain_evidence_action(state):
+        return list(actions)
+    if _clamp01(state.near_tie_mass) < 0.65:
+        return list(actions)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    objective_spread = _clamp01(ambiguity_context.get("od_objective_spread"))
+    margin_pressure = _clamp01(ambiguity_context.get("od_ambiguity_margin_pressure"))
+    low_ambiguity_prior = max(
+        _clamp01(ambiguity_context.get("od_ambiguity_index")),
+        _clamp01(ambiguity_context.get("od_ambiguity_prior_strength")),
+        _clamp01(ambiguity_context.get("ambiguity_budget_prior")),
+    )
+    if objective_spread > 0.02 or margin_pressure > 0.02 or low_ambiguity_prior > 0.10:
+        return list(actions)
+    best_search_action = max(
+        (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
+        key=lambda action: action.q_score,
+        default=None,
+    )
+    if best_search_action is not None:
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        if objective_gap >= 0.08 or predicted_frontier >= 0.10:
+            return list(actions)
+        if mechanism_gap >= 0.30 and predicted_frontier >= 0.08:
+            return list(actions)
+    return [action for action in actions if action.kind == "stop"]
 
 
 def _suppress_stress_only_resample_for_certified_support_rich_row(
@@ -1551,8 +4733,12 @@ def _should_offer_evidence_discovery_bridge(
         return False
     if _clamp01(state.near_tie_mass) > 0.03:
         return False
-    if _refine_action_has_genuine_novel_search_promise(best_search_action, state=state):
-        return False
+    if best_search_action is not None and _refine_action_has_genuine_novel_search_promise(best_search_action, state=state):
+        search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+        objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+        predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+        if objective_gap >= 0.18 or predicted_frontier >= 0.18:
+            return False
     ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
     hard_case_pressure = max(
         _clamp01(state.ambiguity_pressure),
@@ -1569,6 +4755,598 @@ def _should_offer_evidence_discovery_bridge(
         search_tension
         and hard_case_pressure >= 0.35
         and stress_world_fraction >= 0.08
+    )
+
+
+def _should_offer_uncertified_structural_cap_bridge(
+    state: "VOIControllerState",
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+    recent_no_gain_controller_streak: int,
+    best_search_action: VOIAction | None,
+) -> bool:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return False
+    if state.remaining_evidence_budget <= 0:
+        return False
+    if len(state.frontier) > 1:
+        return False
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if not bool(context.get("single_frontier_certificate_cap_applied")):
+        return False
+    if not bool(context.get("single_frontier_requires_full_stress")):
+        return False
+    empirical_baseline, controller_baseline, actual_world_count, shortfall_ratio = _single_frontier_structural_cap_gap(
+        state
+    )
+    if not math.isfinite(empirical_baseline) or not math.isfinite(controller_baseline):
+        return False
+    # Once any empirical certification worlds already exist, observed structural-cap
+    # bridge resamples have been consistently nonproductive. Keep this bridge only
+    # for true zero-world evidence gaps instead of reopening on a cap artifact alone.
+    if actual_world_count > 0.0:
+        return False
+    if empirical_baseline <= max(current_certificate, controller_baseline) + 0.05:
+        return False
+    if actual_world_count > 0.0 and shortfall_ratio <= 0.02:
+        return False
+    if _trace_has_prior_evidence_action_attempt(state):
+        return False
+    if recent_no_gain_controller_streak > 0:
+        return False
+    if (
+        _refine_action_has_genuine_novel_search_promise(best_search_action, state=state)
+        and not _structural_cap_bridge_can_override_moderate_search_signal(
+            state,
+            current_certificate=current_certificate,
+            config=config,
+            best_search_action=best_search_action,
+            shortfall_ratio=shortfall_ratio,
+        )
+    ):
+        return False
+    support_signal = max(
+        _clamp01(state.prior_support_strength),
+        _clamp01(state.support_richness),
+        _clamp01(state.ambiguity_pressure),
+    )
+    search_pressure = _clamp01(
+        max(
+            max(0.0, _as_float(state.search_completeness_gap)),
+            _clamp01(state.pending_challenger_mass),
+            _clamp01(state.best_pending_flip_probability),
+            max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)),
+        )
+    )
+    if search_pressure < 0.10:
+        return False
+    hard_case_support = max(
+        _clamp01(context.get("od_hard_case_prior")),
+        _clamp01(context.get("ambiguity_budget_prior")),
+        _clamp01(context.get("od_ambiguity_support_ratio")),
+    )
+    return bool(
+        search_pressure >= 0.35
+        or (search_pressure >= 0.20 and support_signal >= 0.45)
+        or (
+            search_pressure >= 0.12
+            and hard_case_support >= 0.70
+            and shortfall_ratio >= 0.45
+        )
+    )
+
+
+def _structural_cap_bridge_can_override_moderate_search_signal(
+    state: "VOIControllerState",
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+    best_search_action: VOIAction | None,
+    shortfall_ratio: float,
+) -> bool:
+    if best_search_action is None or best_search_action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return False
+    if state.stochastic_enabled:
+        return False
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return False
+    if shortfall_ratio < 0.20:
+        return False
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return False
+    search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    if objective_gap >= 0.08 or predicted_frontier >= 0.12:
+        return False
+    if mechanism_gap >= 0.45 and objective_gap >= 0.06:
+        return False
+    return True
+
+
+def _uncertified_support_rich_zero_signal_bridge_features(
+    state: "VOIControllerState",
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+    shortfall_ratio_override: float | None = None,
+) -> tuple[float, float, float, float, float]:
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    shortfall_ratio = _resample_shortfall_ratio(state)
+    if shortfall_ratio_override is not None:
+        shortfall_ratio = max(shortfall_ratio, _clamp01(shortfall_ratio_override))
+    search_pressure = _clamp01(
+        max(
+            max(0.0, _as_float(state.search_completeness_gap)),
+            _clamp01(state.pending_challenger_mass),
+            _clamp01(state.best_pending_flip_probability),
+            max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)),
+        )
+    )
+    support_signal = max(
+        _clamp01(state.prior_support_strength),
+        _clamp01(state.support_richness),
+        _clamp01(state.ambiguity_pressure),
+        _clamp01(context.get("od_ambiguity_support_ratio")),
+        _clamp01(context.get("od_ambiguity_source_entropy")),
+    )
+    hard_case_support = max(
+        _clamp01(context.get("od_hard_case_prior")),
+        _clamp01(context.get("ambiguity_budget_prior")),
+        _clamp01(context.get("od_ambiguity_support_ratio")),
+    )
+    threshold_gap = max(0.0, _as_float(config.certificate_threshold) - current_certificate)
+    return (
+        _clamp01(shortfall_ratio),
+        search_pressure,
+        _clamp01(support_signal),
+        _clamp01(hard_case_support),
+        threshold_gap,
+    )
+
+
+def _should_use_cert_world_support_rich_zero_signal_bridge(
+    state: "VOIControllerState",
+    *,
+    fragility: FragilityResult | Any | None = None,
+) -> bool:
+    if len(state.frontier) > 1:
+        return False
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if not bool(context.get("single_frontier_certificate_cap_applied")):
+        return False
+    actual_world_count = _actual_refc_world_count(state)
+    controller_requested_world_count = _requested_refc_world_count(state)
+    sampler_requested_world_count = _sampler_requested_refc_world_count(state)
+    if controller_requested_world_count <= actual_world_count + 1e-9:
+        return False
+    if sampler_requested_world_count > actual_world_count + 1e-9:
+        return False
+    controller_shortfall = max(0.0, controller_requested_world_count - actual_world_count)
+    if controller_shortfall < max(8.0, 0.15 * controller_requested_world_count):
+        return False
+    fallback_activated, controller_disagreement, controller_top_gain = _controller_refresh_bridge_stats(
+        fragility
+    )
+    empirical_baseline = _as_float(context.get("empirical_baseline_certificate"), float("nan"))
+    controller_baseline = _as_float(context.get("controller_baseline_certificate"), float("nan"))
+    structural_cap_gap = bool(
+        math.isfinite(empirical_baseline)
+        and math.isfinite(controller_baseline)
+        and empirical_baseline > controller_baseline + 1e-9
+    )
+    return bool(structural_cap_gap and (fallback_activated or controller_disagreement))
+
+
+def _should_offer_uncertified_support_rich_zero_signal_bridge(
+    state: "VOIControllerState",
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+    recent_no_gain_controller_streak: int,
+    best_search_action: VOIAction | None,
+    fragility: FragilityResult | Any | None = None,
+) -> bool:
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return False
+    if state.remaining_evidence_budget <= 0:
+        return False
+    if recent_no_gain_controller_streak > 0:
+        return False
+    if _trace_has_prior_evidence_action_attempt(state):
+        return False
+    support_rich_window = _support_rich_ambiguity_window(state)
+    if _clamp01(state.near_tie_mass) > max(_as_float(config.near_tie_threshold), 0.03):
+        return False
+    if (
+        max(0.0, _as_float(state.top_refresh_gain)) > 0.0
+        or _clamp01(state.top_fragility_mass) > 0.01
+        or _clamp01(state.competitor_pressure) > 0.05
+    ):
+        return False
+    if current_certificate < max(0.72, _as_float(config.certificate_threshold) - 0.10):
+        return False
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    fallback_activated, controller_disagreement, controller_top_gain = _controller_refresh_bridge_stats(
+        fragility
+    )
+    single_frontier_structural_cap = bool(
+        len(state.frontier) <= 1
+        and context.get("single_frontier_certificate_cap_applied")
+    )
+    cert_world_bridge = _should_use_cert_world_support_rich_zero_signal_bridge(
+        state,
+        fragility=fragility,
+    )
+    shortfall_ratio, search_pressure, support_signal, hard_case_support, threshold_gap = (
+        _uncertified_support_rich_zero_signal_bridge_features(
+            state,
+            current_certificate=current_certificate,
+            config=config,
+            shortfall_ratio_override=(
+                _cert_world_shortfall_ratio(state) if cert_world_bridge else None
+            ),
+        )
+    )
+    if threshold_gap <= 0.0:
+        return False
+    if search_pressure < 0.24:
+        return False
+    if support_signal < 0.48 and hard_case_support < 0.35:
+        return False
+    actual_world_count = _actual_refc_world_count(state)
+    sampler_shortfall_available = _resample_shortfall_available(state)
+    if not sampler_shortfall_available and not cert_world_bridge:
+        return False
+    severe_sampler_undercoverage = bool(
+        len(state.frontier) <= 1
+        and actual_world_count <= 1.0
+        and shortfall_ratio >= 0.60
+        and search_pressure >= 0.24
+        and (support_signal >= 0.48 or hard_case_support >= 0.35)
+    )
+    structural_cap_cert_world_window = bool(
+        cert_world_bridge
+        and single_frontier_structural_cap
+        and _stress_world_fraction_from_context(context) >= 0.90
+        and search_pressure >= 0.24
+        and (support_signal >= 0.42 or hard_case_support >= 0.32)
+    )
+    if (
+        not support_rich_window
+        and not severe_sampler_undercoverage
+        and not structural_cap_cert_world_window
+    ):
+        return False
+    live_cert_world_bridge = bool(
+        cert_world_bridge
+        and len(state.frontier) <= 1
+        and (shortfall_ratio >= 0.35 or structural_cap_cert_world_window)
+        and (
+            fallback_activated
+            or controller_disagreement
+            or single_frontier_structural_cap
+        )
+    )
+    live_sampler_bridge = bool(
+        len(state.frontier) <= 1
+        and sampler_shortfall_available
+        and shortfall_ratio >= 0.35
+        and (
+            fallback_activated
+            or controller_disagreement
+            or single_frontier_structural_cap
+            or severe_sampler_undercoverage
+        )
+    )
+    if (
+        severe_sampler_undercoverage
+        and not state.stochastic_enabled
+        and not fallback_activated
+        and not controller_disagreement
+        and not cert_world_bridge
+    ):
+        return False
+    if (
+        live_cert_world_bridge
+        and fallback_activated
+        and controller_disagreement
+        and controller_top_gain <= 1e-9
+        and threshold_gap < 0.02
+    ):
+        return False
+    if state.stochastic_enabled and not (live_sampler_bridge or live_cert_world_bridge):
+        return False
+    if shortfall_ratio < 0.25 and actual_world_count > 2.0 and not live_cert_world_bridge:
+        return False
+    if best_search_action is None:
+        return live_sampler_bridge or live_cert_world_bridge
+    search_metadata = best_search_action.metadata if isinstance(best_search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
+    if objective_gap >= 0.16 or predicted_frontier >= 0.20:
+        return False
+    if mechanism_gap >= 0.35 and objective_gap >= 0.10:
+        return False
+    return True
+
+
+def _build_uncertified_support_rich_zero_signal_bridge_action(
+    state: "VOIControllerState",
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+    fragility: FragilityResult | Any | None = None,
+) -> VOIAction:
+    actual_world_count = _actual_refc_world_count(state)
+    controller_requested_world_count = _requested_refc_world_count(state)
+    sampler_requested_world_count = (
+        _sampler_requested_refc_world_count(state)
+        if state.stochastic_enabled
+        else controller_requested_world_count
+    )
+    fallback_activated, controller_disagreement, controller_top_gain = _controller_refresh_bridge_stats(
+        fragility
+    )
+    cert_world_bridge = _should_use_cert_world_support_rich_zero_signal_bridge(
+        state,
+        fragility=fragility,
+    )
+    shortfall_ratio, search_pressure, support_signal, hard_case_support, threshold_gap = (
+        _uncertified_support_rich_zero_signal_bridge_features(
+            state,
+            current_certificate=current_certificate,
+            config=config,
+            shortfall_ratio_override=(
+                _cert_world_shortfall_ratio(state) if cert_world_bridge else None
+            ),
+        )
+    )
+    requested_world_count = (
+        controller_requested_world_count
+        if cert_world_bridge
+        else sampler_requested_world_count
+    )
+    sampler_shortfall_available = _resample_shortfall_available(state)
+    severe_sampler_undercoverage = bool(
+        len(state.frontier) <= 1
+        and actual_world_count <= 1.0
+        and shortfall_ratio >= 0.60
+        and search_pressure >= 0.24
+        and (support_signal >= 0.48 or hard_case_support >= 0.35)
+    )
+    structural_cap_cert_world_window = bool(
+        cert_world_bridge
+        and len(state.frontier) <= 1
+        and bool(
+            len(state.frontier) <= 1
+            and (
+                state.ambiguity_context.get("single_frontier_certificate_cap_applied")
+                if isinstance(state.ambiguity_context, Mapping)
+                else False
+            )
+        )
+        and _stress_world_fraction_from_context(
+            state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+        ) >= 0.90
+        and search_pressure >= 0.24
+        and (support_signal >= 0.42 or hard_case_support >= 0.32)
+    )
+    live_sampler_bridge = bool(
+        len(state.frontier) <= 1
+        and sampler_shortfall_available
+        and shortfall_ratio >= 0.35
+        and (
+            fallback_activated
+            or controller_disagreement
+            or bool(
+                len(state.frontier) <= 1
+                and (
+                    state.ambiguity_context.get("single_frontier_certificate_cap_applied")
+                    if isinstance(state.ambiguity_context, Mapping)
+                    else False
+                )
+            )
+            or severe_sampler_undercoverage
+        )
+    )
+    live_cert_world_bridge = bool(
+        cert_world_bridge
+        and len(state.frontier) <= 1
+        and (shortfall_ratio >= 0.35 or structural_cap_cert_world_window)
+        and (
+            fallback_activated
+            or controller_disagreement
+            or bool(
+                len(state.frontier) <= 1
+                and (
+                    state.ambiguity_context.get("single_frontier_certificate_cap_applied")
+                    if isinstance(state.ambiguity_context, Mapping)
+                    else False
+                )
+            )
+        )
+    )
+    predicted_delta_certificate = max(
+        threshold_gap + 0.02,
+        (0.12 * search_pressure)
+        + (0.10 * shortfall_ratio)
+        + (0.08 * support_signal)
+        + (0.06 * hard_case_support),
+    )
+    if live_sampler_bridge or live_cert_world_bridge:
+        predicted_delta_certificate += (
+            (0.015 if fallback_activated else 0.0)
+            + (0.02 if controller_disagreement else 0.0)
+            + (0.01 if live_cert_world_bridge else 0.0)
+        )
+    predicted_delta_certificate = min(
+        max(0.0, 1.0 - _clamp01(current_certificate)),
+        predicted_delta_certificate,
+    )
+    predicted_delta_margin = max(
+        0.0,
+        (0.45 * predicted_delta_certificate)
+        + (0.05 * search_pressure)
+        + (0.03 * support_signal),
+    )
+    predicted_delta_frontier = max(
+        0.0,
+        (0.05 * search_pressure)
+        + (0.04 * shortfall_ratio)
+        + (0.02 * max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget))),
+    )
+    return VOIAction(
+        action_id="resample:stochastic:uncertified_support_rich_zero_signal_bridge",
+        kind="increase_stochastic_samples",
+        target="stochastic",
+        cost_evidence=1,
+        predicted_delta_certificate=predicted_delta_certificate,
+        predicted_delta_margin=predicted_delta_margin,
+        predicted_delta_frontier=predicted_delta_frontier,
+        preconditions=("evidence_budget_available", "uncertified_support_rich_zero_signal_bridge"),
+        reason="increase_stochastic_samples_uncertified_support_rich_zero_signal_bridge",
+        metadata={
+            "evidence_discovery_bridge": True,
+            "uncertified_support_rich_zero_signal_bridge": True,
+            "actual_world_count": actual_world_count,
+            "requested_world_count": requested_world_count,
+            "sampler_requested_world_count": sampler_requested_world_count,
+            "controller_requested_world_count": controller_requested_world_count,
+            "world_shortfall_ratio": shortfall_ratio,
+            "sampler_world_shortfall_ratio": _resample_shortfall_ratio(state),
+            "cert_world_shortfall_ratio": _cert_world_shortfall_ratio(state),
+            "search_pressure": search_pressure,
+            "support_signal": support_signal,
+            "hard_case_support": hard_case_support,
+            "threshold_gap": threshold_gap,
+            "sample_increment": config.resample_increment,
+            "controller_refresh_fallback_activated": fallback_activated,
+            "controller_empirical_vs_raw_refresh_disagreement": controller_disagreement,
+            "controller_top_refresh_gain": controller_top_gain,
+            "uncertified_support_rich_zero_signal_live_sampler_bridge": live_sampler_bridge,
+            "uncertified_support_rich_zero_signal_cert_world_bridge": live_cert_world_bridge,
+            "uncertified_support_rich_zero_signal_extreme_undercoverage": severe_sampler_undercoverage,
+        },
+    )
+
+
+def _build_uncertified_structural_cap_resample_action(
+    state: "VOIControllerState",
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+) -> VOIAction:
+    empirical_baseline, controller_baseline, actual_world_count, shortfall_ratio = _single_frontier_structural_cap_gap(
+        state
+    )
+    support_signal = max(
+        _clamp01(state.prior_support_strength),
+        _clamp01(state.support_richness),
+        _clamp01(state.ambiguity_pressure),
+    )
+    search_pressure = _clamp01(
+        max(
+            max(0.0, _as_float(state.search_completeness_gap)),
+            _clamp01(state.pending_challenger_mass),
+            _clamp01(state.best_pending_flip_probability),
+            max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)),
+        )
+    )
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    hard_case_support = max(
+        _clamp01(context.get("od_hard_case_prior")),
+        _clamp01(context.get("ambiguity_budget_prior")),
+        _clamp01(context.get("od_ambiguity_support_ratio")),
+    )
+    effective_shortfall = max(
+        shortfall_ratio,
+        1.0 if actual_world_count <= 0.0 else 0.0,
+    )
+    recoverable_gap = max(0.0, empirical_baseline - max(current_certificate, controller_baseline))
+    predicted_delta_certificate = max(
+        0.0,
+        recoverable_gap
+        * (
+            0.25
+            + (0.30 * search_pressure)
+            + (0.25 * effective_shortfall)
+            + (0.15 * support_signal)
+            + (0.05 * hard_case_support)
+        ),
+    )
+    predicted_delta_certificate = min(
+        max(0.0, 1.0 - _clamp01(current_certificate)),
+        predicted_delta_certificate,
+    )
+    predicted_delta_margin = max(
+        0.0,
+        (0.35 * predicted_delta_certificate)
+        + (0.05 * search_pressure)
+        + (0.02 * effective_shortfall),
+    )
+    predicted_delta_frontier = max(
+        0.0,
+        (0.02 * effective_shortfall) + (0.04 * search_pressure),
+    )
+    return VOIAction(
+        action_id="resample:stochastic:structural_cap_bridge",
+        kind="increase_stochastic_samples",
+        target="stochastic",
+        cost_evidence=1,
+        predicted_delta_certificate=predicted_delta_certificate,
+        predicted_delta_margin=predicted_delta_margin,
+        predicted_delta_frontier=predicted_delta_frontier,
+        preconditions=("evidence_budget_available", "single_frontier_structural_cap"),
+        reason="increase_stochastic_samples_structural_cap_bridge",
+        metadata={
+            "evidence_discovery_bridge": True,
+            "structural_cap_bridge": True,
+            "empirical_baseline_certificate": empirical_baseline,
+            "controller_baseline_certificate": controller_baseline,
+            "actual_world_count": actual_world_count,
+            "requested_world_count": _requested_refc_world_count(state),
+            "world_shortfall_ratio": effective_shortfall,
+            "recoverable_certificate_gap": recoverable_gap,
+            "support_signal": support_signal,
+            "search_pressure": search_pressure,
+            "hard_case_support": hard_case_support,
+            "sample_increment": config.resample_increment,
+        },
+    )
+
+
+def _cap_action_certificate_headroom(
+    action: VOIAction,
+    *,
+    current_certificate: float,
+    config: VOIConfig,
+) -> VOIAction:
+    predicted_certificate = max(0.0, _as_float(action.predicted_delta_certificate))
+    remaining_headroom = max(0.0, 1.0 - _clamp01(current_certificate))
+    if predicted_certificate <= remaining_headroom + 1e-9:
+        return action
+    cost = max(0.0, float(action.cost_search + action.cost_evidence))
+    certificate_q_penalty = (
+        config.lambda_certificate * (predicted_certificate - remaining_headroom)
+    ) / (cost + config.epsilon)
+    metadata = dict(action.metadata)
+    metadata["certificate_headroom_cap_applied"] = True
+    metadata["certificate_headroom_remaining"] = round(remaining_headroom, 6)
+    metadata["certificate_headroom_predicted_before_cap"] = round(predicted_certificate, 6)
+    metadata["certificate_headroom_q_penalty"] = round(certificate_q_penalty, 6)
+    return replace(
+        action,
+        predicted_delta_certificate=remaining_headroom,
+        q_score=max(0.0, _as_float(action.q_score) - certificate_q_penalty),
+        metadata=metadata,
     )
 
 
@@ -1596,7 +5374,7 @@ def build_action_menu(
     cfg = config or VOIConfig()
     enriched_state = enrich_controller_state_for_actioning(state, dccs=dccs, fragility=fragility, config=cfg)
     actions: list[VOIAction] = []
-    pending_candidates = _pending_dccs_candidates(dccs)
+    pending_candidates = _pending_dccs_candidates(dccs, state=enriched_state)
     best_candidate = _best_candidate(pending_candidates, config=cfg)
     current_certificate = _certificate_value_from_map(enriched_state.certificate, enriched_state.winner_id)
     initial_search_uncertainty = _credible_search_uncertainty(
@@ -1631,6 +5409,16 @@ def build_action_menu(
         max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)),
         _clamp01(state.near_tie_mass),
     )
+    initial_certified_frontier_fill_bridge = _certified_frontier_fill_bridge_active(
+        state,
+        config=cfg,
+        current_certificate=current_certificate,
+    )
+    enriched_certified_frontier_fill_bridge = _certified_frontier_fill_bridge_active(
+        enriched_state,
+        config=cfg,
+        current_certificate=current_certificate,
+    )
     preserve_certified_search_actions = bool(
         initial_search_uncertainty
         and raw_search_pressure >= 0.12
@@ -1639,6 +5427,10 @@ def build_action_menu(
             or _clamp01(state.ambiguity_pressure) >= 0.22
             or _support_rich_ambiguity_window(state)
         )
+    )
+    certified_frontier_fill_bridge = bool(
+        initial_certified_frontier_fill_bridge
+        or enriched_certified_frontier_fill_bridge
     )
     strong_live_evidence_signal = bool(
         _clamp01(enriched_state.top_fragility_mass) >= 0.20
@@ -1673,15 +5465,18 @@ def build_action_menu(
         )
     )
     search_reopen_uncertainty = bool(
-        search_uncertainty
-        and (
-            current_certificate < _as_float(cfg.certificate_threshold)
-            or (
-                (support_richness >= 0.28 or ambiguity_pressure >= 0.22)
-                and (
-                    initial_search_uncertainty
-                    or support_rich_search_pressure
-                    or supported_fragility_uncertainty
+        initial_certified_frontier_fill_bridge
+        or (
+            search_uncertainty
+            and (
+                current_certificate < _as_float(cfg.certificate_threshold)
+                or (
+                    (support_richness >= 0.28 or ambiguity_pressure >= 0.22)
+                    and (
+                        initial_search_uncertainty
+                        or support_rich_search_pressure
+                        or supported_fragility_uncertainty
+                    )
                 )
             )
         )
@@ -1748,6 +5543,11 @@ def build_action_menu(
             current_certificate=current_certificate,
             config=cfg,
         )
+        refine_top1_action = _cap_action_certificate_headroom(
+            refine_top1_action,
+            current_certificate=current_certificate,
+            config=cfg,
+        )
         actions.append(refine_top1_action)
         top_k = min(cfg.top_k_refine, len(pending_candidates), state.remaining_search_budget)
         if top_k > 1:
@@ -1793,6 +5593,11 @@ def build_action_menu(
                 current_certificate=current_certificate,
                 config=cfg,
             )
+            topk_action = _cap_action_certificate_headroom(
+                topk_action,
+                current_certificate=current_certificate,
+                config=cfg,
+            )
             actions[-1] = topk_action
     best_search_action = max(
         (action for action in actions if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}),
@@ -1821,7 +5626,35 @@ def build_action_menu(
                 refresh_action,
                 q_score=refresh_action.q_score + certified_refresh_priority_bonus,
             )
-        actions.append(refresh_action)
+        refresh_action = _cap_action_certificate_headroom(
+            refresh_action,
+            current_certificate=current_certificate,
+            config=cfg,
+        )
+        signed_refresh_delta = _as_float(
+            refresh_action.metadata.get("empirical_refresh_certificate_delta"),
+            float("nan"),
+        )
+        allow_negative_certified_refresh_reveal = _allow_certified_negative_refresh_revelation(
+            state=enriched_state,
+            current_certificate=current_certificate,
+            config=cfg,
+            signed_refresh_delta=signed_refresh_delta,
+            evidence_uncertainty=evidence_uncertainty,
+            supported_fragility_uncertainty=supported_fragility_uncertainty,
+        )
+        if allow_negative_certified_refresh_reveal:
+            refresh_metadata = dict(refresh_action.metadata)
+            refresh_metadata["negative_empirical_refresh_reveal_allowed"] = True
+            refresh_action = replace(refresh_action, metadata=refresh_metadata)
+        suppress_negative_certified_refresh_reveal = bool(
+            current_certificate >= _as_float(cfg.certificate_threshold)
+            and math.isfinite(signed_refresh_delta)
+            and signed_refresh_delta < -1e-9
+            and not allow_negative_certified_refresh_reveal
+        )
+        if not suppress_negative_certified_refresh_reveal:
+            actions.append(refresh_action)
     suppress_stress_only_resample = _suppress_stress_only_resample_for_certified_support_rich_row(
         enriched_state,
         current_certificate=current_certificate,
@@ -1836,13 +5669,17 @@ def build_action_menu(
         and _resample_world_expandable(enriched_state)
     ):
         actions.append(
-            score_action(
-                _build_resample_action(
-                    near_tie_mass=state.near_tie_mass,
-                    stress_world_fraction=stress_world_fraction,
-                    top_fragility_mass=enriched_state.top_fragility_mass,
+            _cap_action_certificate_headroom(
+                score_action(
+                    _build_resample_action(
+                        near_tie_mass=state.near_tie_mass,
+                        stress_world_fraction=stress_world_fraction,
+                        top_fragility_mass=enriched_state.top_fragility_mass,
+                        config=cfg,
+                    ),
                     config=cfg,
                 ),
+                current_certificate=current_certificate,
                 config=cfg,
             )
         )
@@ -1855,23 +5692,83 @@ def build_action_menu(
         recent_no_gain_controller_streak=recent_no_gain_controller_streak,
         best_search_action=best_search_action,
     )
+    uncertified_structural_cap_bridge = _should_offer_uncertified_structural_cap_bridge(
+        enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        recent_no_gain_controller_streak=recent_no_gain_controller_streak,
+        best_search_action=best_search_action,
+    )
+    uncertified_support_rich_zero_signal_bridge = _should_offer_uncertified_support_rich_zero_signal_bridge(
+        enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        recent_no_gain_controller_streak=recent_no_gain_controller_streak,
+        best_search_action=best_search_action,
+        fragility=fragility,
+    )
+    evidence_discovery_bridge = bool(
+        evidence_discovery_bridge
+        or uncertified_structural_cap_bridge
+        or uncertified_support_rich_zero_signal_bridge
+    )
     if evidence_discovery_bridge and not any(action.kind == "increase_stochastic_samples" for action in actions):
-        bridge_action = _build_resample_action(
-            near_tie_mass=state.near_tie_mass,
-            stress_world_fraction=stress_world_fraction,
-            top_fragility_mass=enriched_state.top_fragility_mass,
-            config=cfg,
-        )
+        if uncertified_structural_cap_bridge:
+            bridge_action = _build_uncertified_structural_cap_resample_action(
+                enriched_state,
+                current_certificate=current_certificate,
+                config=cfg,
+            )
+        elif uncertified_support_rich_zero_signal_bridge:
+            bridge_action = _build_uncertified_support_rich_zero_signal_bridge_action(
+                enriched_state,
+                current_certificate=current_certificate,
+                config=cfg,
+                fragility=fragility,
+            )
+        else:
+            bridge_action = _build_resample_action(
+                near_tie_mass=state.near_tie_mass,
+                stress_world_fraction=stress_world_fraction,
+                top_fragility_mass=enriched_state.top_fragility_mass,
+                config=cfg,
+            )
         bridge_metadata = dict(bridge_action.metadata)
         bridge_metadata["evidence_discovery_bridge"] = True
         bridge_metadata["stochastic_bridge_required"] = True
+        if uncertified_structural_cap_bridge:
+            bridge_metadata["uncertified_structural_cap_bridge"] = True
+        if uncertified_support_rich_zero_signal_bridge:
+            bridge_metadata["uncertified_support_rich_zero_signal_bridge"] = True
         bridge_action = replace(
             bridge_action,
-            preconditions=("evidence_budget_available", "evidence_discovery_bridge"),
-            reason="increase_stochastic_samples_bridge",
+            preconditions=(
+                ("evidence_budget_available", "single_frontier_structural_cap")
+                if uncertified_structural_cap_bridge
+                else (
+                    ("evidence_budget_available", "uncertified_support_rich_zero_signal_bridge")
+                    if uncertified_support_rich_zero_signal_bridge
+                    else ("evidence_budget_available", "evidence_discovery_bridge")
+                )
+            ),
+            reason=(
+                "increase_stochastic_samples_structural_cap_bridge"
+                if uncertified_structural_cap_bridge
+                else (
+                    "increase_stochastic_samples_uncertified_support_rich_zero_signal_bridge"
+                    if uncertified_support_rich_zero_signal_bridge
+                    else "increase_stochastic_samples_bridge"
+                )
+            ),
             metadata=bridge_metadata,
         )
-        actions.append(score_action(bridge_action, config=cfg))
+        actions.append(
+            _cap_action_certificate_headroom(
+                score_action(bridge_action, config=cfg),
+                current_certificate=current_certificate,
+                config=cfg,
+            )
+        )
     actions = _apply_support_rich_certified_refresh_preference(
         actions,
         state=enriched_state,
@@ -1881,9 +5778,160 @@ def build_action_menu(
         supported_fragility_uncertainty=supported_fragility_uncertainty,
         recent_no_gain_refine_streak=recent_no_gain_refine_streak,
     )
-    resample_shortfall_available = bool(
-        _requested_refc_world_count(enriched_state) > _actual_refc_world_count(enriched_state)
+    actions = _apply_strong_winner_side_refresh_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_uncertainty=evidence_uncertainty,
+        supported_fragility_uncertainty=supported_fragility_uncertainty,
+        recent_no_gain_refine_streak=recent_no_gain_refine_streak,
     )
+    actions = _apply_uncertified_evidence_plateau_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_uncertainty=evidence_uncertainty,
+        supported_fragility_uncertainty=supported_fragility_uncertainty,
+    )
+    actions = _apply_uncertified_last_search_token_resample_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_uncertainty=evidence_uncertainty,
+        supported_fragility_uncertainty=supported_fragility_uncertainty,
+    )
+    actions = _apply_uncertified_first_iteration_near_tie_resample_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_uncertainty=evidence_uncertainty,
+    )
+    actions = _apply_uncertified_resample_recovery_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_uncertainty=evidence_uncertainty,
+        supported_fragility_uncertainty=supported_fragility_uncertainty,
+    )
+    actions = _apply_uncertified_post_evidence_resample_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_uncertainty=evidence_uncertainty,
+        supported_fragility_uncertainty=supported_fragility_uncertainty,
+    )
+    actions = _apply_uncertified_structural_cap_bridge_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _apply_uncertified_support_rich_zero_signal_bridge_preference(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_certified_zero_signal_controller_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        evidence_discovery_bridge=evidence_discovery_bridge,
+    )
+    actions = _suppress_certified_single_frontier_zero_signal_search_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_uncertified_stochastic_disabled_zero_signal_controller_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_uncertified_single_frontier_zero_signal_search_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_uncertified_sampler_only_zero_signal_bridge_tail(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_uncertified_low_support_cert_world_zero_signal_bridge_tail(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_post_nonproductive_bridge_zero_signal_search_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_post_nonproductive_uncertified_evidence_plateau_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_post_harmful_evidence_drift_search_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_uncertified_structural_cap_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_post_evidence_certified_search_backslide(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_settled_certified_revelation_only_actions(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    actions = _suppress_saturated_certified_search_without_certificate_upside(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        certified_frontier_fill_bridge=certified_frontier_fill_bridge,
+    )
+    actions = _suppress_saturated_certified_zero_headroom_search_probe(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+        certified_frontier_fill_bridge=certified_frontier_fill_bridge,
+    )
+    actions = _suppress_cached_direct_fallback_search_churn(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
+    )
+    resample_shortfall_available = bool(_resample_shortfall_available(enriched_state))
     zero_signal_refresh_saturated = bool(
         current_certificate >= _as_float(cfg.certificate_threshold)
         and evidence_uncertainty
@@ -1906,6 +5954,29 @@ def build_action_menu(
         and _clamp01(enriched_state.top_fragility_mass) <= 0.0
     ):
         actions = [action for action in actions if action.kind != "refresh_top1_vor"]
+    if actions:
+        filtered_actions: list[VOIAction] = []
+        for action in actions:
+            if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+                filtered_actions.append(action)
+                continue
+            if _should_stop_uncertified_weak_search_tail(
+                action,
+                state=enriched_state,
+                current_certificate=current_certificate,
+                config=cfg,
+                evidence_uncertainty=evidence_uncertainty,
+            ):
+                continue
+            if _should_stop_evidence_exhausted_uncertified_search_tail(
+                action,
+                state=enriched_state,
+                current_certificate=current_certificate,
+                config=cfg,
+            ):
+                continue
+            filtered_actions.append(action)
+        actions = filtered_actions
     if actions and current_certificate >= _as_float(cfg.certificate_threshold):
         best_evidence_q = max(
             (
@@ -1992,6 +6063,19 @@ def build_action_menu(
                 and predicted_total < max(search_floor, 0.14)
                 and not materially_distinct
             )
+            support_rich_near_tie_evidence_reopen = bool(
+                current_certificate >= _as_float(cfg.certificate_threshold)
+                and evidence_uncertainty
+                and supported_fragility_uncertainty
+                and best_evidence_q is not None
+                and best_evidence_q >= max(action.q_score, action.q_score * 1.02)
+                and recent_no_gain_refine_streak <= 0
+                and _clamp01(enriched_state.near_tie_mass) >= max(_as_float(cfg.near_tie_threshold), 0.10)
+                and _clamp01(enriched_state.top_fragility_mass) >= 0.18
+                and _clamp01(enriched_state.competitor_pressure) >= 0.25
+                and objective_gap < 0.08
+                and _as_float(action.predicted_delta_frontier) < 0.08
+            )
             certified_refine_stall = bool(
                 recent_no_gain_refine_streak > 0
                 and evidence_uncertainty
@@ -2014,6 +6098,19 @@ def build_action_menu(
                 genuine_novel_search_promise=genuine_novel_search_promise,
                 strong_decision_movement=strong_decision_movement,
             )
+            evidence_exhausted_certified_search_tail_stop = _should_stop_evidence_exhausted_certified_search_tail(
+                action,
+                state=enriched_state,
+                current_certificate=current_certificate,
+                config=cfg,
+            )
+            saturated_low_decision_ambiguity_reopen_stop = _should_stop_saturated_certified_low_decision_ambiguity_reopen(
+                action,
+                state=enriched_state,
+                current_certificate=current_certificate,
+                config=cfg,
+                certified_frontier_fill_bridge=certified_frontier_fill_bridge,
+            )
             controller_reopen_stall = bool(
                 recent_no_gain_controller_streak > 0
                 and current_certificate >= _as_float(cfg.certificate_threshold)
@@ -2025,7 +6122,31 @@ def build_action_menu(
                 and not genuine_novel_search_promise
                 and not strong_decision_movement
             )
-            if evidence_discovery_bridge and not genuine_novel_search_promise:
+            if evidence_discovery_bridge and not genuine_novel_search_promise and not strong_decision_movement:
+                continue
+            if evidence_exhausted_certified_search_tail_stop:
+                continue
+            if saturated_low_decision_ambiguity_reopen_stop:
+                continue
+            if (
+                certified_frontier_fill_bridge
+                and best_search_action is not None
+                and action.action_id == best_search_action.action_id
+                and not supported_fragility_uncertainty
+                and not evidence_discovery_bridge
+                and (
+                    genuine_novel_search_promise
+                    or strong_decision_movement
+                    or predicted_total >= max(search_floor, 0.04)
+                )
+                and (
+                    best_evidence_q is None
+                    or best_evidence_q <= max(action.q_score * 1.15, _as_float(cfg.stop_threshold))
+                )
+            ):
+                bridge_metadata = dict(action.metadata)
+                bridge_metadata["certified_frontier_fill_bridge_preserved"] = True
+                filtered_actions.append(replace(action, metadata=bridge_metadata))
                 continue
             if (
                 preserve_certified_search_actions
@@ -2038,6 +6159,8 @@ def build_action_menu(
                 filtered_actions.append(action)
                 continue
             if evidence_clearly_superior:
+                continue
+            if support_rich_near_tie_evidence_reopen:
                 continue
             if certified_refine_churn_stop:
                 continue
@@ -2277,7 +6400,11 @@ def _credible_search_uncertainty(
     current_certificate: float,
 ) -> bool:
     threshold = _as_float(config.certificate_threshold)
-    if current_certificate < threshold:
+    if _certified_frontier_fill_bridge_active(
+        state,
+        config=config,
+        current_certificate=current_certificate,
+    ):
         return True
     pending_flip = _clamp01(state.best_pending_flip_probability)
     pending_mass = _clamp01(state.pending_challenger_mass)
@@ -2375,6 +6502,53 @@ def _credible_search_uncertainty(
     if support_rich_ambiguity and supported_search_pressure > max(0.17, 0.33 - certainty_relief):
         return True
     return challenger_risk > max(0.16, 0.36 - certainty_relief)
+
+
+def _certified_frontier_fill_bridge_active(
+    state: VOIControllerState,
+    *,
+    config: VOIConfig,
+    current_certificate: float,
+) -> bool:
+    threshold = _as_float(config.certificate_threshold)
+    if current_certificate < threshold or state.remaining_search_budget <= 0:
+        return False
+    pending_flip = _clamp01(state.best_pending_flip_probability)
+    pending_mass = _clamp01(state.pending_challenger_mass)
+    support_strength = max(_clamp01(state.prior_support_strength), _clamp01(state.support_richness))
+    prior_strength = _prior_strength_from_context(state.ambiguity_context)
+    completeness_gap = max(0.0, _as_float(state.search_completeness_gap))
+    near_tie = _clamp01(state.near_tie_mass)
+    certificate_margin = max(0.0, _as_float(state.certificate_margin))
+    frontier_recall = _clamp01(state.frontier_recall_at_budget)
+    support_rich_ambiguity = _support_rich_ambiguity_window(
+        state,
+        support_strength=support_strength,
+        prior_strength=prior_strength,
+    )
+    search_incompleteness_signal = max(
+        completeness_gap,
+        pending_flip,
+        pending_mass,
+        max(0.0, 1.0 - frontier_recall),
+    )
+    winner_side_search_fill_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.08
+        or _clamp01(state.top_fragility_mass) >= 0.10
+        or _clamp01(state.competitor_pressure) >= 0.20
+    )
+    return bool(
+        current_certificate >= threshold
+        and not _trace_has_prior_evidence_action_attempt(state)
+        and len(state.frontier) <= 2
+        and near_tie <= 0.03
+        and certificate_margin >= 0.12
+        and frontier_recall <= 0.75
+        and search_incompleteness_signal >= 0.18
+        and support_strength >= 0.22
+        and winner_side_search_fill_signal
+        and not support_rich_ambiguity
+    )
 
 
 def _credible_evidence_uncertainty(

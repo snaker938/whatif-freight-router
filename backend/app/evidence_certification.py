@@ -686,6 +686,21 @@ def _targeted_stress_pack(
     support_strength = _clamp01(context.get("support_strength"), 0.0)
     support_ratio = _clamp01(context.get("od_ambiguity_support_ratio"), 0.0)
     source_entropy = _clamp01(context.get("od_ambiguity_source_entropy"), 0.0)
+    path_support = min(1.0, max(0.0, (_as_float(context.get("od_candidate_path_count")) - 1.0) / 4.0))
+    family_support = min(1.0, max(0.0, (_as_float(context.get("od_corridor_family_count")) - 1.0) / 3.0))
+    source_mix_support = min(1.0, max(0.0, (_as_float(context.get("od_ambiguity_source_mix_count")) - 1.0) / 2.0))
+    source_count_support = min(1.0, max(0.0, (_as_float(context.get("od_ambiguity_source_count")) - 2.0) / 2.0))
+    structural_support = max(
+        path_support,
+        family_support,
+        source_mix_support,
+        source_count_support,
+        _clamp01(context.get("od_ambiguity_family_density"), 0.0),
+        _clamp01(context.get("od_ambiguity_margin_pressure"), 0.0),
+    )
+    support_richness = _clamp01(
+        (support_strength + support_ratio + source_entropy + structural_support) / 4.0
+    )
     support_dense = bool(
         support_strength >= 0.46
         and support_ratio >= 0.54
@@ -704,27 +719,85 @@ def _targeted_stress_pack(
     if not context["is_hard_case"] and not supported_ambiguity:
         return []
     case_kind = "hard_case" if context["is_hard_case"] else "supported_ambiguity"
-    case_scale = 1.0 if case_kind == "hard_case" else 0.72
+    multi_route_hard_case = case_kind == "hard_case" and len(routes) >= 2
+    ambiguity_relief_eligible = bool(
+        multi_route_hard_case
+        and support_richness >= 0.58
+        and (
+            _clamp01(context.get("od_ambiguity_index"), 0.0) >= 0.20
+            or _clamp01(context.get("od_ambiguity_prior_strength"), 0.0) >= 0.20
+            or _clamp01(context.get("ambiguity_budget_prior"), 0.0) >= 0.25
+            or _clamp01(context.get("supported_ambiguity_strength"), 0.0) >= 0.42
+        )
+    )
+    relaxed_hard_case = case_kind == "hard_case" and ambiguity_relief_eligible
     if case_kind == "hard_case":
         case_scale = 1.0
         max_fraction = 0.60
+        repeat_budget_scale = (
+            max(56.0, 68.0 - (12.0 * support_richness))
+            if relaxed_hard_case
+            else 72.0
+        )
+        active_state_cap = 6
     else:
-        case_scale = 0.80
-        max_fraction = 0.38
-    stress_fraction = max(
-        0.0,
-        min(
-            max_fraction,
-            (0.10 if case_kind == "hard_case" else 0.03)
-            + ((0.16 if case_kind == "hard_case" else 0.12) * context["context_strength"])
-            + ((0.10 if case_kind == "hard_case" else 0.10) * support_strength)
-            + ((0.10 if case_kind == "hard_case" else 0.09) * support_ratio)
-            + ((0.08 if case_kind == "hard_case" else 0.07) * source_entropy)
-            + ((0.16 if case_kind == "hard_case" else 0.12) * closeness)
-            + ((0.12 if case_kind == "hard_case" else 0.10) * multi_frontier_pressure)
-            + ((0.12 if case_kind == "hard_case" else 0.08) * (1.0 - _clamp01(context.get("od_nominal_margin_proxy"), 1.0))),
-        ),
-    )
+        # Supported-ambiguity rows should remain selectively stressed, but the
+        # pack should track route-specific exposure rather than flood the
+        # certificate with context-only duplicates.
+        case_scale = 0.72
+        max_fraction = 0.34
+        repeat_budget_scale = 44.0
+        active_state_cap = 4
+    if case_kind == "hard_case" and ambiguity_relief_eligible:
+        # Support-rich ambiguity-like hard rows still need explicit stress
+        # worlds, but strong structural ambiguity support should reduce
+        # duplicate weighting rather than automatically punishing the
+        # certificate more harshly. Low-ambiguity hard rows keep the stricter
+        # hard-case pack so representative rows are not over-relieved.
+        support_deficit = 1.0 - support_richness
+        stress_fraction = max(
+            0.0,
+            min(
+                max_fraction,
+                0.08
+                + (0.14 * context["context_strength"])
+                + (0.07 * structural_support)
+                + (0.06 * support_deficit)
+                + (0.12 * closeness)
+                + (0.08 * multi_frontier_pressure)
+                + (0.10 * (1.0 - _clamp01(context.get("od_nominal_margin_proxy"), 1.0))),
+            ),
+        )
+    elif case_kind == "hard_case":
+        stress_fraction = max(
+            0.0,
+            min(
+                max_fraction,
+                0.10
+                + (0.16 * context["context_strength"])
+                + (0.10 * support_strength)
+                + (0.10 * support_ratio)
+                + (0.08 * source_entropy)
+                + (0.16 * closeness)
+                + (0.12 * multi_frontier_pressure)
+                + (0.12 * (1.0 - _clamp01(context.get("od_nominal_margin_proxy"), 1.0))),
+            ),
+        )
+    else:
+        stress_fraction = max(
+            0.0,
+            min(
+                max_fraction,
+                0.03
+                + (0.12 * context["context_strength"])
+                + (0.12 * support_strength)
+                + (0.10 * support_ratio)
+                + (0.07 * source_entropy)
+                + (0.12 * closeness)
+                + (0.10 * multi_frontier_pressure)
+                + (0.08 * (1.0 - _clamp01(context.get("od_nominal_margin_proxy"), 1.0))),
+            ),
+        )
     ranked = sorted(
         families,
         key=lambda family: (
@@ -750,7 +823,7 @@ def _targeted_stress_pack(
     if len(seeded) == 1 and len(ranked) > 1:
         seeded.append(next(family for family in ranked if family != target_family))
     if case_kind == "supported_ambiguity" and len(seeded) > 1 and closeness >= 0.78:
-        stress_fraction = min(max_fraction, stress_fraction + 0.04)
+        stress_fraction = min(max_fraction, stress_fraction + 0.02)
     severe_state = "severely_stale" if "severely_stale" in states else states[-1]
     low_conf_state = "low_confidence" if "low_confidence" in states else severe_state
     mild_state = "mildly_stale" if "mildly_stale" in states else severe_state
@@ -816,23 +889,36 @@ def _targeted_stress_pack(
         1,
         int(
             round(
-                max(5.0 if case_kind == "hard_case" else 3.0, stress_fraction * (72.0 if case_kind == "hard_case" else 56.0))
+                max(5.0 if case_kind == "hard_case" else 3.0, stress_fraction * repeat_budget_scale)
             )
         ),
     )
-    stress_factor = max(
-        1.50 if case_kind == "hard_case" else 1.25,
-        min(
-            3.2 if case_kind == "hard_case" else 2.55,
-            (1.62 if case_kind == "hard_case" else 1.28)
-            + ((0.92 if case_kind == "hard_case" else 0.60) * context["context_strength"])
-            + ((0.52 if case_kind == "hard_case" else 0.36) * support_strength)
-            + ((0.72 if case_kind == "hard_case" else 0.44) * max(pairwise_gap.values(), default=0.0))
-            + ((0.0 if case_kind == "hard_case" else 0.22) * multi_frontier_pressure),
-        ),
-    )
+    if relaxed_hard_case:
+        stress_factor = max(
+            1.45,
+            min(
+                3.0,
+                1.56
+                + (0.88 * context["context_strength"])
+                + (0.30 * max(0.0, 1.0 - support_richness))
+                + (0.62 * max(pairwise_gap.values(), default=0.0))
+                + (0.12 * multi_frontier_pressure),
+            ),
+        )
+    else:
+        stress_factor = max(
+            1.50 if case_kind == "hard_case" else 1.25,
+            min(
+                3.2 if case_kind == "hard_case" else 2.55,
+                (1.62 if case_kind == "hard_case" else 1.28)
+                + ((0.92 if case_kind == "hard_case" else 0.60) * context["context_strength"])
+                + ((0.52 if case_kind == "hard_case" else 0.36) * support_strength)
+                + ((0.72 if case_kind == "hard_case" else 0.44) * max(pairwise_gap.values(), default=0.0))
+                + ((0.0 if case_kind == "hard_case" else 0.22) * multi_frontier_pressure),
+            ),
+        )
     pack: list[WorldSample] = []
-    active_states = pack_states[: max(1, min(6 if case_kind == "hard_case" else 5, len(pack_states)))]
+    active_states = pack_states[: max(1, min(active_state_cap, len(pack_states)))]
     allocated = 0
     for idx, state_map in enumerate(active_states):
         family_target_route_ids: dict[str, str] = {}
@@ -856,12 +942,30 @@ def _targeted_stress_pack(
         scoped_targets = {route_id for route_id in family_target_route_ids.values() if route_id}
         if len(scoped_targets) == 1:
             scoped_target_route_id = next(iter(scoped_targets))
-        state_gap = max(0.05, pairwise_gap.get(seeded[min(idx, len(seeded) - 1)], 0.0))
+        target_family_for_state = seeded[min(idx, len(seeded) - 1)]
+        state_gap = max(0.0, pairwise_gap.get(target_family_for_state, 0.0))
+        route_exposure_signal = _clamp01(route_exposure.get(target_family_for_state, 0.0))
+        if case_kind == "supported_ambiguity":
+            repeat_signal = max(state_gap, 0.45 * route_exposure_signal)
+            repeat_multiplier = max(0.18, min(0.72, 0.18 + (0.70 * repeat_signal)))
+        elif relaxed_hard_case:
+            repeat_signal = max(state_gap, 0.30 * route_exposure_signal)
+            repeat_multiplier = max(
+                0.24,
+                min(
+                    0.82,
+                    0.24
+                    + (0.56 * repeat_signal)
+                    + (0.18 * max(0.0, 1.0 - support_richness)),
+                ),
+            )
+        else:
+            repeat_multiplier = min(1.0, 0.40 + max(0.05, state_gap))
         state_repeat = max(
             1,
             int(
                 round(
-                    max(1.0, repeat_budget * min(1.0, 0.40 + state_gap) * case_scale)
+                    max(1.0, repeat_budget * repeat_multiplier * case_scale)
                 )
             ),
         )
@@ -1418,6 +1522,10 @@ def sample_world_manifest(
         supported_ambiguity_stress_pack_count / float(max(1, len(worlds))),
         6,
     )
+    within_manifest_reuse_rate = round(
+        (len(worlds) - len(unique_signatures)) / float(max(1, len(worlds))),
+        6,
+    )
     payload = {
         "seed": int(seed),
         "requested_world_count": requested_world_count,
@@ -1445,7 +1553,11 @@ def sample_world_manifest(
         "targeted_stress_pack_count": len(stress_pack),
         "mixed_targeted_stress_pack_count": mixed_stress_pack_count,
         "single_family_targeted_stress_pack_count": single_family_stress_pack_count,
-        "world_reuse_rate": round((len(worlds) - len(unique_signatures)) / float(max(1, len(worlds))), 6),
+        "world_reuse_rate": within_manifest_reuse_rate,
+        "world_reuse_rate_within_manifest": within_manifest_reuse_rate,
+        "world_reuse_rate_cross_request": 0.0,
+        "certification_cache_reuse_origin": "miss",
+        "certification_cache_reuse_applied": False,
         "stress_world_fraction": stress_world_fraction,
         "refc_stress_world_fraction": stress_world_fraction,
         "hard_case_stress_world_fraction": hard_case_stress_world_fraction,
@@ -1453,6 +1565,46 @@ def sample_world_manifest(
         "worlds": [world.as_dict() for world in worlds],
     }
     payload["manifest_hash"] = _stable_hash([json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)])
+    return payload
+
+
+def annotate_world_manifest_cache_reuse(
+    manifest: Mapping[str, Any],
+    *,
+    cache_reuse_origin: str | None = None,
+) -> dict[str, Any]:
+    payload = dict(manifest)
+    within_manifest = _as_float(
+        payload.get("world_reuse_rate_within_manifest", payload.get("world_reuse_rate")),
+        0.0,
+    )
+    if not math.isfinite(within_manifest):
+        within_manifest = 0.0
+    normalized_origin = str(
+        cache_reuse_origin
+        if cache_reuse_origin is not None
+        else payload.get("certification_cache_reuse_origin", "miss")
+    ).strip().lower() or "miss"
+    if normalized_origin not in {"miss", "local", "global"}:
+        normalized_origin = "miss"
+    cross_request = _as_float(payload.get("world_reuse_rate_cross_request"), 0.0)
+    if not math.isfinite(cross_request):
+        cross_request = 0.0
+    if normalized_origin == "miss":
+        cross_request = 0.0
+    elif normalized_origin == "global":
+        cross_request = 1.0
+    payload["world_reuse_rate_within_manifest"] = round(max(0.0, min(1.0, within_manifest)), 6)
+    payload["world_reuse_rate_cross_request"] = round(max(0.0, min(1.0, cross_request)), 6)
+    payload["world_reuse_rate"] = round(
+        max(
+            float(payload["world_reuse_rate_within_manifest"]),
+            float(payload["world_reuse_rate_cross_request"]),
+        ),
+        6,
+    )
+    payload["certification_cache_reuse_origin"] = normalized_origin
+    payload["certification_cache_reuse_applied"] = normalized_origin in {"local", "global"}
     return payload
 
 
@@ -1633,17 +1785,22 @@ def _certificate_from_evaluated_bundle(
         1 for world in evaluated.world_rows if str(world.get("world_kind", "")).strip().startswith("supported_ambiguity_")
     )
     targeted_stress_pack_count = hard_case_stress_pack_count + supported_ambiguity_stress_pack_count
+    within_manifest_reuse_rate = round(
+        max(0, len(evaluated.world_rows) - int(evaluated.unique_world_count or len(evaluated.world_rows)))
+        / float(max(1, len(evaluated.world_rows))),
+        6,
+    )
     world_manifest = {
         "world_count": len(evaluated.world_rows),
         "unique_world_count": int(evaluated.unique_world_count or len(evaluated.world_rows)),
         "active_families": list(evaluated.active_families),
         "worlds": evaluated.world_rows,
         "world_signatures": [_world_signature(world) for world in evaluated.world_rows],
-        "world_reuse_rate": round(
-            max(0, len(evaluated.world_rows) - int(evaluated.unique_world_count or len(evaluated.world_rows)))
-            / float(max(1, len(evaluated.world_rows))),
-            6,
-        ),
+        "world_reuse_rate": within_manifest_reuse_rate,
+        "world_reuse_rate_within_manifest": within_manifest_reuse_rate,
+        "world_reuse_rate_cross_request": 0.0,
+        "certification_cache_reuse_origin": "miss",
+        "certification_cache_reuse_applied": False,
         "targeted_stress_pack_count": targeted_stress_pack_count,
         "hard_case_stress_pack_count": hard_case_stress_pack_count,
         "supported_ambiguity_stress_pack_count": supported_ambiguity_stress_pack_count,
@@ -1754,7 +1911,23 @@ def _refreshed_worlds(
         }
         scope_route_id = target_route_id or world.get("target_route_id") or world.get("route_scope")
         if scope_route_id:
-            row["target_route_id"] = str(scope_route_id)
+            scope_route_id = str(scope_route_id)
+            row["target_route_id"] = scope_route_id
+            row["route_scope"] = scope_route_id
+        raw_target_route_ids = world.get("target_route_ids", world.get("route_scope_by_family", {}))
+        if isinstance(raw_target_route_ids, Mapping):
+            target_map = {
+                str(entry_family): (
+                    str(scope_route_id)
+                    if scope_route_id
+                    else str(entry_target).strip()
+                )
+                for entry_family, entry_target in raw_target_route_ids.items()
+                if str(entry_family).strip() and (scope_route_id or str(entry_target).strip())
+            }
+            if target_map:
+                row["target_route_ids"] = target_map
+                row["route_scope_by_family"] = dict(target_map)
         refreshed.append(row)
     return refreshed
 
@@ -1779,7 +1952,23 @@ def _stressed_worlds(
         }
         scope_route_id = target_route_id or world.get("target_route_id") or world.get("route_scope")
         if scope_route_id:
-            row["target_route_id"] = str(scope_route_id)
+            scope_route_id = str(scope_route_id)
+            row["target_route_id"] = scope_route_id
+            row["route_scope"] = scope_route_id
+        raw_target_route_ids = world.get("target_route_ids", world.get("route_scope_by_family", {}))
+        if isinstance(raw_target_route_ids, Mapping):
+            target_map = {
+                str(entry_family): (
+                    str(scope_route_id)
+                    if scope_route_id
+                    else str(entry_target).strip()
+                )
+                for entry_family, entry_target in raw_target_route_ids.items()
+                if str(entry_family).strip() and (scope_route_id or str(entry_target).strip())
+            }
+            if target_map:
+                row["target_route_ids"] = target_map
+                row["route_scope_by_family"] = dict(target_map)
         stressed.append(row)
     return stressed
 
@@ -1912,9 +2101,6 @@ def _winner_recoverable_fragility_floor(
     context = _normalised_ambiguity_context(ambiguity_context)
     if not bool(context.get("is_hard_case") or context.get("is_supported_ambiguity_case")):
         return 0.0
-    near_tie_signal = _near_tie_margin_signal(baseline_margin_summary)
-    if near_tie_signal <= 0.0:
-        return 0.0
     family_exposure = _selector_weighted_family_exposure(
         route,
         family,
@@ -1926,6 +2112,39 @@ def _winner_recoverable_fragility_floor(
     support_strength = _clamp01(context.get("support_strength"), 0.0)
     context_strength = _clamp01(context.get("context_strength"), 0.0)
     margin_pressure = 1.0 - _clamp01(context.get("od_nominal_margin_proxy"), 1.0)
+    support_ratio = _clamp01(context.get("od_ambiguity_support_ratio"), 0.0)
+    source_entropy = _clamp01(context.get("od_ambiguity_source_entropy"), 0.0)
+    structural_support = max(
+        min(1.0, max(0.0, (_as_float(context.get("od_candidate_path_count")) - 1.0) / 3.0)),
+        min(1.0, max(0.0, (_as_float(context.get("od_corridor_family_count")) - 1.0) / 2.0)),
+        min(1.0, max(0.0, (_as_float(context.get("od_ambiguity_source_mix_count")) - 1.0) / 2.0)),
+        min(1.0, max(0.0, (_as_float(context.get("od_ambiguity_source_count")) - 2.0) / 2.0)),
+        _clamp01(context.get("od_ambiguity_family_density"), 0.0),
+        _clamp01(context.get("od_ambiguity_margin_pressure"), 0.0),
+    )
+    near_tie_signal = _near_tie_margin_signal(baseline_margin_summary)
+    if near_tie_signal <= 0.0:
+        supported_ambiguity_strength = _clamp01(context.get("supported_ambiguity_strength"), 0.0)
+        if (
+            supported_ambiguity_strength < 0.34
+            or support_strength < 0.55
+            or support_ratio < 0.60
+            or source_entropy < 0.55
+            or structural_support < 0.25
+        ):
+            return 0.0
+        near_tie_signal = min(
+            0.003,
+            (
+                0.003
+                * (0.40 + (0.20 * support_strength) + (0.15 * context_strength) + (0.15 * margin_pressure))
+                * support_ratio
+                * source_entropy
+                * structural_support
+            ),
+        )
+        if near_tie_signal <= 0.0:
+            return 0.0
     provenance_scale = _family_route_provenance_scale(route, family)
     provenance_factor = max(0.72, min(1.0, provenance_scale / 1.25))
     floor = (
@@ -2047,12 +2266,20 @@ def compute_fragility_maps(
     if not routes:
         raise ValueError("routes cannot be empty")
     families = tuple(active_families or active_evidence_families(routes))
+    context = _normalised_ambiguity_context(ambiguity_context)
     world_rows = [dict(world) for world in worlds]
-    analysis_world_rows = [
-        world
-        for world in world_rows
-        if not str(world.get("world_kind", "")).strip().endswith("_mixed_targeted")
-    ]
+    allow_mixed_targeted_analysis = bool(
+        context.get("is_hard_case") or context.get("is_supported_ambiguity_case")
+    )
+    analysis_world_rows = (
+        list(world_rows)
+        if allow_mixed_targeted_analysis
+        else [
+            world
+            for world in world_rows
+            if not str(world.get("world_kind", "")).strip().endswith("_mixed_targeted")
+        ]
+    )
     if not analysis_world_rows:
         analysis_world_rows = list(world_rows)
     shared_state_cache = (
@@ -2063,7 +2290,13 @@ def compute_fragility_maps(
     use_evaluated_bundle = (
         evaluated_bundle is not None
         and len(evaluated_bundle.world_rows) == len(analysis_world_rows)
-        and not any(str(world.get("world_kind", "")).strip().endswith("_mixed_targeted") for world in evaluated_bundle.world_rows)
+        and (
+            allow_mixed_targeted_analysis
+            or not any(
+                str(world.get("world_kind", "")).strip().endswith("_mixed_targeted")
+                for world in evaluated_bundle.world_rows
+            )
+        )
     )
     baseline_bundle = evaluated_bundle if use_evaluated_bundle else _evaluate_world_bundle(
         routes,
@@ -2113,7 +2346,6 @@ def compute_fragility_maps(
     route_fragility_details: dict[str, dict[str, dict[str, float]]] = {}
     competitor_breakdown: dict[str, dict[str, dict[str, int]]] = {}
     stress_state = "severely_stale"
-    context = _normalised_ambiguity_context(ambiguity_context)
     route_margin_baseline = {
         _route_id(route): _runner_up_gap_summary(baseline_bundle, _route_id(route))
         for route in routes
@@ -2134,6 +2366,20 @@ def compute_fragility_maps(
         for world in source_worlds:
             row = dict(world)
             row["target_route_id"] = route_id
+            row["route_scope"] = route_id
+            raw_target_route_ids = world.get("target_route_ids", world.get("route_scope_by_family", {}))
+            if isinstance(raw_target_route_ids, Mapping) and raw_target_route_ids:
+                target_map = {
+                    str(family): route_id
+                    for family in raw_target_route_ids.keys()
+                    if str(family).strip()
+                }
+                if target_map:
+                    row["target_route_ids"] = target_map
+                    row["route_scope_by_family"] = dict(target_map)
+            else:
+                row.pop("target_route_ids", None)
+                row.pop("route_scope_by_family", None)
             scoped_rows.append(row)
         return scoped_rows
 
@@ -2345,6 +2591,30 @@ def compute_fragility_maps(
         )
         vor[family] = 0.0 if family_fully_refreshed else empirical_refresh_gain
     ranked = sorted(vor.items(), key=lambda item: (-item[1], item[0]))
+    controller_scores = {family: _as_float(vor.get(family)) for family in families}
+    controller_ranking_basis = "empirical_vor"
+    if controller_scores and all(value <= 1e-12 for value in controller_scores.values()):
+        controller_ranking_basis = "raw_refresh_gain_fallback"
+        controller_scores = {
+            family: max(
+                0.0,
+                _as_float(
+                    route_fragility_details.get(target_route_id, {}).get(family, {}).get("raw_refresh_gain")
+                ),
+            )
+            for family in families
+        }
+    controller_ranked = sorted(controller_scores.items(), key=lambda item: (-item[1], item[0]))
+    controller_top_family = (
+        controller_ranked[0][0]
+        if controller_ranked and controller_ranked[0][1] > 1e-12
+        else None
+    )
+    controller_top_gain = (
+        controller_ranked[0][1]
+        if controller_ranked and controller_ranked[0][1] > 1e-12
+        else 0.0
+    )
     return FragilityResult(
         route_fragility_map=route_fragility_map,
         competitor_fragility_breakdown=competitor_breakdown,
@@ -2367,6 +2637,21 @@ def compute_fragility_maps(
             ],
             "top_refresh_family": ranked[0][0] if ranked else None,
             "top_refresh_gain": ranked[0][1] if ranked else 0.0,
+            "controller_ranking_basis": controller_ranking_basis,
+            "controller_ranking": [
+                {
+                    "family": family,
+                    "controller_score": value,
+                    "empirical_vor": _as_float(vor.get(family)),
+                    "raw_refresh_gain": _as_float(
+                        route_fragility_details.get(target_route_id, {}).get(family, {}).get("raw_refresh_gain")
+                    ),
+                    "basis": controller_ranking_basis,
+                }
+                for family, value in controller_ranked
+            ],
+            "top_refresh_family_controller": controller_top_family,
+            "top_refresh_gain_controller": controller_top_gain,
         },
         route_fragility_details=route_fragility_details,
         evidence_snapshot_manifest={

@@ -6,9 +6,14 @@ import json
 import statistics
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+try:
+    from app.settings import settings as app_settings
+except Exception:  # pragma: no cover - script fallback outside app package path
+    app_settings = None
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +27,14 @@ SCENARIO_FIELDS = (
     "stochastic_sigma_multiplier",
 )
 MODES = ("no_sharing", "partial_sharing", "full_sharing")
+
+
+def _default_max_observation_window_minutes() -> int:
+    raw_value = getattr(app_settings, "live_scenario_coefficient_max_age_minutes", 4320)
+    try:
+        return max(60, int(raw_value))
+    except (TypeError, ValueError):
+        return 4320
 
 
 @dataclass(frozen=True)
@@ -60,6 +73,17 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return min(high, max(low, value))
+
+
+def _dft_flow_index(count_per_hour: float | None) -> float | None:
+    if count_per_hour is None:
+        return None
+    if not isinstance(count_per_hour, (int, float)):
+        return None
+    value = float(count_per_hour)
+    if value <= 0.0:
+        return None
+    return _clamp(value / 3000.0, 0.5, 3.5)
 
 
 def _context_key(
@@ -103,6 +127,13 @@ def _parse_as_of_utc(raw: str) -> datetime | None:
     else:
         parsed = parsed.astimezone(UTC)
     return parsed
+
+
+def _iso_utc(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    normalized = dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+    return normalized.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _holdout_key(row: ScenarioObservation) -> str:
@@ -200,7 +231,19 @@ def _parse_raw_line(payload: dict[str, Any]) -> list[ScenarioObservation]:
         payload.get("speed_index", traffic_features.get("speed_index")),
         float("nan"),
     )
+    dft_count_per_hour = _safe_float(
+        payload.get("dft_count_per_hour", traffic_features.get("dft_count_per_hour")),
+        float("nan"),
+    )
+    if not (flow_index == flow_index and flow_index > 0.0):
+        dft_flow_index = _dft_flow_index(None if dft_count_per_hour != dft_count_per_hour else dft_count_per_hour)
+        if dft_flow_index is not None:
+            flow_index = float(dft_flow_index)
     speed_inverse = (1.0 / max(1.0, speed_index)) if speed_index > 0 else float("nan")
+    if not (speed_inverse == speed_inverse and speed_inverse > 0.0):
+        if flow_index == flow_index and flow_index > 0.0:
+            speed_inverse = _clamp(0.55 + (0.35 * float(flow_index)), 0.5, 3.5)
+            speed_index = 1.0 / max(1e-6, speed_inverse)
     delay_pressure = _safe_float(
         payload.get("delay_pressure", incident_features.get("delay_pressure")),
         float("nan"),
@@ -379,6 +422,59 @@ def _load_jsonl_observations(
                     payload["modes"] = patched_modes
         rows.extend(_parse_raw_line(payload))
     return rows
+
+
+def _filter_recent_observations(
+    rows: list[ScenarioObservation],
+    *,
+    max_observation_window_minutes: int,
+) -> tuple[list[ScenarioObservation], dict[str, Any]]:
+    normalized_window = max(1, int(max_observation_window_minutes))
+    if not rows:
+        return [], {
+            "max_window_minutes": int(normalized_window),
+            "latest_observation_utc": None,
+            "cutoff_utc": None,
+            "input_row_count": 0,
+            "selected_row_count": 0,
+            "dropped_row_count": 0,
+            "selected_observed_mode_row_count": 0,
+        }
+
+    parsed_rows: list[tuple[ScenarioObservation, datetime]] = []
+    for row in rows:
+        parsed_dt = _parse_as_of_utc(row.as_of_utc)
+        if parsed_dt is None:
+            continue
+        parsed_rows.append((row, parsed_dt))
+
+    if not parsed_rows:
+        return [], {
+            "max_window_minutes": int(normalized_window),
+            "latest_observation_utc": None,
+            "cutoff_utc": None,
+            "input_row_count": len(rows),
+            "selected_row_count": 0,
+            "dropped_row_count": len(rows),
+            "selected_observed_mode_row_count": 0,
+        }
+
+    latest_observation = max(parsed_dt for _, parsed_dt in parsed_rows)
+    cutoff = latest_observation - timedelta(minutes=normalized_window)
+    selected = [
+        row
+        for row, parsed_dt in parsed_rows
+        if parsed_dt >= cutoff
+    ]
+    return selected, {
+        "max_window_minutes": int(normalized_window),
+        "latest_observation_utc": _iso_utc(latest_observation),
+        "cutoff_utc": _iso_utc(cutoff),
+        "input_row_count": len(rows),
+        "selected_row_count": len(selected),
+        "dropped_row_count": max(0, len(rows) - len(selected)),
+        "selected_observed_mode_row_count": sum(1 for row in selected if not bool(row.mode_is_projected)),
+    }
 
 
 def _observation_has_live_features(row: ScenarioObservation) -> bool:
@@ -1010,6 +1106,7 @@ def build(
     min_contexts: int = 8,
     min_observed_mode_row_share: float = 0.20,
     max_projection_dominant_context_share: float = 0.80,
+    max_observation_window_minutes: int | None = None,
 ) -> dict[str, Any]:
     if not raw_jsonl.exists():
         raise FileNotFoundError(f"Scenario raw observed dataset is required: {raw_jsonl}")
@@ -1038,6 +1135,15 @@ def build(
                 "all rows are projected/unknown provenance."
             )
         rows.extend(observed_rows)
+    normalized_max_window_minutes = (
+        _default_max_observation_window_minutes()
+        if max_observation_window_minutes is None
+        else max(1, int(max_observation_window_minutes))
+    )
+    rows, observation_filter_meta = _filter_recent_observations(
+        rows,
+        max_observation_window_minutes=normalized_max_window_minutes,
+    )
     if not rows:
         raise RuntimeError("Scenario raw observed dataset contained no parseable observations.")
 
@@ -1237,6 +1343,12 @@ def build(
         else:
             fit_dates.append(parsed_dt)
     now_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    source_dates = [*fit_dates, *holdout_dates]
+    source_min_dt = min(source_dates) if source_dates else None
+    source_max_dt = max(source_dates) if source_dates else None
+    # Keep generation time separate from source freshness so a rebuild cannot
+    # re-label stale scenario evidence as fresh.
+    asset_as_of_iso = _iso_utc(source_max_dt) or now_iso
     holdout_coverage = float(holdout_covered) / max(1.0, float(holdout_points))
     duration_mape = float(statistics.fmean(holdout_duration_rel_errors)) if holdout_duration_rel_errors else 1.0
     monetary_mape = float(statistics.fmean(holdout_monetary_rel_errors)) if holdout_monetary_rel_errors else 1.0
@@ -1279,7 +1391,7 @@ def build(
     payload: dict[str, Any] = {
         "version": "scenario_profiles_uk_v2_live",
         "source": "free_live_apis+holdout_fit",
-        "as_of_utc": now_iso,
+        "as_of_utc": asset_as_of_iso,
         "generated_at_utc": now_iso,
         "calibration_basis": "empirical_live_fit",
         "mode_outcomes_source": (
@@ -1289,28 +1401,35 @@ def build(
         ),
         "fit_window": {
             "start_utc": (
-                min(fit_dates).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                _iso_utc(min(fit_dates))
                 if fit_dates
                 else ""
             ),
             "end_utc": (
-                max(fit_dates).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                _iso_utc(max(fit_dates))
                 if fit_dates
                 else now_iso
             ),
         },
         "holdout_window": {
             "start_utc": (
-                min(holdout_dates).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                _iso_utc(min(holdout_dates))
                 if holdout_dates
                 else ""
             ),
             "end_utc": (
-                max(holdout_dates).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                _iso_utc(max(holdout_dates))
                 if holdout_dates
                 else now_iso
             ),
         },
+        "source_observation_window": {
+            "start_utc": _iso_utc(source_min_dt),
+            "end_utc": _iso_utc(source_max_dt),
+            "row_count": len(rows),
+            "observed_mode_row_count": observed_mode_row_count,
+        },
+        "source_observation_filter": observation_filter_meta,
         "holdout_metrics": {
             "mode_separation_mean": round(mode_sep_mean, 6),
             "duration_mape": round(duration_mape, 6),
@@ -1375,6 +1494,11 @@ def main() -> None:
         type=float,
         default=0.80,
     )
+    parser.add_argument(
+        "--max-observation-window-minutes",
+        type=int,
+        default=_default_max_observation_window_minutes(),
+    )
     args = parser.parse_args()
     payload = build(
         raw_jsonl=args.raw_jsonl,
@@ -1386,6 +1510,7 @@ def main() -> None:
             0.0,
             min(1.0, float(args.max_projection_dominant_context_share)),
         ),
+        max_observation_window_minutes=max(1, int(args.max_observation_window_minutes)),
     )
     print(
         f"Wrote scenario profile tensor to {args.output} "

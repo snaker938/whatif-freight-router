@@ -170,6 +170,93 @@ def test_preflight_live_runtime_captures_required_failure(tmp_path: Path, monkey
     assert failed[0]["error"]["reason_code"] == "scenario_profile_unavailable"
 
 
+def test_preflight_live_runtime_uses_uncached_fuel_loader(tmp_path: Path, monkeypatch) -> None:
+    state = {"cached_calls": 0, "uncached_calls": 0}
+
+    def _uncached_loader():
+        state["uncached_calls"] += 1
+        raise ModelDataError(
+            reason_code="fuel_price_source_unavailable",
+            message="stale uncached fuel snapshot",
+            details={"as_of_utc": "2026-03-16T00:00:00Z", "max_age_days": 7},
+        )
+
+    def _cached_loader():
+        state["cached_calls"] += 1
+        return SimpleNamespace(source="cached", as_of="2026-03-16T00:00:00Z", signature="cached")
+
+    _cached_loader.__wrapped__ = _uncached_loader
+
+    monkeypatch.setattr(preflight_live_runtime, "refresh_live_runtime_route_caches", lambda: None)
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "_osrm_engine_smoke_details",
+        lambda: {"base_url": "http://localhost:5000", "profile": "driving", "distance_m": 1000.0, "duration_s": 100.0},
+    )
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "_ors_engine_smoke_details",
+        lambda: {
+            "base_url": "http://localhost:8082/ors",
+            "profile": "driving-hgv",
+            "distance_m": 1200.0,
+            "duration_s": 110.0,
+            "identity_status": "graph_identity_verified",
+            "manifest_hash": "sha256:ors",
+        },
+    )
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "load_scenario_profiles",
+        lambda: SimpleNamespace(version="v2", source="live", calibration_basis="empirical", mode_observation_source="observed", contexts={"ctx": {}}),
+    )
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "load_live_scenario_context",
+        lambda **kwargs: SimpleNamespace(  # noqa: ARG005
+            as_of_utc="2026-03-24T00:00:00Z",
+            coverage={"overall": 1.0},
+            source_set={"webtris": "ok"},
+        ),
+    )
+    monkeypatch.setattr(preflight_live_runtime, "load_fuel_price_snapshot", _cached_loader)
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "load_toll_tariffs",
+        lambda: SimpleNamespace(source="live", rules=[{"id": "rule_1"}]),
+    )
+    monkeypatch.setattr(preflight_live_runtime, "load_toll_segments_seed", lambda: [{"id": "seg_1"}])
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "load_stochastic_regimes",
+        lambda: SimpleNamespace(source="live", calibration_basis="empirical", regimes={"weekday": {}}),
+    )
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "load_departure_profile",
+        lambda: SimpleNamespace(source="live", calibration_basis="empirical", profiles={"uk_default": {}}),
+    )
+    monkeypatch.setattr(preflight_live_runtime, "load_uk_bank_holidays", lambda: frozenset({"2026-12-25"}))
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "resolve_carbon_price",
+        lambda **kwargs: SimpleNamespace(price_per_kg=0.12),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        preflight_live_runtime,
+        "apply_scope_emissions_adjustment",
+        lambda **kwargs: 1.05,  # noqa: ARG005
+    )
+
+    summary = preflight_live_runtime.run_preflight(output_path=tmp_path / "preflight.json")
+
+    failed = [check for check in summary["checks"] if not check["ok"]]
+    assert summary["required_ok"] is False
+    assert any(item["name"] == "fuel_snapshot" for item in failed)
+    assert state["uncached_calls"] == 1
+    assert state["cached_calls"] == 0
+
+
 def test_preflight_live_runtime_rejects_proxy_provenance(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(preflight_live_runtime.settings, "live_source_policy", "strict_external")
     monkeypatch.setattr(preflight_live_runtime, "refresh_live_runtime_route_caches", lambda: None)

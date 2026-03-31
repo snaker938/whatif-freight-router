@@ -478,6 +478,7 @@ def segment_grade_profile(
     *,
     coordinates_lon_lat: list[tuple[float, float]],
     segment_distances_m: list[float],
+    probe_segment_boundaries: bool = True,
 ) -> list[float]:
     if not coordinates_lon_lat or not segment_distances_m:
         return [0.0 for _ in segment_distances_m]
@@ -533,7 +534,9 @@ def segment_grade_profile(
     # Probing live elevation for every segment boundary is expensive on very long routes.
     # For high-segment chains we use interpolated profile elevation directly.
     max_probe_segments = max(0, int(settings.terrain_segment_boundary_probe_max_segments))
-    boundary_probe_enabled = max_probe_segments == 0 or len(segment_distances_m) <= max_probe_segments
+    boundary_probe_enabled = bool(probe_segment_boundaries) and (
+        max_probe_segments == 0 or len(segment_distances_m) <= max_probe_segments
+    )
 
     def _elevation_at_segment_boundary(boundary_m: float) -> float:
         # Strict geometry-aligned projection: use absolute segment boundary distance

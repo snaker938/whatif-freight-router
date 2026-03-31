@@ -224,6 +224,7 @@ def build_snapshot(
     hour_slot_local: int = 12,
     project_modes_from_artifact: bool = False,
     allow_partial_sources: bool = False,
+    min_source_count: int | None = None,
     observed_mode_outcomes: list[dict[str, Any]] | None = None,
     require_observed_modes: bool = False,
     persist_output: bool = True,
@@ -239,7 +240,10 @@ def build_snapshot(
         "centroid_lon": centroid_lon,
         "road_hint": road_hint or "",
     }
-    payload = live_scenario_context(route_context, allow_partial_sources=bool(allow_partial_sources))
+    live_kwargs: dict[str, Any] = {"allow_partial_sources": bool(allow_partial_sources)}
+    if min_source_count is not None:
+        live_kwargs["min_source_count"] = max(1, int(min_source_count))
+    payload = live_scenario_context(route_context, **live_kwargs)
     if not isinstance(payload, dict):
         raise RuntimeError("Scenario live payload fetch returned no data.")
     if "_live_error" in payload:
@@ -430,6 +434,22 @@ def _load_corridors(path: Path | None) -> list[dict[str, Any]]:
     return out
 
 
+def _task_key(task: dict[str, Any]) -> str:
+    corridor = str(task.get("corridor", "uk_default")).strip() or "uk_default"
+    day_kind = str(task.get("day_kind", "weekday")).strip().lower() or "weekday"
+    hour_slot = int(max(0, min(23, int(_safe_float(task.get("hour"), 12.0)))))
+    return f"{corridor}|{day_kind}|h{hour_slot:02d}"
+
+
+def _append_jsonl_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
+
+
 def build_batch_snapshots(
     *,
     output_json: Path,
@@ -442,10 +462,12 @@ def build_batch_snapshots(
     hour_slots: list[int],
     project_modes_from_artifact: bool,
     allow_partial_sources: bool = False,
+    min_source_count: int | None = None,
     observed_mode_outcomes: list[dict[str, Any]] | None = None,
     require_observed_modes: bool = False,
     workers: int = 8,
     progress_every: int = 20,
+    retry_failed: int = 1,
 ) -> dict[str, Any]:
     now_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     tasks: list[dict[str, Any]] = []
@@ -468,11 +490,14 @@ def build_batch_snapshots(
                     }
                 )
 
-    batch_rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     started = datetime.now(UTC)
     total_tasks = len(tasks)
     progress_step = max(1, int(progress_every))
+    max_retry_rounds = max(0, int(retry_failed))
+    task_attempts: dict[str, int] = {}
+    recovered_task_keys: set[str] = set()
+    success_count = 0
 
     print(
         "Starting scenario batch fetch "
@@ -499,6 +524,7 @@ def build_batch_snapshots(
                 hour_slot_local=hour_slot,
                 project_modes_from_artifact=project_modes_from_artifact,
                 allow_partial_sources=bool(allow_partial_sources),
+                min_source_count=min_source_count,
                 observed_mode_outcomes=observed_mode_outcomes,
                 require_observed_modes=bool(require_observed_modes),
                 persist_output=False,
@@ -512,58 +538,113 @@ def build_batch_snapshots(
                 "error": str(exc),
             }
 
-    max_workers = max(1, min(int(workers), len(tasks) if tasks else 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        pending = {executor.submit(_worker, task) for task in tasks}
+    def _run_round(round_tasks: list[dict[str, Any]], *, round_index: int, round_workers: int) -> tuple[list[dict[str, Any]], int]:
+        nonlocal success_count
+        round_errors: list[dict[str, Any]] = []
         completed = 0
         next_heartbeat = datetime.now(UTC) + timedelta(seconds=15)
-        while pending:
-            done, pending = wait(pending, timeout=5, return_when=FIRST_COMPLETED)
-            if not done:
-                now = datetime.now(UTC)
-                if now >= next_heartbeat:
-                    elapsed_s = max(0.0, (now - started).total_seconds())
+        with ThreadPoolExecutor(max_workers=round_workers) as executor:
+            future_to_task = {
+                executor.submit(_worker, task): task
+                for task in round_tasks
+            }
+            while future_to_task:
+                done, unfinished = wait(tuple(future_to_task.keys()), timeout=5, return_when=FIRST_COMPLETED)
+                pending = {fut: future_to_task[fut] for fut in unfinished}
+                if not done:
+                    now = datetime.now(UTC)
+                    if now >= next_heartbeat:
+                        elapsed_s = max(0.0, (now - started).total_seconds())
+                        print(
+                            "[scenario_batch] waiting "
+                            f"(round={round_index + 1}, done={completed}/{len(round_tasks)}, "
+                            f"ok={success_count}, errors={len(round_errors)}, elapsed={elapsed_s:.1f}s)",
+                            flush=True,
+                        )
+                        next_heartbeat = now + timedelta(seconds=15)
+                    future_to_task = pending
+                    continue
+                for fut in done:
+                    task = future_to_task.get(fut)
+                    if task is None:
+                        continue
+                    task_key = _task_key(task)
+                    task_attempts[task_key] = task_attempts.get(task_key, 0) + 1
+                    snapshot, err = fut.result()
+                    if snapshot is not None:
+                        _append_jsonl_rows(output_jsonl, [snapshot])
+                        if task_attempts[task_key] > 1:
+                            recovered_task_keys.add(task_key)
+                        success_count += 1
+                    if err is not None:
+                        round_errors.append(
+                            {
+                                **err,
+                                "attempt": int(task_attempts[task_key]),
+                                "task_key": task_key,
+                            }
+                        )
+                    completed += 1
+                future_to_task = pending
+                if completed == len(round_tasks) or completed % progress_step == 0:
+                    elapsed_s = max(0.0, (datetime.now(UTC) - started).total_seconds())
                     print(
-                        "[scenario_batch] waiting "
-                        f"(done={completed}/{total_tasks}, ok={len(batch_rows)}, errors={len(errors)}, elapsed={elapsed_s:.1f}s)",
+                        "[scenario_batch] progress "
+                        f"{completed}/{len(round_tasks)} "
+                        f"(round={round_index + 1}, ok={success_count}, errors={len(round_errors)}, elapsed={elapsed_s:.1f}s)",
                         flush=True,
                     )
-                    next_heartbeat = now + timedelta(seconds=15)
-                continue
-            for fut in done:
-                snapshot, err = fut.result()
-                if snapshot is not None:
-                    batch_rows.append(snapshot)
-                if err is not None:
-                    errors.append(err)
-                completed += 1
-            if completed == total_tasks or completed % progress_step == 0:
-                elapsed_s = max(0.0, (datetime.now(UTC) - started).total_seconds())
-                print(
-                    "[scenario_batch] progress "
-                    f"{completed}/{total_tasks} "
-                    f"(ok={len(batch_rows)}, errors={len(errors)}, elapsed={elapsed_s:.1f}s)",
-                    flush=True,
-                )
+        failed_keys = {str(item.get("task_key", "")).strip() for item in round_errors}
+        retry_tasks = [task for task in round_tasks if _task_key(task) in failed_keys]
+        return round_errors, len(retry_tasks)
 
-    output_jsonl.parent.mkdir(parents=True, exist_ok=True)
-    if batch_rows:
-        with output_jsonl.open("a", encoding="utf-8") as handle:
-            for row in batch_rows:
-                handle.write(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
+    remaining_tasks = list(tasks)
+    unresolved_errors: list[dict[str, Any]] = []
+    retry_round_count = 0
+    max_workers = max(1, min(int(workers), len(tasks) if tasks else 1))
+    retry_workers = 1 if max_workers > 1 else max_workers
+    for round_index in range(max_retry_rounds + 1):
+        if not remaining_tasks:
+            unresolved_errors = []
+            break
+        if round_index > 0:
+            retry_round_count += 1
+            print(
+                f"[scenario_batch] retry round {round_index}/{max_retry_rounds} "
+                f"(tasks={len(remaining_tasks)}, workers={retry_workers})",
+                flush=True,
+            )
+        round_workers = max_workers if round_index == 0 else retry_workers
+        round_errors, retry_task_count = _run_round(remaining_tasks, round_index=round_index, round_workers=round_workers)
+        if not round_errors:
+            unresolved_errors = []
+            remaining_tasks = []
+            break
+        unresolved_errors = round_errors
+        failed_task_keys = {str(item.get("task_key", "")).strip() for item in round_errors}
+        remaining_tasks = [task for task in remaining_tasks if _task_key(task) in failed_task_keys]
+        if round_index >= max_retry_rounds:
+            break
+        if retry_task_count <= 0:
+            break
+
+    errors = unresolved_errors
 
     summary: dict[str, Any] = {
         "source": "free_live_apis:scenario_context_uk_batch",
         "generated_at_utc": now_iso,
         "as_of_utc": now_iso,
         "calibration_basis": "empirical_live",
-        "batch_count": int(len(batch_rows)),
+        "batch_count": int(success_count),
         "error_count": int(len(errors)),
         "corridor_count": int(len(corridors)),
         "hour_slot_count": int(len(set(hour_slots))),
         "day_kind_count": int(len(set(day_kinds))),
         "observed_mode_outcomes_loaded": int(len(observed_mode_outcomes or [])),
         "require_observed_modes": bool(require_observed_modes),
+        "retry_round_count": int(retry_round_count),
+        "retry_attempted_task_count": int(sum(1 for attempts in task_attempts.values() if attempts > 1)),
+        "retry_recovered_count": int(len(recovered_task_keys)),
         "output_jsonl": str(output_jsonl),
         "errors": errors[:200],
         "signature_algorithm": "sha256",
@@ -616,6 +697,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--min-source-count",
+        type=int,
+        default=0,
+        help=(
+            "Optional collector-only override for the minimum live-source count when "
+            "--allow-partial-sources is enabled."
+        ),
+    )
+    parser.add_argument(
         "--observed-mode-outcomes-jsonl",
         type=Path,
         default=None,
@@ -641,6 +731,12 @@ def main() -> None:
         default=20,
         help="Emit batch progress every N completed contexts.",
     )
+    parser.add_argument(
+        "--retry-failed",
+        type=int,
+        default=1,
+        help="Retry failed batch tasks this many additional rounds.",
+    )
     args = parser.parse_args()
     observed_mode_outcomes = (
         _load_observed_mode_outcomes(args.observed_mode_outcomes_jsonl)
@@ -660,10 +756,12 @@ def main() -> None:
             hour_slots=_parse_hour_slots(args.hour_slots),
             project_modes_from_artifact=bool(args.project_modes_from_artifact),
             allow_partial_sources=bool(args.allow_partial_sources),
+            min_source_count=(None if int(args.min_source_count) <= 0 else int(args.min_source_count)),
             observed_mode_outcomes=observed_mode_outcomes,
             require_observed_modes=bool(args.require_observed_modes),
             workers=max(1, int(args.workers)),
             progress_every=max(1, int(args.progress_every)),
+            retry_failed=max(0, int(args.retry_failed)),
         )
         print(
             f"Wrote scenario batch summary to {args.output} "
@@ -684,6 +782,7 @@ def main() -> None:
         hour_slot_local=int(max(0, min(23, int(args.hour_slot)))),
         project_modes_from_artifact=bool(args.project_modes_from_artifact),
         allow_partial_sources=bool(args.allow_partial_sources),
+        min_source_count=(None if int(args.min_source_count) <= 0 else int(args.min_source_count)),
         observed_mode_outcomes=observed_mode_outcomes,
         require_observed_modes=bool(args.require_observed_modes),
     )

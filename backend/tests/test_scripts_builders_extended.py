@@ -184,6 +184,9 @@ def test_build_routing_graph_geojson_builds_nodes_edges_and_meta(tmp_path: Path)
 def test_build_scenario_profiles_helpers_cover_core_behaviors() -> None:
     assert build_scenario_profiles_uk._safe_float("1.25") == pytest.approx(1.25)
     assert build_scenario_profiles_uk._safe_float("bad", 7.0) == pytest.approx(7.0)
+    assert build_scenario_profiles_uk._iso_utc(
+        build_scenario_profiles_uk._parse_as_of_utc("2026-02-01T00:00:00Z")
+    ) == "2026-02-01T00:00:00Z"
     key = build_scenario_profiles_uk._context_key("uk001", 8, "mixed", "rigid_hgv", "weekday", "clear")
     assert key.startswith("uk001|h08|weekday|")
     p10, p50, p90 = build_scenario_profiles_uk._quantiles([0.8, 1.0, 1.2, 1.4])
@@ -211,10 +214,199 @@ def test_build_scenario_profiles_helpers_cover_core_behaviors() -> None:
     assert len(obs) == 1
     assert obs[0].mode == "no_sharing"
     assert obs[0].mode_is_projected is False
+    assert build_scenario_profiles_uk._dft_flow_index(3000.0) == pytest.approx(1.0)
+
+    dft_backfilled = build_scenario_profiles_uk._parse_raw_line(
+        {
+            "corridor_bucket": "uk002",
+            "hour_slot_local": 16,
+            "road_mix_bucket": "mixed",
+            "vehicle_class": "rigid_hgv",
+            "day_kind": "weekday",
+            "weather_bucket": "clear",
+            "weather_regime": "clear",
+            "as_of_utc": "2026-02-01T16:00:00Z",
+            "traffic_features": {
+                "flow_index": 0.0,
+                "speed_index": 0.0,
+                "dft_count_per_hour": 3300.0,
+            },
+            "incident_features": {"delay_pressure": 0.8, "severity_index": 0.9},
+            "weather_features": {"weather_severity_index": 0.7},
+            "mode": "no_sharing",
+            "mode_observation_source": "observed_telematics",
+            "duration_multiplier": 1.1,
+            "incident_rate_multiplier": 1.0,
+            "incident_delay_multiplier": 1.0,
+            "fuel_consumption_multiplier": 1.0,
+            "emissions_multiplier": 1.0,
+            "stochastic_sigma_multiplier": 1.0,
+        }
+    )
+    assert len(dft_backfilled) == 1
+    assert dft_backfilled[0].flow_index is not None
+    assert dft_backfilled[0].speed_inverse is not None
+    assert dft_backfilled[0].traffic_pressure is not None
 
     selector, meta = build_scenario_profiles_uk._build_holdout_selector(obs)
     assert meta["strategy"] == "temporal_forward_plus_corridor_block"
     assert isinstance(selector(obs[0]), bool)
+
+
+def test_build_scenario_profiles_uses_latest_observation_time_for_as_of(tmp_path: Path) -> None:
+    raw_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    observed_modes_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
+    output_json = tmp_path / "scenario_profiles_uk.json"
+
+    corridor_keys = [f"uk{idx:03d}" for idx in range(8)]
+    hour_slots = [0, 4, 8, 12, 16, 20]
+    weather_by_hour = {0: "clear", 4: "clear", 8: "rain", 12: "clear", 16: "rain", 20: "clear"}
+    latest_observation = "2026-02-22T23:47:40Z"
+    rows: list[dict[str, object]] = []
+    for corridor_index, corridor in enumerate(corridor_keys):
+        for hour_index, hour in enumerate(hour_slots):
+            observed_as_of = (
+                latest_observation
+                if corridor_index == len(corridor_keys) - 1 and hour == hour_slots[-1]
+                else f"2026-02-{20 + ((corridor_index + hour_index) % 3):02d}T{hour:02d}:00:00Z"
+            )
+            for mode_name, multiplier in (
+                ("no_sharing", 1.22),
+                ("partial_sharing", 1.08),
+                ("full_sharing", 0.94),
+            ):
+                rows.append(
+                    {
+                        "corridor_bucket": corridor,
+                        "corridor_geohash5": corridor,
+                        "hour_slot_local": hour,
+                        "road_mix_bucket": "mixed",
+                        "road_mix_vector": {"mixed": 1.0},
+                        "vehicle_class": "rigid_hgv",
+                        "day_kind": "weekday" if hour < 20 else "weekend",
+                        "weather_bucket": weather_by_hour[hour],
+                        "weather_regime": weather_by_hour[hour],
+                        "as_of_utc": observed_as_of,
+                        "flow_index": 1.2 + (0.01 * corridor_index),
+                        "speed_index": 1.0,
+                        "delay_pressure": 0.8 + (0.01 * hour_index),
+                        "severity_index": 0.9,
+                        "weather_severity_index": 0.7 if weather_by_hour[hour] == "clear" else 1.2,
+                        "mode": mode_name,
+                        "mode_observation_source": "observed_telematics",
+                        "duration_multiplier": multiplier,
+                        "incident_rate_multiplier": multiplier,
+                        "incident_delay_multiplier": multiplier,
+                        "fuel_consumption_multiplier": multiplier,
+                        "emissions_multiplier": multiplier,
+                        "stochastic_sigma_multiplier": multiplier,
+                    }
+                )
+
+    encoded_rows = "\n".join(json.dumps(row) for row in rows) + "\n"
+    raw_jsonl.write_text(encoded_rows, encoding="utf-8")
+    observed_modes_jsonl.write_text(encoded_rows, encoding="utf-8")
+
+    payload = build_scenario_profiles_uk.build(
+        raw_jsonl=raw_jsonl,
+        observed_modes_jsonl=observed_modes_jsonl,
+        output_json=output_json,
+        min_contexts=8,
+        min_observed_mode_row_share=0.2,
+        max_projection_dominant_context_share=0.8,
+    )
+
+    assert output_json.exists()
+    assert payload["as_of_utc"] == latest_observation
+    assert payload["generated_at_utc"] >= payload["as_of_utc"]
+    assert payload["source_observation_window"]["start_utc"] == "2026-02-20T00:00:00Z"
+    assert payload["source_observation_window"]["end_utc"] == latest_observation
+    assert payload["source_observation_window"]["row_count"] == len(rows) * 2
+    assert payload["source_observation_window"]["observed_mode_row_count"] == len(rows) * 2
+    assert payload["source_observation_filter"]["selected_row_count"] == len(rows) * 2
+    assert payload["source_observation_filter"]["dropped_row_count"] == 0
+
+
+def test_build_scenario_profiles_filters_to_recent_observation_window(tmp_path: Path) -> None:
+    raw_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    observed_modes_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
+    output_json = tmp_path / "scenario_profiles_uk.json"
+
+    corridor_keys = [f"uk{idx:03d}" for idx in range(8)]
+    hour_slots = [0, 4, 8, 12, 16, 20]
+    weather_by_hour = {0: "clear", 4: "clear", 8: "rain", 12: "clear", 16: "rain", 20: "clear"}
+
+    stale_rows: list[dict[str, object]] = []
+    fresh_rows: list[dict[str, object]] = []
+    for corridor_index, corridor in enumerate(corridor_keys):
+        for hour_index, hour in enumerate(hour_slots):
+            stale_as_of = f"2026-02-01T{hour:02d}:00:00Z"
+            fresh_as_of = (
+                    "2026-02-22T23:47:40Z"
+                    if corridor_index == len(corridor_keys) - 1 and hour == hour_slots[-1]
+                    else f"2026-02-22T{hour:02d}:{(corridor_index + hour_index) % 50:02d}:00Z"
+            )
+            for target_rows, observed_as_of, no_multiplier in (
+                (stale_rows, stale_as_of, 1.18),
+                (fresh_rows, fresh_as_of, 1.24),
+            ):
+                for mode_name, multiplier in (
+                    ("no_sharing", no_multiplier),
+                    ("partial_sharing", no_multiplier - 0.14),
+                    ("full_sharing", no_multiplier - 0.28),
+                ):
+                    target_rows.append(
+                        {
+                            "corridor_bucket": corridor,
+                            "corridor_geohash5": corridor,
+                            "hour_slot_local": hour,
+                            "road_mix_bucket": "mixed",
+                            "road_mix_vector": {"mixed": 1.0},
+                            "vehicle_class": "rigid_hgv",
+                            "day_kind": "weekday" if hour < 20 else "weekend",
+                            "weather_bucket": weather_by_hour[hour],
+                            "weather_regime": weather_by_hour[hour],
+                            "as_of_utc": observed_as_of,
+                            "flow_index": 0.0,
+                            "speed_index": 0.0,
+                            "dft_count_per_hour": 3200.0 + (40.0 * corridor_index) + (15.0 * hour_index),
+                            "delay_pressure": 0.7 + (0.01 * hour_index),
+                            "severity_index": 0.9,
+                            "weather_severity_index": 0.7 if weather_by_hour[hour] == "clear" else 1.2,
+                            "mode": mode_name,
+                            "mode_observation_source": "observed_telematics",
+                            "duration_multiplier": multiplier,
+                            "incident_rate_multiplier": multiplier,
+                            "incident_delay_multiplier": multiplier,
+                            "fuel_consumption_multiplier": multiplier,
+                            "emissions_multiplier": multiplier,
+                            "stochastic_sigma_multiplier": multiplier,
+                        }
+                    )
+
+    all_rows = stale_rows + fresh_rows
+    encoded_rows = "\n".join(json.dumps(row) for row in all_rows) + "\n"
+    raw_jsonl.write_text(encoded_rows, encoding="utf-8")
+    observed_modes_jsonl.write_text(encoded_rows, encoding="utf-8")
+
+    payload = build_scenario_profiles_uk.build(
+        raw_jsonl=raw_jsonl,
+        observed_modes_jsonl=observed_modes_jsonl,
+        output_json=output_json,
+        min_contexts=8,
+        min_observed_mode_row_share=0.2,
+        max_projection_dominant_context_share=0.8,
+    )
+
+    assert output_json.exists()
+    assert payload["as_of_utc"] == "2026-02-22T23:47:40Z"
+    assert payload["source_observation_window"]["start_utc"] == "2026-02-22T00:00:00Z"
+    assert payload["source_observation_window"]["end_utc"] == "2026-02-22T23:47:40Z"
+    assert payload["source_observation_window"]["row_count"] == len(fresh_rows) * 2
+    assert payload["source_observation_window"]["observed_mode_row_count"] == len(fresh_rows) * 2
+    assert payload["source_observation_filter"]["input_row_count"] == len(all_rows) * 2
+    assert payload["source_observation_filter"]["selected_row_count"] == len(fresh_rows) * 2
+    assert payload["source_observation_filter"]["dropped_row_count"] == len(stale_rows) * 2
 
 
 def test_build_stochastic_calibration_helpers_and_synthetic_build(

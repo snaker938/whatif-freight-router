@@ -110,10 +110,10 @@ class Settings(BaseSettings):
 
     # Batch control (so 100+ OD runs don't overload OSRM)
     batch_concurrency: int = Field(default=8, alias="BATCH_CONCURRENCY")
-    route_cache_ttl_s: int = Field(default=600, alias="ROUTE_CACHE_TTL_S")
+    route_cache_ttl_s: int = Field(default=3600, alias="ROUTE_CACHE_TTL_S")
     route_cache_max_entries: int = Field(default=1024, alias="ROUTE_CACHE_MAX_ENTRIES")
     route_cache_max_estimated_bytes: int = Field(
-        default=256_000_000,
+        default=512_000_000,
         ge=0,
         alias="ROUTE_CACHE_MAX_ESTIMATED_BYTES",
     )
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
         alias="ROUTE_CERTIFICATION_CACHE_MAX_ESTIMATED_BYTES",
     )
     route_state_cache_ttl_s: int = Field(default=1200, alias="ROUTE_STATE_CACHE_TTL_S")
-    route_state_cache_max_entries: int = Field(default=48, alias="ROUTE_STATE_CACHE_MAX_ENTRIES")
+    route_state_cache_max_entries: int = Field(default=192, alias="ROUTE_STATE_CACHE_MAX_ENTRIES")
     route_state_cache_max_estimated_bytes: int = Field(
         default=384_000_000,
         ge=0,

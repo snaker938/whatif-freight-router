@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -301,6 +302,117 @@ def _segment_near_route(seed: TollSegmentSeed, route_points: list[tuple[float, f
     return _segment_overlap_km(seed, route_points) > 0.0
 
 
+def _route_points_key(route_points: list[tuple[float, float]]) -> tuple[tuple[float, float], ...]:
+    return tuple((float(lat), float(lon)) for lat, lon in route_points)
+
+
+@lru_cache(maxsize=1024)
+def _route_bounds(route_points_key: tuple[tuple[float, float], ...]) -> tuple[float, float, float, float] | None:
+    if not route_points_key:
+        return None
+    latitudes = [point[0] for point in route_points_key]
+    longitudes = [point[1] for point in route_points_key]
+    return (
+        min(latitudes),
+        min(longitudes),
+        max(latitudes),
+        max(longitudes),
+    )
+
+
+@lru_cache(maxsize=256)
+def _seed_bounds(seed_points_key: tuple[tuple[float, float], ...]) -> tuple[float, float, float, float] | None:
+    if not seed_points_key:
+        return None
+    latitudes = [point[0] for point in seed_points_key]
+    longitudes = [point[1] for point in seed_points_key]
+    return (
+        min(latitudes),
+        min(longitudes),
+        max(latitudes),
+        max(longitudes),
+    )
+
+
+def _route_bbox_padding_deg(route_points_key: tuple[tuple[float, float], ...]) -> tuple[float, float]:
+    if not route_points_key:
+        return (0.0, 0.0)
+    corridor_m = max(
+        600.0,
+        min(2_500.0, 400.0 + (3.0 * float(settings.route_candidate_via_budget))),
+    )
+    lat_ref = sum(point[0] for point in route_points_key) / float(len(route_points_key))
+    lat_pad = corridor_m / 111_000.0
+    lon_scale = max(0.25, math.cos(math.radians(lat_ref)))
+    lon_pad = corridor_m / (111_000.0 * lon_scale)
+    return (lat_pad, lon_pad)
+
+
+def _bounds_overlap(
+    lhs: tuple[float, float, float, float] | None,
+    rhs: tuple[float, float, float, float] | None,
+    *,
+    lat_pad: float,
+    lon_pad: float,
+) -> bool:
+    if lhs is None or rhs is None:
+        return True
+    lhs_min_lat, lhs_min_lon, lhs_max_lat, lhs_max_lon = lhs
+    rhs_min_lat, rhs_min_lon, rhs_max_lat, rhs_max_lon = rhs
+    return not (
+        rhs_max_lat < (lhs_min_lat - lat_pad)
+        or rhs_min_lat > (lhs_max_lat + lat_pad)
+        or rhs_max_lon < (lhs_min_lon - lon_pad)
+        or rhs_min_lon > (lhs_max_lon + lon_pad)
+    )
+
+
+@lru_cache(maxsize=1024)
+def _route_overlap_projection(
+    route_points_key: tuple[tuple[float, float], ...],
+    corridor_m: float,
+) -> tuple[Any | None, Any | None, float]:
+    if len(route_points_key) < 2 or _TO_WEB_M is None or LineString is None:
+        return None, None, 0.0
+    route_heading = _segment_heading_deg(
+        route_points_key[0][0],
+        route_points_key[0][1],
+        route_points_key[-1][0],
+        route_points_key[-1][1],
+    )
+    try:
+        route_line_wgs = LineString([(lon, lat) for lat, lon in route_points_key])
+        if route_line_wgs.length <= 0:
+            return None, None, route_heading
+        route_line = LineString([_TO_WEB_M.transform(x, y) for x, y in route_line_wgs.coords])
+        route_corridor = route_line.buffer(corridor_m, cap_style="flat", join_style="mitre")
+        return route_line, route_corridor, route_heading
+    except Exception:
+        return None, None, route_heading
+
+
+@lru_cache(maxsize=256)
+def _seed_overlap_projection(
+    seed_points_key: tuple[tuple[float, float], ...],
+) -> tuple[Any | None, float, float]:
+    if len(seed_points_key) < 2 or _TO_WEB_M is None or LineString is None:
+        return None, 0.0, 0.0
+    seed_heading = _segment_heading_deg(
+        seed_points_key[0][0],
+        seed_points_key[0][1],
+        seed_points_key[-1][0],
+        seed_points_key[-1][1],
+    )
+    try:
+        seed_line_wgs = LineString([(lon, lat) for lat, lon in seed_points_key])
+        if seed_line_wgs.length <= 0:
+            return None, 0.0, seed_heading
+        seed_line = LineString([_TO_WEB_M.transform(x, y) for x, y in seed_line_wgs.coords])
+        return seed_line, max(1.0, float(seed_line.length)), seed_heading
+    except Exception:
+        return None, 0.0, seed_heading
+
+
 def _direction_matches(direction: str, *, lat1: float, lon1: float, lat2: float, lon2: float) -> bool:
     d = (direction or "").strip().lower()
     if d in ("", "both", "bi", "bidirectional", "either"):
@@ -337,33 +449,20 @@ def _segment_overlap_km(seed: TollSegmentSeed, route_points: list[tuple[float, f
 
     if _TO_WEB_M is not None and LineString is not None:
         try:
-            route_line_wgs = LineString([(lon, lat) for lat, lon in route_points])
-            seed_line_wgs = LineString([(lon, lat) for lat, lon in seed.coordinates])
-            if route_line_wgs.length <= 0 or seed_line_wgs.length <= 0:
-                return 0.0
-            route_line = LineString([_TO_WEB_M.transform(x, y) for x, y in route_line_wgs.coords])
-            seed_line = LineString([_TO_WEB_M.transform(x, y) for x, y in seed_line_wgs.coords])
-            # Buffer route corridor to capture near-parallel map-matched overlap.
+            route_points_key = _route_points_key(route_points)
+            seed_points_key = tuple((float(lat), float(lon)) for lat, lon in seed.coordinates)
             corridor_m = max(40.0, min(140.0, 60.0 + (0.15 * float(settings.route_candidate_via_budget))))
-            overlap_geom = seed_line.intersection(
-                route_line.buffer(corridor_m, cap_style="flat", join_style="mitre")
+            _route_line, route_corridor, route_heading = _route_overlap_projection(
+                route_points_key,
+                corridor_m,
             )
+            seed_line, seed_len_m, seed_heading = _seed_overlap_projection(seed_points_key)
+            if route_corridor is None or seed_line is None or seed_len_m <= 0.0:
+                return 0.0
+            overlap_geom = seed_line.intersection(route_corridor)
             overlap_m = float(overlap_geom.length) if not overlap_geom.is_empty else 0.0
             if overlap_m <= 0.0:
                 return 0.0
-            seed_len_m = max(1.0, float(seed_line.length))
-            route_heading = _segment_heading_deg(
-                route_points[0][0],
-                route_points[0][1],
-                route_points[-1][0],
-                route_points[-1][1],
-            )
-            seed_heading = _segment_heading_deg(
-                seed.coordinates[0][0],
-                seed.coordinates[0][1],
-                seed.coordinates[-1][0],
-                seed.coordinates[-1][1],
-            )
             heading_delta = _heading_delta_deg(route_heading, seed_heading)
             heading_weight = max(0.30, 1.0 - (heading_delta / 180.0))
             overlap_ratio = min(1.0, overlap_m / seed_len_m)
@@ -481,6 +580,9 @@ def compute_toll_cost(
 
     # Secondary classification from open-data seed segments.
     route_points = _route_points(route)
+    route_points_key = _route_points_key(route_points)
+    route_bounds = _route_bounds(route_points_key)
+    route_lat_pad, route_lon_pad = _route_bbox_padding_deg(route_points_key)
     all_seed_segments = load_toll_segments_seed()
     overlap_rows: list[tuple[TollSegmentSeed, float]] = []
     # Long-haul routes often touch short toll assets (bridges/tunnels) for only a
@@ -488,6 +590,13 @@ def compute_toll_cost(
     min_overlap_km = 0.15
     min_overlap_ratio = 0.25
     for seed in all_seed_segments:
+        if not _bounds_overlap(
+            route_bounds,
+            _seed_bounds(tuple((float(lat), float(lon)) for lat, lon in seed.coordinates)),
+            lat_pad=route_lat_pad,
+            lon_pad=route_lon_pad,
+        ):
+            continue
         overlap_km = _segment_overlap_km(seed, route_points)
         if overlap_km < min_overlap_km:
             continue

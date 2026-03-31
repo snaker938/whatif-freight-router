@@ -14,9 +14,19 @@ from typing import Any, Iterable, Mapping, Sequence
 OBJECTIVE_NAMES: tuple[str, str, str] = ("time", "money", "co2")
 ROAD_CLASS_NAMES: tuple[str, ...] = ("motorway_share", "a_road_share", "urban_share", "other_share")
 BASELINE_SELECTION_POLICIES: tuple[str, ...] = ("first_n", "random_n", "uniform_corridor_n", "corridor_uniform")
-# Deterministic refine-cost model coefficients are fixed in-repo so the
-# predictor remains auditable and does not refit at runtime.
-_REFINE_COST_MODEL: dict[str, float] = {
+# Deterministic refine-cost coefficients are fixed in-repo so the predictor
+# stays auditable and does not refit at runtime.
+_REFINE_COST_PIPELINE_ALIASES: dict[str, str] = {
+    "": "dccs",
+    "dccs": "dccs",
+    "a": "dccs",
+    "dccs_refc": "dccs_refc",
+    "b": "dccs_refc",
+    "voi": "voi",
+    "voi_ad2r": "voi",
+    "c": "voi",
+}
+_REFINE_COST_LEGACY_MODEL: dict[str, float] = {
     "intercept": 4.75,
     "graph_length_km": 0.95,
     "stretch_excess": 10.5,
@@ -25,6 +35,120 @@ _REFINE_COST_MODEL: dict[str, float] = {
     "terrain_burden": 4.5,
     "motorway_deficit": 3.1,
     "path_nodes": 0.45,
+}
+_REFINE_COST_COMMON_MODEL: dict[str, dict[str, float]] = {
+    "dccs": {
+        "intercept": 8.316544948883,
+        "log_len": -1.781208564289,
+        "log_non_mw_len": 0.02833934631,
+        "log_urban_len": -0.117792505745,
+        "log_nodes": -0.751996656961,
+        "stretch_excess": -0.330332649015,
+        "toll_share": 0.0,
+        "terrain_burden": 0.0,
+        "slow_segment_share": 1.491476411796,
+        "speed_variability": -0.531748490181,
+        "shape_detour_factor": 0.338682866708,
+        "longhaul": -0.17855074699,
+        "log_len_sq": 0.24330902265,
+    },
+    "dccs_refc": {
+        "intercept": 12.346727119479,
+        "log_len": -3.750638983277,
+        "log_non_mw_len": 0.000629770633,
+        "log_urban_len": 0.121040429551,
+        "log_nodes": -0.52297762665,
+        "stretch_excess": -0.272413287745,
+        "toll_share": 0.0,
+        "terrain_burden": 0.0,
+        "slow_segment_share": 1.887340140024,
+        "speed_variability": -1.054155581234,
+        "shape_detour_factor": 0.538186363201,
+        "longhaul": 0.168551302625,
+        "log_len_sq": 0.413602111865,
+    },
+    "voi": {
+        "intercept": 0.869653438579,
+        "log_len": 1.319459457179,
+        "log_non_mw_len": 0.010624404589,
+        "log_urban_len": -0.06058213019,
+        "log_nodes": -0.641160806496,
+        "stretch_excess": 0.151490178159,
+        "toll_share": 0.0,
+        "terrain_burden": 0.0,
+        "slow_segment_share": 0.489105359189,
+        "speed_variability": -0.081103311811,
+        "shape_detour_factor": 0.322071159276,
+        "longhaul": 0.16990690915,
+        "log_len_sq": -0.100386641937,
+    },
+}
+_REFINE_COST_LABEL_MODEL: dict[str, dict[str, float]] = {
+    "dccs": {
+        "fallback:alternatives:direct_k_raw_fallback": 0.246679469424,
+        "fallback:exclude:motorway:direct_k_raw_fallback": 0.833019596646,
+        "fallback:via:10:direct_k_raw_fallback": 0.00930088693,
+        "fallback:via:11:direct_k_raw_fallback": 0.465577863043,
+        "fallback:via:1:direct_k_raw_fallback": 0.78249167031,
+        "fallback:via:2:direct_k_raw_fallback": 0.587636689654,
+        "fallback:via:3:direct_k_raw_fallback": 0.594770334456,
+        "fallback:via:4:direct_k_raw_fallback": 0.881871058428,
+        "fallback:via:5:direct_k_raw_fallback": 0.559265540586,
+        "fallback:via:6:direct_k_raw_fallback": 0.49688898674,
+        "fallback:via:8:direct_k_raw_fallback": 0.394571438328,
+        "fallback:via:9:direct_k_raw_fallback": -0.024937371893,
+        "support_fallback:alternatives:direct_k_raw_fallback": 0.224260840201,
+        "support_fallback:exclude:motorway:direct_k_raw_fallback": 0.610775158095,
+        "support_fallback:via:1:direct_k_raw_fallback": 0.95601736759,
+        "support_fallback:via:2:direct_k_raw_fallback": 0.348977477468,
+        "support_fallback:via:3:direct_k_raw_fallback": 0.349377942879,
+    },
+    "dccs_refc": {
+        "fallback:alternatives:direct_k_raw_fallback": 1.261852414669,
+        "fallback:exclude:motorway:direct_k_raw_fallback": 1.702632750073,
+        "fallback:via:10:direct_k_raw_fallback": 1.276698660313,
+        "fallback:via:11:direct_k_raw_fallback": 1.508299482453,
+        "fallback:via:1:direct_k_raw_fallback": 1.312117150346,
+        "fallback:via:2:direct_k_raw_fallback": 1.297725372179,
+        "fallback:via:3:direct_k_raw_fallback": 1.528403642127,
+        "fallback:via:4:direct_k_raw_fallback": 1.088373527966,
+        "fallback:via:5:direct_k_raw_fallback": 1.041159804831,
+        "fallback:via:6:direct_k_raw_fallback": 1.938250121641,
+        "fallback:via:8:direct_k_raw_fallback": 1.569484386125,
+        "fallback:via:9:direct_k_raw_fallback": 1.215120548405,
+        "support_fallback:alternatives:direct_k_raw_fallback": 1.177541675305,
+        "support_fallback:exclude:motorway:direct_k_raw_fallback": 1.967708129867,
+        "support_fallback:via:1:direct_k_raw_fallback": 1.689586436468,
+        "support_fallback:via:2:direct_k_raw_fallback": 1.65300342362,
+        "support_fallback:via:3:direct_k_raw_fallback": 1.732301921,
+    },
+    "voi": {
+        "fallback:alternatives:direct_k_raw_fallback": -0.017371115195,
+        "fallback:exclude:motorway:direct_k_raw_fallback": 0.210149661813,
+        "fallback:via:10:direct_k_raw_fallback": -0.064278847636,
+        "fallback:via:11:direct_k_raw_fallback": 0.160550067701,
+        "fallback:via:1:direct_k_raw_fallback": 0.103308504262,
+        "fallback:via:2:direct_k_raw_fallback": 0.019329174079,
+        "fallback:via:3:direct_k_raw_fallback": 0.25,
+        "fallback:via:5:direct_k_raw_fallback": 0.18,
+        "fallback:via:6:direct_k_raw_fallback": -0.066085463633,
+        "fallback:via:7:direct_k_raw_fallback": 0.469694545319,
+        "fallback:via:8:direct_k_raw_fallback": -0.025073912495,
+        "support_fallback:alternatives:direct_k_raw_fallback": 0.145700459814,
+        "support_fallback:exclude:motorway:direct_k_raw_fallback": 0.308646785787,
+        "support_fallback:via:1:direct_k_raw_fallback": 0.277864581074,
+        "support_fallback:via:2:direct_k_raw_fallback": -0.020332485812,
+        "support_fallback:via:3:direct_k_raw_fallback": -0.029380392287,
+    },
+}
+_REFINE_COST_UNLABELED_STAGELESS_LEGACY_SCALE: dict[str, float] = {
+    # Bootstrap graph candidates can legitimately arrive without a source label
+    # or stage marker. On fresh broad-suite artifacts, the unscaled legacy model
+    # overpredicts these graph-only candidates by an order of magnitude, so keep
+    # a fixed per-pipeline shrink factor in-repo rather than silently hiding the
+    # samples from calibration metrics.
+    "dccs_refc": 0.04,
+    "voi": 0.066,
 }
 
 
@@ -176,17 +300,29 @@ def _vector_stats(vectors: Sequence[tuple[float, float, float]]) -> tuple[tuple[
 def _normalised_distance(
     candidate: tuple[float, float, float],
     pool: Sequence[tuple[float, float, float]],
+    *,
+    reference_pool: Sequence[tuple[float, float, float]] = (),
 ) -> float:
     # Nearest-neighbour distance in normalized objective space is used as a
     # cheap frontier-gap surrogate before expensive refinement.
     if not pool:
         return 1.0
-    mins, scales = _vector_stats(pool)
+    scale_pool = list(pool)
+    scale_pool.extend(reference_pool)
+    _, scales = _vector_stats(scale_pool)
     best = float("inf")
     for point in pool:
         distance = math.sqrt(
             sum(
-                (((candidate[idx] - point[idx]) / scales[idx]) if scales[idx] else 0.0) ** 2
+                (
+                    (
+                        (candidate[idx] - point[idx])
+                        / max(scales[idx], abs(candidate[idx]), abs(point[idx]), 1.0)
+                    )
+                    if scales[idx]
+                    else 0.0
+                )
+                ** 2
                 for idx in range(3)
             )
         )
@@ -308,31 +444,237 @@ def _time_bonus_scale(*, objective_gap: float, mechanism_gap: float, flip_probab
     )
 
 
+def _pipeline_variant_key(value: Any) -> str:
+    token = str(value or "").strip().lower()
+    return _REFINE_COST_PIPELINE_ALIASES.get(token, "dccs")
+
+
+def _candidate_source_label(candidate: Mapping[str, Any]) -> str:
+    return str(candidate.get("candidate_source_label") or "").strip()
+
+
+def _seed_refine_cost_blend_weight(
+    *,
+    pipeline_variant: str,
+    source_label: str,
+    source_stage: str,
+) -> float:
+    normalized_stage = str(source_stage or "").strip().lower()
+    if normalized_stage not in {"direct_k_raw_fallback", "long_corridor_fallback"}:
+        return 0.0
+    normalized_label = str(source_label or "").strip().lower()
+    base_weights = {
+        "dccs": 0.58,
+        "dccs_refc": 0.68,
+        "voi": 0.52,
+    }
+    weight = base_weights.get(pipeline_variant, 0.58)
+    if ":via:" in normalized_label or normalized_label.startswith("via:"):
+        weight += 0.10
+    elif "exclude:" in normalized_label:
+        weight += 0.04
+    elif "alternatives" in normalized_label:
+        weight += 0.02
+    if normalized_label.startswith("support_fallback:"):
+        weight += 0.03
+    return max(0.25, min(0.82, weight))
+
+
+def _direct_fallback_via_label_shrink_fraction(
+    *,
+    pipeline_variant: str,
+    source_label: str,
+    source_stage: str,
+    graph_length_km: float,
+    stretch: float,
+    motorway_share: float,
+    urban_share: float,
+    toll_share: float,
+    terrain_burden: float,
+    path_nodes: float,
+) -> float:
+    normalized_stage = str(source_stage or "").strip().lower()
+    normalized_label = str(source_label or "").strip().lower()
+    normalized_variant = _pipeline_variant_key(pipeline_variant)
+    if normalized_variant not in {"dccs_refc", "voi"}:
+        return 0.0
+    if normalized_stage != "direct_k_raw_fallback" or ":via:" not in normalized_label:
+        return 0.0
+    if (
+        graph_length_km > 120.0
+        or stretch > 1.90
+        or motorway_share < 0.40
+        or urban_share > 0.12
+        or toll_share > 0.05
+        or terrain_burden > 0.10
+        or path_nodes > 14.0
+    ):
+        return 0.0
+    shrink = 0.55 if normalized_variant == "voi" else 0.45
+    if graph_length_km <= 100.0:
+        shrink += 0.08
+    if stretch <= 1.75:
+        shrink += 0.05
+    if urban_share <= 0.05:
+        shrink += 0.04
+    if normalized_label.startswith("support_fallback:"):
+        shrink += 0.03
+    return max(0.0, min(0.72, shrink))
+
+
+def _effective_refine_cost_label_weight(
+    *,
+    pipeline_variant: str,
+    source_label: str,
+    source_stage: str,
+    graph_length_km: float,
+    stretch: float,
+    motorway_share: float,
+    urban_share: float,
+    toll_share: float,
+    terrain_burden: float,
+    path_nodes: float,
+    raw_label_weight: float,
+) -> float:
+    shrink_fraction = _direct_fallback_via_label_shrink_fraction(
+        pipeline_variant=pipeline_variant,
+        source_label=source_label,
+        source_stage=source_stage,
+        graph_length_km=graph_length_km,
+        stretch=stretch,
+        motorway_share=motorway_share,
+        urban_share=urban_share,
+        toll_share=toll_share,
+        terrain_burden=terrain_burden,
+        path_nodes=path_nodes,
+    )
+    if shrink_fraction <= 0.0:
+        return raw_label_weight
+    return raw_label_weight * (1.0 - shrink_fraction)
+
+
+def _blend_seed_observed_refine_cost(
+    *,
+    predicted_cost: float,
+    seed_observed_cost_ms: float,
+    pipeline_variant: str,
+    source_label: str,
+    source_stage: str,
+) -> float:
+    if seed_observed_cost_ms <= 0.0 or not math.isfinite(seed_observed_cost_ms):
+        return predicted_cost
+    blend_weight = _seed_refine_cost_blend_weight(
+        pipeline_variant=pipeline_variant,
+        source_label=source_label,
+        source_stage=source_stage,
+    )
+    if blend_weight <= 0.0:
+        return predicted_cost
+    return ((1.0 - blend_weight) * predicted_cost) + (blend_weight * seed_observed_cost_ms)
+
+
+def _legacy_predicted_refine_cost(
+    *,
+    graph_length_km: float,
+    motorway_share: float,
+    urban_share: float,
+    toll_share: float,
+    terrain_burden: float,
+    stretch: float,
+    path_nodes: float,
+) -> float:
+    complexity = (
+        _REFINE_COST_LEGACY_MODEL["intercept"]
+        + (_REFINE_COST_LEGACY_MODEL["graph_length_km"] * graph_length_km)
+        + (_REFINE_COST_LEGACY_MODEL["stretch_excess"] * max(0.0, stretch - 1.0))
+        + (_REFINE_COST_LEGACY_MODEL["urban_share"] * urban_share)
+        + (_REFINE_COST_LEGACY_MODEL["toll_share"] * toll_share)
+        + (_REFINE_COST_LEGACY_MODEL["terrain_burden"] * terrain_burden)
+        + (_REFINE_COST_LEGACY_MODEL["motorway_deficit"] * max(0.0, 1.0 - motorway_share))
+        + (_REFINE_COST_LEGACY_MODEL["path_nodes"] * path_nodes)
+    )
+    return max(1.0, float(complexity))
+
+
 def _predicted_refine_cost(candidate: Mapping[str, Any], *, config: "DCCSConfig") -> float:
     graph_length_km = max(0.0, _as_float(candidate.get("graph_length_km", candidate.get("distance_km"))))
     road_mix = _road_mix(candidate)
-    motorway_share = road_mix.get("motorway_share", _as_float(candidate.get("motorway_share")))
-    urban_share = road_mix.get("urban_share", _as_float(candidate.get("urban_share")))
+    motorway_share = max(0.0, road_mix.get("motorway_share", _as_float(candidate.get("motorway_share"))))
+    urban_share = max(0.0, road_mix.get("urban_share", _as_float(candidate.get("urban_share"))))
     toll_share = max(0.0, _as_float(candidate.get("toll_share")))
     terrain_burden = max(0.0, _as_float(candidate.get("terrain_burden")))
     stretch = _stretch_ratio(candidate)
     path = _normalise_path(candidate.get("graph_path", candidate.get("path", candidate.get("node_ids"))))
     path_nodes = max(1.0, float(len(path) or 1))
-    # OSRM-like route realization cost is dominated by path length and urban
-    # complexity rather than the downstream route-option build stage. This
-    # heuristic is therefore calibrated in millisecond-like units so later
-    # evaluation can report meaningful MAE/MAPE instead of arbitrary ratios.
-    # See the OSRM engine overview for table/routing service behavior:
-    # https://github.com/Project-OSRM/osrm-backend/wiki/Library-Usage
-    complexity = (
-        _REFINE_COST_MODEL["intercept"]
-        + (_REFINE_COST_MODEL["graph_length_km"] * graph_length_km)
-        + (_REFINE_COST_MODEL["stretch_excess"] * max(0.0, stretch - 1.0))
-        + (_REFINE_COST_MODEL["urban_share"] * urban_share)
-        + (_REFINE_COST_MODEL["toll_share"] * toll_share)
-        + (_REFINE_COST_MODEL["terrain_burden"] * terrain_burden)
-        + (_REFINE_COST_MODEL["motorway_deficit"] * max(0.0, 1.0 - motorway_share))
-        + (_REFINE_COST_MODEL["path_nodes"] * path_nodes)
+    mechanism = _mechanism_descriptor(candidate)
+    source_label = _candidate_source_label(candidate)
+    source_stage = str(candidate.get("candidate_source_stage") or "").strip()
+    pipeline_variant = _pipeline_variant_key(getattr(config, "pipeline_variant", "dccs"))
+    seed_observed_cost_ms = max(0.0, _as_float(candidate.get("seed_observed_refine_cost_ms")))
+    legacy_cost = _legacy_predicted_refine_cost(
+        graph_length_km=graph_length_km,
+        motorway_share=motorway_share,
+        urban_share=urban_share,
+        toll_share=toll_share,
+        terrain_burden=terrain_burden,
+        stretch=stretch,
+        path_nodes=path_nodes,
+    )
+    weights = _REFINE_COST_COMMON_MODEL[pipeline_variant]
+    label_weights = _REFINE_COST_LABEL_MODEL[pipeline_variant]
+    if not source_label or source_label not in label_weights:
+        unlabeled_stageless_scale = _REFINE_COST_UNLABELED_STAGELESS_LEGACY_SCALE.get(pipeline_variant)
+        if not source_label and not source_stage and unlabeled_stageless_scale is not None:
+            predicted_cost = legacy_cost * unlabeled_stageless_scale
+        else:
+            predicted_cost = legacy_cost
+        predicted_cost = _blend_seed_observed_refine_cost(
+            predicted_cost=predicted_cost,
+            seed_observed_cost_ms=seed_observed_cost_ms,
+            pipeline_variant=pipeline_variant,
+            source_label=source_label,
+            source_stage=source_stage,
+        )
+        return max(
+            config.refinement_cost_floor,
+            predicted_cost,
+        )
+    effective_label_weight = _effective_refine_cost_label_weight(
+        pipeline_variant=pipeline_variant,
+        source_label=source_label,
+        source_stage=source_stage,
+        graph_length_km=graph_length_km,
+        stretch=stretch,
+        motorway_share=motorway_share,
+        urban_share=urban_share,
+        toll_share=toll_share,
+        terrain_burden=terrain_burden,
+        path_nodes=path_nodes,
+        raw_label_weight=label_weights[source_label],
+    )
+    log_cost = (
+        weights["intercept"]
+        + (weights["log_len"] * math.log1p(graph_length_km))
+        + (weights["log_non_mw_len"] * math.log1p(graph_length_km * max(0.0, 1.0 - motorway_share)))
+        + (weights["log_urban_len"] * math.log1p(graph_length_km * urban_share))
+        + (weights["log_nodes"] * math.log1p(path_nodes))
+        + (weights["stretch_excess"] * max(0.0, stretch - 1.0))
+        + (weights["toll_share"] * toll_share)
+        + (weights["terrain_burden"] * terrain_burden)
+        + (weights["slow_segment_share"] * max(0.0, _as_float(mechanism.get("slow_segment_share"))))
+        + (weights["speed_variability"] * max(0.0, _as_float(mechanism.get("speed_variability"))))
+        + (weights["shape_detour_factor"] * max(0.0, _as_float(mechanism.get("shape_detour_factor"))))
+        + (weights["longhaul"] * float(graph_length_km >= 200.0))
+        + (weights["log_len_sq"] * (math.log1p(graph_length_km) ** 2))
+        + effective_label_weight
+    )
+    complexity = math.exp(log_cost)
+    complexity = _blend_seed_observed_refine_cost(
+        predicted_cost=complexity,
+        seed_observed_cost_ms=seed_observed_cost_ms,
+        pipeline_variant=pipeline_variant,
+        source_label=source_label,
+        source_stage=source_stage,
     )
     return max(
         config.refinement_cost_floor,
@@ -468,12 +810,13 @@ def _overlap_to_selected(
 @dataclass(frozen=True)
 class DCCSConfig:
     mode: str = "bootstrap"
+    pipeline_variant: str = "dccs"
     search_budget: int = 3
     bootstrap_seed_size: int = 2
     refinement_cost_floor: float = 1.0
     near_duplicate_threshold: float = 0.82
     objective_gap_weight: float = 1.0
-    mechanism_gap_weight: float = 0.8
+    mechanism_gap_weight: float = 0.45
     overlap_penalty_weight: float = 1.25
     stretch_penalty_weight: float = 0.5
     cost_weight: float = 1.0
@@ -490,12 +833,15 @@ class DCCSConfig:
     bootstrap_diversity_weight: float = 0.75
     bootstrap_plausibility_weight: float = 0.30
     bootstrap_overlap_weight: float = 1.10
+    bootstrap_objective_support_weight: float = 0.55
+    bootstrap_time_preservation_weight: float = 0.45
     challenger_gain_weight: float = 1.00
     challenger_time_preservation_weight: float = 0.70
     bootstrap_corridor_penalty_weight: float = 0.55
     bootstrap_extremeness_weight: float = 0.45
     bootstrap_corridor_diversity_weight: float = 0.65
     bootstrap_overlap_decay_weight: float = 0.90
+    bootstrap_time_regret_penalty_weight: float = 0.75
     comparator_seed_penalty_weight: float = 0.45
 
 
@@ -683,10 +1029,20 @@ def _bootstrap_score(
     selected_objectives = [item.proxy_objective for item in selected]
     selected_mechanisms = [item.mechanism_descriptor for item in selected]
     pool_objectives = [item.proxy_objective for item in candidate_pool]
-    coverage = record.objective_gap if not selected else _normalised_distance(record.proxy_objective, selected_objectives)
+    coverage = (
+        record.objective_gap
+        if not selected
+        else _normalised_distance(
+            record.proxy_objective,
+            selected_objectives,
+            reference_pool=pool_objectives,
+        )
+    )
     extremeness = _extremeness_score(record.proxy_objective, pool_objectives)
     diversity = record.mechanism_gap if not selected else _mechanism_distance(record.mechanism_descriptor, selected_mechanisms)
     plausibility = 1.0 / max(1.0, record.stretch)
+    objective_support = record.objective_gap
+    time_preservation = record.time_preservation_bonus
     overlap_penalty = _overlap_to_selected(record, selected=selected)
     corridor_reuse_count = sum(1 for item in selected if item.corridor_signature == record.corridor_signature)
     corridor_diversity = 1.0 / float(1 + corridor_reuse_count)
@@ -696,9 +1052,16 @@ def _bootstrap_score(
         + (config.bootstrap_diversity_weight * diversity)
         + (config.bootstrap_corridor_diversity_weight * corridor_diversity)
         + (config.bootstrap_plausibility_weight * plausibility)
+        + (config.bootstrap_objective_support_weight * objective_support)
+        + (config.bootstrap_time_preservation_weight * time_preservation)
         + (config.bootstrap_overlap_weight * max(0.0, 1.0 - overlap_penalty))
     )
-    cost = 1.0 + (config.cost_weight * record.predicted_refine_cost) + (config.bootstrap_overlap_decay_weight * overlap_penalty)
+    cost = (
+        1.0
+        + (config.cost_weight * record.predicted_refine_cost)
+        + (config.bootstrap_overlap_decay_weight * overlap_penalty)
+        + (config.bootstrap_time_regret_penalty_weight * record.time_regret_gap)
+    )
     if corridor_reuse_count > 0:
         cost += config.bootstrap_corridor_penalty_weight * corridor_reuse_count
     if record.comparator_seeded:
@@ -712,10 +1075,17 @@ def _challenger_score(record: DCCSCandidateRecord, *, config: DCCSConfig) -> flo
         mechanism_gap=record.mechanism_gap,
         flip_probability=record.flip_probability,
     )
+    # Budget pressure should favour challengers that are both support-bearing
+    # and time-plausible; mechanism-only detours otherwise consume search
+    # budget ahead of productive via candidates on collapse-prone rows.
+    support_gate = min(
+        1.0,
+        max(0.0, record.objective_gap + (0.45 * record.time_preservation_bonus)),
+    )
     gain = (
         (config.objective_gap_weight * record.objective_gap)
-        + (config.mechanism_gap_weight * record.mechanism_gap)
-        + (config.challenger_gain_weight * record.flip_probability)
+        + (config.mechanism_gap_weight * record.mechanism_gap * support_gate)
+        + (config.challenger_gain_weight * record.flip_probability * support_gate)
         + (0.25 * (1.0 - record.overlap))
         + (config.challenger_time_preservation_weight * record.time_preservation_bonus * time_bonus_scale)
     )

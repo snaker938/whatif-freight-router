@@ -299,6 +299,146 @@ def test_fetch_scenario_live_mode_source_projection_classifier() -> None:
     assert fetch_scenario_live_uk._mode_source_is_projected("observed_telematics") is False
 
 
+def test_fetch_scenario_live_snapshot_forwards_min_source_count_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_live_context(route_context, allow_partial_sources=False, **kwargs):  # noqa: ANN001, ANN003
+        captured["route_context"] = dict(route_context)
+        captured["allow_partial_sources"] = bool(allow_partial_sources)
+        captured["min_source_count"] = kwargs.get("min_source_count")
+        return {
+            "coverage": {"overall": 0.5},
+            "source_coverage": {"webtris": 0.0, "traffic_england": 1.0, "dft": 0.0, "open_meteo": 1.0},
+            "as_of_utc": "2026-03-30T15:05:28Z",
+            "partial_source_mode": True,
+        }
+
+    monkeypatch.setattr(fetch_scenario_live_uk, "live_scenario_context", _fake_live_context)
+
+    output = tmp_path / "scenario_snapshot_partial.json"
+    snapshot = fetch_scenario_live_uk.build_snapshot(
+        output_json=output,
+        corridor_bucket="uk_default",
+        road_mix_bucket="mixed",
+        vehicle_class="rigid_hgv",
+        day_kind="weekday",
+        weather_bucket="clear",
+        centroid_lat=54.2,
+        centroid_lon=-2.3,
+        road_hint="A1",
+        hour_slot_local=12,
+        allow_partial_sources=True,
+        min_source_count=2,
+    )
+
+    assert output.exists()
+    assert snapshot["partial_source_mode"] is True
+    assert captured["allow_partial_sources"] is True
+    assert captured["min_source_count"] == 2
+
+
+def test_fetch_scenario_live_batch_retries_failed_tasks_and_persists_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_json = tmp_path / "scenario_batch_summary.json"
+    output_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    attempts: dict[str, int] = {}
+
+    def _fake_build_snapshot(**kwargs):  # noqa: ANN003
+        corridor = str(kwargs["corridor_bucket"])
+        attempts[corridor] = attempts.get(corridor, 0) + 1
+        if corridor == "retry_me" and attempts[corridor] == 1:
+            raise RuntimeError("transient_dft_failure")
+        return {
+            "corridor_bucket": corridor,
+            "day_kind": str(kwargs["day_kind"]),
+            "hour_slot_local": int(kwargs["hour_slot_local"]),
+            "as_of_utc": "2026-03-27T03:30:00Z",
+            "coverage": {"overall": 1.0},
+        }
+
+    monkeypatch.setattr(fetch_scenario_live_uk, "build_snapshot", _fake_build_snapshot)
+
+    summary = fetch_scenario_live_uk.build_batch_snapshots(
+        output_json=output_json,
+        output_jsonl=output_jsonl,
+        corridors=[
+            {"corridor": "retry_me", "lat": 54.2, "lon": -2.3, "road_hint": "A1"},
+            {"corridor": "ok_now", "lat": 52.4, "lon": -1.9, "road_hint": "M6"},
+        ],
+        road_mix_bucket="mixed",
+        vehicle_class="rigid_hgv",
+        day_kinds=["weekday"],
+        weather_bucket="clear",
+        hour_slots=[12],
+        project_modes_from_artifact=False,
+        workers=1,
+        progress_every=1,
+        retry_failed=1,
+    )
+
+    rows = [json.loads(line) for line in output_jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 2
+    assert summary["batch_count"] == 2
+    assert summary["error_count"] == 0
+    assert summary["retry_round_count"] == 1
+    assert summary["retry_attempted_task_count"] == 1
+    assert summary["retry_recovered_count"] == 1
+    assert attempts["retry_me"] == 2
+
+
+def test_fetch_scenario_live_batch_persists_partial_success_on_unresolved_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_json = tmp_path / "scenario_batch_summary.json"
+    output_jsonl = tmp_path / "scenario_live_observed.jsonl"
+
+    def _fake_build_snapshot(**kwargs):  # noqa: ANN003
+        corridor = str(kwargs["corridor_bucket"])
+        if corridor == "always_fail":
+            raise RuntimeError("permanent_failure")
+        return {
+            "corridor_bucket": corridor,
+            "day_kind": str(kwargs["day_kind"]),
+            "hour_slot_local": int(kwargs["hour_slot_local"]),
+            "as_of_utc": "2026-03-27T03:30:00Z",
+            "coverage": {"overall": 1.0},
+        }
+
+    monkeypatch.setattr(fetch_scenario_live_uk, "build_snapshot", _fake_build_snapshot)
+
+    summary = fetch_scenario_live_uk.build_batch_snapshots(
+        output_json=output_json,
+        output_jsonl=output_jsonl,
+        corridors=[
+            {"corridor": "always_fail", "lat": 54.2, "lon": -2.3, "road_hint": "A1"},
+            {"corridor": "ok_now", "lat": 52.4, "lon": -1.9, "road_hint": "M6"},
+        ],
+        road_mix_bucket="mixed",
+        vehicle_class="rigid_hgv",
+        day_kinds=["weekday"],
+        weather_bucket="clear",
+        hour_slots=[12],
+        project_modes_from_artifact=False,
+        workers=1,
+        progress_every=1,
+        retry_failed=0,
+    )
+
+    rows = [json.loads(line) for line in output_jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["corridor_bucket"] == "ok_now"
+    assert summary["batch_count"] == 1
+    assert summary["error_count"] == 1
+    assert summary["retry_round_count"] == 0
+    assert summary["errors"][0]["task_key"] == "always_fail|weekday|h12"
+
+
 def test_collect_dft_fetch_page_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr(collect_dft_raw_counts_uk.time, "sleep", lambda seconds: sleep_calls.append(float(seconds)))
@@ -753,6 +893,55 @@ def test_collect_fuel_history_main_only_uses_env_url_for_strict_external(
     assert captured["source_urls"] == ["https://example.test/live-fuel.json"]
 
 
+def test_collect_fuel_history_gov_uk_payload_follows_redirects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        def __init__(self) -> None:
+            self.url = "https://assets.publishing.service.gov.uk/media/latest/weekly_road_fuel_prices_230326.csv"
+            self.text = (
+                "\ufeffDate,"
+                "ULSP (Ultra low sulphur unleaded petrol) Pump price in pence/litre,"
+                "ULSD (Ultra low sulphur diesel) Pump price in pence/litre\n"
+                "23/03/2026,140.3,158.8\n"
+            )
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def __init__(self, *, timeout: float, follow_redirects: bool, trust_env: bool) -> None:
+            captured["timeout"] = timeout
+            captured["follow_redirects"] = follow_redirects
+            captured["trust_env"] = trust_env
+
+        def __enter__(self) -> "_FakeClient":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
+            return False
+
+        def get(self, url: str) -> _FakeResponse:
+            captured["url"] = url
+            return _FakeResponse()
+
+    monkeypatch.setattr(collect_fuel_history_raw_uk.httpx, "Client", _FakeClient)
+
+    payload = collect_fuel_history_raw_uk._gov_uk_history_payload(
+        url="https://assets.publishing.service.gov.uk/media/original/weekly_road_fuel_prices_160326.csv",
+        timeout_s=5.0,
+        output_json=tmp_path / "fuel_prices_raw.json",
+    )
+
+    assert captured["follow_redirects"] is True
+    assert captured["trust_env"] is False
+    assert payload["source_url"].endswith("weekly_road_fuel_prices_230326.csv")
+    assert len(payload["history"]) == 1
+
+
 def test_collect_carbon_intensity_raw_builds_profiles_with_stubbed_fetch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -854,7 +1043,7 @@ def test_collect_scenario_mode_outcomes_proxy_builds_projected_rows(tmp_path: Pa
         "vehicle_class": "rigid_hgv",
         "day_kind": "weekday",
         "weather_bucket": "clear",
-        "traffic_features": {"flow_index": 125.0, "speed_index": 55.0},
+        "traffic_features": {"flow_index": 125.0, "speed_index": 55.0, "dft_count_per_hour": 3300.0},
         "incident_features": {"delay_pressure": 1.0, "severity_index": 0.5},
         "weather_features": {"weather_severity_index": 1.2},
     }
@@ -873,6 +1062,7 @@ def test_collect_scenario_mode_outcomes_proxy_builds_projected_rows(tmp_path: Pa
     row = rows[0]
     assert row["mode_observation_source"] == "empirical_outcome_public_feeds_v1"
     assert row["mode_is_projected"] is False
+    assert float(row["dft_count_per_hour"]) == pytest.approx(3300.0)
     no_mode = row["modes"]["no_sharing"]
     partial_mode = row["modes"]["partial_sharing"]
     full_mode = row["modes"]["full_sharing"]

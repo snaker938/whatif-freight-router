@@ -171,6 +171,10 @@ def build(
             "weather_regime": weather_bucket,
             "flow_index": payload.get("flow_index", (payload.get("traffic_features") or {}).get("flow_index")),
             "speed_index": payload.get("speed_index", (payload.get("traffic_features") or {}).get("speed_index")),
+            "dft_count_per_hour": payload.get(
+                "dft_count_per_hour",
+                (payload.get("traffic_features") or {}).get("dft_count_per_hour"),
+            ),
             "delay_pressure": payload.get(
                 "delay_pressure",
                 (payload.get("incident_features") or {}).get("delay_pressure"),

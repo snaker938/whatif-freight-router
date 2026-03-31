@@ -68,6 +68,12 @@ def _now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _call_uncached(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+    uncached = getattr(fn, "__wrapped__", None)
+    target = uncached if callable(uncached) else fn
+    return target(*args, **kwargs)
+
+
 def _error_payload(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, ModelDataError):
         return {
@@ -85,7 +91,7 @@ def _error_payload(exc: Exception) -> dict[str, Any]:
 
 
 def _departure_profile_details() -> dict[str, Any]:
-    profile = load_departure_profile()
+    profile = _call_uncached(load_departure_profile)
     contextual = getattr(profile, "contextual", None)
     if isinstance(contextual, dict):
         region_count = len(contextual)
@@ -127,7 +133,7 @@ def _validate_check_provenance(name: str, details: dict[str, Any]) -> None:
 
 
 def _scenario_live_context_details() -> dict[str, Any]:
-    scenario_profiles = load_scenario_profiles()
+    scenario_profiles = _call_uncached(load_scenario_profiles)
     transform_params_json: str | None = None
     if isinstance(getattr(scenario_profiles, "transform_params", None), dict):
         transform_params_json = json.dumps(
@@ -136,7 +142,8 @@ def _scenario_live_context_details() -> dict[str, Any]:
             separators=(",", ":"),
             ensure_ascii=True,
         )
-    context = load_live_scenario_context(
+    context = _call_uncached(
+        load_live_scenario_context,
         corridor_bucket="gcqrs",
         road_mix_bucket="mixed",
         vehicle_class="rigid_hgv",
@@ -152,6 +159,64 @@ def _scenario_live_context_details() -> dict[str, Any]:
         "as_of_utc": str(context.as_of_utc),
         "coverage": dict(context.coverage),
         "source_set": dict(context.source_set),
+    }
+
+
+def _scenario_profile_details() -> dict[str, Any]:
+    profiles = _call_uncached(load_scenario_profiles)
+    return {
+        "version": profiles.version,
+        "source": profiles.source,
+        "calibration_basis": getattr(profiles, "calibration_basis", None),
+        "mode_observation_source": getattr(profiles, "mode_observation_source", None),
+        "contexts": len(profiles.contexts),
+    }
+
+
+def _fuel_snapshot_details() -> dict[str, Any]:
+    snapshot = _call_uncached(load_fuel_price_snapshot)
+    return {
+        "source": snapshot.source,
+        "as_of": snapshot.as_of,
+        "signature_prefix": (snapshot.signature or "")[:12],
+    }
+
+
+def _toll_tariff_details() -> dict[str, Any]:
+    tariffs = _call_uncached(load_toll_tariffs)
+    sample_rules = list(tariffs.rules)[:3]
+    return {
+        "source": tariffs.source,
+        "rule_count": len(tariffs.rules),
+        "sample_rule_ids": [
+            str(getattr(rule, "rule_id", rule.get("id", "")) if isinstance(rule, dict) else getattr(rule, "rule_id", ""))
+            for rule in sample_rules
+        ],
+        "sample_operators": [
+            str(getattr(rule, "operator", rule.get("operator", "")) if isinstance(rule, dict) else getattr(rule, "operator", ""))
+            for rule in sample_rules
+        ],
+    }
+
+
+def _toll_topology_details() -> dict[str, Any]:
+    return {
+        "segment_count": len(_call_uncached(load_toll_segments_seed)),
+    }
+
+
+def _stochastic_regime_details() -> dict[str, Any]:
+    regimes = _call_uncached(load_stochastic_regimes)
+    return {
+        "source": regimes.source,
+        "calibration_basis": getattr(regimes, "calibration_basis", None),
+        "regime_count": len(regimes.regimes),
+    }
+
+
+def _bank_holiday_details() -> dict[str, Any]:
+    return {
+        "count": len(_call_uncached(load_uk_bank_holidays)),
     }
 
 
@@ -337,13 +402,7 @@ def _run_required_checks() -> list[dict[str, Any]]:
     checks: list[tuple[str, Any]] = [
         (
             "scenario_profiles",
-            lambda: {
-                "version": load_scenario_profiles().version,
-                "source": load_scenario_profiles().source,
-                "calibration_basis": getattr(load_scenario_profiles(), "calibration_basis", None),
-                "mode_observation_source": getattr(load_scenario_profiles(), "mode_observation_source", None),
-                "contexts": len(load_scenario_profiles().contexts),
-            },
+            _scenario_profile_details,
         ),
         (
             "scenario_live_context",
@@ -351,40 +410,19 @@ def _run_required_checks() -> list[dict[str, Any]]:
         ),
         (
             "fuel_snapshot",
-            lambda: {
-                "source": load_fuel_price_snapshot().source,
-                "as_of": load_fuel_price_snapshot().as_of,
-                "signature_prefix": (load_fuel_price_snapshot().signature or "")[:12],
-            },
+            _fuel_snapshot_details,
         ),
         (
             "toll_tariffs",
-            lambda: {
-                "source": load_toll_tariffs().source,
-                "rule_count": len(load_toll_tariffs().rules),
-                "sample_rule_ids": [
-                    str(getattr(rule, "rule_id", rule.get("id", "")) if isinstance(rule, dict) else getattr(rule, "rule_id", ""))
-                    for rule in list(load_toll_tariffs().rules)[:3]
-                ],
-                "sample_operators": [
-                    str(getattr(rule, "operator", rule.get("operator", "")) if isinstance(rule, dict) else getattr(rule, "operator", ""))
-                    for rule in list(load_toll_tariffs().rules)[:3]
-                ],
-            },
+            _toll_tariff_details,
         ),
         (
             "toll_topology",
-            lambda: {
-                "segment_count": len(load_toll_segments_seed()),
-            },
+            _toll_topology_details,
         ),
         (
             "stochastic_regimes",
-            lambda: {
-                "source": load_stochastic_regimes().source,
-                "calibration_basis": getattr(load_stochastic_regimes(), "calibration_basis", None),
-                "regime_count": len(load_stochastic_regimes().regimes),
-            },
+            _stochastic_regime_details,
         ),
         (
             "departure_profiles",
@@ -392,9 +430,7 @@ def _run_required_checks() -> list[dict[str, Any]]:
         ),
         (
             "bank_holidays",
-            lambda: {
-                "count": len(load_uk_bank_holidays()),
-            },
+            _bank_holiday_details,
         ),
         (
             "carbon_policy",

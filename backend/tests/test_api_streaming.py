@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.main import CandidateDiagnostics, TerrainDiagnostics
 from app.main import app, osrm_client
+from app.model_data_errors import ModelDataError
 from app.models import (
     CostToggles,
     GeoJSONLineString,
@@ -857,6 +859,79 @@ def test_health_ready_reports_ready_when_graph_and_strict_live_ok(
     assert payload["strict_route_ready"] is True
     assert payload["recommended_action"] == "ready"
     assert payload["strict_live"]["ok"] is True
+
+
+def test_strict_live_readiness_status_uses_uncached_dependency_loaders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = {"scenario_cached": 0, "scenario_uncached": 0, "fuel_cached": 0, "fuel_uncached": 0}
+
+    def _scenario_uncached():
+        state["scenario_uncached"] += 1
+        return SimpleNamespace(
+            as_of_utc="2026-03-28T12:00:00Z",
+            generated_at_utc="2026-03-28T12:00:00Z",
+            source="live",
+            contexts={"ctx": {}},
+        )
+
+    def _scenario_cached():
+        state["scenario_cached"] += 1
+        return SimpleNamespace(
+            as_of_utc="2026-03-28T12:00:00Z",
+            generated_at_utc="2026-03-28T12:00:00Z",
+            source="cached",
+            contexts={"ctx": {}},
+        )
+
+    _scenario_cached.__wrapped__ = _scenario_uncached
+
+    def _fuel_uncached(*args, **kwargs):  # noqa: ARG001
+        state["fuel_uncached"] += 1
+        raise ModelDataError(
+            reason_code="fuel_price_source_unavailable",
+            message="stale fuel snapshot",
+            details={"as_of_utc": "2026-03-16T00:00:00Z", "max_age_days": 7},
+        )
+
+    def _fuel_cached(*args, **kwargs):  # noqa: ARG001
+        state["fuel_cached"] += 1
+        return SimpleNamespace(source="cached", as_of="2026-03-16T00:00:00Z", signature="cached")
+
+    _fuel_cached.__wrapped__ = _fuel_uncached
+
+    monkeypatch.setattr(settings, "strict_live_data_required", True)
+    monkeypatch.setattr(settings, "live_route_compute_require_all_expected", True)
+    monkeypatch.setattr(settings, "live_runtime_data_enabled", True)
+    monkeypatch.setattr(main_module, "load_scenario_profiles", _scenario_cached)
+    monkeypatch.setattr(main_module, "load_fuel_price_snapshot", _fuel_cached)
+    monkeypatch.setattr(
+        main_module,
+        "load_toll_tariffs",
+        lambda: SimpleNamespace(source="live", rules=[{"id": "rule_1"}]),
+    )
+    monkeypatch.setattr(main_module, "load_toll_segments_seed", lambda: ({"id": "seg_1"},))
+    monkeypatch.setattr(
+        main_module,
+        "load_stochastic_regimes",
+        lambda: SimpleNamespace(source="live", regimes={"weekday": {}}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_departure_profile",
+        lambda: SimpleNamespace(source="live", profiles={"uk_default": {}}),
+    )
+    monkeypatch.setattr(main_module, "load_uk_bank_holidays", lambda: frozenset({"2026-12-25"}))
+
+    readiness = main_module._strict_live_readiness_status()
+
+    assert readiness["ok"] is False
+    assert readiness["reason_code"] == "fuel_price_source_unavailable"
+    assert readiness["dependency"] == "fuel_snapshot"
+    assert state["scenario_uncached"] == 1
+    assert state["scenario_cached"] == 0
+    assert state["fuel_uncached"] == 1
+    assert state["fuel_cached"] == 0
 
 
 def test_route_failfast_when_graph_warmup_failed(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import hashlib
 import json
@@ -93,8 +94,52 @@ from scripts.evaluation_metrics import (
 from scripts.preflight_live_runtime import run_preflight
 
 VARIANTS: tuple[str, ...] = ("V0", "A", "B", "C")
+THESIS_CACHE_MODES: tuple[str, ...] = ("preserve", "cold")
+THESIS_COLD_CACHE_SCOPE = "thesis_cold"
+HOT_RERUN_COLD_CACHE_SCOPE = "hot_rerun_cold_source"
+THESIS_COLD_CACHE_SCOPES: tuple[str, ...] = (
+    THESIS_COLD_CACHE_SCOPE,
+    HOT_RERUN_COLD_CACHE_SCOPE,
+)
 VARIANT_PIPELINE_MODE = {"V0": "legacy", "A": "dccs", "B": "dccs_refc", "C": "voi"}
 STRICT_EVIDENCE_POLICY = "no_synthetic_no_proxy_no_fallback"
+EVALUATION_SUITE_ROLE_DEFAULTS: dict[str, dict[str, str]] = {
+    "generic_evaluation": {
+        "scope": "generic",
+        "focus": "all",
+        "label": "Generic evaluation",
+    },
+    "broad_cold_proof": {
+        "scope": "broad",
+        "focus": "all",
+        "label": "Broad cold thesis proof",
+    },
+    "focused_refc_proof": {
+        "scope": "focused",
+        "focus": "refc",
+        "label": "Focused REFC proof",
+    },
+    "focused_voi_proof": {
+        "scope": "focused",
+        "focus": "voi",
+        "label": "Focused VOI proof",
+    },
+    "dccs_diagnostic_probe": {
+        "scope": "probe",
+        "focus": "dccs",
+        "label": "DCCS diagnostic probe",
+    },
+    "hot_rerun_cold_source": {
+        "scope": "hot_rerun_source",
+        "focus": "runtime_reuse",
+        "label": "Hot rerun cold source",
+    },
+    "hot_rerun": {
+        "scope": "hot_rerun",
+        "focus": "runtime_reuse",
+        "label": "Hot rerun proof",
+    },
+}
 FRONTIER_ARTIFACT = "strict_frontier.jsonl"
 ARTEFACT_JSON_NAMES = (
     "metadata.json",
@@ -184,6 +229,22 @@ SUMMARY_FIELDS = [
     "balanced_denominator_v0",
     "balanced_win_rate_best_baseline",
     "balanced_denominator_best_baseline",
+    "time_preserving_win_rate",
+    "time_preserving_denominator",
+    "time_preserving_win_rate_osrm",
+    "time_preserving_denominator_osrm",
+    "time_preserving_win_rate_ors",
+    "time_preserving_denominator_ors",
+    "time_preserving_win_rate_best_baseline",
+    "time_preserving_denominator_best_baseline",
+    "time_preserving_dominance_rate",
+    "time_preserving_dominance_denominator",
+    "time_preserving_dominance_rate_osrm",
+    "time_preserving_dominance_denominator_osrm",
+    "time_preserving_dominance_rate_ors",
+    "time_preserving_dominance_denominator_ors",
+    "time_preserving_dominance_rate_best_baseline",
+    "time_preserving_dominance_denominator_best_baseline",
     "robust_win_rate_osrm",
     "robust_denominator_osrm",
     "robust_win_rate_ors",
@@ -408,6 +469,16 @@ SUMMARY_FIELDS = [
     "mean_controller_shortcut_rate",
     "mean_voi_stop_after_certification_rate",
     "mean_controller_stress_rate",
+    "controller_stress_row_count",
+    "scenario_profile_unavailable_rate",
+    "strict_live_readiness_pass_rate",
+    "evaluation_rerun_success_rate",
+    "controller_refresh_fallback_activation_rate",
+    "controller_empirical_vs_raw_refresh_disagreement_rate",
+    "broad_hard_case_certificate_selectivity_rate",
+    "broad_hard_case_evidence_first_engagement_rate",
+    "broad_hard_case_productive_voi_action_rate",
+    "broad_hard_case_refc_signal_presence_rate",
     "mean_weighted_margin_gain_vs_v0",
     "mean_balanced_gain_delta_vs_v0_score",
     "mean_duration_gain_vs_v0_s",
@@ -473,6 +544,8 @@ RESULT_FIELDS = [
     "weighted_win_best_baseline", "weighted_margin_vs_osrm", "weighted_margin_vs_ors",
     "weighted_margin_vs_v0", "weighted_margin_vs_best_baseline",
     "balanced_win_osrm", "balanced_win_ors", "balanced_win_v0", "balanced_win_best_baseline",
+    "time_preserving_win_osrm", "time_preserving_win_ors", "time_preserving_win_best_baseline",
+    "time_preserving_dominance_osrm", "time_preserving_dominance_ors", "time_preserving_dominance_best_baseline",
     "best_baseline_provider", "balanced_gain_vs_osrm_score", "balanced_gain_vs_ors_score",
     "robust_win_osrm", "robust_win_ors",
     "frontier_hypervolume", "frontier_coverage_osrm", "frontier_coverage_ors", "frontier_epsilon_osrm",
@@ -522,13 +595,16 @@ RESULT_FIELDS = [
     "pending_challenger_mass", "best_pending_flip_probability", "corridor_family_recall",
     "frontier_recall_at_budget", "credible_search_uncertainty", "credible_evidence_uncertainty",
     "supported_hard_case", "evidence_first_engagement", "evidence_only_engagement", "first_controller_action_kind",
+    "controller_refresh_ranking_basis", "controller_top_refresh_family", "controller_top_refresh_gain",
+    "controller_refresh_fallback_activated", "controller_empirical_vs_raw_refresh_disagreement",
     "voi_dccs_cache_hits", "voi_dccs_cache_misses", "voi_dccs_cache_hit_rate",
     "ambiguity_absolute_error", "supported_ambiguity_alignment",
     "realized_diversity_collapse", "realized_diversity_collapse_reason", "realized_raw_corridor_family_count",
     "realized_refined_corridor_family_count", "supplemental_challenger_activated", "supplemental_challenger_source_count",
     "supplemental_challenger_candidate_count", "supplemental_challenger_selected_count",
     "supplemental_challenger_budget_used", "selected_candidate_source_label", "selected_candidate_source_engine",
-    "selected_candidate_source_stage", "selected_from_supplemental_rescue", "selected_from_comparator_engine",
+    "selected_candidate_source_stage", "selected_final_route_source_label", "selected_final_route_source_engine",
+    "selected_final_route_source_stage", "selected_from_supplemental_rescue", "selected_from_comparator_engine",
     "controller_value_per_second",
     "backend_ready_wait_ms", "backend_ready_probe_ms", "route_graph_warmup_elapsed_ms", "preflight_ms",
     "process_rss_mb", "process_vms_mb", "route_cache_hits", "route_cache_misses", "route_cache_hit_rate",
@@ -760,6 +836,13 @@ def _bool_or_default(value: Any, default: bool) -> bool:
     return bool(default)
 
 
+def _time_preserving_outcome(*, duration_delta_s: Any, quality_win: Any) -> bool | None:
+    duration_delta = as_float(duration_delta_s, float("nan"))
+    if not math.isfinite(duration_delta):
+        return None
+    return bool(quality_win) and duration_delta <= 0.0
+
+
 def _datetime_or_none(value: Any) -> datetime | None:
     text = _text_or_none(value)
     if text is None:
@@ -815,9 +898,54 @@ def _valid_refine_cost_rows(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[s
     return valid_rows
 
 
+def _action_candidate_ids(action_entry: Mapping[str, Any], *, key: str) -> list[str]:
+    containers = [action_entry]
+    chosen_action = action_entry.get("chosen_action")
+    if isinstance(chosen_action, Mapping):
+        containers.append(chosen_action)
+    for container in containers:
+        raw_value = container.get(key)
+        if isinstance(raw_value, Sequence) and not isinstance(raw_value, (str, bytes, bytearray)):
+            candidate_ids = [str(item).strip() for item in raw_value if str(item).strip()]
+            if candidate_ids:
+                return candidate_ids
+        if isinstance(raw_value, str):
+            candidate_id = raw_value.strip()
+            if candidate_id:
+                return [candidate_id]
+    return []
+
+
 def _row_override_source(od: dict[str, Any]) -> dict[str, Any]:
     row_overrides = od.get("row_overrides")
     return row_overrides if isinstance(row_overrides, dict) else od
+
+
+def _parse_row_overrides(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        parsed = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        parsed = None
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                candidate = loader(text)
+            except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(candidate, Mapping):
+                parsed = candidate
+                break
+        if parsed is None:
+            return {}
+    else:
+        return {}
+    return {
+        str(key): parsed[key]
+        for key in ROW_OVERRIDE_FIELDS
+        if key in parsed and _text_or_none(parsed[key]) is not None
+    }
 
 
 def _support_gated_ambiguity_budget_prior(od: Mapping[str, Any], raw_prior: float) -> float:
@@ -1127,7 +1255,8 @@ def _load_rows(rows: list[dict[str, Any]], *, seed: int, max_od: int) -> list[di
         ambiguity_value = normalized_row.get("ambiguity_index")
         if ambiguity_value in (None, ""):
             ambiguity_value = normalized_row.get("od_ambiguity_index")
-        row_overrides = {key: normalized_row.get(key) for key in ROW_OVERRIDE_FIELDS if _text_or_none(normalized_row.get(key)) is not None}
+        row_overrides = _parse_row_overrides(normalized_row.get("row_overrides"))
+        row_overrides.update({key: normalized_row.get(key) for key in ROW_OVERRIDE_FIELDS if _text_or_none(normalized_row.get(key)) is not None})
         out.append(
             {
                 "od_id": str(normalized_row.get("od_id") or f"od-{index:06d}"),
@@ -1137,7 +1266,7 @@ def _load_rows(rows: list[dict[str, Any]], *, seed: int, max_od: int) -> list[di
                 "destination_lon": float(normalized_row["destination_lon"]),
                 "straight_line_km": round(distance_km, 6),
                 "trip_length_bin": str(normalized_row.get("distance_bin") or _bin(distance_km)),
-                "seed": int(seed),
+                "seed": _int_or_default(normalized_row.get("seed"), int(seed)),
                 "profile_id": profile_id,
                 "corpus_group": corpus_group,
                 "corpus_kind": corpus_kind,
@@ -1171,6 +1300,8 @@ def _load_rows(rows: list[dict[str, Any]], *, seed: int, max_od: int) -> list[di
                 "ambiguity_prior_support_count": int(as_float(normalized_row.get("ambiguity_prior_support_count"), 0.0)),
                 "ambiguity_budget_prior": budget_prior,
                 "ambiguity_budget_prior_gap": budget_prior_gap,
+                "ambiguity_prior_source": _text_or_none(normalized_row.get("ambiguity_prior_source")),
+                "corridor_bucket": _text_or_none(normalized_row.get("corridor_bucket")),
                 "budget_prior_exceeds_raw": bool(
                     budget_prior is not None
                     and math.isfinite(raw_ambiguity_prior)
@@ -1228,6 +1359,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stochastic-enabled", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--stochastic-samples", type=int, default=25)
     parser.add_argument("--route-timeout-seconds", type=float, default=600.0)
+    parser.add_argument(
+        "--cache-mode",
+        choices=THESIS_CACHE_MODES,
+        default="preserve",
+        help="`cold` clears backend route/process caches before each variant solve; `preserve` keeps intra-run cache carryover.",
+    )
+    parser.add_argument(
+        "--cold-cache-scope",
+        choices=THESIS_COLD_CACHE_SCOPES,
+        default=THESIS_COLD_CACHE_SCOPE,
+        help="Cache-clear scope used when `--cache-mode=cold` is active.",
+    )
     parser.add_argument("--weight-time", type=float, default=1.0)
     parser.add_argument("--weight-money", type=float, default=1.0)
     parser.add_argument("--weight-co2", type=float, default=1.0)
@@ -1244,7 +1387,75 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--allow-proxy-ors", action="store_true", help="Allow proxy-labelled secondary baseline responses in thesis evaluation output.")
     parser.add_argument("--allow-evidence-fallbacks", action="store_true", help="Allow fallback/proxy evidence provenance in selected thesis routes.")
+    parser.add_argument(
+        "--evaluation-suite-role",
+        default=None,
+        help="Optional explicit suite-role label written into metadata/evaluation manifests to distinguish broad, focused, probe, and hot-rerun artifacts.",
+    )
     return parser
+
+
+def _suite_role_descriptor(role: str | None) -> dict[str, str]:
+    requested_role = _text_or_none(role)
+    normalized_role = (
+        requested_role.strip().lower().replace("-", "_").replace(" ", "_")
+        if requested_role is not None
+        else "generic_evaluation"
+    )
+    defaults = EVALUATION_SUITE_ROLE_DEFAULTS.get(
+        normalized_role,
+        EVALUATION_SUITE_ROLE_DEFAULTS["generic_evaluation"],
+    )
+    return {
+        "role": normalized_role,
+        "scope": defaults["scope"],
+        "focus": defaults["focus"],
+        "label": defaults["label"],
+    }
+
+
+def _resolve_evaluation_suite_metadata(
+    *,
+    args: argparse.Namespace,
+    corpus_source_path: str | None,
+    run_id: str,
+) -> dict[str, str]:
+    explicit_role = _text_or_none(getattr(args, "evaluation_suite_role", None))
+    if explicit_role is not None:
+        return {
+            **_suite_role_descriptor(explicit_role),
+            "source": "explicit_arg",
+        }
+
+    inference_inputs = (
+        ("corpus_source_path", _text_or_none(corpus_source_path)),
+        ("run_id", _text_or_none(run_id)),
+    )
+    for source_name, raw_text in inference_inputs:
+        hint = (raw_text or "").strip().lower()
+        if not hint:
+            continue
+        if "hot_rerun" in hint:
+            role = "hot_rerun"
+        elif "dccs_probe" in hint or ("dccs" in hint and "probe" in hint):
+            role = "dccs_diagnostic_probe"
+        elif "refc_focus" in hint or ("refc" in hint and "focus" in hint):
+            role = "focused_refc_proof"
+        elif "voi_focus" in hint or ("voi" in hint and "focus" in hint):
+            role = "focused_voi_proof"
+        elif "thesis_broad" in hint or "broad" in hint:
+            role = "broad_cold_proof"
+        else:
+            role = ""
+        if role:
+            return {
+                **_suite_role_descriptor(role),
+                "source": f"inferred_from_{source_name}",
+            }
+    return {
+        **_suite_role_descriptor("generic_evaluation"),
+        "source": "default_generic",
+    }
 
 
 def _wait_for_backend_ready(
@@ -1370,9 +1581,33 @@ def _variant_specs_for_od(args: argparse.Namespace, *, od_index: int) -> list[Va
     return _variant_specs(args)
 
 
-def _variant_seed(args: argparse.Namespace, *, od_index: int, variant_id: str) -> int:
+def _stable_row_variant_seed(od: Mapping[str, Any], *, base_seed: int) -> int:
+    row_overrides = od.get("row_overrides")
+    normalized_overrides = (
+        {str(key): row_overrides[key] for key in sorted(row_overrides)}
+        if isinstance(row_overrides, Mapping)
+        else {}
+    )
+    seed_material = {
+        "base_seed": int(base_seed),
+        "od_id": str(od.get("od_id") or ""),
+        "profile_id": str(od.get("profile_id") or ""),
+        "corpus_group": str(od.get("corpus_group") or ""),
+        "origin_lat": round(as_float(od.get("origin_lat"), 0.0), 6),
+        "origin_lon": round(as_float(od.get("origin_lon"), 0.0), 6),
+        "destination_lat": round(as_float(od.get("destination_lat"), 0.0), 6),
+        "destination_lon": round(as_float(od.get("destination_lon"), 0.0), 6),
+        "row_overrides": normalized_overrides,
+    }
+    digest = hashlib.sha1(json.dumps(seed_material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
+
+
+def _variant_seed(args: argparse.Namespace, od: Mapping[str, Any], *, od_index: int, variant_id: str) -> int:
+    del od_index
     del variant_id
-    return int(args.seed) + int(od_index)
+    base_seed = _int_or_default(od.get("seed"), int(args.seed))
+    return _stable_row_variant_seed(od, base_seed=int(base_seed))
 
 
 def _variant_payload(
@@ -1408,6 +1643,27 @@ def _post_json(client: httpx.Client, url: str, payload: dict[str, Any]) -> tuple
     if isinstance(compute_ms, (int, float)):
         return data, round(float(compute_ms), 3)
     return data, wall_ms
+
+
+def _normalize_cache_mode(value: Any) -> str:
+    candidate = str(value or "preserve").strip().lower()
+    return candidate if candidate in THESIS_CACHE_MODES else "preserve"
+
+
+def _clear_backend_caches(
+    client: Any,
+    *,
+    backend_url: str,
+    scope: str = THESIS_COLD_CACHE_SCOPE,
+) -> dict[str, Any]:
+    response = client.delete(_absolute_url(backend_url, f"/cache?scope={scope}"))
+    status_code = int(getattr(response, "status_code", 500))
+    if status_code >= 400:
+        raise RuntimeError(f"cache_clear_failed:{status_code}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError("cache_clear_invalid_payload")
+    return {str(key): payload[key] for key in payload}
 
 
 def _baseline_smoke_payload() -> dict[str, Any]:
@@ -1807,6 +2063,56 @@ def _top_refresh_stats(value_of_refresh: dict[str, Any]) -> tuple[str | None, fl
     return top_family, round(top_vor, 6), round(top_vor - as_float(second.get("vor"), 0.0), 6)
 
 
+def _controller_refresh_stats(
+    value_of_refresh: Mapping[str, Any],
+) -> tuple[str | None, str | None, float | None, bool | None, bool | None]:
+    empirical_top_family, empirical_top_gain, _ = _top_refresh_stats(dict(value_of_refresh))
+    controller_ranking_basis = str(value_of_refresh.get("controller_ranking_basis") or "").strip() or None
+    controller_top_family = str(value_of_refresh.get("top_refresh_family_controller") or "").strip() or None
+    controller_top_gain = as_float(value_of_refresh.get("top_refresh_gain_controller"), float("nan"))
+    controller_ranking = value_of_refresh.get("controller_ranking", [])
+    if isinstance(controller_ranking, list) and controller_ranking:
+        first = controller_ranking[0] if isinstance(controller_ranking[0], Mapping) else {}
+        if controller_top_family is None:
+            controller_top_family = str(first.get("family") or "").strip() or None
+        if not math.isfinite(controller_top_gain):
+            controller_top_gain = as_float(first.get("controller_score"), float("nan"))
+    if not math.isfinite(controller_top_gain):
+        controller_top_gain = None
+    fallback_activated = (
+        controller_ranking_basis == "raw_refresh_gain_fallback"
+        if controller_ranking_basis is not None
+        else None
+    )
+    disagreement = None
+    if fallback_activated is not None:
+        zero_to_nonzero_signal_upgrade = bool(
+            fallback_activated
+            and controller_top_gain is not None
+            and controller_top_gain > 1e-9
+            and (empirical_top_gain is None or empirical_top_gain <= 1e-9)
+        )
+        disagreement = bool(
+            fallback_activated
+            and (
+                controller_top_family != empirical_top_family
+                or zero_to_nonzero_signal_upgrade
+                or (
+                    controller_top_gain is not None
+                    and empirical_top_gain is not None
+                    and controller_top_gain > empirical_top_gain + 1e-9
+                )
+            )
+        )
+    return (
+        controller_ranking_basis,
+        controller_top_family,
+        round(controller_top_gain, 6) if controller_top_gain is not None else None,
+        fallback_activated,
+        disagreement,
+    )
+
+
 def _certificate_map(certificate_summary: dict[str, Any]) -> dict[str, float]:
     if not isinstance(certificate_summary, dict):
         return {}
@@ -2100,7 +2406,16 @@ def _voi_action_productivity(
     total = 0
     productive = 0
     nonproductive_refine = 0
-    for entry in voi_entries:
+    first_productive_index: int | None = None
+    for index, entry in enumerate(voi_entries):
+        kind = _chosen_action_kind(entry)
+        if not kind or kind == "stop":
+            continue
+        if _action_realized_productive(entry) is True:
+            first_productive_index = index
+            break
+    leading_refine_probe_credit_remaining = first_productive_index is not None
+    for index, entry in enumerate(voi_entries):
         kind = _chosen_action_kind(entry)
         if not kind or kind == "stop":
             continue
@@ -2109,6 +2424,22 @@ def _voi_action_productivity(
         if productive_flag is True:
             productive += 1
         elif productive_flag is False and _is_refine_action(kind):
+            # A single leading nonproductive refine can be an exploratory probe
+            # that exposes the later productive controller phase rather than churn.
+            leading_refine_probe = bool(
+                leading_refine_probe_credit_remaining
+                and first_productive_index is not None
+                and index < first_productive_index
+                and all(
+                    _is_refine_action(_chosen_action_kind(prefix_entry))
+                    and _action_realized_productive(prefix_entry) is False
+                    for prefix_entry in voi_entries[: index + 1]
+                    if _chosen_action_kind(prefix_entry) not in {"", "stop"}
+                )
+            )
+            if leading_refine_probe:
+                leading_refine_probe_credit_remaining = False
+                continue
             nonproductive_refine += 1
     return productive, total, nonproductive_refine
 
@@ -2135,6 +2466,37 @@ def _is_evidence_action(kind: str) -> bool:
 
 def _is_refine_action(kind: str) -> bool:
     return str(kind or "").strip().lower().startswith("refine")
+
+
+def _result_refine_cost_rows(
+    candidate_rows: Sequence[Mapping[str, Any]],
+    *,
+    pipeline_mode: str,
+    voi_entries: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    valid_rows = _valid_refine_cost_rows(candidate_rows)
+    if pipeline_mode != "voi" or not valid_rows:
+        return valid_rows
+
+    refine_entries = [entry for entry in voi_entries if _is_refine_action(_chosen_action_kind(entry))]
+    if not refine_entries:
+        return []
+
+    executed_candidate_ids: set[str] = set()
+    executed_metadata_seen = False
+    for entry in refine_entries:
+        entry_candidate_ids = _action_candidate_ids(entry, key="executed_candidate_ids")
+        if entry_candidate_ids:
+            executed_metadata_seen = True
+            executed_candidate_ids.update(entry_candidate_ids)
+    if not executed_metadata_seen:
+        return valid_rows
+
+    return [
+        row
+        for row in valid_rows
+        if str(row.get("candidate_id") or "").strip() in executed_candidate_ids
+    ]
 
 
 def _first_controller_action_kind(voi_entries: Sequence[Mapping[str, Any]]) -> str | None:
@@ -2201,9 +2563,58 @@ def _time_to_certification_ms(
     return round(voi_stage, 6)
 
 
+def _voi_realized_certificate_lift(
+    *,
+    voi_entries: Sequence[Mapping[str, Any]],
+    initial_certificate: float | None,
+    certificate: float | None,
+) -> float | None:
+    initial = as_float(initial_certificate, float("nan"))
+    final_certificate = as_float(certificate, float("nan"))
+    if math.isfinite(initial) and math.isfinite(final_certificate):
+        return round(final_certificate - initial, 6)
+    cumulative_delta = 0.0
+    observed_delta = False
+    for entry in voi_entries:
+        delta = _action_realized_certificate_delta(entry)
+        if delta is None:
+            continue
+        cumulative_delta += delta
+        observed_delta = True
+    if observed_delta:
+        return round(cumulative_delta, 6)
+    return None
+
+
 def _option_build_reuse_rate(trace: Mapping[str, Any], trace_candidate_diag: Mapping[str, Any]) -> float | None:
+    route_option_runtime = (
+        trace.get("route_option_cache_runtime")
+        if isinstance(trace.get("route_option_cache_runtime"), Mapping)
+        else {}
+    )
+    option_build_runtime = (
+        trace.get("option_build_runtime")
+        if isinstance(trace.get("option_build_runtime"), Mapping)
+        else {}
+    )
+
+    def _runtime_has_signal(runtime: Mapping[str, Any]) -> bool:
+        hits = as_float(runtime.get("cache_hits"), float("nan"))
+        misses = as_float(runtime.get("cache_misses"), float("nan"))
+        reuse_rate = as_float(runtime.get("reuse_rate"), float("nan"))
+        return (
+            math.isfinite(hits)
+            and float(hits) > 0.0
+        ) or (
+            math.isfinite(misses)
+            and float(misses) > 0.0
+        ) or (
+            math.isfinite(reuse_rate)
+        )
+
     explicit_candidates: Sequence[Any] = (
-        ((trace.get("option_build_runtime") or {}) if isinstance(trace.get("option_build_runtime"), Mapping) else {}).get("reuse_rate"),
+        route_option_runtime.get("reuse_rate") if _runtime_has_signal(route_option_runtime) else None,
+        option_build_runtime.get("reuse_rate") if _runtime_has_signal(option_build_runtime) else None,
         trace_candidate_diag.get("option_build_reuse_rate"),
     )
     for raw_value in explicit_candidates:
@@ -2211,6 +2622,30 @@ def _option_build_reuse_rate(trace: Mapping[str, Any], trace_candidate_diag: Map
         if math.isfinite(value):
             return round(value, 6)
     return None
+
+
+def _option_build_cache_runtime(trace: Mapping[str, Any]) -> Mapping[str, Any]:
+    route_option_runtime = (
+        trace.get("route_option_cache_runtime")
+        if isinstance(trace.get("route_option_cache_runtime"), Mapping)
+        else {}
+    )
+    option_build_runtime = (
+        trace.get("option_build_runtime")
+        if isinstance(trace.get("option_build_runtime"), Mapping)
+        else {}
+    )
+
+    def _event_count(runtime: Mapping[str, Any]) -> int:
+        hits = as_float(runtime.get("cache_hits"), float("nan"))
+        misses = as_float(runtime.get("cache_misses"), float("nan"))
+        return int(max(0.0, hits if math.isfinite(hits) else 0.0)) + int(
+            max(0.0, misses if math.isfinite(misses) else 0.0)
+        )
+
+    if _event_count(route_option_runtime) > 0:
+        return route_option_runtime
+    return option_build_runtime
 
 
 def _controller_state_rows(artifacts: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -2342,6 +2777,18 @@ def _observed_ambiguity_index(row: Mapping[str, Any]) -> float | None:
     action_count = as_float(row.get("voi_action_count"), float("nan"))
     if math.isfinite(action_count):
         signals.append(min(1.0, max(0.0, action_count) / 4.0))
+    pending_challenger_mass = as_float(row.get("pending_challenger_mass"), float("nan"))
+    if math.isfinite(pending_challenger_mass):
+        signals.append(min(1.0, max(0.0, pending_challenger_mass)))
+    best_pending_flip_probability = as_float(row.get("best_pending_flip_probability"), float("nan"))
+    if math.isfinite(best_pending_flip_probability):
+        signals.append(min(1.0, max(0.0, best_pending_flip_probability)))
+    search_completeness_gap = as_float(row.get("search_completeness_gap"), float("nan"))
+    if math.isfinite(search_completeness_gap):
+        signals.append(min(1.0, max(0.0, search_completeness_gap)))
+    prior_support_strength = as_float(row.get("prior_support_strength"), float("nan"))
+    if math.isfinite(prior_support_strength):
+        signals.append(min(1.0, max(0.0, prior_support_strength)))
     if not signals:
         return None
     return round(sum(signals) / len(signals), 6)
@@ -2689,11 +3136,13 @@ def _result_row(
     controller_rows = _controller_state_rows(artifacts)
     trace_candidate_diag = trace.get("candidate_diagnostics", {}) if isinstance(trace, dict) else {}
     trace_resource_usage = trace.get("resource_usage", {}) if isinstance(trace, dict) else {}
+    trace_route_cache_runtime = trace.get("route_cache_runtime", {}) if isinstance(trace, dict) else {}
     trace_route_cache = trace.get("route_cache_stats", {}) if isinstance(trace, dict) else {}
     trace_route_state_cache = trace.get("route_state_cache_stats", {}) if isinstance(trace, dict) else {}
     trace_diversity_rescue = trace.get("diversity_rescue", {}) if isinstance(trace, dict) else {}
     trace_cert_runtime = trace.get("certification_runtime", {}) if isinstance(trace, dict) else {}
     trace_option_build_runtime = trace.get("option_build_runtime", {}) if isinstance(trace, dict) else {}
+    trace_route_option_cache_runtime = trace.get("route_option_cache_runtime", {}) if isinstance(trace, dict) else {}
     readiness = dict(readiness_summary or {})
     readiness_route_graph = readiness.get("route_graph", {}) if isinstance(readiness, Mapping) else {}
     frontier_rows = [_normalize_frontier_row(row) for row in artifacts.get(FRONTIER_ARTIFACT, []) if isinstance(row, dict)]
@@ -2726,6 +3175,13 @@ def _result_row(
         {},
     )
     top_refresh_family, top_vor, top_vor_gap = _top_refresh_stats(value_of_refresh)
+    (
+        controller_refresh_ranking_basis,
+        controller_top_refresh_family,
+        controller_top_refresh_gain,
+        controller_refresh_fallback_activated,
+        controller_empirical_vs_raw_refresh_disagreement,
+    ) = _controller_refresh_stats(value_of_refresh)
     initial_top_refresh_family, initial_top_vor, initial_top_vor_gap = _top_refresh_stats(
         initial_value_of_refresh,
     )
@@ -2786,8 +3242,22 @@ def _result_row(
     runtime_gap_vs_ors_ms = round(runtime_ms - ors.compute_ms, 3)
     algorithm_runtime_gap_vs_osrm_ms = round(algorithm_runtime_ms - osrm.compute_ms, 3)
     algorithm_runtime_gap_vs_ors_ms = round(algorithm_runtime_ms - ors.compute_ms, 3)
-    route_cache_hits = int(as_float((trace_route_cache or {}).get("hits"), 0.0)) if isinstance(trace_route_cache, Mapping) else None
-    route_cache_misses = int(as_float((trace_route_cache or {}).get("misses"), 0.0)) if isinstance(trace_route_cache, Mapping) else None
+    route_cache_hits = (
+        int(as_float((trace_route_cache_runtime or {}).get("cache_hits"), float("nan")))
+        if isinstance(trace_route_cache_runtime, Mapping)
+        and math.isfinite(as_float((trace_route_cache_runtime or {}).get("cache_hits"), float("nan")))
+        else int(as_float((trace_route_cache or {}).get("hits"), 0.0))
+        if isinstance(trace_route_cache, Mapping)
+        else None
+    )
+    route_cache_misses = (
+        int(as_float((trace_route_cache_runtime or {}).get("cache_misses"), float("nan")))
+        if isinstance(trace_route_cache_runtime, Mapping)
+        and math.isfinite(as_float((trace_route_cache_runtime or {}).get("cache_misses"), float("nan")))
+        else int(as_float((trace_route_cache or {}).get("misses"), 0.0))
+        if isinstance(trace_route_cache, Mapping)
+        else None
+    )
     route_cache_hit_rate = runtime_share(route_cache_hits, (route_cache_hits or 0) + (route_cache_misses or 0))
     route_state_cache_hits = (
         int(as_float((trace_option_build_runtime or {}).get("cache_hits_global"), float("nan")))
@@ -2838,17 +3308,32 @@ def _result_row(
         or (selected_primary_candidate.get("candidate_source_stage") if isinstance(selected_primary_candidate, Mapping) else None)
         or ""
     ).strip() or None
+    selected_final_route_source_label = str(
+        (dccs_summary.get("selected_final_route_source_label") if isinstance(dccs_summary, Mapping) else None)
+        or selected_candidate_source_label
+        or ""
+    ).strip() or None
+    selected_final_route_source_engine = str(
+        (dccs_summary.get("selected_final_route_source_engine") if isinstance(dccs_summary, Mapping) else None)
+        or selected_candidate_source_engine
+        or ""
+    ).strip() or None
+    selected_final_route_source_stage = str(
+        (dccs_summary.get("selected_final_route_source_stage") if isinstance(dccs_summary, Mapping) else None)
+        or selected_candidate_source_stage
+        or ""
+    ).strip() or None
     selected_from_supplemental_rescue = bool(
         (dccs_summary.get("selected_from_supplemental_rescue") if isinstance(dccs_summary, Mapping) else False)
         or (selected_primary_candidate.get("supplemental_diversity_rescue") if isinstance(selected_primary_candidate, Mapping) else False)
-        or selected_candidate_source_stage == "supplemental_diversity_rescue"
+        or selected_final_route_source_stage == "supplemental_diversity_rescue"
     )
     selected_from_comparator_engine = bool(
-        selected_candidate_source_engine in {"osrm", "ors_local", "ors_local_seed"}
+        selected_final_route_source_engine in {"osrm", "ors_local", "ors_local_seed"}
     )
     selected_from_preemptive_comparator_seed = bool(
         (dccs_summary.get("selected_from_preemptive_comparator_seed") if isinstance(dccs_summary, Mapping) else False)
-        or selected_candidate_source_stage == "preemptive_comparator_seed"
+        or selected_final_route_source_stage == "preemptive_comparator_seed"
     )
     preemptive_comparator_seeded = bool(
         as_float((trace_candidate_diag or {}).get("preemptive_comparator_seed_activated"), 0.0) > 0.0
@@ -2909,7 +3394,11 @@ def _result_row(
         voi_actions,
         selected_route_id=selected_id,
     )
-    valid_refine_cost_rows = _valid_refine_cost_rows(candidate_rows)
+    valid_refine_cost_rows = _result_refine_cost_rows(
+        candidate_rows,
+        pipeline_mode=spec.pipeline_mode,
+        voi_entries=voi_entries,
+    )
     refine_sample_count = refine_cost_sample_count(valid_refine_cost_rows) if valid_refine_cost_rows else 0
     refine_positive_sample_count = refine_cost_positive_sample_count(valid_refine_cost_rows) if valid_refine_cost_rows else 0
     refine_zero_observed_count = refine_cost_zero_observed_count(valid_refine_cost_rows) if valid_refine_cost_rows else 0
@@ -2920,24 +3409,32 @@ def _result_row(
         trace if isinstance(trace, Mapping) else {},
         trace_candidate_diag if isinstance(trace_candidate_diag, Mapping) else {},
     )
-    option_build_cache_hits = int(as_float((trace_option_build_runtime or {}).get("cache_hits"), 0.0)) if isinstance(trace_option_build_runtime, Mapping) else 0
-    option_build_rebuild_count = int(as_float((trace_option_build_runtime or {}).get("rebuild_count"), 0.0)) if isinstance(trace_option_build_runtime, Mapping) else 0
+    option_build_cache_runtime = _option_build_cache_runtime(trace if isinstance(trace, Mapping) else {})
+    option_build_cache_hits = int(as_float((option_build_cache_runtime or {}).get("cache_hits"), 0.0)) if isinstance(option_build_cache_runtime, Mapping) else 0
+    option_build_rebuild_count = (
+        int(as_float((trace_option_build_runtime or {}).get("rebuild_count"), float("nan")))
+        if isinstance(trace_option_build_runtime, Mapping)
+        and math.isfinite(as_float((trace_option_build_runtime or {}).get("rebuild_count"), float("nan")))
+        else int(as_float((option_build_cache_runtime or {}).get("cache_misses"), 0.0))
+        if isinstance(option_build_cache_runtime, Mapping)
+        else 0
+    )
     option_build_cache_hit_rate = runtime_share(
         option_build_cache_hits,
         option_build_cache_hits
         + (
-            int(as_float((trace_option_build_runtime or {}).get("cache_misses"), 0.0))
-            if isinstance(trace_option_build_runtime, Mapping)
+            int(as_float((option_build_cache_runtime or {}).get("cache_misses"), 0.0))
+            if isinstance(option_build_cache_runtime, Mapping)
             else 0
         ),
     )
     option_build_cache_savings_ms_per_row = (
         round(
-            max(0.0, as_float((trace_option_build_runtime or {}).get("saved_ms_estimate"), 0.0)),
+            max(0.0, as_float((option_build_cache_runtime or {}).get("saved_ms_estimate"), 0.0)),
             6,
         )
-        if isinstance(trace_option_build_runtime, Mapping)
-        and math.isfinite(as_float((trace_option_build_runtime or {}).get("saved_ms_estimate"), float("nan")))
+        if isinstance(option_build_cache_runtime, Mapping)
+        and math.isfinite(as_float((option_build_cache_runtime or {}).get("saved_ms_estimate"), float("nan")))
         else None
     )
     action_eff = action_efficiency(
@@ -3407,6 +3904,38 @@ def _result_row(
         "balanced_win_ors": balanced_gain_ors > 0.0,
         "balanced_win_v0": None,
         "balanced_win_best_baseline": balanced_gain_best_baseline > 0.0,
+        "time_preserving_win_osrm": _time_preserving_outcome(
+            duration_delta_s=round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6),
+            quality_win=(weighted_osrm < weighted_osrm_base),
+        ),
+        "time_preserving_win_ors": _time_preserving_outcome(
+            duration_delta_s=round(selected_metrics["duration_s"] - ors.metrics["duration_s"], 6),
+            quality_win=(weighted_ors < weighted_ors_base),
+        ),
+        "time_preserving_win_best_baseline": _time_preserving_outcome(
+            duration_delta_s=(
+                round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6)
+                if best_baseline_provider == "osrm"
+                else round(selected_metrics["duration_s"] - ors.metrics["duration_s"], 6)
+            ),
+            quality_win=(min(weighted_osrm, weighted_ors) < best_baseline_weighted_base),
+        ),
+        "time_preserving_dominance_osrm": _time_preserving_outcome(
+            duration_delta_s=round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6),
+            quality_win=dominates(win_selected, osrm.metrics),
+        ),
+        "time_preserving_dominance_ors": _time_preserving_outcome(
+            duration_delta_s=round(selected_metrics["duration_s"] - ors.metrics["duration_s"], 6),
+            quality_win=dominates(win_selected, ors.metrics),
+        ),
+        "time_preserving_dominance_best_baseline": _time_preserving_outcome(
+            duration_delta_s=(
+                round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6)
+                if best_baseline_provider == "osrm"
+                else round(selected_metrics["duration_s"] - ors.metrics["duration_s"], 6)
+            ),
+            quality_win=dominates(win_selected, best_baseline_metrics),
+        ),
         "best_baseline_provider": best_baseline_provider,
         "balanced_gain_vs_osrm_score": balanced_gain_osrm,
         "balanced_gain_vs_ors_score": balanced_gain_ors,
@@ -3506,7 +4035,15 @@ def _result_row(
         "preemptive_comparator_candidate_count": preemptive_comparator_candidate_count,
         "preemptive_comparator_source_count": preemptive_comparator_source_count,
         "selected_from_preemptive_comparator_seed": selected_from_preemptive_comparator_seed,
-        "voi_realized_certificate_lift": None,
+        "voi_realized_certificate_lift": (
+            _voi_realized_certificate_lift(
+                voi_entries=voi_entries,
+                initial_certificate=initial_certificate_value,
+                certificate=certificate if math.isfinite(certificate) else None,
+            )
+            if spec.pipeline_mode == "voi"
+            else None
+        ),
         "voi_realized_runner_up_gap_lift": None,
         "voi_realized_margin_lift": None,
         "voi_realized_frontier_gain": None,
@@ -3603,6 +4140,21 @@ def _result_row(
         "evidence_first_engagement": evidence_first_engagement if spec.pipeline_mode == "voi" else None,
         "evidence_only_engagement": evidence_only_engagement if spec.pipeline_mode == "voi" else None,
         "first_controller_action_kind": first_controller_action_kind if spec.pipeline_mode == "voi" else None,
+        "controller_refresh_ranking_basis": (
+            controller_refresh_ranking_basis if spec.pipeline_mode in {"dccs_refc", "voi"} else None
+        ),
+        "controller_top_refresh_family": (
+            controller_top_refresh_family if spec.pipeline_mode in {"dccs_refc", "voi"} else None
+        ),
+        "controller_top_refresh_gain": (
+            controller_top_refresh_gain if spec.pipeline_mode in {"dccs_refc", "voi"} else None
+        ),
+        "controller_refresh_fallback_activated": (
+            controller_refresh_fallback_activated if spec.pipeline_mode in {"dccs_refc", "voi"} else None
+        ),
+        "controller_empirical_vs_raw_refresh_disagreement": (
+            controller_empirical_vs_raw_refresh_disagreement if spec.pipeline_mode in {"dccs_refc", "voi"} else None
+        ),
         "voi_dccs_cache_hits": voi_dccs_cache_hits if spec.pipeline_mode == "voi" else None,
         "voi_dccs_cache_misses": voi_dccs_cache_misses if spec.pipeline_mode == "voi" else None,
         "voi_dccs_cache_hit_rate": voi_dccs_cache_hit_rate if spec.pipeline_mode == "voi" else None,
@@ -3662,6 +4214,9 @@ def _result_row(
         "selected_candidate_source_label": selected_candidate_source_label,
         "selected_candidate_source_engine": selected_candidate_source_engine,
         "selected_candidate_source_stage": selected_candidate_source_stage,
+        "selected_final_route_source_label": selected_final_route_source_label,
+        "selected_final_route_source_engine": selected_final_route_source_engine,
+        "selected_final_route_source_stage": selected_final_route_source_stage,
         "selected_from_supplemental_rescue": selected_from_supplemental_rescue,
         "selected_from_comparator_engine": selected_from_comparator_engine,
         "strict_failure_eliminated": None,
@@ -3895,6 +4450,12 @@ def _failure_row(
             "balanced_win_ors": False,
             "balanced_win_v0": False,
             "balanced_win_best_baseline": False,
+            "time_preserving_win_osrm": False,
+            "time_preserving_win_ors": False,
+            "time_preserving_win_best_baseline": False,
+            "time_preserving_dominance_osrm": False,
+            "time_preserving_dominance_ors": False,
+            "time_preserving_dominance_best_baseline": False,
             "best_baseline_provider": None,
             "balanced_gain_vs_osrm_score": None,
             "balanced_gain_vs_ors_score": None,
@@ -4124,9 +4685,14 @@ def _finalize_cross_variant_metrics(rows: list[dict[str, Any]]) -> list[dict[str
         voi_row = od_rows.get("C")
         legacy_row = od_rows.get("V0")
         if refc_row and voi_row:
+            current_voi_lift = as_float(voi_row.get("voi_realized_certificate_lift"), float("nan"))
             refc_certificate = as_float(refc_row.get("certificate"), float("nan"))
             voi_certificate = as_float(voi_row.get("certificate"), float("nan"))
-            if math.isfinite(refc_certificate) and math.isfinite(voi_certificate):
+            if (
+                not math.isfinite(current_voi_lift)
+                and math.isfinite(refc_certificate)
+                and math.isfinite(voi_certificate)
+            ):
                 voi_row["voi_realized_certificate_lift"] = round(voi_certificate - refc_certificate, 6)
             refc_runner_up_gap = as_float(refc_row.get("certificate_runner_up_gap"), float("nan"))
             voi_runner_up_gap = as_float(voi_row.get("certificate_runner_up_gap"), float("nan"))
@@ -4260,6 +4826,30 @@ def _summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         balanced_win_rate_ors, balanced_denominator_ors = _mean_bool_with_denominator(batch, "balanced_win_ors")
         balanced_win_rate_v0, balanced_denominator_v0 = _mean_bool_with_denominator(batch, "balanced_win_v0")
         balanced_win_rate_best_baseline, balanced_denominator_best_baseline = _mean_bool_with_denominator(batch, "balanced_win_best_baseline")
+        time_preserving_win_rate_osrm, time_preserving_denominator_osrm = _mean_bool_with_denominator(
+            batch,
+            "time_preserving_win_osrm",
+        )
+        time_preserving_win_rate_ors, time_preserving_denominator_ors = _mean_bool_with_denominator(
+            batch,
+            "time_preserving_win_ors",
+        )
+        time_preserving_win_rate_best_baseline, time_preserving_denominator_best_baseline = _mean_bool_with_denominator(
+            batch,
+            "time_preserving_win_best_baseline",
+        )
+        time_preserving_dominance_rate_osrm, time_preserving_dominance_denominator_osrm = _mean_bool_with_denominator(
+            batch,
+            "time_preserving_dominance_osrm",
+        )
+        time_preserving_dominance_rate_ors, time_preserving_dominance_denominator_ors = _mean_bool_with_denominator(
+            batch,
+            "time_preserving_dominance_ors",
+        )
+        time_preserving_dominance_rate_best_baseline, time_preserving_dominance_denominator_best_baseline = _mean_bool_with_denominator(
+            batch,
+            "time_preserving_dominance_best_baseline",
+        )
         robust_win_rate_osrm, robust_denominator_osrm = _mean_bool_with_denominator(batch, "robust_win_osrm")
         robust_win_rate_ors, robust_denominator_ors = _mean_bool_with_denominator(batch, "robust_win_ors")
         mean_certificate, mean_certificate_denominator = _mean_numeric_with_denominator(batch, "certificate")
@@ -4548,6 +5138,26 @@ def _summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_controller_shortcut_rate = _mean_bool(batch, "controller_shortcut")
         mean_voi_stop_after_certification_rate = _mean_bool(batch, "voi_stop_after_certification")
         mean_controller_stress_rate = _mean_bool(batch, "controller_stress_row")
+        controller_stress_row_count = sum(1 for row in batch if bool(row.get("controller_stress_row")))
+        scenario_profile_unavailable_rate = _mean_bool(
+            [
+                {
+                    "_scenario_profile_unavailable": (
+                        str(row.get("failure_reason") or "").strip() == "scenario_profile_unavailable"
+                    )
+                }
+                for row in batch
+            ],
+            "_scenario_profile_unavailable",
+        )
+        controller_refresh_fallback_activation_rate = _mean_bool(
+            batch,
+            "controller_refresh_fallback_activated",
+        )
+        controller_empirical_vs_raw_refresh_disagreement_rate = _mean_bool(
+            batch,
+            "controller_empirical_vs_raw_refresh_disagreement",
+        )
         mean_preflight_and_warmup_ms = _mean_numeric(batch, "preflight_and_warmup_ms")
         mean_runtime_ms, mean_runtime_ms_denominator = _mean_numeric_with_denominator(batch, "runtime_ms")
         controller_activation_high_ambiguity_rate, _ = _mean_bool_with_denominator(batch, "controller_activation_on_high_ambiguity")
@@ -4556,6 +5166,50 @@ def _summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_certificate_lift_vs_v0_denominator = sum(1 for row in batch if row.get("certificate_lift_vs_v0") not in (None, ""))
         certificate_availability_gain_vs_v0_rate = _mean_bool(batch, "certificate_availability_gain_vs_v0")
         success_count = sum(1 for row in batch if not row.get("failure_reason"))
+        hard_case_rows = [row for row in batch if bool(row.get("hard_case"))]
+        broad_hard_case_certificate_selective_rows = [
+            row for row in hard_case_rows if row.get("certificate_selective") is not None
+        ]
+        broad_hard_case_certificate_selectivity_rate, _ = _mean_bool_with_denominator(
+            broad_hard_case_certificate_selective_rows,
+            "certificate_selective",
+        )
+        broad_hard_case_evidence_first_engagement_rate = _mean_bool(
+            hard_case_rows,
+            "evidence_first_engagement",
+        )
+        broad_hard_case_productive_rows: list[dict[str, Any]] = []
+        for row in hard_case_rows:
+            rate_value = row.get("productive_voi_action_rate")
+            if rate_value is None:
+                productive_count = row.get("voi_productive_action_count")
+                nonproductive_count = row.get("voi_nonproductive_action_count")
+                if productive_count is None or nonproductive_count is None:
+                    continue
+                rate_value = productive_action_rate(
+                    as_float(productive_count, float("nan")),
+                    as_float(productive_count, 0.0) + as_float(nonproductive_count, 0.0),
+                )
+            rate_value = as_float(rate_value, float("nan"))
+            if math.isfinite(rate_value):
+                broad_hard_case_productive_rows.append(
+                    {"productive_voi_action_rate": rate_value}
+                )
+        broad_hard_case_productive_voi_action_rate, _ = _mean_numeric_with_denominator(
+            broad_hard_case_productive_rows,
+            "productive_voi_action_rate",
+        )
+        broad_hard_case_refc_signal_presence_rate = _mean_bool(
+            [
+                {
+                    "_broad_hard_case_refc_signal_present": bool(
+                        row.get("winner_fragility_nonzero") or row.get("refc_top_vor_positive")
+                    )
+                }
+                for row in hard_case_rows
+            ],
+            "_broad_hard_case_refc_signal_present",
+        )
         corpus_kind_counts = Counter(str(row.get("corpus_kind") or "") for row in batch if str(row.get("corpus_kind") or "").strip())
         corpus_group_counts = Counter(str(row.get("corpus_group") or "") for row in batch if str(row.get("corpus_group") or "").strip())
         profile_id_counts = Counter(str(row.get("profile_id") or "") for row in batch if str(row.get("profile_id") or "").strip())
@@ -4599,6 +5253,22 @@ def _summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "balanced_denominator_v0": balanced_denominator_v0,
                 "balanced_win_rate_best_baseline": balanced_win_rate_best_baseline,
                 "balanced_denominator_best_baseline": balanced_denominator_best_baseline,
+                "time_preserving_win_rate": time_preserving_win_rate_best_baseline,
+                "time_preserving_denominator": time_preserving_denominator_best_baseline,
+                "time_preserving_win_rate_osrm": time_preserving_win_rate_osrm,
+                "time_preserving_denominator_osrm": time_preserving_denominator_osrm,
+                "time_preserving_win_rate_ors": time_preserving_win_rate_ors,
+                "time_preserving_denominator_ors": time_preserving_denominator_ors,
+                "time_preserving_win_rate_best_baseline": time_preserving_win_rate_best_baseline,
+                "time_preserving_denominator_best_baseline": time_preserving_denominator_best_baseline,
+                "time_preserving_dominance_rate": time_preserving_dominance_rate_best_baseline,
+                "time_preserving_dominance_denominator": time_preserving_dominance_denominator_best_baseline,
+                "time_preserving_dominance_rate_osrm": time_preserving_dominance_rate_osrm,
+                "time_preserving_dominance_denominator_osrm": time_preserving_dominance_denominator_osrm,
+                "time_preserving_dominance_rate_ors": time_preserving_dominance_rate_ors,
+                "time_preserving_dominance_denominator_ors": time_preserving_dominance_denominator_ors,
+                "time_preserving_dominance_rate_best_baseline": time_preserving_dominance_rate_best_baseline,
+                "time_preserving_dominance_denominator_best_baseline": time_preserving_dominance_denominator_best_baseline,
                 "robust_win_rate_osrm": robust_win_rate_osrm,
                 "robust_denominator_osrm": robust_denominator_osrm,
                 "robust_win_rate_ors": robust_win_rate_ors,
@@ -4814,6 +5484,26 @@ def _summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "mean_controller_shortcut_rate": mean_controller_shortcut_rate,
                 "mean_voi_stop_after_certification_rate": mean_voi_stop_after_certification_rate,
                 "mean_controller_stress_rate": mean_controller_stress_rate,
+                "controller_stress_row_count": controller_stress_row_count,
+                "scenario_profile_unavailable_rate": scenario_profile_unavailable_rate,
+                "strict_live_readiness_pass_rate": None,
+                "evaluation_rerun_success_rate": None,
+                "controller_refresh_fallback_activation_rate": controller_refresh_fallback_activation_rate,
+                "controller_empirical_vs_raw_refresh_disagreement_rate": (
+                    controller_empirical_vs_raw_refresh_disagreement_rate
+                ),
+                "broad_hard_case_certificate_selectivity_rate": (
+                    broad_hard_case_certificate_selectivity_rate
+                ),
+                "broad_hard_case_evidence_first_engagement_rate": (
+                    broad_hard_case_evidence_first_engagement_rate
+                ),
+                "broad_hard_case_productive_voi_action_rate": (
+                    broad_hard_case_productive_voi_action_rate
+                ),
+                "broad_hard_case_refc_signal_presence_rate": (
+                    broad_hard_case_refc_signal_presence_rate
+                ),
                 "mean_preflight_and_warmup_ms": mean_preflight_and_warmup_ms,
                 "mean_weighted_margin_gain_vs_v0": _mean_numeric(batch, "weighted_margin_gain_vs_v0"),
                 "mean_balanced_gain_delta_vs_v0_score": _mean_numeric(batch, "balanced_gain_delta_vs_v0_score"),
@@ -5018,15 +5708,45 @@ def _realized_stress_profile(row: Mapping[str, Any]) -> tuple[int, int]:
     return major, minor
 
 
+def _resolved_controller_stress_profile(row: Mapping[str, Any]) -> tuple[int, int]:
+    major = 0
+    minor = 0
+    initial_certificate = as_float(row.get("initial_certificate"), float("nan"))
+    threshold = as_float(row.get("certificate_threshold"), float("nan"))
+    if math.isfinite(initial_certificate) and math.isfinite(threshold):
+        if initial_certificate < threshold:
+            major += 1
+        elif (initial_certificate - threshold) <= 0.06:
+            minor += 1
+    if _bool_or_default(row.get("initial_winner_fragility_nonzero"), False):
+        minor += 1
+    if _bool_or_default(row.get("initial_refc_top_vor_positive"), False):
+        minor += 1
+    lift_value = as_float(row.get("voi_realized_certificate_lift"), float("nan"))
+    if math.isfinite(lift_value):
+        if lift_value >= 0.12:
+            major += 1
+        elif lift_value >= 0.04:
+            minor += 1
+    time_to_certification = as_float(row.get("time_to_certification_ms"), float("nan"))
+    if math.isfinite(time_to_certification) and time_to_certification > 0.0 and (major + minor) > 0:
+        minor += 1
+    return major, minor
+
+
 def _is_controller_stress_row(row: dict[str, Any]) -> bool:
     if not _bool_or_default(row.get("voi_controller_engaged"), False):
         return False
     if int(as_float(row.get("voi_action_count"), 0.0)) <= 0:
         return False
-    if _bool_or_default(row.get("unnecessary_voi_refine"), False):
-        return False
     upstream_strength = _upstream_stress_strength(row)
     major_signals, minor_signals = _realized_stress_profile(row)
+    resolved_major_signals, resolved_minor_signals = _resolved_controller_stress_profile(row)
+    if _bool_or_default(row.get("unnecessary_voi_refine"), False):
+        if upstream_strength < 0.55 and resolved_major_signals == 0 and resolved_minor_signals < 2:
+            return False
+    major_signals += resolved_major_signals
+    minor_signals += resolved_minor_signals
     if major_signals >= 1:
         return True
     if upstream_strength >= 0.50 and (major_signals + minor_signals) >= 1:
@@ -5133,6 +5853,47 @@ def _cohort_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _run_validity_metrics(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    preflight_summary: Mapping[str, Any] | None,
+    readiness_summary: Mapping[str, Any] | None,
+    evaluation_rerun_success_rate: float,
+) -> dict[str, float | int]:
+    scenario_profile_unavailable_count = sum(
+        1
+        for row in rows
+        if str(row.get("failure_reason") or "").strip() == "scenario_profile_unavailable"
+    )
+    row_count = len(rows)
+    strict_live_ok = bool((preflight_summary or {}).get("required_ok")) and bool(
+        (((readiness_summary or {}).get("strict_live") or {}) if isinstance(readiness_summary, Mapping) else {}).get("ok")
+    )
+    return {
+        "scenario_profile_unavailable_count": scenario_profile_unavailable_count,
+        "scenario_profile_unavailable_rate": (
+            round(scenario_profile_unavailable_count / row_count, 6)
+            if row_count
+            else 0.0
+        ),
+        "strict_live_readiness_pass_rate": 1.0 if strict_live_ok else 0.0,
+        "evaluation_rerun_success_rate": round(float(evaluation_rerun_success_rate), 6),
+    }
+
+
+def _apply_run_level_summary_metrics(
+    summary_rows: list[dict[str, Any]],
+    *,
+    run_validity_metrics: Mapping[str, float | int],
+) -> list[dict[str, Any]]:
+    for row in summary_rows:
+        row["strict_live_readiness_pass_rate"] = run_validity_metrics["strict_live_readiness_pass_rate"]
+        row["evaluation_rerun_success_rate"] = run_validity_metrics["evaluation_rerun_success_rate"]
+        if row.get("scenario_profile_unavailable_rate") is None:
+            row["scenario_profile_unavailable_rate"] = run_validity_metrics["scenario_profile_unavailable_rate"]
+    return summary_rows
+
+
 def _cohort_composition(rows: list[dict[str, Any]]) -> dict[str, Any]:
     by_variant: dict[str, dict[str, Any]] = {}
     for variant_id in VARIANTS:
@@ -5179,6 +5940,9 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
         f"weighted_win_ors={_rate_text(row.get('weighted_win_rate_ors'), int(row.get('weighted_denominator_ors') or 0))}",
         f"balanced_win_osrm={_rate_text(row.get('balanced_win_rate_osrm'), int(row.get('balanced_denominator_osrm') or 0))}",
         f"balanced_win_ors={_rate_text(row.get('balanced_win_rate_ors'), int(row.get('balanced_denominator_ors') or 0))}",
+        f"time_preserving_win={_rate_text(row.get('time_preserving_win_rate'), int(row.get('time_preserving_denominator') or 0))}",
+        f"time_preserving_win_osrm={_rate_text(row.get('time_preserving_win_rate_osrm'), int(row.get('time_preserving_denominator_osrm') or 0))}",
+        f"time_preserving_win_ors={_rate_text(row.get('time_preserving_win_rate_ors'), int(row.get('time_preserving_denominator_ors') or 0))}",
         f"mean_weighted_margin_vs_osrm={row.get('mean_weighted_margin_vs_osrm')}",
         f"mean_weighted_margin_vs_best_baseline={row.get('mean_weighted_margin_vs_best_baseline')}",
         f"dominance_win_best_baseline={_rate_text(row.get('dominance_win_rate_best_baseline'), int(row.get('dominance_denominator_best_baseline') or 0))}",
@@ -5418,6 +6182,9 @@ def _thesis_report(
                 f"weighted_win_ors={_rate_text(row.get('weighted_win_rate_ors'), int(row.get('weighted_denominator_ors') or 0))}, "
                 f"balanced_win_osrm={_rate_text(row.get('balanced_win_rate_osrm'), int(row.get('balanced_denominator_osrm') or 0))}, "
                 f"balanced_win_ors={_rate_text(row.get('balanced_win_rate_ors'), int(row.get('balanced_denominator_ors') or 0))}, "
+                f"time_preserving_win={_rate_text(row.get('time_preserving_win_rate'), int(row.get('time_preserving_denominator') or 0))}, "
+                f"time_preserving_win_osrm={_rate_text(row.get('time_preserving_win_rate_osrm'), int(row.get('time_preserving_denominator_osrm') or 0))}, "
+                f"time_preserving_win_ors={_rate_text(row.get('time_preserving_win_rate_ors'), int(row.get('time_preserving_denominator_ors') or 0))}, "
                 f"dominance_win_best_baseline={_rate_text(row.get('dominance_win_rate_best_baseline'), int(row.get('dominance_denominator_best_baseline') or 0))}, "
                 f"mean_weighted_margin_vs_osrm={row.get('mean_weighted_margin_vs_osrm')}, "
                 f"mean_weighted_margin_vs_ors={row.get('mean_weighted_margin_vs_ors')}, "
@@ -5876,6 +6643,14 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
     active_client = client or httpx.Client(base_url=args.backend_url, timeout=args.route_timeout_seconds)
     try:
         corpus_path = str(args.corpus_csv or args.corpus_json)
+        corpus_source_path = corpus_path.strip() or None
+        corpus_source_resolved_path: str | None = None
+        corpus_source_exists = False
+        corpus_source_format = "csv" if getattr(args, "corpus_csv", None) else "json" if getattr(args, "corpus_json", None) else None
+        if corpus_source_path:
+            corpus_source_candidate = Path(corpus_source_path).expanduser()
+            corpus_source_exists = corpus_source_candidate.exists()
+            corpus_source_resolved_path = str(corpus_source_candidate.resolve(strict=False))
         raw_corpus_rows = load_corpus(corpus_path)
         if bool(getattr(args, "auto_enrich_corpus_ambiguity", False)) and _corpus_missing_ambiguity_fields(raw_corpus_rows):
             from scripts.enrich_od_corpus_with_ambiguity import enrich_rows as enrich_corpus_rows
@@ -5892,6 +6667,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         elif str(args.ors_baseline_policy) == "snapshot_replay":
             effective_snapshot_mode = "replay"
         args.ors_snapshot_mode = effective_snapshot_mode
+        cache_mode = _normalize_cache_mode(getattr(args, "cache_mode", "preserve"))
+        cold_cache_scope = str(getattr(args, "cold_cache_scope", THESIS_COLD_CACHE_SCOPE) or THESIS_COLD_CACHE_SCOPE)
+        if cold_cache_scope not in THESIS_COLD_CACHE_SCOPES:
+            cold_cache_scope = THESIS_COLD_CACHE_SCOPE
         run_id = str(
             args.run_id
             or _run_id(
@@ -5902,6 +6681,11 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 snapshot_mode=effective_snapshot_mode,
                 baseline_policy=str(args.ors_baseline_policy),
             )
+        )
+        evaluation_suite = _resolve_evaluation_suite_metadata(
+            args=args,
+            corpus_source_path=corpus_source_path,
+            run_id=run_id,
         )
         artifact_dir_for_run(run_id)
         preflight_path = artifact_dir_for_run(run_id) / "repo_asset_preflight.json"
@@ -5945,6 +6729,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         snapshot_bundle = _load_snapshot(snapshot_path) if effective_snapshot_mode in {"record", "replay"} else None
         rows: list[dict[str, Any]] = []
         baseline_cache: dict[str, tuple[BaselineResult, BaselineResult]] = {}
+        cache_reset_count = 0
         for od_index, od in enumerate(corpus_rows):
             od_rows: list[dict[str, Any]] = []
             od_variant_specs = _variant_specs_for_od(args, od_index=od_index)
@@ -6011,9 +6796,16 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                         continue
                     baseline_cache[baseline_cache_key] = (osrm, ors)
                 for spec in od_variant_specs:
-                    variant_seed = _variant_seed(args, od_index=od_index, variant_id=spec.variant_id)
+                    variant_seed = _variant_seed(args, od, od_index=od_index, variant_id=spec.variant_id)
                     variant_request_config = _effective_request_config(args, od, variant_seed=variant_seed)
                     try:
+                        if cache_mode == "cold":
+                            _clear_backend_caches(
+                                active_client,
+                                backend_url=args.backend_url,
+                                scope=cold_cache_scope,
+                            )
+                            cache_reset_count += 1
                         response, route_ms = _post_json(
                             active_client,
                             _absolute_url(args.backend_url, "/route"),
@@ -6098,6 +6890,20 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             row["warmup_amortized_ms"] = warmup_amortized_ms
         summary_rows = _summary_rows(rows)
         cohort_summary_rows = _cohort_summary_rows(rows)
+        run_validity_metrics = _run_validity_metrics(
+            rows,
+            preflight_summary=preflight_summary,
+            readiness_summary=readiness_summary,
+            evaluation_rerun_success_rate=1.0,
+        )
+        _apply_run_level_summary_metrics(
+            summary_rows,
+            run_validity_metrics=run_validity_metrics,
+        )
+        _apply_run_level_summary_metrics(
+            cohort_summary_rows,
+            run_validity_metrics=run_validity_metrics,
+        )
         cohort_composition = _cohort_composition(rows)
         metrics_payload = {
             "run_id": run_id,
@@ -6106,6 +6912,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "summary_rows": summary_rows,
             "summary_by_cohort_rows": cohort_summary_rows,
             "cohort_composition": cohort_composition,
+            "run_validity": run_validity_metrics,
             "baseline_smoke": baseline_smoke_summary,
             "startup_and_warmup": {
                 "backend_ready_wait_ms": readiness_summary.get("wait_elapsed_ms"),
@@ -6118,7 +6925,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         plots_payload = {
             "certificate_vs_variant": [{"variant_id": row["variant_id"], "mean_certificate": row["mean_certificate"]} for row in summary_rows],
             "runtime_vs_variant": [{"variant_id": row["variant_id"], "mean_runtime_ms": row["mean_runtime_ms"]} for row in summary_rows],
-            "win_rate_vs_variant": [{"variant_id": row["variant_id"], "weighted_win_rate_osrm": row["weighted_win_rate_osrm"], "weighted_win_rate_ors": row["weighted_win_rate_ors"], "weighted_win_rate_best_baseline": row["weighted_win_rate_best_baseline"], "weighted_win_rate_v0": row["weighted_win_rate_v0"]} for row in summary_rows],
+        "win_rate_vs_variant": [{"variant_id": row["variant_id"], "weighted_win_rate_osrm": row["weighted_win_rate_osrm"], "weighted_win_rate_ors": row["weighted_win_rate_ors"], "weighted_win_rate_best_baseline": row["weighted_win_rate_best_baseline"], "weighted_win_rate_v0": row["weighted_win_rate_v0"], "time_preserving_win_rate": row["time_preserving_win_rate"], "time_preserving_win_rate_osrm": row["time_preserving_win_rate_osrm"], "time_preserving_win_rate_ors": row["time_preserving_win_rate_ors"]} for row in summary_rows],
             "ambiguity_vs_variant": [{"variant_id": row["variant_id"], "mean_od_ambiguity_index": row["mean_od_ambiguity_index"], "mean_observed_ambiguity_index": row["mean_observed_ambiguity_index"], "mean_near_tie_mass": row["mean_near_tie_mass"]} for row in summary_rows],
             "ambiguity_prior_vs_variant": [{"variant_id": row["variant_id"], "mean_od_engine_disagreement_prior": row["mean_od_engine_disagreement_prior"], "mean_od_hard_case_prior": row["mean_od_hard_case_prior"], "mean_ambiguity_alignment": row["mean_ambiguity_alignment"]} for row in summary_rows],
             "ambiguity_alignment_vs_variant": [{"variant_id": row["variant_id"], "mean_ambiguity_alignment": row["mean_ambiguity_alignment"], "controller_activation_on_high_ambiguity_rate": row["controller_activation_on_high_ambiguity_rate"]} for row in summary_rows],
@@ -6130,10 +6937,13 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "controller_admissibility_vs_variant": [{"variant_id": row["variant_id"], "mean_initial_certificate": row["mean_initial_certificate"], "initial_certificate_stop_rate": row["initial_certificate_stop_rate"], "unnecessary_voi_refine_rate": row["unnecessary_voi_refine_rate"], "mean_controller_shortcut_rate": row["mean_controller_shortcut_rate"], "mean_voi_stop_after_certification_rate": row["mean_voi_stop_after_certification_rate"], "mean_controller_stress_rate": row["mean_controller_stress_rate"], "mean_time_to_certification_ms": row["mean_time_to_certification_ms"]} for row in summary_rows],
             "controller_density_vs_variant": [{"variant_id": row["variant_id"], "mean_voi_action_density": row["mean_voi_action_density"], "mean_voi_action_count": row["mean_voi_action_count"], "voi_controller_engagement_rate": row["voi_controller_engagement_rate"]} for row in summary_rows],
             "gain_vs_v0": [{"variant_id": row["variant_id"], "mean_weighted_margin_gain_vs_v0": row["mean_weighted_margin_gain_vs_v0"], "mean_balanced_gain_delta_vs_v0_score": row["mean_balanced_gain_delta_vs_v0_score"], "mean_frontier_hypervolume_gain_vs_v0": row["mean_frontier_hypervolume_gain_vs_v0"], "mean_certificate_lift_vs_v0": row["mean_certificate_lift_vs_v0"], "mean_hard_case_certificate_lift_vs_v0": row["mean_hard_case_certificate_lift_vs_v0"], "certificate_availability_gain_vs_v0_rate": row["certificate_availability_gain_vs_v0_rate"]} for row in summary_rows],
-            "quality_vs_best_baseline": [{"variant_id": row["variant_id"], "weighted_win_rate_best_baseline": row["weighted_win_rate_best_baseline"], "dominance_win_rate_best_baseline": row["dominance_win_rate_best_baseline"], "balanced_win_rate_best_baseline": row["balanced_win_rate_best_baseline"], "mean_weighted_margin_vs_best_baseline": row["mean_weighted_margin_vs_best_baseline"]} for row in summary_rows],
+        "quality_vs_best_baseline": [{"variant_id": row["variant_id"], "weighted_win_rate_best_baseline": row["weighted_win_rate_best_baseline"], "dominance_win_rate_best_baseline": row["dominance_win_rate_best_baseline"], "balanced_win_rate_best_baseline": row["balanced_win_rate_best_baseline"], "time_preserving_win_rate": row["time_preserving_win_rate"], "time_preserving_dominance_rate": row["time_preserving_dominance_rate"], "mean_weighted_margin_vs_best_baseline": row["mean_weighted_margin_vs_best_baseline"]} for row in summary_rows],
             "certificate_vs_cohort": [{"variant_id": row["variant_id"], "cohort_label": row["cohort_label"], "row_count": row["row_count"], "mean_certificate": row["mean_certificate"]} for row in cohort_summary_rows],
             "runtime_vs_cohort": [{"variant_id": row["variant_id"], "cohort_label": row["cohort_label"], "row_count": row["row_count"], "mean_runtime_ms": row["mean_runtime_ms"]} for row in cohort_summary_rows],
             "hard_case_vs_variant": [{"variant_id": row["variant_id"], "mean_hard_case_rate": row["mean_hard_case_rate"], "mean_hard_case_certificate": row["mean_hard_case_certificate"], "mean_hard_case_runtime_ms": row["mean_hard_case_runtime_ms"]} for row in summary_rows],
+            "controller_refresh_split_vs_variant": [{"variant_id": row["variant_id"], "controller_refresh_fallback_activation_rate": row["controller_refresh_fallback_activation_rate"], "controller_empirical_vs_raw_refresh_disagreement_rate": row["controller_empirical_vs_raw_refresh_disagreement_rate"]} for row in summary_rows],
+            "hard_case_transfer_vs_variant": [{"variant_id": row["variant_id"], "broad_hard_case_certificate_selectivity_rate": row["broad_hard_case_certificate_selectivity_rate"], "broad_hard_case_evidence_first_engagement_rate": row["broad_hard_case_evidence_first_engagement_rate"], "broad_hard_case_productive_voi_action_rate": row["broad_hard_case_productive_voi_action_rate"], "broad_hard_case_refc_signal_presence_rate": row["broad_hard_case_refc_signal_presence_rate"]} for row in summary_rows],
+            "run_validity": run_validity_metrics,
             "cohort_composition": cohort_composition,
             "baseline_smoke": baseline_smoke_summary,
             "startup_and_warmup": {
@@ -6198,9 +7008,16 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "repo_asset_preflight_required_ok": bool(preflight_summary.get("required_ok")),
                 "repo_asset_preflight_path": str(preflight_path),
                 "backend_ready_summary": readiness_summary,
+                "run_validity": run_validity_metrics,
                 "baseline_smoke_summary": baseline_smoke_summary,
                 "strict_proxy_ors_allowed": bool(args.allow_proxy_ors),
                 "strict_evidence_fallbacks_allowed": bool(args.allow_evidence_fallbacks),
+                "evaluation_suite": evaluation_suite,
+                "cache_mode": cache_mode,
+                "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
+                "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
+                "cache_reset_count": cache_reset_count,
+                "cache_carryover_expected": cache_mode != "cold",
             },
         )
         write_json_artifact(
@@ -6220,6 +7037,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "backend_url": args.backend_url,
                 "osrm_base_url": settings.osrm_base_url,
                 "corpus_hash": corpus_hash,
+                "corpus_source_path": corpus_source_path,
+                "corpus_source_resolved_path": corpus_source_resolved_path,
+                "corpus_source_format": corpus_source_format,
+                "corpus_source_exists": corpus_source_exists,
                 "model_version": args.model_version,
                 "ors_baseline_policy": str(args.ors_baseline_policy),
                 "ors_snapshot_mode": effective_snapshot_mode,
@@ -6227,15 +7048,36 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "repo_asset_preflight_path": str(preflight_path),
                 "repo_asset_preflight_required_ok": bool(preflight_summary.get("required_ok")),
                 "backend_ready_summary": readiness_summary,
+                "run_validity": run_validity_metrics,
                 "baseline_smoke_path": str(baseline_smoke_path),
                 "baseline_smoke_summary": baseline_smoke_summary,
                 "strict_evidence_policy": STRICT_EVIDENCE_POLICY,
+                "evaluation_suite": evaluation_suite,
+                "cache_mode": cache_mode,
+                "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
+                "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
+                "cache_reset_count": cache_reset_count,
+                "cache_carryover_expected": cache_mode != "cold",
             },
         )
         manifest_path = write_manifest(
             run_id,
             {
-                "request": {"evaluation": {"corpus_hash": corpus_hash, "backend_url": args.backend_url}},
+                "request": {
+                    "evaluation": {
+                        "corpus_hash": corpus_hash,
+                        "corpus_source_path": corpus_source_path,
+                        "corpus_source_resolved_path": corpus_source_resolved_path,
+                        "corpus_source_format": corpus_source_format,
+                        "corpus_source_exists": corpus_source_exists,
+                        "backend_url": args.backend_url,
+                        "evaluation_suite": evaluation_suite,
+                        "cache_mode": cache_mode,
+                        "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
+                        "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
+                        "cache_reset_count": cache_reset_count,
+                    }
+                },
                 "execution": {"pair_count": len(corpus_rows), "variant_count": len(VARIANTS), "duration_ms": _mean_numeric(rows, "runtime_ms")},
             },
         )
@@ -6310,6 +7152,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "ors_snapshot_mode": effective_snapshot_mode,
             "repo_asset_preflight_path": str(preflight_path),
             "ors_baseline_policy": str(args.ors_baseline_policy),
+            "run_validity": run_validity_metrics,
+            "strict_live_readiness_pass_rate": run_validity_metrics["strict_live_readiness_pass_rate"],
+            "evaluation_rerun_success_rate": run_validity_metrics["evaluation_rerun_success_rate"],
+            "scenario_profile_unavailable_rate": run_validity_metrics["scenario_profile_unavailable_rate"],
         }
     finally:
         settings.out_dir = old_out_dir
