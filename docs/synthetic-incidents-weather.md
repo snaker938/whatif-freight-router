@@ -1,9 +1,11 @@
 # Synthetic Incidents and Weather
 
-Last Updated: 2026-02-19  
+Last Updated: 2026-03-31  
 Applies To: route-producing backend endpoints
 
-This document defines weather and synthetic incident request fields used for controlled scenario testing.
+This document defines the current weather and synthetic-incident request fields used for controlled scenario testing.
+
+The fields below correspond to `backend/app/models.py` request models. Weather controls use `WeatherImpactConfig`; incident controls use `IncidentSimulatorConfig`.
 
 ## Supported Endpoints
 
@@ -29,6 +31,8 @@ This document defines weather and synthetic incident request fields used for con
 }
 ```
 
+Current weather settings are intentionally bounded. `profile` accepts the configured weather profile enum, `intensity` is clamped between `0.0` and `2.0`, and `apply_incident_uplift` decides whether weather also scales incident severity.
+
 ## Incident Simulation Block
 
 ```json
@@ -39,15 +43,22 @@ This document defines weather and synthetic incident request fields used for con
     "dwell_rate_per_100km": 1.0,
     "accident_rate_per_100km": 0.3,
     "closure_rate_per_100km": 0.05,
-    "max_events": 8
+    "dwell_delay_s": 120.0,
+    "accident_delay_s": 480.0,
+    "closure_delay_s": 900.0,
+    "max_events_per_route": 12
   }
 }
 ```
 
+The incident simulator currently supports per-100km event rates and fixed delays for dwell, accident, and closure events. `max_events_per_route` caps the total synthetic incident count for a route.
+
 ## Determinism
 
-- Use explicit `seed` for repeatability.
-- Keep identical route inputs and model assets to reproduce outcomes.
+- use explicit `seed` for repeatability
+- keep identical route inputs and model assets to reproduce outcomes
+- these controls are useful for controlled local experiments, not as substitutes for live evidence in strict runtime
+- the simulator defaults are defined in `backend/app/models.py` and should be treated as the canonical source when adjusting examples
 
 ## Related Docs
 
@@ -55,4 +66,3 @@ This document defines weather and synthetic incident request fields used for con
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [API Cookbook](api-cookbook.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
-
