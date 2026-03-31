@@ -1,7 +1,0 @@
-route_id,selected,distance_km,duration_s,monetary_cost,emissions_kg
-route_0,False,161.96,10796.6,161.36,234.368
-route_2,True,132.285,10903.43,151.48,216.115
-route_1,False,163.075,10890.02,162.77,236.624
-route_3,False,161.437,10976.53,163.16,236.651
-route_4,False,138.961,11078.86,154.96,221.459
-route_5,False,165.357,11543.19,169.83,245.979

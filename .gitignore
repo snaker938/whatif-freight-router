@@ -40,6 +40,12 @@ backend/out/model_assets/*
 !backend/out/model_assets/.gitkeep
 backend/out/test_runs/
 backend/out/oracle_quality/
+backend/out/*_probe.csv
+backend/out/uk_od_corpus_thesis_refc_focus_*.csv
+backend/out/uk_od_corpus_thesis_voi_focus_*.csv
+backend/tmp/
+backend/backend/
+backend/data/eval/tmp_*.csv
 backend/assets/uk/*.osm.pbf
 backend/assets/uk/toll_tariffs_uk.yaml
 
@@ -48,6 +54,7 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/tsconfig.tsbuildinfo
+out/
 
 # Misc
 .DS_Store

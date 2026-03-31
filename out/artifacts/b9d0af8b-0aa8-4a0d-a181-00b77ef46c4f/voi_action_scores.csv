@@ -1,5 +1,0 @@
-iteration,action_id,kind,target,cost_search,cost_evidence,predicted_delta_certificate,predicted_delta_margin,predicted_delta_frontier,q_score,selected_route_id,selected_certificate
-0,resample:stochastic,increase_stochastic_samples,stochastic,0,1,0.098113,0.0,0.029434,0.063283,route_0,1.0
-0,refresh:carbon,refresh_top1_vor,carbon,0,1,0.0,0.0,0.0,0.0,route_0,1.0
-0,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0
-1,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_0,1.0

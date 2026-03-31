@@ -1,5 +1,0 @@
-pair_index,origin_lat,origin_lon,destination_lat,destination_lon,error,route_id,distance_km,duration_s,monetary_cost,emissions_kg,avg_speed_kmh,selected
-0,52.4862,-1.8904,53.4808,-2.2426,,route_0,139.534,8532.61,145.16,212.726,58.87,True
-0,52.4862,-1.8904,53.4808,-2.2426,,route_1,144.587,9188.28,152.11,221.745,56.65,False
-0,52.4862,-1.8904,53.4808,-2.2426,,route_2,156.11,10201.65,166.85,242.652,55.09,False
-0,52.4862,-1.8904,53.4808,-2.2426,,route_3,143.091,11841.44,166.72,234.632,43.5,False

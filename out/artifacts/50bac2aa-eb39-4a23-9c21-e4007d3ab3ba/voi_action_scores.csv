@@ -1,6 +1,0 @@
-iteration,action_id,kind,target,cost_search,cost_evidence,predicted_delta_certificate,predicted_delta_margin,predicted_delta_frontier,q_score,selected_route_id,selected_certificate
-0,refresh:fuel,refresh_top1_vor,fuel,0,1,1.337455,0.879121,0.0,1.070224,route_2,1.0
-0,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_2,1.0
-1,refresh:scenario,refresh_top1_vor,scenario,0,1,0.0135,0.0085,0.0,0.058192,route_2,1.0
-1,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_2,1.0
-2,stop,stop,stop,0,0,0.0,0.0,0.0,0.0,route_2,1.0

@@ -1,1 +1,0 @@
-{"iteration_index":0,"frontier_route_ids":["route_0"],"certificate":{"route_0":1.0},"winner_id":"route_0","selected_route_id":"route_0","remaining_search_budget":1,"remaining_evidence_budget":2,"active_evidence_families":["carbon","fuel","scenario","stochastic","terrain","toll"],"world_count":96,"forced_refreshed_families":[],"action_trace":[]}
