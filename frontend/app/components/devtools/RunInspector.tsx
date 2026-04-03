@@ -1,6 +1,6 @@
 'use client';
 
-import type { RunArtifactsListResponse } from '../../lib/types';
+import type { DecisionPackage, RunArtifactsListResponse } from '../../lib/types';
 
 type CoreDocKind = 'manifest' | 'scenarioManifest' | 'provenance' | 'signature' | 'scenarioSignature';
 
@@ -9,6 +9,7 @@ type Props = {
   onRunIdChange: (runId: string) => void;
   loading: boolean;
   error: string | null;
+  decisionPackage?: DecisionPackage | null;
   manifest: unknown | null;
   scenarioManifest: unknown | null;
   provenance: unknown | null;
@@ -33,11 +34,21 @@ function pretty(value: unknown): string {
   }
 }
 
+function joinValues(values: Array<string | null | undefined> | null | undefined, empty = 'n/a'): string {
+  const filtered = (values ?? []).filter((value): value is string => Boolean(value));
+  return filtered.length ? filtered.join(', ') : empty;
+}
+
+function yesNo(value: boolean | null | undefined): string {
+  return value ? 'yes' : 'no';
+}
+
 export default function RunInspector({
   runId,
   onRunIdChange,
   loading,
   error,
+  decisionPackage,
   manifest,
   scenarioManifest,
   provenance,
@@ -53,6 +64,14 @@ export default function RunInspector({
   onDownloadArtifact,
 }: Props) {
   const disabled = loading || !runId.trim();
+  const supportSummary = decisionPackage?.support_summary ?? null;
+  const certifiedSetSummary = decisionPackage?.certified_set_summary ?? null;
+  const preferenceSummary = decisionPackage?.preference_summary ?? null;
+  const abstentionSummary = decisionPackage?.abstention_summary ?? null;
+  const witnessSummary = decisionPackage?.witness_summary ?? null;
+  const controllerSummary = decisionPackage?.controller_summary ?? null;
+  const theoremHooks = decisionPackage?.theorem_hook_summary?.hooks ?? [];
+  const laneManifest = decisionPackage?.lane_manifest ?? null;
 
   return (
     <div className="devCard">
@@ -79,6 +98,88 @@ export default function RunInspector({
       </div>
 
       {error ? <div className="error">{error}</div> : null}
+
+      {decisionPackage ? (
+        <>
+          <div className="tiny u-mt12">decision-package</div>
+          <ul className="baselineNotes">
+            <li>
+              Package {decisionPackage.package_kind} schema {decisionPackage.schema_version} pipeline{' '}
+              {decisionPackage.pipeline_mode} selected {decisionPackage.selected_route_id ?? certifiedSetSummary?.selected_route_id ?? 'n/a'}.
+            </li>
+            {preferenceSummary ? (
+              <li>
+                Preference: {preferenceSummary.objective_field} via {preferenceSummary.selector_policy}; selective{' '}
+                {yesNo(preferenceSummary.selective)}; tie-break {joinValues(preferenceSummary.tie_break_order)}.
+              </li>
+            ) : null}
+            {certifiedSetSummary ? (
+              <li>
+                Certified set: certified {yesNo(certifiedSetSummary.certified)}; routes{' '}
+                {joinValues(certifiedSetSummary.certified_route_ids)}; frontier {joinValues(certifiedSetSummary.frontier_route_ids)}; basis{' '}
+                {certifiedSetSummary.certificate_basis}; minimum-cost {certifiedSetSummary.minimum_cost_route_id ?? 'n/a'}.
+              </li>
+            ) : null}
+            {supportSummary ? (
+              <li>
+                Support: satisfied {yesNo(supportSummary.satisfied)}; observed {supportSummary.observed_source_count}/
+                {supportSummary.required_source_count}; mix {joinValues(supportSummary.source_mix)}; missing{' '}
+                {joinValues(supportSummary.missing_sources)}; provenance {supportSummary.provenance_mode ?? 'n/a'}.
+              </li>
+            ) : null}
+            {supportSummary?.sources.length ? (
+              <li>
+                Support sources:{' '}
+                {supportSummary.sources
+                  .map(
+                    (source) =>
+                      `${source.source_id} [${source.status}; ${source.present ? 'present' : 'missing'}${source.required ? '; required' : ''}]`,
+                  )
+                  .join('; ')}
+                .
+              </li>
+            ) : null}
+            {abstentionSummary ? (
+              <li>
+                Abstention: {abstentionSummary.abstained ? 'abstained' : 'clear'}; reason{' '}
+                {abstentionSummary.reason_code ?? 'n/a'}; blocking {joinValues(abstentionSummary.blocking_sources)}; retryable{' '}
+                {yesNo(abstentionSummary.retryable)}.
+              </li>
+            ) : null}
+            {witnessSummary ? (
+              <li>
+                Witness: primary {witnessSummary.primary_witness_route_id ?? 'n/a'}; witness routes{' '}
+                {joinValues(witnessSummary.witness_route_ids)}; challengers {joinValues(witnessSummary.challenger_route_ids)}; source ids{' '}
+                {joinValues(witnessSummary.witness_source_ids)}; worlds {witnessSummary.witness_world_count ?? 'n/a'}.
+              </li>
+            ) : null}
+            {controllerSummary ? (
+              <li>
+                Controller: mode {controllerSummary.controller_mode}; engaged {yesNo(controllerSummary.engaged)}; iterations{' '}
+                {controllerSummary.iteration_count}; actions {controllerSummary.action_count}; stop reason{' '}
+                {controllerSummary.stop_reason ?? 'n/a'}; budgets {controllerSummary.search_budget_used}/
+                {controllerSummary.evidence_budget_used}.
+              </li>
+            ) : null}
+            {laneManifest ? (
+              <li>
+                Lane: {laneManifest.lane_name ?? laneManifest.lane_id ?? 'n/a'} {laneManifest.lane_version ?? ''}; artifacts{' '}
+                {joinValues(laneManifest.artifact_names)}.
+              </li>
+            ) : null}
+            {theoremHooks.length ? (
+              <li>
+                Theorem hooks:{' '}
+                {theoremHooks
+                  .map((hook) => `${hook.hook_id} [${hook.status}${hook.artifact_name ? `; ${hook.artifact_name}` : ''}]`)
+                  .join('; ')}
+                .
+              </li>
+            ) : null}
+          </ul>
+          <pre className="devPre">{pretty(decisionPackage.provenance)}</pre>
+        </>
+      ) : null}
 
       <div className="row u-mt10">
         <button type="button" className="ghostButton" onClick={() => onDownloadCore('manifest')} disabled={disabled}>

@@ -1,6 +1,6 @@
 export type ScenarioMode = 'no_sharing' | 'partial_sharing' | 'full_sharing';
 export type ParetoMethod = 'dominance' | 'epsilon_constraint';
-export type PipelineMode = 'legacy' | 'dccs' | 'dccs_refc' | 'voi';
+export type PipelineMode = 'legacy' | 'dccs' | 'dccs_refc' | 'voi' | 'tri_source';
 export type TerrainProfile = 'flat' | 'rolling' | 'hilly';
 export type OptimizationMode = 'expected_value' | 'robust';
 export type ComputeMode = 'pareto_stream' | 'pareto_json' | 'route_single';
@@ -228,6 +228,7 @@ export type RouteCertificationSummary = {
   top_fragility_families?: string[];
   top_competitor_route_id?: string | null;
   top_value_of_refresh_family?: string | null;
+  ambiguity_context?: Record<string, string | number | boolean | null> | null;
 };
 
 export type VoiStopSummary = {
@@ -240,7 +241,118 @@ export type VoiStopSummary = {
   stop_reason: string;
   best_rejected_action?: string | null;
   best_rejected_q?: number | null;
+  search_completeness_score?: number | null;
+  search_completeness_gap?: number | null;
   credible_search_uncertainty?: boolean | null;
+};
+
+export type DecisionPreferenceSummary = {
+  objective_id: 'minimum_monetary_cost';
+  objective_field: 'monetary_cost';
+  selector_policy: string;
+  selective: boolean;
+  tie_break_order: string[];
+  notes: string[];
+};
+
+export type DecisionSupportSourceRecord = {
+  source_id: string;
+  role?: string | null;
+  required: boolean;
+  present: boolean;
+  status: string;
+  freshness_timestamp_utc?: string | null;
+  provenance?: string | null;
+  details: Record<string, string | number | boolean>;
+};
+
+export type DecisionSupportSummary = {
+  support_mode: string;
+  required_source_count: number;
+  observed_source_count: number;
+  satisfied: boolean;
+  sources: DecisionSupportSourceRecord[];
+  source_mix: string[];
+  missing_sources: string[];
+  source_entropy?: number | null;
+  provenance_mode?: string | null;
+  notes: string[];
+};
+
+export type CertifiedSetSummary = {
+  objective_field: 'monetary_cost';
+  selected_route_id?: string | null;
+  minimum_cost_route_id?: string | null;
+  certified_route_ids: string[];
+  frontier_route_ids: string[];
+  certificate_value?: number | null;
+  certificate_threshold?: number | null;
+  certificate_basis: string;
+  certified: boolean;
+  selective_gate_passed: boolean;
+};
+
+export type DecisionAbstentionSummary = {
+  abstained: boolean;
+  reason_code?: string | null;
+  message?: string | null;
+  blocking_sources: string[];
+  retryable: boolean;
+};
+
+export type DecisionWitnessSummary = {
+  primary_witness_route_id?: string | null;
+  witness_route_ids: string[];
+  challenger_route_ids: string[];
+  witness_world_count?: number | null;
+  witness_source_ids: string[];
+  notes: string[];
+};
+
+export type DecisionControllerSummary = {
+  controller_mode: string;
+  engaged: boolean;
+  iteration_count: number;
+  action_count: number;
+  stop_reason?: string | null;
+  search_budget_used: number;
+  evidence_budget_used: number;
+  notes: string[];
+};
+
+export type DecisionTheoremHookRecord = {
+  hook_id: string;
+  artifact_name?: string | null;
+  status: string;
+  note?: string | null;
+};
+
+export type DecisionTheoremHookSummary = {
+  hooks: DecisionTheoremHookRecord[];
+};
+
+export type DecisionLaneManifest = {
+  lane_id?: string | null;
+  lane_name?: string | null;
+  lane_version?: string | null;
+  artifact_names: string[];
+  notes: string[];
+};
+
+export type DecisionPackage = {
+  schema_version: string;
+  package_kind: 'decision_package';
+  pipeline_mode: PipelineMode;
+  selected_route_id?: string | null;
+  preference_summary: DecisionPreferenceSummary;
+  support_summary: DecisionSupportSummary;
+  certified_set_summary: CertifiedSetSummary;
+  abstention_summary?: DecisionAbstentionSummary | null;
+  witness_summary?: DecisionWitnessSummary | null;
+  controller_summary?: DecisionControllerSummary | null;
+  theorem_hook_summary?: DecisionTheoremHookSummary | null;
+  lane_manifest?: DecisionLaneManifest | null;
+  provenance: Record<string, string | number | boolean | null>;
 };
 
 export type GeoJSONLineString = {
@@ -282,6 +394,7 @@ export type RouteResponse = {
   manifest_endpoint?: string | null;
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
+  decision_package?: DecisionPackage | null;
   selected_certificate?: RouteCertificationSummary | null;
   voi_stop_summary?: VoiStopSummary | null;
 };
