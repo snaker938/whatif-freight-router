@@ -6,6 +6,13 @@ import pytest
 
 import app.evidence_certification as evidence_certification_module
 import app.main as main_module
+from app.abstention import ABSTENTION_REASON_CODES, AbstentionRecord
+from app.certificate_witness import CertificateWitness
+from app.certification_models import CertificationState
+from app.certified_set import CertifiedSetState
+from app.confidence_sequences import WinnerConfidenceState, winner_confidence_sequence
+from app.decision_region import DecisionRegionState
+from app.flip_radius import FlipRadiusState
 from app.models import (
     EvidenceProvenance,
     EvidenceSourceRecord,
@@ -15,6 +22,7 @@ from app.models import (
     ScenarioSummary,
     TerrainSummaryPayload,
 )
+from app.pairwise_gap_model import PairwiseGapState
 from app.evidence_certification import (
     EVIDENCE_FAMILIES,
     annotate_world_manifest_cache_reuse,
@@ -2802,3 +2810,223 @@ def test_supported_ambiguity_dependency_contrast_surfaces_winner_refresh_signal(
     assert manifest["supported_ambiguity_stress_pack_count"] > 0
     assert fragility.route_fragility_map["route_a"]["scenario"] > 0.0
     assert fragility.value_of_refresh["top_refresh_gain"] > 0.0
+
+
+def test_winner_confidence_sequence_bounds_tighten_for_consistent_winner() -> None:
+    states = winner_confidence_sequence(
+        "route_a",
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        threshold=0.7,
+        confidence_level=0.95,
+        support_strength=0.9,
+        proxy_fraction=0.0,
+    )
+
+    assert states
+    for state in states:
+        assert 0.0 <= state.lower_bound <= state.point_estimate <= state.upper_bound <= 1.0
+
+    assert states[-1].lower_bound >= states[0].lower_bound
+    assert states[-1].width <= states[0].width
+    assert states[-1].effective_sample_count > states[0].effective_sample_count
+
+
+def test_pairwise_gap_state_from_score_maps_tracks_gap_statistics() -> None:
+    state = PairwiseGapState.from_score_maps(
+        "route_a",
+        "route_b",
+        [
+            {"route_a": 10.0, "route_b": 10.4},
+            {"route_a": 10.1, "route_b": 10.2},
+            {"route_a": 10.2, "route_b": 10.2},
+            {"route_a": 10.3, "route_b": 10.1},
+        ],
+        support_strength=0.85,
+    )
+
+    assert state.sample_count == 4
+    assert state.min_gap <= state.mean_gap <= state.max_gap
+    assert state.positive_share + state.negative_share + state.tie_share == pytest.approx(1.0, abs=1e-6)
+    assert state.challenger_win_share == state.negative_share
+
+
+def test_certified_set_marks_safe_certified_winner() -> None:
+    threshold = 0.7
+    winner = WinnerConfidenceState.from_point_estimate(
+        "route_a",
+        point_estimate=0.86,
+        sample_count=400,
+        threshold=threshold,
+        support_strength=0.95,
+    )
+    challenger = WinnerConfidenceState.from_point_estimate(
+        "route_b",
+        point_estimate=0.58,
+        sample_count=400,
+        threshold=threshold,
+        support_strength=0.95,
+    )
+    pairwise_gap = PairwiseGapState.from_certificate_gap(
+        "route_a",
+        "route_b",
+        winner_certificate=0.86,
+        challenger_certificate=0.58,
+        sample_count=400,
+        support_strength=0.95,
+    )
+    flip_radius = FlipRadiusState.from_pairwise_gap(
+        pairwise_gap,
+        objective_scale=max(abs(pairwise_gap.mean_gap), 1e-6),
+    )
+    decision_region = DecisionRegionState.from_states(
+        winner,
+        [challenger],
+        [pairwise_gap],
+        flip_radius,
+        threshold=threshold,
+    )
+    certified_set = CertifiedSetState.from_confidence_states(
+        [winner, challenger],
+        threshold=threshold,
+        winner_id="route_a",
+        decision_region=decision_region,
+    )
+
+    assert decision_region.certified
+    assert certified_set.safe
+    assert certified_set.certified_route_ids == ("route_a",)
+    assert certified_set.rejected_route_ids == ("route_b",)
+
+
+def test_abstention_record_reflects_decision_region_reason() -> None:
+    threshold = 0.7
+    winner = WinnerConfidenceState.from_point_estimate(
+        "route_a",
+        point_estimate=0.68,
+        sample_count=40,
+        threshold=threshold,
+        support_strength=0.4,
+        proxy_fraction=0.2,
+    )
+    challenger = WinnerConfidenceState.from_point_estimate(
+        "route_b",
+        point_estimate=0.66,
+        sample_count=40,
+        threshold=threshold,
+        support_strength=0.4,
+        proxy_fraction=0.2,
+    )
+    pairwise_gap = PairwiseGapState.from_certificate_gap(
+        "route_a",
+        "route_b",
+        winner_certificate=0.68,
+        challenger_certificate=0.66,
+        sample_count=40,
+        support_strength=0.4,
+        proxy_fraction=0.2,
+    )
+    flip_radius = FlipRadiusState.from_pairwise_gap(
+        pairwise_gap,
+        objective_scale=max(abs(pairwise_gap.mean_gap), 1e-6),
+    )
+    decision_region = DecisionRegionState.from_states(
+        winner,
+        [challenger],
+        [pairwise_gap],
+        flip_radius,
+        threshold=threshold,
+    )
+    abstention = AbstentionRecord.from_decision_region(decision_region)
+
+    assert decision_region.abstain
+    assert abstention.reason_code in ABSTENTION_REASON_CODES
+    assert abstention.recommended_action
+    assert abstention.severity == "high"
+
+
+def test_certification_state_builds_consistent_witness() -> None:
+    state = CertificationState.from_refc_outputs(
+        certificate={"route_a": 0.9, "route_b": 0.52, "route_c": 0.33},
+        threshold=0.7,
+        world_manifest={
+            "manifest_hash": "manifest-1",
+            "selected_route_id": "route_a",
+            "active_families": ["scenario", "weather"],
+            "world_count": 400,
+            "unique_world_count": 400,
+            "requested_world_count": 400,
+            "effective_world_count": 400,
+            "world_count_policy": "targeted_stress",
+            "stress_world_fraction": 0.25,
+            "worlds": [
+                {
+                    "world_kind": "sampled",
+                    "states": {"scenario": "nominal", "weather": "nominal"},
+                    "target_route_id": "route_a",
+                },
+                {
+                    "world_kind": "sampled",
+                    "states": {"scenario": "nominal", "weather": "refreshed"},
+                },
+                {
+                    "world_kind": "stress",
+                    "states": {"scenario": "stress", "weather": "nominal"},
+                },
+                {
+                    "world_kind": "sampled",
+                    "states": {"scenario": "nominal", "weather": "nominal"},
+                },
+            ],
+        },
+        fragility={"controller_ranking_basis": "refc"},
+        evidence_snapshot_manifest={
+            "manifest_hash": "snapshot-1",
+            "family_snapshots": {
+                "scenario": [
+                    {
+                        "source": "live_scenario",
+                        "signature": "live",
+                        "confidence": 0.98,
+                        "coverage_ratio": 1.0,
+                        "fallback_used": False,
+                    }
+                ],
+                "weather": [
+                    {
+                        "source": "live_weather",
+                        "signature": "live",
+                        "confidence": 0.97,
+                        "coverage_ratio": 0.96,
+                        "fallback_used": False,
+                    }
+                ],
+            },
+        },
+        ambiguity_context={
+            "od_ambiguity_support_ratio": 0.85,
+            "od_ambiguity_confidence": 0.9,
+            "od_ambiguity_source_entropy": 0.6,
+            "od_ambiguity_source_count": 3,
+            "od_ambiguity_source_mix_count": 2,
+            "od_ambiguity_family_density": 0.7,
+            "od_ambiguity_margin_pressure": 0.55,
+            "od_nominal_margin_proxy": 0.75,
+        },
+        evidence_validation={
+            "freshness_coverage": 0.95,
+            "live_family_count": 2,
+            "snapshot_family_count": 0,
+            "model_family_count": 0,
+        },
+    )
+    witness = CertificateWitness.from_state(
+        state,
+        fragility={"top_refresh_family": "weather"},
+    )
+
+    assert state.decision_region.certified
+    assert state.certified
+    assert witness.is_consistent_with_state(state)
+    assert witness.best_challenger_id == state.decision_region.best_challenger_id
+    assert witness.top_fragility_family == "weather"
+    assert witness.recommended_action == "hold"
