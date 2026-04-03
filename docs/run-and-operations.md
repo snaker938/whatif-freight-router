@@ -1,6 +1,6 @@
 # Run and Operations Guide
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03
 Applies To: local backend/frontend runtime, rebuilds, evaluation runs, hot-rerun cache restore, docs checks, and low-resource test execution
 
 This runbook is the operational reference for running, rebuilding, validating, and reporting on the project safely.
@@ -34,6 +34,8 @@ Then review the current strict runtime controls in `.env`:
   - `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT`
 - backend attempt ceiling:
   - `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S`
+- route seam mode controls:
+  - `ROUTE_PIPELINE_DEFAULT_MODE`
 - bounded OD probe controls:
   - `ROUTE_CONTEXT_PROBE_TIMEOUT_MS`
   - `ROUTE_CONTEXT_PROBE_MAX_PATHS`
@@ -79,6 +81,9 @@ Strict runtime defaults are enforced in `backend/app/settings.py`. In practice t
 - route graph strict readiness is required
 - route graph fast startup is disabled in strict mode
 - terrain probing is enabled when strict route-compute requires a full expected-source set
+- the public `POST /route` seam defaults to `tri_source` unless `ROUTE_PIPELINE_DEFAULT_MODE` is overridden
+- the current single-leg `tri_source` seam is wired through internal `voi` execution while keeping the public lane name stable
+- waypoint requests still fall back explicitly to `legacy`
 
 ## Operations Endpoints
 
@@ -105,6 +110,8 @@ Frontend route compute uses bounded degradation:
 Default degrade policy: `12 -> 6 -> 3`.
 
 Each fallback aborts the previous attempt before moving on. Strict business failures from route-producing endpoints are terminal and intentionally stop additional fallback attempts.
+
+The frontend fallback step now lands on the public `POST /route` seam with `pipeline_mode="tri_source"` when no explicit override is supplied. That public lane is currently wired to run single-leg OD requests through internal `voi` execution. If a request includes waypoints, the backend emits an explicit warning and falls back to `legacy` routing for that request.
 
 Strict live refresh is hybrid:
 
@@ -238,6 +245,9 @@ Common run artifact families:
 
 - route outputs: results.json, results.csv, metadata.json, routes.geojson
 - DCCS/REFC/VOI outputs: dccs_summary.json, certificate_summary.json, value_of_refresh.json, voi_action_trace.json, voi_stop_certificate.json
+- public route decision bundle outputs wired on the landed seam: decision_package.json, preference_summary.json, support_summary.json, support_provenance.json, support_trace.jsonl, certified_set.json, certified_set_routes.jsonl
+- additive decision/control outputs when populated: abstention_summary.json, witness_summary.json, witness_routes.jsonl, controller_summary.json, controller_trace.jsonl, theorem_hook_map.json, lane_manifest.json
+- trace outputs: final_route_trace.json carries `artifact_pointers` for the decision bundle and related runtime artifacts so Run Inspector or direct artifact fetches can discover the emitted family from a completed run
 - thesis outputs: thesis_results.*, thesis_summary.*, thesis_metrics.json, thesis_plots.json, evaluation_manifest.json, thesis_report.md
 - hot-rerun outputs: hot_rerun_vs_cold_comparison.json, hot_rerun_vs_cold_comparison.csv, hot_rerun_gate.json, hot_rerun_report.md
 
