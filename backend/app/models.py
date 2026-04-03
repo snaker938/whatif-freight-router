@@ -63,7 +63,7 @@ class CostToggles(BaseModel):
 
 
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
-PipelineMode = Literal["legacy", "dccs", "dccs_refc", "voi"]
+PipelineMode = Literal["legacy", "dccs", "dccs_refc", "voi", "tri_source"]
 RouteRefinementPolicy = Literal["dccs", "first_n", "random_n", "corridor_uniform"]
 TerrainProfile = Literal["flat", "rolling", "hilly"]
 OptimizationMode = Literal["expected_value", "robust"]
@@ -367,6 +367,117 @@ class VoiStopSummary(BaseModel):
     credible_search_uncertainty: bool | None = None
 
 
+class DecisionPreferenceSummary(BaseModel):
+    objective_id: Literal["minimum_monetary_cost"] = "minimum_monetary_cost"
+    objective_field: Literal["monetary_cost"] = "monetary_cost"
+    selector_policy: str = "tri_source_selective_minimum_cost"
+    selective: bool = True
+    tie_break_order: list[str] = Field(
+        default_factory=lambda: ["certificate", "duration_s", "emissions_kg", "route_id"]
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionSupportSourceRecord(BaseModel):
+    source_id: str
+    role: str | None = None
+    required: bool = False
+    present: bool = False
+    status: str = "unknown"
+    freshness_timestamp_utc: str | None = None
+    provenance: str | None = None
+    details: dict[str, str | float | int | bool] = Field(default_factory=dict)
+
+
+class DecisionSupportSummary(BaseModel):
+    support_mode: str = "tri_source_selective"
+    required_source_count: int = Field(default=3, ge=0)
+    observed_source_count: int = Field(default=0, ge=0)
+    satisfied: bool = False
+    sources: list[DecisionSupportSourceRecord] = Field(default_factory=list)
+    source_mix: list[str] = Field(default_factory=list)
+    missing_sources: list[str] = Field(default_factory=list)
+    source_entropy: float | None = Field(default=None, ge=0.0, le=1.0)
+    provenance_mode: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class CertifiedSetSummary(BaseModel):
+    objective_field: Literal["monetary_cost"] = "monetary_cost"
+    selected_route_id: str | None = None
+    minimum_cost_route_id: str | None = None
+    certified_route_ids: list[str] = Field(default_factory=list)
+    frontier_route_ids: list[str] = Field(default_factory=list)
+    certificate_value: float | None = Field(default=None, ge=0.0, le=1.0)
+    certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    certificate_basis: str = "pending_runtime_wiring"
+    certified: bool = False
+    selective_gate_passed: bool = False
+
+
+class DecisionAbstentionSummary(BaseModel):
+    abstained: bool = False
+    reason_code: str | None = None
+    message: str | None = None
+    blocking_sources: list[str] = Field(default_factory=list)
+    retryable: bool = False
+
+
+class DecisionWitnessSummary(BaseModel):
+    primary_witness_route_id: str | None = None
+    witness_route_ids: list[str] = Field(default_factory=list)
+    challenger_route_ids: list[str] = Field(default_factory=list)
+    witness_world_count: int | None = Field(default=None, ge=0)
+    witness_source_ids: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionControllerSummary(BaseModel):
+    controller_mode: str = "single_pass"
+    engaged: bool = False
+    iteration_count: int = Field(default=0, ge=0)
+    action_count: int = Field(default=0, ge=0)
+    stop_reason: str | None = None
+    search_budget_used: int = Field(default=0, ge=0)
+    evidence_budget_used: int = Field(default=0, ge=0)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionTheoremHookRecord(BaseModel):
+    hook_id: str
+    artifact_name: str | None = None
+    status: str = "planned"
+    note: str | None = None
+
+
+class DecisionTheoremHookSummary(BaseModel):
+    hooks: list[DecisionTheoremHookRecord] = Field(default_factory=list)
+
+
+class DecisionLaneManifest(BaseModel):
+    lane_id: str | None = None
+    lane_name: str | None = None
+    lane_version: str | None = None
+    artifact_names: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionPackage(BaseModel):
+    schema_version: str = "0.1.0"
+    package_kind: Literal["decision_package"] = "decision_package"
+    pipeline_mode: PipelineMode = "tri_source"
+    selected_route_id: str | None = None
+    preference_summary: DecisionPreferenceSummary = Field(default_factory=DecisionPreferenceSummary)
+    support_summary: DecisionSupportSummary = Field(default_factory=DecisionSupportSummary)
+    certified_set_summary: CertifiedSetSummary = Field(default_factory=CertifiedSetSummary)
+    abstention_summary: DecisionAbstentionSummary | None = None
+    witness_summary: DecisionWitnessSummary | None = None
+    controller_summary: DecisionControllerSummary | None = None
+    theorem_hook_summary: DecisionTheoremHookSummary | None = None
+    lane_manifest: DecisionLaneManifest | None = None
+    provenance: dict[str, str | float | int | bool | None] = Field(default_factory=dict)
+
+
 class RouteOption(BaseModel):
     id: str
     geometry: GeoJSONLineString
@@ -393,14 +504,28 @@ class RouteOption(BaseModel):
     certification: RouteCertificationSummary | None = None
 
 
+class DecisionPackageResponse(BaseModel):
+    decision_package: DecisionPackage
+    selected: RouteOption | None = None
+    candidates: list[RouteOption] = Field(default_factory=list)
+    run_id: str | None = None
+    pipeline_mode: PipelineMode = "tri_source"
+    manifest_endpoint: str | None = None
+    artifacts_endpoint: str | None = None
+    provenance_endpoint: str | None = None
+    selected_certificate: RouteCertificationSummary | None = None
+    voi_stop_summary: VoiStopSummary | None = None
+
+
 class RouteResponse(BaseModel):
     selected: RouteOption
     candidates: list[RouteOption]
     run_id: str | None = None
-    pipeline_mode: PipelineMode = "legacy"
+    pipeline_mode: PipelineMode = "tri_source"
     manifest_endpoint: str | None = None
     artifacts_endpoint: str | None = None
     provenance_endpoint: str | None = None
+    decision_package: DecisionPackage | None = None
     selected_certificate: RouteCertificationSummary | None = None
     voi_stop_summary: VoiStopSummary | None = None
 

@@ -525,7 +525,7 @@ class Settings(BaseSettings):
         alias="ROUTE_BASELINE_DISTANCE_MULTIPLIER",
     )
     route_pipeline_default_mode: str = Field(
-        default="legacy",
+        default="tri_source",
         alias="ROUTE_PIPELINE_DEFAULT_MODE",
     )
     route_pipeline_request_override_enabled: bool = Field(
@@ -1377,9 +1377,9 @@ class Settings(BaseSettings):
         }:
             math_profile = "modified_vikor_distance"
         self.route_selection_math_profile = math_profile
-        pipeline_mode = str(self.route_pipeline_default_mode or "legacy").strip().lower()
-        if pipeline_mode not in {"legacy", "dccs", "dccs_refc", "voi"}:
-            pipeline_mode = "legacy"
+        pipeline_mode = str(self.route_pipeline_default_mode or "tri_source").strip().lower()
+        if pipeline_mode not in {"legacy", "dccs", "dccs_refc", "voi", "tri_source"}:
+            pipeline_mode = "tri_source"
         self.route_pipeline_default_mode = pipeline_mode
         baseline_policy = str(self.route_dccs_default_baseline_policy or "first_n").strip().lower()
         if baseline_policy not in {"first_n", "random_n", "corridor_uniform"}:

@@ -13,14 +13,98 @@ from .settings import settings
 from .signatures import build_signature_metadata
 
 
-def _write_signed_manifest(run_id: str, manifest: dict[str, Any], *, out_dir: Path) -> Path:
+MANIFEST_SCHEMA_SURFACE = "manifest"
+SCENARIO_MANIFEST_SCHEMA_SURFACE = "scenario_manifest"
+DECISION_PACKAGE_SCHEMA_VERSION = "0.1.0"
+
+SCHEMA_VERSIONS: dict[str, str] = {
+    MANIFEST_SCHEMA_SURFACE: "1.0.0",
+    SCENARIO_MANIFEST_SCHEMA_SURFACE: "1.0.0",
+    "decision_package": DECISION_PACKAGE_SCHEMA_VERSION,
+    "preference_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "support_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "support_trace": DECISION_PACKAGE_SCHEMA_VERSION,
+    "support_provenance": DECISION_PACKAGE_SCHEMA_VERSION,
+    "certified_set": DECISION_PACKAGE_SCHEMA_VERSION,
+    "certified_set_routes": DECISION_PACKAGE_SCHEMA_VERSION,
+    "abstention_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "witness_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "witness_routes": DECISION_PACKAGE_SCHEMA_VERSION,
+    "controller_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "controller_trace": DECISION_PACKAGE_SCHEMA_VERSION,
+    "theorem_hook_map": DECISION_PACKAGE_SCHEMA_VERSION,
+    "lane_manifest": DECISION_PACKAGE_SCHEMA_VERSION,
+}
+
+ARTIFACT_SCHEMA_VERSIONS: dict[str, str] = {
+    "decision_package.json": SCHEMA_VERSIONS["decision_package"],
+    "preference_summary.json": SCHEMA_VERSIONS["preference_summary"],
+    "support_summary.json": SCHEMA_VERSIONS["support_summary"],
+    "support_trace.jsonl": SCHEMA_VERSIONS["support_trace"],
+    "support_provenance.json": SCHEMA_VERSIONS["support_provenance"],
+    "certified_set.json": SCHEMA_VERSIONS["certified_set"],
+    "certified_set_routes.jsonl": SCHEMA_VERSIONS["certified_set_routes"],
+    "abstention_summary.json": SCHEMA_VERSIONS["abstention_summary"],
+    "witness_summary.json": SCHEMA_VERSIONS["witness_summary"],
+    "witness_routes.jsonl": SCHEMA_VERSIONS["witness_routes"],
+    "controller_summary.json": SCHEMA_VERSIONS["controller_summary"],
+    "controller_trace.jsonl": SCHEMA_VERSIONS["controller_trace"],
+    "theorem_hook_map.json": SCHEMA_VERSIONS["theorem_hook_map"],
+    "lane_manifest.json": SCHEMA_VERSIONS["lane_manifest"],
+}
+
+
+def schema_version_for_surface(surface: str, *, default: str | None = None) -> str | None:
+    cleaned = str(surface or "").strip().lower()
+    if not cleaned:
+        return default
+    return SCHEMA_VERSIONS.get(cleaned, default)
+
+
+def schema_version_for_artifact(artifact_name: str, *, default: str | None = None) -> str | None:
+    cleaned = str(artifact_name or "").strip()
+    if not cleaned:
+        return default
+    return ARTIFACT_SCHEMA_VERSIONS.get(cleaned, default)
+
+
+def versioned_json_payload(
+    payload: dict[str, Any],
+    *,
+    surface: str | None = None,
+    artifact_name: str | None = None,
+    default_version: str | None = None,
+) -> dict[str, Any]:
+    enriched = dict(payload)
+    if enriched.get("schema_version") is not None:
+        return enriched
+    resolved = default_version
+    if artifact_name is not None:
+        resolved = schema_version_for_artifact(artifact_name, default=resolved)
+    if resolved is None and surface is not None:
+        resolved = schema_version_for_surface(surface, default=resolved)
+    if resolved is not None:
+        enriched.setdefault("schema_version", resolved)
+    return enriched
+
+
+def _write_signed_manifest(
+    run_id: str,
+    manifest: dict[str, Any],
+    *,
+    out_dir: Path,
+    surface: str,
+) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    enriched = {
-        "run_id": run_id,
-        "created_at": datetime.now(UTC).isoformat(),
-        **manifest,
-    }
+    enriched = versioned_json_payload(
+        {
+            "run_id": run_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            **manifest,
+        },
+        surface=surface,
+    )
     enriched["signature"] = build_signature_metadata(enriched)
 
     path = out_dir / f"{run_id}.json"
@@ -30,12 +114,22 @@ def _write_signed_manifest(run_id: str, manifest: dict[str, Any], *, out_dir: Pa
 
 def write_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
     out_dir = Path(settings.out_dir) / "manifests"
-    return _write_signed_manifest(run_id, manifest, out_dir=out_dir)
+    return _write_signed_manifest(
+        run_id,
+        manifest,
+        out_dir=out_dir,
+        surface=MANIFEST_SCHEMA_SURFACE,
+    )
 
 
 def write_scenario_manifest(run_id: str, manifest: dict[str, Any]) -> Path:
     out_dir = Path(settings.out_dir) / "scenario_manifests"
-    return _write_signed_manifest(run_id, manifest, out_dir=out_dir)
+    return _write_signed_manifest(
+        run_id,
+        manifest,
+        out_dir=out_dir,
+        surface=SCENARIO_MANIFEST_SCHEMA_SURFACE,
+    )
 
 
 ARTIFACT_FILES: tuple[str, ...] = (
@@ -50,6 +144,20 @@ ARTIFACT_FILES: tuple[str, ...] = (
     "strict_frontier.jsonl",
     "winner_summary.json",
     "certificate_summary.json",
+    "decision_package.json",
+    "preference_summary.json",
+    "support_summary.json",
+    "support_trace.jsonl",
+    "support_provenance.json",
+    "certified_set.json",
+    "certified_set_routes.jsonl",
+    "abstention_summary.json",
+    "witness_summary.json",
+    "witness_routes.jsonl",
+    "controller_summary.json",
+    "controller_trace.jsonl",
+    "theorem_hook_map.json",
+    "lane_manifest.json",
     "route_fragility_map.json",
     "competitor_fragility_breakdown.json",
     "value_of_refresh.json",
@@ -154,7 +262,10 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def write_json_artifact(run_id: str, artifact_name: str, payload: dict[str, Any] | list[Any]) -> Path:
     path = artifact_path_for_name(run_id, artifact_name)
-    normalized = jsonable_encoder(payload)
+    normalized_payload = payload
+    if isinstance(payload, dict):
+        normalized_payload = versioned_json_payload(payload, artifact_name=artifact_name)
+    normalized = jsonable_encoder(normalized_payload)
     path.write_text(json.dumps(normalized, indent=2, default=str), encoding="utf-8")
     return path
 
