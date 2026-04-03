@@ -1,6 +1,6 @@
 # Backend APIs and Tooling
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03
 Applies To: `backend/app/main.py`, `backend/app/models.py`, `backend/app/run_store.py`, `backend/app/settings.py`
 
 This page is the authored summary of the current backend API and stable run-store contract.
@@ -161,8 +161,11 @@ Route-producing requests may also carry:
 - `manifest_endpoint`
 - `artifacts_endpoint`
 - `provenance_endpoint`
+- `decision_package`
 - `selected_certificate`
 - `voi_stop_summary`
+
+`decision_package` is optional at the response-contract level, but the current route runtime wires it from the same decision/support/controller bundle that is also persisted as `decision_package.json`.
 
 Returned `RouteOption` objects may include richer fields such as:
 
@@ -247,6 +250,23 @@ The stable public run-store allowlist comes from `ARTIFACT_FILES` in `backend/ap
 - refined_routes.jsonl
 - strict_frontier.jsonl
 
+### Decision / Controller / Support Outputs
+
+- decision_package.json
+- preference_summary.json
+- support_summary.json
+- support_trace.jsonl
+- support_provenance.json
+- certified_set.json
+- certified_set_routes.jsonl
+- abstention_summary.json
+- witness_summary.json
+- witness_routes.jsonl
+- controller_summary.json
+- controller_trace.jsonl
+- theorem_hook_map.json
+- lane_manifest.json
+
 ### REFC / VOI Outputs
 
 - winner_summary.json
@@ -278,6 +298,8 @@ The stable public run-store allowlist comes from `ARTIFACT_FILES` in `backend/ap
 - methods_appendix.md
 - thesis_report.md
 - evaluation_manifest.json
+
+The run-store schema registry now covers the decision/controller/support family above plus the additive VOI JSON surfaces `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`. Dict-backed JSON artifacts receive inline `schema_version` values when written. JSONL artifacts remain line-oriented files, but their artifact names are still tracked in the same registry so public artifact contracts can evolve additively without renaming files.
 
 Manifests are signed and written to:
 

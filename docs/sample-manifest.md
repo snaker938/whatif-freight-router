@@ -1,6 +1,6 @@
 # Sample Manifest and Outputs
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03
 Applies To: run manifests, signatures, artifact endpoints, and evaluation output directories
 
 ## Sample Files In Repo
@@ -66,6 +66,23 @@ The stable public artifact allowlist is defined in `backend/app/run_store.py`.
 - refined_routes.jsonl
 - strict_frontier.jsonl
 
+### Decision / Controller / Support Outputs
+
+- decision_package.json
+- preference_summary.json
+- support_summary.json
+- support_trace.jsonl
+- support_provenance.json
+- certified_set.json
+- certified_set_routes.jsonl
+- abstention_summary.json
+- witness_summary.json
+- witness_routes.jsonl
+- controller_summary.json
+- controller_trace.jsonl
+- theorem_hook_map.json
+- lane_manifest.json
+
 ### REFC / VOI Outputs
 
 - winner_summary.json
@@ -97,6 +114,10 @@ The stable public artifact allowlist is defined in `backend/app/run_store.py`.
 - methods_appendix.md
 - thesis_report.md
 - evaluation_manifest.json
+
+The run-store schema registry now covers the decision/controller/support family above and the additive VOI JSON artifacts `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`. Dict-backed JSON artifacts in those families carry `schema_version` when written. JSONL artifacts remain line-oriented payloads, but their artifact names are still version-tracked in the same registry.
+
+Signed manifests and route responses remain the public discovery layer for these files: `manifest_endpoint` and `artifacts_endpoint` identify the run, while `decision_package` on `POST /route` is the response-level mirror of `decision_package.json`.
 
 ## Retrieval Flow
 
