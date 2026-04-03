@@ -51,25 +51,29 @@ uv run --project backend python backend/scripts/compose_thesis_suite_report.py
 - scope: broad suite
 - role: cold thesis proof
 - ablations: `V0`, `A`, `B`, `C`
-- expected outputs include thesis_results.*, thesis_summary.*, thesis_metrics.json, thesis_plots.json, methods_appendix.md, thesis_report.md, and evaluation_manifest.json
+- expected outputs include thesis_results.*, thesis_summary.*, thesis_summary_by_cohort.*, thesis_metrics.json, thesis_plots.json, cohort_composition.json, methods_appendix.md, thesis_report.md, and evaluation_manifest.json
+- evaluator metadata also records `evaluation_suite` and `cohort_scaffolding`
 
 ### Focused REFC Proof
 
 - scope: focused REFC lane
 - goal: concentrated certification, fragility, and refine-cost evidence
-- expected outputs include the core thesis outputs plus REFC artifacts such as certificate_summary.json, route_fragility_map.json, competitor_fragility_breakdown.json, and sampled_world_manifest.json
+- expected outputs include the core thesis outputs plus REFC artifacts such as certificate_summary.json, route_fragility_map.json, competitor_fragility_breakdown.json, sampled_world_manifest.json, thesis_summary_by_cohort.*, and cohort_composition.json
+- evaluator metadata also records `evaluation_suite` and `cohort_scaffolding`
 
 ### Focused VOI Proof
 
 - scope: focused VOI lane
 - goal: controller engagement, waste, lift, and refine-cost evidence
-- expected outputs include VOI artifacts such as value_of_refresh.json, voi_action_trace.json, voi_action_scores.csv, voi_stop_certificate.json, and voi_controller_state.jsonl
+- expected outputs include VOI artifacts such as value_of_refresh.json, voi_action_trace.json, voi_action_scores.csv, voi_stop_certificate.json, voi_controller_state.jsonl, thesis_summary_by_cohort.*, and cohort_composition.json
+- evaluator metadata also records `evaluation_suite` and `cohort_scaffolding`
 
 ### DCCS Diagnostic Probe
 
 - scope: diagnostic probe lane
 - goal: inspect candidate richness, rescue behavior, and collapse-prone rows
-- expected outputs emphasize dccs_candidates.jsonl, dccs_summary.json, refined_routes.jsonl, and strict_frontier.jsonl
+- expected outputs emphasize dccs_candidates.jsonl, dccs_summary.json, refined_routes.jsonl, strict_frontier.jsonl, thesis_summary_by_cohort.*, and cohort_composition.json
+- evaluator metadata also records `evaluation_suite` and `cohort_scaffolding`
 
 ## Hot-Rerun Production / Reuse Benchmark
 
@@ -106,12 +110,13 @@ Expected composed outputs include:
 - thesis_summary.json
 - thesis_summary_by_cohort.csv
 - thesis_summary_by_cohort.json
+- cohort_composition.json
 - methods_appendix.md
 - thesis_report.md
 - suite_sources.json
 - prior_coverage_summary.json
-- cohort_composition.json
 - evaluation_manifest.json
+- evaluator metadata should retain `evaluation_suite` and `cohort_scaffolding` in the run payloads and composed outputs
 
 The composed suite is where provenance-visible summary views should live; it should not be used to rewrite the cold thesis proof or the hot-rerun proof.
 

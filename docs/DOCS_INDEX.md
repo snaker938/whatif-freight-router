@@ -35,14 +35,14 @@ This is the main authored-docs index for the project. Generated outputs under `b
 - [Sample Manifest and Outputs](sample-manifest.md)
 - [Thesis-Grade Codebase Report](thesis-codebase-report.md)
 
-Generated evaluation families described by these docs:
+Generated evaluation families described by these docs; the evaluator also emits cohort-scaffolded metadata (`evaluation_suite`, `cohort_scaffolding`) and cohort summary/composition artifacts:
 
 - broad cold thesis proof
 - focused REFC proof
 - focused VOI proof
 - DCCS diagnostic probe
 - hot-rerun cold source and hot-rerun proof
-- composed suite outputs with cohort summaries and suite-source provenance
+- composed suite outputs with cohort summaries, cohort composition, and suite-source provenance
 
 ## Frontend
 

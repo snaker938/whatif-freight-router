@@ -109,9 +109,9 @@ Backend build and evaluation:
 ## Evaluation Workflows
 
 - Use `backend/scripts/run_thesis_lane.py` for smaller lane-local checks and focused iteration.
-- Use `backend/scripts/run_thesis_evaluation.py` for the broad cold thesis proof, focused REFC proof, focused VOI proof, and DCCS diagnostic probe.
+- Use `backend/scripts/run_thesis_evaluation.py` for the broad cold thesis proof, focused REFC proof, focused VOI proof, and DCCS diagnostic probe. Evaluator runs also emit cohort-scaffolded metadata such as `evaluation_suite`, `cohort_scaffolding`, `thesis_summary_by_cohort.csv/json`, and `cohort_composition.json`.
 - Use `backend/scripts/run_hot_rerun_benchmark.py` for the dedicated second-run reuse benchmark and hot-vs-cold comparison artifacts.
-- Use `backend/scripts/compose_thesis_suite_report.py` to compose completed evaluation lanes into a final suite report with cohort summaries and suite-source provenance.
+- Use `backend/scripts/compose_thesis_suite_report.py` to compose completed evaluation lanes into a final suite report with cohort summaries, cohort composition, suite-source provenance, and prior coverage summaries.
 
 ## Runtime Outputs
 
@@ -141,7 +141,7 @@ Per-run artifact directories may include:
 - DCCS outputs: dccs_candidates.jsonl, dccs_summary.json, refined_routes.jsonl, strict_frontier.jsonl
 - REFC outputs: winner_summary.json, certificate_summary.json, route_fragility_map.json, competitor_fragility_breakdown.json, sampled_world_manifest.json, evidence_snapshot_manifest.json
 - VOI outputs: value_of_refresh.json, voi_action_trace.json, voi_controller_state.jsonl, voi_action_scores.csv, voi_stop_certificate.json, final_route_trace.json
-- evaluation outputs: thesis_results.*, thesis_summary.*, thesis_metrics.json, thesis_plots.json, evaluation_manifest.json
+- evaluation outputs: thesis_results.*, thesis_summary.*, thesis_summary_by_cohort.*, thesis_metrics.json, thesis_plots.json, cohort_composition.json, evaluation_manifest.json
 - report outputs: methods_appendix.md, thesis_report.md
 - corpus/baseline helpers: od_corpus.*, ors_snapshot.json
 - hot-rerun outputs when applicable: hot_rerun_vs_cold_comparison.json, hot_rerun_vs_cold_comparison.csv, hot_rerun_gate.json, hot_rerun_report.md

@@ -46,11 +46,14 @@ Treat the cold thesis proof as its own bundle. Archive:
 - `backend/out/artifacts/<run_id>/thesis_results.csv`
 - `backend/out/artifacts/<run_id>/thesis_summary.csv`
 - `backend/out/artifacts/<run_id>/thesis_summary.json`
+- `backend/out/artifacts/<run_id>/thesis_summary_by_cohort.csv`
+- `backend/out/artifacts/<run_id>/thesis_summary_by_cohort.json`
 - `backend/out/artifacts/<run_id>/thesis_metrics.json`
 - `backend/out/artifacts/<run_id>/thesis_plots.json`
 - `backend/out/artifacts/<run_id>/methods_appendix.md`
 - `backend/out/artifacts/<run_id>/thesis_report.md`
 - `backend/out/artifacts/<run_id>/evaluation_manifest.json`
+- evaluator payloads should also retain `evaluation_suite` and `cohort_scaffolding` in their JSON metadata
 
 ## Hot-Rerun Production / Reuse Proof Bundle
 
@@ -72,10 +75,11 @@ When composing multiple completed lanes, archive:
 
 - `backend/out/artifacts/<run_id>/thesis_summary_by_cohort.csv`
 - `backend/out/artifacts/<run_id>/thesis_summary_by_cohort.json`
+- `backend/out/artifacts/<run_id>/cohort_composition.json`
 - `backend/out/artifacts/<run_id>/suite_sources.json`
 - `backend/out/artifacts/<run_id>/prior_coverage_summary.json`
-- `backend/out/artifacts/<run_id>/cohort_composition.json`
 - `backend/out/artifacts/<run_id>/evaluation_manifest.json`
+- composed suite payloads should also retain `evaluation_suite` and `cohort_scaffolding`
 
 ## Comparing Two Runs
 
@@ -95,6 +99,7 @@ Before attributing differences to algorithmic changes, verify:
 - manifests are signed with `HMAC-SHA256`
 - provenance logs live under `backend/out/provenance/`
 - evaluation manifests should clearly distinguish broad, focused, probe, hot-rerun cold source, and hot-rerun proof roles
+- evaluator payloads should keep `evaluation_suite` and `cohort_scaffolding` explicit so downstream readers can recover lane and cohort context without parsing filenames
 - composed suite outputs should record suite_sources.json so stale-versus-fresh provenance stays explicit
 - signed manifests should carry `run_id`, `created_at`, the payload body, and a nested signature block
 
