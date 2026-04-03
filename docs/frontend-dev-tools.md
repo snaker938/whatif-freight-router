@@ -81,6 +81,19 @@ Practical preview/download targets now include:
 - thesis_summary.json
 - thesis_report.md
 - methods_appendix.md
+- decision_package.json when the landed route seam emitted a decision package
+- preference_summary.json when present in the decision package artifact family
+- support_summary.json when present in the decision package artifact family
+- support_provenance.json when present in the decision package artifact family
+- support_trace.jsonl when present in the decision package artifact family
+- certified_set.json when present in the decision package artifact family
+- certified_set_routes.jsonl when present in the decision package artifact family
+- abstention_summary.json when present in the decision package artifact family
+- witness_summary.json when present in the decision package artifact family
+- witness_routes.jsonl when present in the decision package artifact family
+- controller_summary.json when present in the decision package artifact family
+- controller_trace.jsonl when present in the decision package artifact family
+- lane_manifest.json when present in the decision package artifact family
 - certificate_summary.json
 - value_of_refresh.json
 - hot_rerun_gate.json on dedicated hot-rerun benchmark runs
@@ -118,7 +131,7 @@ Experiment Manager covers:
 - `/api/experiments/[experimentId]`
 - `/api/experiments/[experimentId]/compare`
 
-Route Certification Panel covers the route-result handoff into Run Inspector and exposes the current certification summary and VOI stop summary for the active run.
+Route Certification Panel covers the route-result handoff into Run Inspector and exposes the current certification summary, VOI stop summary, and `decision_package`-driven support, certified-set, abstention, witness, controller, and lane-manifest inspection for the active run. The panel still preserves the selected-certificate and VOI wording, but now makes the richer artifact-backed inspection surface explicit.
 
 Scenario Comparison covers scenario-level result comparison and signature inspection handoffs, again linking back into Run Inspector when a run id is available.
 
