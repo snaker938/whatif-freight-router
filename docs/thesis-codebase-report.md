@@ -621,7 +621,7 @@ The pipeline is easiest to read as a sequence:
 | Scalar selection | a representative route can be chosen from the frontier | support single-answer workflows |
 | Persistence | manifests, provenance, signatures, and artifacts are written to disk | keep runs inspectable and reproducible |
 
-Source: `backend/app/main.py`. Purpose: show the exact entry point for `POST /route`, including request ID creation, live-call tracing, alternative-count clamping, pipeline-mode resolution, waypoint-triggered legacy fallback, and warmup fail-fast.
+Source: `backend/app/main.py`. Purpose: show the exact entry point for `POST /route`, including request ID creation, live-call tracing, alternative-count clamping, public `tri_source` default resolution, internal `voi` execution aliasing, waypoint-triggered legacy fallback, and warmup fail-fast.
 
 ```py
 # backend/app/main.py
@@ -14976,7 +14976,7 @@ This mirroring makes two design commitments explicit:
 | `ScenarioCompareRequest` | backend scenario-compare request model family | compare workflow reuses route intent |
 | `DepartureOptimizeRequest` | backend departure-optimize request model family | departure sweep is a route request plus window constraints |
 | `DutyChainRequest` | backend duty-chain request model family | multi-stop workflow still shares the same weighting and scenario logic |
-| `RouteResponse` | `backend/app/main.py` response model declaration | route answer includes run endpoints and certification metadata that the browser must render |
+| `RouteResponse` | `backend/app/main.py` response model declaration | route answer includes run endpoints, nested `decision_package`, and certification metadata that the browser must render |
 | `RouteBaselineResponse` | backend baseline response model | comparator routes carry method and compute metadata |
 | `ParetoResponse` | backend Pareto response model | frontier display and diagnostics rely on backend structure |
 | `RouteCertificationSummary` | backend route/certificate summary object | certificate interpretation should not require hand-decoding JSON |
@@ -14988,7 +14988,7 @@ This mirroring makes two design commitments explicit:
 
 ### AL22. Code Evidence: Route Response Carries Provenance Hooks
 
-Source: `frontend/app/lib/types.ts`. Purpose: show that the route response type is intentionally shaped to carry route selection and provenance navigation together.
+Source: `frontend/app/lib/types.ts`. Purpose: show that the route response type is intentionally shaped to carry route selection, nested `decision_package`, and provenance navigation together.
 
 ```ts
 // frontend/app/lib/types.ts
@@ -23451,6 +23451,8 @@ The implications are explicit:
 - `voi_stop_summary` becomes meaningful only once VOI is active.
 
 This schema design preserves a stable route contract while allowing later layers to add typed outputs instead of unstructured notes.
+
+The seam regression for that contract lives in `backend/tests/test_api_streaming.py::test_route_defaults_to_tri_source_public_mode_and_emits_decision_package`, which checks the public `tri_source` response, the internal `voi` execution alias, the nested `decision_package`, and the preserved legacy waypoint fallback.
 
 ### AR10. Runtime Dispatch Proves The Layer Split
 
