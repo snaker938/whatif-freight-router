@@ -32,6 +32,9 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "witness_routes": DECISION_PACKAGE_SCHEMA_VERSION,
     "controller_summary": DECISION_PACKAGE_SCHEMA_VERSION,
     "controller_trace": DECISION_PACKAGE_SCHEMA_VERSION,
+    "voi_action_trace": DECISION_PACKAGE_SCHEMA_VERSION,
+    "voi_stop_certificate": DECISION_PACKAGE_SCHEMA_VERSION,
+    "final_route_trace": DECISION_PACKAGE_SCHEMA_VERSION,
     "theorem_hook_map": DECISION_PACKAGE_SCHEMA_VERSION,
     "lane_manifest": DECISION_PACKAGE_SCHEMA_VERSION,
 }
@@ -49,6 +52,9 @@ ARTIFACT_SCHEMA_VERSIONS: dict[str, str] = {
     "witness_routes.jsonl": SCHEMA_VERSIONS["witness_routes"],
     "controller_summary.json": SCHEMA_VERSIONS["controller_summary"],
     "controller_trace.jsonl": SCHEMA_VERSIONS["controller_trace"],
+    "voi_action_trace.json": SCHEMA_VERSIONS["voi_action_trace"],
+    "voi_stop_certificate.json": SCHEMA_VERSIONS["voi_stop_certificate"],
+    "final_route_trace.json": SCHEMA_VERSIONS["final_route_trace"],
     "theorem_hook_map.json": SCHEMA_VERSIONS["theorem_hook_map"],
     "lane_manifest.json": SCHEMA_VERSIONS["lane_manifest"],
 }

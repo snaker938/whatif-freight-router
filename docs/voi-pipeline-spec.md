@@ -165,6 +165,14 @@ Focused and broad evaluation runs also emit OD corpus and baseline helper artifa
 
 The public allowlist is intentionally narrow: code should only rely on the named artifact family outputs above, plus signed manifests and provenance, rather than on ad hoc intermediate files.
 
+The VOI JSON artifacts now have explicit schema-version coverage:
+
+- `voi_action_trace.json`
+- `voi_stop_certificate.json`
+- `final_route_trace.json`
+
+These filenames are unchanged. The schema-version entries exist so additive controller-trace fields can evolve without inventing a new artifact family.
+
 Composed suite runs additionally produce:
 
 - thesis_summary_by_cohort.csv
@@ -197,7 +205,45 @@ Current controller-facing refresh metadata can also include:
 
 evidence_snapshot_manifest.json and sampled-world outputs carry the upstream context required to interpret these values.
 
-## 7. Budgets and Reproducibility
+## 7. VOI Trace Value Contract
+
+The VOI trace contract is additive. The existing top-level action fields remain valid, and richer replay/value fields may appear on each action row without removing the old ones.
+
+The additive fields are:
+
+- `trace_metadata`
+- `action_menu_value_estimates`
+- `chosen_action_value_record`
+
+`trace_metadata` is run-time control context for the row. It is intended to capture the controller frame in which the menu was ranked, such as:
+
+- trace source and trace version
+- iteration index
+- selected and winning route ids
+- current certificate and certificate margin
+- remaining and used search/evidence budget
+- controller uncertainty flags
+
+`action_menu_value_estimates` is the predicted menu snapshot for that iteration. Each entry is an additive value record derived from one action candidate and can include:
+
+- action id, kind, target, and reason
+- predicted certificate, margin, and frontier deltas
+- weighted per-term value contributions
+- total predicted value and total cost
+- `base_q_score`, `ranked_q_score`, and any additive score-adjustment accounting
+
+`chosen_action_value_record` is the replay-oriented record for the selected action. It uses the same predicted estimate shape as the menu entries and may also carry realization fields when the action outcome becomes known.
+
+The intended behavior is:
+
+- predicted-only: when the trace row is recorded before action execution, `chosen_action_value_record.realization` is absent or null and the record captures only the controller's forecast
+- predicted-plus-realized: when the same action row is updated after execution, `chosen_action_value_record.realization` carries realized certificate, runner-up-gap, frontier, route-change, and evidence-uncertainty outcomes while the original predicted estimate remains intact
+
+`voi_action_trace.json` is the primary action-row carrier for these fields.
+
+`voi_stop_certificate.json` and `final_route_trace.json` inline the same action trace, so the same additive row semantics apply there as well.
+
+## 8. Budgets and Reproducibility
 
 Current request-side knobs are:
 
@@ -217,7 +263,7 @@ The intended contract is:
 
 For a fixed request, seed chain, evidence state, and model-asset state, the pipeline should be replayable through signed manifests, provenance logs, and per-run artifacts.
 
-## 8. Strict and Uncertified Semantics
+## 9. Strict and Uncertified Semantics
 
 - REFC and VOI operate on the strict frontier only
 - `C(r)` is the fraction of sampled worlds in which route `r` wins under the fixed selector
