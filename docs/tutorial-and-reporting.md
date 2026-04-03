@@ -1,6 +1,6 @@
 # Tutorial Mode and Reporting
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03  
 Applies To: frontend tutorial flows, devtools reporting surfaces, run artifacts, and signature inspection
 
 This page describes the current frontend tutorial/reporting flow and the backend artifact surfaces it depends on.
@@ -53,20 +53,28 @@ The current Run Inspector can:
 
 - inspect manifest, scenario manifest, provenance, signature, and scenario signature
 - list the stable public artifact set for a run
-- preview artifact text inline
-- download core docs and arbitrary artifacts by name
+- preview bounded allowlisted artifact text inline through the frontend proxy
+- download core docs and the same allowlisted artifact subset by name
+- render `decision_package` summaries inline when the inspected `run_id` matches the current active route run
 - open directly from route certification and scenario comparison flows when a run id is present
 
-This is no longer a PDF-centered flow. Common inspection targets now include:
+This is no longer a PDF-centered flow. Common proxy-backed inspection targets now include:
 
-- evaluation_manifest.json
-- thesis_summary.json
+- dccs_summary.json
+- winner_summary.json
+- certificate_summary.json
+- route_fragility_map.json
+- competitor_fragility_breakdown.json
 - thesis_report.md
 - methods_appendix.md
 - value_of_refresh.json
-- certificate_summary.json
-- hot_rerun_gate.json on dedicated hot-rerun benchmark runs
-- hot_rerun_vs_cold_comparison.json on dedicated hot-rerun benchmark runs
+- sampled_world_manifest.json
+- voi_action_trace.json
+- voi_stop_certificate.json
+- final_route_trace.json
+- thesis_summary.csv
+
+For the currently active route response, the Route Certification Panel and Run Inspector can also surface `decision_package`-derived preference, support, certified-set, abstention, witness, controller, and lane-manifest summaries directly from route state, with theorem-hook details available in the active Run Inspector view. That is a separate live-route inspection path from the bounded proxy-based artifact browsing flow above, and it does not imply that every persisted backend artifact is previewable through the frontend.
 
 ## Signature Verification
 
@@ -83,8 +91,8 @@ It returns the backend verification response so operators can compare `valid` an
 
 1. trigger a compute action in the UI
 2. capture the returned `run_id`
-3. open Run Inspector and load manifest, provenance, and signatures
-4. inspect or download the exact artifacts needed for debugging or reporting
+3. inspect the active Route Certification Panel when you need the current route's `decision_package` summaries immediately
+4. open Run Inspector and load manifest, provenance, signatures, and any proxy-allowlisted artifacts needed for debugging or reporting
 5. use Signature Verifier when you need detached verification of a manifest payload
 6. use Route Certification Panel or Scenario Comparison when you need a direct handoff into run-level inspection
 

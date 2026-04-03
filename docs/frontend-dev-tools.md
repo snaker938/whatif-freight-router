@@ -1,6 +1,6 @@
 # Frontend Dev Tools Coverage
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03  
 Applies To: `frontend/app/components/devtools/*`, `frontend/app/api/*`, and adjacent operator panels in `frontend/app/components/*`
 
 This page maps current frontend tooling surfaces to the backend or proxy routes they expose.
@@ -67,37 +67,31 @@ Current behavior:
 - inspect provenance
 - inspect signature JSON
 - inspect scenario signature JSON
-- list stable artifacts
-- preview arbitrary artifact text
-- download core docs and arbitrary artifacts
+- list stable artifacts returned by the backend run-store endpoints
+- preview and download only the current frontend proxy allowlist of artifact files
+- render `decision_package` summaries inline when the inspected run matches the current active route run
 
 Observed proxy path family:
 
 - `/api/runs/[runId]/[...subpath]`
 
-Practical preview/download targets now include:
+Practical proxy-backed preview/download targets now include:
 
-- evaluation_manifest.json
-- thesis_summary.json
+- dccs_summary.json
+- winner_summary.json
+- certificate_summary.json
+- route_fragility_map.json
+- competitor_fragility_breakdown.json
 - thesis_report.md
 - methods_appendix.md
-- decision_package.json when the landed route seam emitted a decision package
-- preference_summary.json when present in the decision package artifact family
-- support_summary.json when present in the decision package artifact family
-- support_provenance.json when present in the decision package artifact family
-- support_trace.jsonl when present in the decision package artifact family
-- certified_set.json when present in the decision package artifact family
-- certified_set_routes.jsonl when present in the decision package artifact family
-- abstention_summary.json when present in the decision package artifact family
-- witness_summary.json when present in the decision package artifact family
-- witness_routes.jsonl when present in the decision package artifact family
-- controller_summary.json when present in the decision package artifact family
-- controller_trace.jsonl when present in the decision package artifact family
-- lane_manifest.json when present in the decision package artifact family
-- certificate_summary.json
 - value_of_refresh.json
-- hot_rerun_gate.json on dedicated hot-rerun benchmark runs
-- hot_rerun_vs_cold_comparison.json on dedicated hot-rerun benchmark runs
+- sampled_world_manifest.json
+- voi_action_trace.json
+- voi_stop_certificate.json
+- final_route_trace.json
+- thesis_summary.csv
+
+This is intentionally narrower than the backend run-store allowlist. The frontend proxy currently exposes a bounded artifact subset, while the richer preference/support/certified-set/abstention/witness/controller/theorem-hook/lane-manifest view comes from the active route response's `decision_package`, not from arbitrary detached artifact retrieval.
 
 ## Signature Verifier
 
@@ -131,7 +125,7 @@ Experiment Manager covers:
 - `/api/experiments/[experimentId]`
 - `/api/experiments/[experimentId]/compare`
 
-Route Certification Panel covers the route-result handoff into Run Inspector and exposes the current certification summary, VOI stop summary, and `decision_package`-driven support, certified-set, abstention, witness, controller, and lane-manifest inspection for the active run. The panel still preserves the selected-certificate and VOI wording, but now makes the richer artifact-backed inspection surface explicit.
+Route Certification Panel covers the route-result handoff into Run Inspector and exposes the current certification summary, VOI stop summary, and `decision_package`-driven preference, support, certified-set, abstention, witness, controller, and lane-manifest inspection for the active run. The active Run Inspector view can also surface theorem-hook details from the same route response. That live-route summary path is separate from the bounded `/api/runs/[runId]/[...subpath]` proxy used for detached artifact browsing.
 
 Scenario Comparison covers scenario-level result comparison and signature inspection handoffs, again linking back into Run Inspector when a run id is available.
 
