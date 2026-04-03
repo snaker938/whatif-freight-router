@@ -103,41 +103,64 @@ THESIS_COLD_CACHE_SCOPES: tuple[str, ...] = (
 )
 VARIANT_PIPELINE_MODE = {"V0": "legacy", "A": "dccs", "B": "dccs_refc", "C": "voi"}
 STRICT_EVIDENCE_POLICY = "no_synthetic_no_proxy_no_fallback"
+COHORT_SCAFFOLDING_VERSION = "thesis_cohort_scaffolding_v1"
+BASE_COHORT_LABELS: tuple[str, ...] = ("representative", "ambiguity")
+DERIVED_COHORT_LABELS: tuple[str, ...] = ("hard_case", "controller_stress")
+ALL_COHORT_LABELS: tuple[str, ...] = (*BASE_COHORT_LABELS, *DERIVED_COHORT_LABELS)
+COHORT_DEFINITIONS: dict[str, str] = {
+    "representative": "Rows whose corpus_group is representative.",
+    "ambiguity": "Rows whose corpus_group is ambiguity.",
+    "hard_case": "Rows classified by stronger upstream ambiguity priors together with realized difficulty or controller-stress signals.",
+    "controller_stress": "Rows where the VOI controller engaged under materially stressed upstream or realized route conditions.",
+}
 EVALUATION_SUITE_ROLE_DEFAULTS: dict[str, dict[str, str]] = {
     "generic_evaluation": {
+        "family": "evaluation",
         "scope": "generic",
         "focus": "all",
         "label": "Generic evaluation",
     },
     "broad_cold_proof": {
+        "family": "evaluation",
         "scope": "broad",
         "focus": "all",
         "label": "Broad cold thesis proof",
     },
     "focused_refc_proof": {
+        "family": "evaluation",
         "scope": "focused",
         "focus": "refc",
         "label": "Focused REFC proof",
     },
     "focused_voi_proof": {
+        "family": "evaluation",
         "scope": "focused",
         "focus": "voi",
         "label": "Focused VOI proof",
     },
     "dccs_diagnostic_probe": {
+        "family": "evaluation",
         "scope": "probe",
         "focus": "dccs",
         "label": "DCCS diagnostic probe",
     },
     "hot_rerun_cold_source": {
+        "family": "benchmark",
         "scope": "hot_rerun_source",
         "focus": "runtime_reuse",
         "label": "Hot rerun cold source",
     },
     "hot_rerun": {
+        "family": "benchmark",
         "scope": "hot_rerun",
         "focus": "runtime_reuse",
         "label": "Hot rerun proof",
+    },
+    "composed_suite_report": {
+        "family": "suite",
+        "scope": "suite",
+        "focus": "all",
+        "label": "Composed thesis suite report",
     },
 }
 FRONTIER_ARTIFACT = "strict_frontier.jsonl"
@@ -1408,10 +1431,28 @@ def _suite_role_descriptor(role: str | None) -> dict[str, str]:
     )
     return {
         "role": normalized_role,
+        "family": defaults["family"],
         "scope": defaults["scope"],
         "focus": defaults["focus"],
         "label": defaults["label"],
     }
+
+
+def _cohort_scaffolding_payload() -> dict[str, Any]:
+    return {
+        "cohort_scaffolding_version": COHORT_SCAFFOLDING_VERSION,
+        "cohort_labels": list(ALL_COHORT_LABELS),
+        "base_cohort_labels": list(BASE_COHORT_LABELS),
+        "derived_cohort_labels": list(DERIVED_COHORT_LABELS),
+        "cohort_membership_mode": "base_labels_mutually_exclusive;derived_labels_may_overlap",
+        "cohort_definitions": dict(COHORT_DEFINITIONS),
+    }
+
+
+def _cohort_summary_artifact_payload(summary_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"summary_rows": summary_rows}
+    payload.update(_cohort_scaffolding_payload())
+    return payload
 
 
 def _resolve_evaluation_suite_metadata(
@@ -1435,15 +1476,17 @@ def _resolve_evaluation_suite_metadata(
         hint = (raw_text or "").strip().lower()
         if not hint:
             continue
-        if "hot_rerun" in hint:
+        if "hot_rerun_cold_source" in hint or ("hot" in hint and "rerun" in hint and "cold" in hint):
+            role = "hot_rerun_cold_source"
+        elif "hot_rerun" in hint:
             role = "hot_rerun"
-        elif "dccs_probe" in hint or ("dccs" in hint and "probe" in hint):
+        elif "dccs_diagnostic_probe" in hint or "dccs_probe" in hint or ("dccs" in hint and "probe" in hint):
             role = "dccs_diagnostic_probe"
-        elif "refc_focus" in hint or ("refc" in hint and "focus" in hint):
+        elif "focused_refc" in hint or "refc_focus" in hint or ("refc" in hint and "focus" in hint):
             role = "focused_refc_proof"
-        elif "voi_focus" in hint or ("voi" in hint and "focus" in hint):
+        elif "focused_voi" in hint or "voi_focus" in hint or ("voi" in hint and "focus" in hint):
             role = "focused_voi_proof"
-        elif "thesis_broad" in hint or "broad" in hint:
+        elif "broad_cold" in hint or "thesis_broad" in hint or "broad" in hint:
             role = "broad_cold_proof"
         else:
             role = ""
@@ -5837,7 +5880,7 @@ def _cohort_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not batch:
             continue
         total_rows = len(batch)
-        for cohort_label in ("representative", "ambiguity", "hard_case", "controller_stress"):
+        for cohort_label in ALL_COHORT_LABELS:
             cohort_rows = _cohort_rows(batch, cohort_label)
             if not cohort_rows:
                 continue
@@ -5900,16 +5943,33 @@ def _cohort_composition(rows: list[dict[str, Any]]) -> dict[str, Any]:
         batch = [row for row in rows if str(row.get("variant_id") or "") == variant_id]
         if not batch:
             continue
-        cohort_counts = Counter(str(row.get("cohort_label") or "unknown") for row in batch)
+        cohort_counts = {
+            cohort_label: len(_cohort_rows(batch, cohort_label))
+            for cohort_label in ALL_COHORT_LABELS
+        }
         by_variant[variant_id] = {
             "row_count": len(batch),
+            "base_cohort_counts": {
+                label: int(cohort_counts.get(label, 0))
+                for label in BASE_COHORT_LABELS
+            },
+            "derived_cohort_counts": {
+                label: int(cohort_counts.get(label, 0))
+                for label in DERIVED_COHORT_LABELS
+            },
             "cohort_counts": dict(sorted(cohort_counts.items())),
+            "cohort_shares": {
+                label: round(int(count) / len(batch), 6)
+                for label, count in sorted(cohort_counts.items())
+            },
             "unique_od_ids": sorted({str(row.get("od_id") or "") for row in batch if str(row.get("od_id") or "").strip()}),
         }
-    return {
+    payload = {
         "total_row_count": len(rows),
         "by_variant": by_variant,
     }
+    payload.update(_cohort_scaffolding_payload())
+    return payload
 
 
 def _rate_text(value: float | None, denominator: int) -> str:
@@ -6973,7 +7033,8 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "mean_hard_case_prior": _mean_numeric(corpus_rows, "hard_case_prior"),
             },
         )
-        write_json_artifact(run_id, "cohort_composition.json", cohort_composition)
+        cohort_scaffolding = _cohort_scaffolding_payload()
+        cohort_composition_path = write_json_artifact(run_id, "cohort_composition.json", cohort_composition)
         if snapshot_bundle is not None:
             snapshot_bundle["manifest_hash"] = _digest(snapshot_bundle.get("routes", {}))
             snapshot_path = write_json_artifact(run_id, "ors_snapshot.json", snapshot_bundle)
@@ -6982,17 +7043,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         summary_csv = write_csv_artifact(run_id, "thesis_summary.csv", fieldnames=SUMMARY_FIELDS, rows=summary_rows)
         write_json_artifact(run_id, "thesis_summary.json", {"summary_rows": summary_rows})
         cohort_summary_csv = write_csv_artifact(run_id, "thesis_summary_by_cohort.csv", fieldnames=COHORT_SUMMARY_FIELDS, rows=cohort_summary_rows)
-        write_json_artifact(
+        cohort_summary_json = write_json_artifact(
             run_id,
             "thesis_summary_by_cohort.json",
-            {
-                "summary_rows": cohort_summary_rows,
-                "cohort_definitions": {
-                    "representative": "Rows whose corpus_group is representative.",
-                    "ambiguity": "Rows whose corpus_group is ambiguity.",
-                    "hard_case": "Rows classified by stronger upstream ambiguity priors together with realized difficulty or controller-stress signals.",
-                },
-            },
+            _cohort_summary_artifact_payload(cohort_summary_rows),
         )
         write_json_artifact(
             run_id,
@@ -7013,6 +7067,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "strict_proxy_ors_allowed": bool(args.allow_proxy_ors),
                 "strict_evidence_fallbacks_allowed": bool(args.allow_evidence_fallbacks),
                 "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
                 "cache_mode": cache_mode,
                 "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
                 "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
@@ -7023,7 +7078,13 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         write_json_artifact(
             run_id,
             "results.json",
-            {"rows": rows, "summary_rows": summary_rows, "summary_by_cohort_rows": cohort_summary_rows},
+            {
+                "rows": rows,
+                "summary_rows": summary_rows,
+                "summary_by_cohort_rows": cohort_summary_rows,
+                "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
+            },
         )
         thesis_metrics_path = write_json_artifact(run_id, "thesis_metrics.json", metrics_payload)
         thesis_plots_path = write_json_artifact(run_id, "thesis_plots.json", plots_payload)
@@ -7053,6 +7114,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "baseline_smoke_summary": baseline_smoke_summary,
                 "strict_evidence_policy": STRICT_EVIDENCE_POLICY,
                 "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
                 "cache_mode": cache_mode,
                 "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
                 "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
@@ -7072,6 +7134,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                         "corpus_source_exists": corpus_source_exists,
                         "backend_url": args.backend_url,
                         "evaluation_suite": evaluation_suite,
+                        "cohort_scaffolding": cohort_scaffolding,
                         "cache_mode": cache_mode,
                         "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
                         "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
@@ -7095,10 +7158,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "results.json": artifact_dir_for_run(run_id) / "results.json",
                 "thesis_results.json": artifact_dir_for_run(run_id) / "thesis_results.json",
                 "thesis_summary.json": artifact_dir_for_run(run_id) / "thesis_summary.json",
-                "thesis_summary_by_cohort.json": artifact_dir_for_run(run_id) / "thesis_summary_by_cohort.json",
+                "thesis_summary_by_cohort.json": Path(cohort_summary_json),
                 "od_corpus.json": artifact_dir_for_run(run_id) / "od_corpus.json",
                 "od_corpus_summary.json": artifact_dir_for_run(run_id) / "od_corpus_summary.json",
-                "cohort_composition.json": artifact_dir_for_run(run_id) / "cohort_composition.json",
+                "cohort_composition.json": Path(cohort_composition_path),
                 "baseline_smoke_summary.json": Path(baseline_smoke_path),
             },
             extra_text_paths={},
@@ -7133,6 +7196,9 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "rows": rows,
             "summary_rows": summary_rows,
             "summary_by_cohort_rows": cohort_summary_rows,
+            "summary_by_cohort_json": str(cohort_summary_json),
+            "cohort_composition_path": str(cohort_composition_path),
+            "cohort_scaffolding": cohort_scaffolding,
             "success_row_count": sum(1 for row in rows if not row.get("failure_reason")),
             "failure_row_count": sum(1 for row in rows if row.get("failure_reason")),
             "failure_breakdown": _failure_breakdown(rows),
@@ -7156,6 +7222,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "strict_live_readiness_pass_rate": run_validity_metrics["strict_live_readiness_pass_rate"],
             "evaluation_rerun_success_rate": run_validity_metrics["evaluation_rerun_success_rate"],
             "scenario_profile_unavailable_rate": run_validity_metrics["scenario_profile_unavailable_rate"],
+            "evaluation_suite": evaluation_suite,
         }
     finally:
         settings.out_dir = old_out_dir

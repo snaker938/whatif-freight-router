@@ -51,6 +51,9 @@ def _validated_artifact_paths(payload: dict[str, Any]) -> dict[str, Path]:
     required_path_keys = (
         "results_csv",
         "summary_csv",
+        "summary_by_cohort_csv",
+        "summary_by_cohort_json",
+        "cohort_composition_path",
         "thesis_report",
         "methods_appendix",
         "evaluation_manifest",
@@ -288,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"- Results CSV: `{evaluation_payload.get('results_csv')}`",
                     f"- Summary CSV: `{evaluation_payload.get('summary_csv')}`",
                     f"- Cohort summary CSV: `{evaluation_payload.get('summary_by_cohort_csv')}`",
+                    f"- Cohort summary JSON: `{evaluation_payload.get('summary_by_cohort_json')}`",
+                    f"- Cohort composition JSON: `{evaluation_payload.get('cohort_composition_path')}`",
                     f"- Thesis report: `{evaluation_payload.get('thesis_report')}`",
                     f"- Methods appendix: `{evaluation_payload.get('methods_appendix')}`",
                     f"- Evaluation manifest: `{evaluation_payload.get('evaluation_manifest')}`",
@@ -298,6 +303,30 @@ def main(argv: list[str] | None = None) -> int:
             )
             if evaluation_payload.get("ors_snapshot_path"):
                 report_lines.append(f"- Secondary baseline snapshot: `{evaluation_payload.get('ors_snapshot_path')}`")
+            evaluation_suite = evaluation_payload.get("evaluation_suite")
+            if isinstance(evaluation_suite, dict):
+                report_lines.extend(
+                    [
+                        f"- Evaluation suite role: `{evaluation_suite.get('role')}`",
+                        f"- Evaluation suite family: `{evaluation_suite.get('family')}`",
+                        f"- Evaluation suite scope: `{evaluation_suite.get('scope')}`",
+                        f"- Evaluation suite focus: `{evaluation_suite.get('focus')}`",
+                        f"- Evaluation suite source: `{evaluation_suite.get('source')}`",
+                    ]
+                )
+            cohort_scaffolding = evaluation_payload.get("cohort_scaffolding")
+            if isinstance(cohort_scaffolding, dict):
+                cohort_labels = ", ".join(str(label) for label in list(cohort_scaffolding.get("cohort_labels") or []))
+                derived_labels = ", ".join(
+                    str(label) for label in list(cohort_scaffolding.get("derived_cohort_labels") or [])
+                )
+                report_lines.extend(
+                    [
+                        f"- Cohort scaffolding version: `{cohort_scaffolding.get('cohort_scaffolding_version')}`",
+                        f"- Cohort labels: `{cohort_labels}`",
+                        f"- Derived cohorts: `{derived_labels}`",
+                    ]
+                )
             summary_rows = evaluation_payload.get("summary_rows")
             if isinstance(summary_rows, list) and summary_rows:
                 report_lines.extend(["", "## Successful Variants", ""])

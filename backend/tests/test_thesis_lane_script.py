@@ -19,6 +19,64 @@ def _write(path: Path, content: str) -> str:
     return str(path)
 
 
+def _seed_lane_artifacts(tmp_path: Path) -> dict[str, Path]:
+    artifacts = {
+        "results_csv": tmp_path / "results.csv",
+        "summary_csv": tmp_path / "summary.csv",
+        "summary_by_cohort_csv": tmp_path / "summary_by_cohort.csv",
+        "summary_by_cohort_json": tmp_path / "summary_by_cohort.json",
+        "cohort_composition_path": tmp_path / "cohort_composition.json",
+        "thesis_report": tmp_path / "report.md",
+        "methods_appendix": tmp_path / "methods.md",
+        "evaluation_manifest": tmp_path / "evaluation_manifest.json",
+        "manifest_path": tmp_path / "manifest.json",
+    }
+    default_contents = {
+        "results_csv": "od_id,variant_id\nod-1,V0\n",
+        "summary_csv": "variant_id,pipeline_mode,row_count,failure_count,success_count\nV0,legacy,1,0,1\n",
+        "summary_by_cohort_csv": "variant_id,pipeline_mode,cohort_label,row_count\nV0,legacy,representative,1\n",
+        "summary_by_cohort_json": '{"summary_rows":[]}\n',
+        "cohort_composition_path": '{"total_row_count":1,"by_variant":{"V0":{"row_count":1}}}\n',
+        "thesis_report": "# report\n",
+        "methods_appendix": "# methods\n",
+        "evaluation_manifest": "{}\n",
+        "manifest_path": "{}\n",
+    }
+    for key, path in artifacts.items():
+        _write(path, default_contents[key])
+    return artifacts
+
+
+def _evaluation_payload(
+    artifacts: dict[str, Path],
+    *,
+    run_id: str = "run-123",
+    output_artifact_validation: dict[str, object] | None = None,
+    **overrides: object,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "run_id": run_id,
+        "ors_baseline_policy": "local_service",
+        "ors_snapshot_mode": "off",
+        "results_csv": str(artifacts["results_csv"]),
+        "summary_csv": str(artifacts["summary_csv"]),
+        "summary_by_cohort_csv": str(artifacts["summary_by_cohort_csv"]),
+        "summary_by_cohort_json": str(artifacts["summary_by_cohort_json"]),
+        "cohort_composition_path": str(artifacts["cohort_composition_path"]),
+        "thesis_report": str(artifacts["thesis_report"]),
+        "methods_appendix": str(artifacts["methods_appendix"]),
+        "evaluation_manifest": str(artifacts["evaluation_manifest"]),
+        "manifest_path": str(artifacts["manifest_path"]),
+        "output_artifact_validation": output_artifact_validation or {"validated_artifact_count": 9},
+        "summary_rows": [],
+        "rows": [],
+        "success_row_count": 0,
+        "failure_row_count": 0,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_thesis_lane_script_writes_report_and_summary(tmp_path: Path, monkeypatch) -> None:
     report_md = tmp_path / "thesis_lane_report.md"
     report_json = tmp_path / "thesis_lane_report.json"
@@ -28,45 +86,15 @@ def test_thesis_lane_script_writes_report_and_summary(tmp_path: Path, monkeypatc
         "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
         encoding="utf-8",
     )
-    results_csv = tmp_path / "results.csv"
-    summary_csv = tmp_path / "summary.csv"
-    thesis_report = tmp_path / "report.md"
-    methods_appendix = tmp_path / "methods.md"
-    evaluation_manifest = tmp_path / "evaluation_manifest.json"
-    manifest_path = tmp_path / "manifest.json"
-    _write(results_csv, "od_id,variant_id\nod-1,V0\n")
-    _write(
-        summary_csv,
-        "variant_id,pipeline_mode,row_count,failure_count,success_count,certified_rate,certified_denominator,"
-        "dominance_win_rate_osrm,dominance_denominator_osrm,dominance_win_rate_ors,dominance_denominator_ors,"
-        "weighted_win_rate_osrm,weighted_denominator_osrm,weighted_win_rate_ors,weighted_denominator_ors,"
-        "balanced_win_rate_osrm,balanced_denominator_osrm,balanced_win_rate_ors,balanced_denominator_ors,"
-        "robust_win_rate_osrm,robust_denominator_osrm,robust_win_rate_ors,robust_denominator_ors,"
-        "mean_certificate,mean_certificate_denominator,mean_frontier_hypervolume,mean_frontier_hypervolume_denominator,"
-        "mean_dccs_dc_yield,mean_dccs_dc_yield_denominator,mean_runtime_ms,mean_runtime_ms_denominator\n"
-        "C,voi,1,0,1,1.0,1,1.0,1,1.0,1,1.0,1,1.0,1,1.0,1,1.0,1,1.0,1,1.0,1,0.91,1,1.2,1,0.5,1,123.4,1\n",
-    )
-    _write(thesis_report, "# report\n")
-    _write(methods_appendix, "# methods\n")
-    _write(evaluation_manifest, "{}\n")
-    _write(manifest_path, "{}\n")
+    artifacts = _seed_lane_artifacts(tmp_path)
 
     monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
     monkeypatch.setattr(
         thesis_lane.thesis_eval,
         "run_thesis_evaluation",
-        lambda args: {
-            "run_id": "run-123",
-            "ors_baseline_policy": "local_service",
-            "ors_snapshot_mode": "off",
-            "results_csv": str(results_csv),
-            "summary_csv": str(summary_csv),
-            "thesis_report": str(thesis_report),
-            "methods_appendix": str(methods_appendix),
-            "evaluation_manifest": str(evaluation_manifest),
-            "manifest_path": str(manifest_path),
-            "output_artifact_validation": {"validated_artifact_count": 6},
-            "summary_rows": [
+        lambda args: _evaluation_payload(
+            artifacts,
+            summary_rows=[
                 {
                     "variant_id": "C",
                     "pipeline_mode": "voi",
@@ -81,10 +109,22 @@ def test_thesis_lane_script_writes_report_and_summary(tmp_path: Path, monkeypatc
                     "mean_certificate_denominator": 1,
                 }
             ],
-            "rows": [{"variant_id": "C", "failure_reason": ""}],
-            "success_row_count": 1,
-            "failure_row_count": 0,
-        },
+            rows=[{"variant_id": "C", "failure_reason": ""}],
+            success_row_count=1,
+            failure_row_count=0,
+            evaluation_suite={
+                "role": "broad_cold_proof",
+                "family": "evaluation",
+                "scope": "broad",
+                "focus": "all",
+                "source": "corpus_source_path",
+            },
+            cohort_scaffolding={
+                "cohort_scaffolding_version": "thesis_cohort_scaffolding_v1",
+                "cohort_labels": ["representative", "ambiguity", "hard_case", "controller_stress"],
+                "derived_cohort_labels": ["hard_case", "controller_stress"],
+            },
+        ),
     )
 
     exit_code = thesis_lane.main(
@@ -108,10 +148,30 @@ def test_thesis_lane_script_writes_report_and_summary(tmp_path: Path, monkeypatc
     assert "## Failed Variants" in report_text
     assert "weighted_win_osrm=1.0 (n=1)" in report_text
     assert f"Corpus source: `{corpus_csv}`" in report_text
+    assert f"Cohort summary JSON: `{artifacts['summary_by_cohort_json']}`" in report_text
+    assert f"Cohort composition JSON: `{artifacts['cohort_composition_path']}`" in report_text
+    assert "Evaluation suite role: `broad_cold_proof`" in report_text
+    assert "Evaluation suite family: `evaluation`" in report_text
+    assert "Cohort scaffolding version: `thesis_cohort_scaffolding_v1`" in report_text
+    assert "Cohort labels: `representative, ambiguity, hard_case, controller_stress`" in report_text
+    assert "Derived cohorts: `hard_case, controller_stress`" in report_text
     assert "- none" in report_text
     payload = json.loads(report_json.read_text(encoding="utf-8"))
     assert payload["pytest_exit_code"] == 0
     assert payload["evaluation"]["run_id"] == "run-123"
+    assert payload["evaluation"]["summary_by_cohort_json"] == str(artifacts["summary_by_cohort_json"])
+    assert payload["evaluation"]["cohort_composition_path"] == str(artifacts["cohort_composition_path"])
+    assert payload["evaluation"]["evaluation_suite"]["family"] == "evaluation"
+    assert payload["evaluation"]["cohort_scaffolding"]["derived_cohort_labels"] == [
+        "hard_case",
+        "controller_stress",
+    ]
+    assert payload["evaluation"]["validated_artifacts"]["summary_by_cohort_json"] == str(
+        artifacts["summary_by_cohort_json"]
+    )
+    assert payload["evaluation"]["validated_artifacts"]["cohort_composition_path"] == str(
+        artifacts["cohort_composition_path"]
+    )
 
 
 def test_thesis_lane_script_separates_successful_and_failed_variants(tmp_path: Path, monkeypatch) -> None:
@@ -123,32 +183,16 @@ def test_thesis_lane_script_separates_successful_and_failed_variants(tmp_path: P
         "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
         encoding="utf-8",
     )
-    for name in (
-        "results.csv",
-        "summary.csv",
-        "report.md",
-        "methods.md",
-        "evaluation_manifest.json",
-        "manifest.json",
-    ):
-        _write(tmp_path / name, "x\n")
+    artifacts = _seed_lane_artifacts(tmp_path)
 
     monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
     monkeypatch.setattr(
         thesis_lane.thesis_eval,
         "run_thesis_evaluation",
-        lambda args: {
-            "run_id": "run-456",
-            "ors_baseline_policy": "local_service",
-            "ors_snapshot_mode": "off",
-            "results_csv": str(tmp_path / "results.csv"),
-            "summary_csv": str(tmp_path / "summary.csv"),
-            "thesis_report": str(tmp_path / "report.md"),
-            "methods_appendix": str(tmp_path / "methods.md"),
-            "evaluation_manifest": str(tmp_path / "evaluation_manifest.json"),
-            "manifest_path": str(tmp_path / "manifest.json"),
-            "output_artifact_validation": {"validated_artifact_count": 6},
-            "summary_rows": [
+        lambda args: _evaluation_payload(
+            artifacts,
+            run_id="run-456",
+            summary_rows=[
                 {
                     "variant_id": "A",
                     "pipeline_mode": "dccs",
@@ -180,13 +224,13 @@ def test_thesis_lane_script_separates_successful_and_failed_variants(tmp_path: P
                     "mean_certificate_denominator": 0,
                 },
             ],
-            "rows": [
+            rows=[
                 {"variant_id": "A", "failure_reason": ""},
                 {"variant_id": "B", "failure_reason": "strict_artifact_missing"},
             ],
-            "success_row_count": 1,
-            "failure_row_count": 1,
-        },
+            success_row_count=1,
+            failure_row_count=1,
+        ),
     )
 
     exit_code = thesis_lane.main(
@@ -218,18 +262,7 @@ def test_thesis_lane_script_supports_in_process_backend(tmp_path: Path, monkeypa
         "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
         encoding="utf-8",
     )
-    results_csv = tmp_path / "results.csv"
-    summary_csv = tmp_path / "summary.csv"
-    thesis_report = tmp_path / "report.md"
-    methods_appendix = tmp_path / "methods.md"
-    evaluation_manifest = tmp_path / "evaluation_manifest.json"
-    manifest_path = tmp_path / "manifest.json"
-    _write(results_csv, "od_id,variant_id\nod-1,V0\n")
-    _write(summary_csv, "variant_id,pipeline_mode,row_count,failure_count,success_count\nV0,legacy,1,0,1\n")
-    _write(thesis_report, "# report\n")
-    _write(methods_appendix, "# methods\n")
-    _write(evaluation_manifest, "{}\n")
-    _write(manifest_path, "{}\n")
+    artifacts = _seed_lane_artifacts(tmp_path)
 
     calls: dict[str, object] = {}
 
@@ -251,22 +284,7 @@ def test_thesis_lane_script_supports_in_process_backend(tmp_path: Path, monkeypa
     def fake_run(args, *, client=None):
         calls["client"] = client
         calls["in_process"] = bool(getattr(args, "in_process_backend", False))
-        return {
-            "run_id": "run-789",
-            "ors_baseline_policy": "local_service",
-            "ors_snapshot_mode": "off",
-            "results_csv": str(results_csv),
-            "summary_csv": str(summary_csv),
-            "thesis_report": str(thesis_report),
-            "methods_appendix": str(methods_appendix),
-            "evaluation_manifest": str(evaluation_manifest),
-            "manifest_path": str(manifest_path),
-            "output_artifact_validation": {"validated_artifact_count": 6},
-            "summary_rows": [],
-            "rows": [],
-            "success_row_count": 0,
-            "failure_row_count": 0,
-        }
+        return _evaluation_payload(artifacts, run_id="run-789")
 
     monkeypatch.setattr(thesis_lane.thesis_eval, "run_thesis_evaluation", fake_run)
 
@@ -454,18 +472,7 @@ def test_thesis_lane_script_can_manage_local_backend_lifecycle(tmp_path: Path, m
     stop_script = tmp_path / "stop_backend_logged.ps1"
     start_script.write_text("Write-Output 12345\n", encoding="utf-8")
     stop_script.write_text("Write-Output stopped\n", encoding="utf-8")
-    results_csv = tmp_path / "results.csv"
-    summary_csv = tmp_path / "summary.csv"
-    thesis_report = tmp_path / "report.md"
-    methods_appendix = tmp_path / "methods.md"
-    evaluation_manifest = tmp_path / "evaluation_manifest.json"
-    manifest_path = tmp_path / "manifest.json"
-    _write(results_csv, "od_id,variant_id\nod-1,V0\n")
-    _write(summary_csv, "variant_id,pipeline_mode,row_count,failure_count,success_count,weighted_win_rate_osrm,weighted_denominator_osrm,weighted_win_rate_ors,weighted_denominator_ors,mean_certificate,mean_certificate_denominator\nC,voi,1,0,1,1.0,1,1.0,1,0.91,1\n")
-    _write(thesis_report, "# report\n")
-    _write(methods_appendix, "# methods\n")
-    _write(evaluation_manifest, "{}\n")
-    _write(manifest_path, "{}\n")
+    artifacts = _seed_lane_artifacts(tmp_path)
 
     calls: list[list[str]] = []
 
@@ -481,19 +488,7 @@ def test_thesis_lane_script_can_manage_local_backend_lifecycle(tmp_path: Path, m
     monkeypatch.setattr(
         thesis_lane.thesis_eval,
         "run_thesis_evaluation",
-        lambda args: {
-            "run_id": "run-123",
-            "ors_baseline_policy": "local_service",
-            "ors_snapshot_mode": "off",
-            "results_csv": str(results_csv),
-            "summary_csv": str(summary_csv),
-            "thesis_report": str(thesis_report),
-            "methods_appendix": str(methods_appendix),
-            "evaluation_manifest": str(evaluation_manifest),
-            "manifest_path": str(manifest_path),
-            "output_artifact_validation": {"validated_artifact_count": 6},
-            "summary_rows": [],
-        },
+        lambda args: _evaluation_payload(artifacts),
     )
 
     exit_code = thesis_lane.main(
@@ -534,29 +529,13 @@ def test_thesis_lane_defaults_to_checked_in_broad_corpus(tmp_path: Path, monkeyp
             "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
             encoding="utf-8",
         )
-    for name in ("results.csv", "summary.csv", "report.md", "methods.md", "evaluation_manifest.json", "manifest.json"):
-        _write(tmp_path / name, "x\n")
+    artifacts = _seed_lane_artifacts(tmp_path)
 
     monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
 
     def _fake_eval(args):
         captured["corpus_csv"] = args.corpus_csv
-        return {
-            "run_id": "run-default",
-            "ors_baseline_policy": "local_service",
-            "ors_snapshot_mode": "off",
-            "results_csv": str(tmp_path / "results.csv"),
-            "summary_csv": str(tmp_path / "summary.csv"),
-            "thesis_report": str(tmp_path / "report.md"),
-            "methods_appendix": str(tmp_path / "methods.md"),
-            "evaluation_manifest": str(tmp_path / "evaluation_manifest.json"),
-            "manifest_path": str(tmp_path / "manifest.json"),
-            "output_artifact_validation": {"validated_artifact_count": 6},
-            "summary_rows": [],
-            "rows": [],
-            "success_row_count": 0,
-            "failure_row_count": 0,
-        }
+        return _evaluation_payload(artifacts, run_id="run-default")
 
     monkeypatch.setattr(thesis_lane.thesis_eval, "run_thesis_evaluation", _fake_eval)
 
