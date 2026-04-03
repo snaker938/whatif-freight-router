@@ -5481,16 +5481,71 @@ def _build_route_decision_package(
     elif actual_mode == "legacy":
         certificate_basis = "legacy_selected_route"
 
-    selected_certificate_value = (
-        float(selected_certificate.certificate) if selected_certificate is not None else None
-    )
-    selected_certificate_threshold = (
-        float(selected_certificate.threshold) if selected_certificate is not None else None
-    )
+    selected_certificate_value = float(selected_certificate.certificate) if selected_certificate is not None else None
+    selected_certificate_threshold = float(selected_certificate.threshold) if selected_certificate is not None else None
     selected_certified = bool(selected_certificate.certified) if selected_certificate is not None else False
+    selected_validation = _selected_evidence_validation(
+        evidence_validation_payload,
+        route_id=selected.id,
+    )
+    certificate_map = _route_certificate_map_for_decision_package(
+        candidates=candidates,
+        selected=selected,
+        selected_certificate=selected_certificate,
+        certificate_summary_payload=certificate_summary_payload if isinstance(certificate_summary_payload, Mapping) else None,
+    )
+    sampled_world_manifest = (extra_json_artifacts or {}).get("sampled_world_manifest.json")
+    route_fragility_map_payload = (extra_json_artifacts or {}).get("route_fragility_map.json")
+    evidence_snapshot_manifest = (extra_json_artifacts or {}).get("evidence_snapshot_manifest.json")
+    certification_state = None
+    if (
+        actual_mode in {"dccs_refc", "voi"}
+        and certificate_map
+        and isinstance(sampled_world_manifest, Mapping)
+    ):
+        try:
+            certification_state = CertificationState.from_refc_outputs(
+                certificate=certificate_map,
+                threshold=(
+                    float(selected_certificate.threshold)
+                    if selected_certificate is not None
+                    else float(
+                        req.certificate_threshold
+                        if req.certificate_threshold is not None
+                        else settings.route_pipeline_certificate_threshold
+                    )
+                ),
+                world_manifest=sampled_world_manifest,
+                fragility=route_fragility_map_payload if isinstance(route_fragility_map_payload, Mapping) else None,
+                evidence_snapshot_manifest=(
+                    evidence_snapshot_manifest if isinstance(evidence_snapshot_manifest, Mapping) else None
+                ),
+                ambiguity_context=ambiguity_context,
+                evidence_validation=selected_validation,
+            )
+        except Exception:
+            certification_state = None
+    support_summary, _support_provenance_payload, _support_trace_rows = _build_support_summary_for_decision_package(
+        selected=selected,
+        selected_validation=selected_validation,
+        certification_state=certification_state,
+    )
+    support_satisfied = bool(support_summary.satisfied)
+    source_mix = list(support_summary.source_mix)
+    missing_sources = list(support_summary.missing_sources)
+    if certification_state is not None:
+        certified_route_ids = list(certification_state.certified_set.certified_route_ids)
+        if not certified_route_ids and certification_state.certified:
+            certified_route_ids = [certification_state.winner_id]
+        certificate_basis = certification_state.certification_basis
+        selected_certificate_value = certification_state.certificate_map.get(selected.id, selected_certificate_value)
+        selected_certificate_threshold = float(certification_state.threshold)
+        selected_certified = bool(
+            certification_state.certified
+            and selected.id in certification_state.certified_set.certified_route_ids
+        )
     selective_gate_passed = bool(
-        actual_mode in {"tri_source", "dccs_refc", "voi"}
-        and support_satisfied
+        support_satisfied
         and selected_certified
         and minimum_cost_route_id is not None
         and selected.id == minimum_cost_route_id
@@ -5506,14 +5561,41 @@ def _build_route_decision_package(
         f"optimization_mode={req.optimization_mode}",
         f"risk_aversion={float(req.risk_aversion):.6f}",
     ]
-    if actual_mode == "tri_source":
-        preference_notes.append("tri_source currently executes through the dccs_refc runtime path.")
+    if requested_mode == "tri_source" and actual_mode != "legacy":
+        preference_notes.append(f"tri_source executed through the {actual_mode} runtime path.")
     if requested_mode != actual_mode:
         preference_notes.append(f"requested_mode={requested_mode}")
+    preference_state = build_preference_state(
+        req.model_dump(mode="json"),
+        candidates,
+        selected_route_id=selected.id,
+        selected_certificate=selected_certificate_value,
+        stop_reason=(
+            str(voi_stop_summary.stop_reason)
+            if voi_stop_summary is not None
+            else (
+                certification_state.decision_region.status
+                if certification_state is not None
+                else None
+            )
+        ),
+        certificate_map=certificate_map or None,
+    )
+    dominant_objective = str(preference_state.summary.get("dominant_objective", "")).strip()
+    if dominant_objective:
+        preference_notes.append(f"dominant_objective={dominant_objective}")
+    compatible_route_ids = _string_list(preference_state.summary.get("compatible_route_ids"))
+    if compatible_route_ids:
+        preference_notes.append(f"compatible_routes={','.join(compatible_route_ids)}")
+    stop_hint_codes = _string_list(preference_state.summary.get("stop_hint_codes"))
+    if stop_hint_codes:
+        preference_notes.append(f"stop_hints={','.join(stop_hint_codes)}")
+    preference_summary = DecisionPreferenceSummary(notes=preference_notes)
 
-    sampled_world_manifest = (extra_json_artifacts or {}).get("sampled_world_manifest.json")
     witness_world_count = None
-    if isinstance(sampled_world_manifest, Mapping):
+    if certification_state is not None:
+        witness_world_count = int(certification_state.world_bundle.effective_world_count)
+    elif isinstance(sampled_world_manifest, Mapping):
         witness_world_count = _coerce_int(sampled_world_manifest.get("world_count"))
     challenger_route_ids = [route_id for route_id in frontier_route_ids if route_id != selected.id]
     top_competitor_route_id = (
@@ -5528,6 +5610,33 @@ def _build_route_decision_package(
         witness_notes.append("Legacy route responses do not carry sampled-world witnesses; frontier rows are used.")
     if witness_world_count is None:
         witness_notes.append("Witness world count is unavailable in the current runtime payloads.")
+    witness_summary = DecisionWitnessSummary(
+        primary_witness_route_id=selected.id,
+        witness_route_ids=(certified_route_ids or [selected.id]),
+        challenger_route_ids=challenger_route_ids,
+        witness_world_count=witness_world_count,
+        witness_source_ids=source_mix,
+        notes=witness_notes,
+    )
+    if certification_state is not None:
+        abstention_record = (
+            AbstentionRecord.from_decision_region(certification_state.decision_region)
+            if certification_state.decision_region.reason_codes
+            else None
+        )
+        witness = CertificateWitness.from_state(
+            certification_state,
+            fragility=route_fragility_map_payload if isinstance(route_fragility_map_payload, Mapping) else None,
+            abstention=abstention_record,
+        )
+        witness_summary = DecisionWitnessSummary(
+            primary_witness_route_id=witness.winner_id,
+            witness_route_ids=(list(witness.certified_route_ids) or [witness.winner_id]),
+            challenger_route_ids=challenger_route_ids,
+            witness_world_count=witness_world_count,
+            witness_source_ids=list(certification_state.world_bundle.active_families),
+            notes=list(witness.reasons),
+        )
 
     voi_action_trace_payload = (extra_json_artifacts or {}).get("voi_action_trace.json")
     action_trace_rows: list[dict[str, Any]] = []
@@ -5536,14 +5645,46 @@ def _build_route_decision_package(
         if isinstance(raw_action_trace, list):
             action_trace_rows = [dict(row) for row in raw_action_trace if isinstance(row, Mapping)]
     controller_notes: list[str] = []
-    if actual_mode == "tri_source":
-        controller_notes.append("tri_source executed with dccs_refc internals in this runtime packet.")
+    if requested_mode == "tri_source" and actual_mode != "legacy":
+        controller_notes.append(f"tri_source executed with {actual_mode} internals in this runtime packet.")
     if requested_mode != actual_mode:
         controller_notes.append(f"request fell back from {requested_mode} to {actual_mode}")
+    controller_summary = DecisionControllerSummary(
+        controller_mode=(
+            "tri_source_controller"
+            if requested_mode == "tri_source" and actual_mode != "legacy"
+            else ("voi" if actual_mode == "voi" else "single_pass")
+        ),
+        engaged=actual_mode == "voi",
+        iteration_count=(
+            int(voi_stop_summary.iteration_count)
+            if voi_stop_summary is not None
+            else len(action_trace_rows)
+        ),
+        action_count=len(action_trace_rows),
+        stop_reason=(
+            str(voi_stop_summary.stop_reason)
+            if voi_stop_summary is not None
+            else ("single_pass" if actual_mode != "legacy" else "legacy_single_pass")
+        ),
+        search_budget_used=(int(voi_stop_summary.search_budget_used) if voi_stop_summary is not None else 0),
+        evidence_budget_used=(int(voi_stop_summary.evidence_budget_used) if voi_stop_summary is not None else 0),
+        notes=controller_notes,
+    )
 
     artifact_names = sorted(
         {
             "decision_package.json",
+            "preference_summary.json",
+            "support_summary.json",
+            "support_provenance.json",
+            "certified_set.json",
+            "abstention_summary.json",
+            "witness_summary.json",
+            "controller_summary.json",
+            "controller_trace.jsonl",
+            "theorem_hook_map.json",
+            "lane_manifest.json",
             *list((extra_json_artifacts or {}).keys()),
             *list((extra_jsonl_artifacts or {}).keys()),
             *list((extra_csv_artifacts or {}).keys()),
@@ -5561,7 +5702,22 @@ def _build_route_decision_package(
     )
 
     abstention_summary = None
-    if actual_mode == "legacy":
+    if certification_state is not None and certification_state.decision_region.reason_codes:
+        abstention_record = AbstentionRecord.from_decision_region(certification_state.decision_region)
+        blocking_sources = sorted(
+            {
+                *missing_sources,
+                *([abstention_record.challenger_id] if abstention_record.challenger_id else []),
+            }
+        )
+        abstention_summary = DecisionAbstentionSummary(
+            abstained=bool(certification_state.decision_region.abstain),
+            reason_code=abstention_record.reason_code,
+            message=abstention_record.detail or certification_state.decision_region.status,
+            blocking_sources=blocking_sources,
+            retryable=not certification_state.certified,
+        )
+    elif actual_mode == "legacy":
         abstention_summary = DecisionAbstentionSummary(
             abstained=False,
             reason_code="legacy_runtime_selected",
@@ -5585,63 +5741,40 @@ def _build_route_decision_package(
             blocking_sources=[],
             retryable=True,
         )
-
-    return DecisionPackage(
-        pipeline_mode=actual_mode,  # type: ignore[arg-type]
+    certified_set_summary = CertifiedSetSummary(
         selected_route_id=selected.id,
-        preference_summary=DecisionPreferenceSummary(notes=preference_notes),
-        support_summary=DecisionSupportSummary(
-            observed_source_count=int(observed_source_count),
-            satisfied=support_satisfied,
-            sources=support_records,
-            source_mix=source_mix,
-            missing_sources=missing_sources,
-            source_entropy=source_entropy,
-            provenance_mode="request_ambiguity_context+evidence_validation",
-            notes=support_notes + warnings_list[:3],
-        ),
-        certified_set_summary=CertifiedSetSummary(
+        minimum_cost_route_id=minimum_cost_route_id,
+        certified_route_ids=certified_route_ids,
+        frontier_route_ids=frontier_route_ids,
+        certificate_value=selected_certificate_value,
+        certificate_threshold=selected_certificate_threshold,
+        certificate_basis=certificate_basis,
+        certified=selected_certified,
+        selective_gate_passed=selective_gate_passed,
+    )
+    if certification_state is not None:
+        certified_set_summary = CertifiedSetSummary(
             selected_route_id=selected.id,
             minimum_cost_route_id=minimum_cost_route_id,
-            certified_route_ids=certified_route_ids,
+            certified_route_ids=list(certification_state.certified_set.certified_route_ids),
             frontier_route_ids=frontier_route_ids,
             certificate_value=selected_certificate_value,
             certificate_threshold=selected_certificate_threshold,
-            certificate_basis=certificate_basis,
-            certified=selected_certified,
-            selective_gate_passed=selective_gate_passed,
-        ),
+            certificate_basis=certification_state.certification_basis,
+            certified=certification_state.certified,
+            selective_gate_passed=bool(certification_state.certified_set.safe),
+        )
+        selected_certified = bool(certification_state.certified)
+
+    return DecisionPackage(
+        pipeline_mode=("tri_source" if requested_mode == "tri_source" and actual_mode != "legacy" else actual_mode),  # type: ignore[arg-type]
+        selected_route_id=selected.id,
+        preference_summary=preference_summary,
+        support_summary=support_summary,
+        certified_set_summary=certified_set_summary,
         abstention_summary=abstention_summary,
-        witness_summary=DecisionWitnessSummary(
-            primary_witness_route_id=selected.id,
-            witness_route_ids=(certified_route_ids or [selected.id]),
-            challenger_route_ids=challenger_route_ids,
-            witness_world_count=witness_world_count,
-            witness_source_ids=source_mix,
-            notes=witness_notes,
-        ),
-        controller_summary=DecisionControllerSummary(
-            controller_mode=("voi" if actual_mode == "voi" else "single_pass"),
-            engaged=actual_mode == "voi",
-            iteration_count=(
-                int(voi_stop_summary.iteration_count)
-                if voi_stop_summary is not None
-                else len(action_trace_rows)
-            ),
-            action_count=len(action_trace_rows),
-            stop_reason=(
-                str(voi_stop_summary.stop_reason)
-                if voi_stop_summary is not None
-                else ("single_pass" if actual_mode != "legacy" else "legacy_single_pass")
-            ),
-            search_budget_used=(
-                int(voi_stop_summary.search_budget_used) if voi_stop_summary is not None else 0
-            ),
-            evidence_budget_used=(
-                int(voi_stop_summary.evidence_budget_used) if voi_stop_summary is not None else 0
-            ),
-            notes=controller_notes,
-        ),
+        witness_summary=witness_summary,
+        controller_summary=controller_summary,
         theorem_hook_summary=DecisionTheoremHookSummary(
             hooks=[
                 DecisionTheoremHookRecord(
@@ -5658,25 +5791,25 @@ def _build_route_decision_package(
             ]
         ),
         lane_manifest=DecisionLaneManifest(
-            lane_id=actual_mode,
+            lane_id=("tri_source" if requested_mode == "tri_source" and actual_mode != "legacy" else actual_mode),
             lane_name=(
                 "Tri-Source Default Route"
-                if actual_mode == "tri_source"
+                if requested_mode == "tri_source" and actual_mode != "legacy"
                 else ("Legacy Route" if actual_mode == "legacy" else actual_mode.replace("_", " ").title())
             ),
             lane_version="0.1.0",
             artifact_names=artifact_names,
             notes=(
-                [
-                    "decision_package assembled from current runtime facts without a dedicated preference/support backend."
-                ]
+                ["decision_package assembled from current runtime facts."]
                 + ([f"requested_mode={requested_mode}"] if requested_mode != actual_mode else [])
             ),
         ),
         provenance={
             "requested_pipeline_mode": requested_mode,
-            "actual_pipeline_mode": actual_mode,
-            "internal_execution_mode": execution_mode,
+            "actual_pipeline_mode": (
+                "tri_source" if requested_mode == "tri_source" and actual_mode != "legacy" else actual_mode
+            ),
+            "internal_execution_mode": actual_mode,
             "selected_certificate": selected_certificate_value,
             "selected_certified": selected_certified,
             "warning_count": len(warnings_list),
@@ -19156,10 +19289,12 @@ async def compute_route(
         min(requested_alternatives, int(settings.route_candidate_alternatives_max)),
     )
     effective_pipeline_mode = _resolve_pipeline_mode(req.pipeline_mode)
-    actual_pipeline_mode = effective_pipeline_mode
+    response_pipeline_mode = effective_pipeline_mode
+    actual_pipeline_mode = "voi" if effective_pipeline_mode == "tri_source" else effective_pipeline_mode
     legacy_mode_warning: str | None = None
     if req.waypoints and effective_pipeline_mode != "legacy":
         actual_pipeline_mode = "legacy"
+        response_pipeline_mode = "legacy"
         legacy_mode_warning = (
             f"{effective_pipeline_mode} pipeline currently supports single-leg OD requests only; "
             "falling back to legacy routing for waypoint requests."
@@ -19171,7 +19306,8 @@ async def compute_route(
         requested_max_alternatives=requested_alternatives,
         effective_max_alternatives=route_alternatives,
         waypoint_count=len(req.waypoints or []),
-        pipeline_mode=actual_pipeline_mode,
+        pipeline_mode=response_pipeline_mode,
+        execution_pipeline_mode=actual_pipeline_mode,
         refinement_policy=str(req.refinement_policy or ""),
         run_seed=int(run_seed),
     )
@@ -19414,6 +19550,8 @@ async def compute_route(
             )
         extra_json_artifacts = extra_json_artifacts or {}
         extra_jsonl_artifacts = extra_jsonl_artifacts or {}
+        extra_csv_artifacts = extra_csv_artifacts or {}
+        extra_text_artifacts = extra_text_artifacts or {}
         extra_json_artifacts["evidence_validation.json"] = evidence_validation
         if actual_pipeline_mode == "legacy":
             extra_jsonl_artifacts["strict_frontier.jsonl"] = _strict_frontier_rows_from_options(
@@ -19436,9 +19574,15 @@ async def compute_route(
                 route_cache_runtime=route_cache_runtime,
                 route_option_cache_runtime=route_option_cache_runtime,
             )
+        if response_pipeline_mode != actual_pipeline_mode:
+            _rewrite_public_pipeline_mode_in_artifacts(
+                extra_json_artifacts=extra_json_artifacts,
+                extra_jsonl_artifacts=extra_jsonl_artifacts,
+                pipeline_mode=response_pipeline_mode,
+            )
         decision_package = _build_route_decision_package(
             req=req,
-            requested_pipeline_mode=effective_pipeline_mode,
+            requested_pipeline_mode=response_pipeline_mode,
             actual_pipeline_mode=actual_pipeline_mode,
             selected=selected,
             candidates=pareto_options,
@@ -19452,11 +19596,92 @@ async def compute_route(
             extra_text_artifacts=extra_text_artifacts,
         )
         extra_json_artifacts["decision_package.json"] = decision_package.model_dump(mode="json")
+        extra_json_artifacts["preference_summary.json"] = decision_package.preference_summary.model_dump(mode="json")
+        extra_json_artifacts["support_summary.json"] = decision_package.support_summary.model_dump(mode="json")
+        extra_json_artifacts["support_provenance.json"] = (
+            selected.evidence_provenance.model_dump(mode="json")
+            if selected.evidence_provenance is not None
+            else {"selected_route_id": selected.id, "active_families": [], "families": []}
+        )
+        extra_json_artifacts["certified_set.json"] = decision_package.certified_set_summary.model_dump(mode="json")
+        if decision_package.abstention_summary is not None:
+            extra_json_artifacts["abstention_summary.json"] = decision_package.abstention_summary.model_dump(mode="json")
+        if decision_package.witness_summary is not None:
+            extra_json_artifacts["witness_summary.json"] = decision_package.witness_summary.model_dump(mode="json")
+        if decision_package.controller_summary is not None:
+            extra_json_artifacts["controller_summary.json"] = decision_package.controller_summary.model_dump(mode="json")
+        if decision_package.theorem_hook_summary is not None:
+            extra_json_artifacts["theorem_hook_map.json"] = decision_package.theorem_hook_summary.model_dump(mode="json")
+        if decision_package.lane_manifest is not None:
+            extra_json_artifacts["lane_manifest.json"] = decision_package.lane_manifest.model_dump(mode="json")
+        extra_jsonl_artifacts["support_trace.jsonl"] = (
+            [record.model_dump(mode="json") for record in selected.evidence_provenance.families]
+            if selected.evidence_provenance is not None
+            else []
+        )
+        certified_route_ids = set(decision_package.certified_set_summary.certified_route_ids)
+        frontier_route_ids = set(decision_package.certified_set_summary.frontier_route_ids)
+        extra_jsonl_artifacts["certified_set_routes.jsonl"] = [
+            {
+                "route_id": option.id,
+                "selected": option.id == selected.id,
+                "frontier": option.id in frontier_route_ids,
+                "certified": option.id in certified_route_ids,
+                "minimum_cost_route_id": decision_package.certified_set_summary.minimum_cost_route_id,
+                "certificate_value": (
+                    float(option.certification.certificate)
+                    if option.certification is not None
+                    else None
+                ),
+            }
+            for option in pareto_options
+        ]
+        if decision_package.witness_summary is not None:
+            witness_route_ids = set(decision_package.witness_summary.witness_route_ids)
+            challenger_route_ids = set(decision_package.witness_summary.challenger_route_ids)
+            extra_jsonl_artifacts["witness_routes.jsonl"] = [
+                {
+                    "route_id": option.id,
+                    "selected": option.id == selected.id,
+                    "witness": option.id in witness_route_ids,
+                    "challenger": option.id in challenger_route_ids,
+                }
+                for option in pareto_options
+            ]
+        if decision_package.controller_summary is not None:
+            extra_jsonl_artifacts["controller_trace.jsonl"] = list(
+                extra_jsonl_artifacts.get("voi_controller_state.jsonl", [])
+            )
+        final_route_trace_payload = extra_json_artifacts.get("final_route_trace.json")
+        if isinstance(final_route_trace_payload, dict):
+            artifact_pointers = dict(final_route_trace_payload.get("artifact_pointers", {}) or {})
+            artifact_pointers.update(
+                {
+                    "decision_package": "decision_package.json",
+                    "preference_summary": "preference_summary.json",
+                    "support_summary": "support_summary.json",
+                    "support_provenance": "support_provenance.json",
+                    "support_trace": "support_trace.jsonl",
+                    "certified_set": "certified_set.json",
+                    "certified_set_routes": "certified_set_routes.jsonl",
+                    "controller_summary": "controller_summary.json",
+                    "controller_trace": "controller_trace.jsonl",
+                    "theorem_hook_map": "theorem_hook_map.json",
+                    "lane_manifest": "lane_manifest.json",
+                }
+            )
+            if "abstention_summary.json" in extra_json_artifacts:
+                artifact_pointers["abstention_summary"] = "abstention_summary.json"
+            if "witness_summary.json" in extra_json_artifacts:
+                artifact_pointers["witness_summary"] = "witness_summary.json"
+                artifact_pointers["witness_routes"] = "witness_routes.jsonl"
+            final_route_trace_payload["artifact_pointers"] = artifact_pointers
 
         log_event(
             "route_request",
             request_id=request_id,
-            pipeline_mode=actual_pipeline_mode,
+            pipeline_mode=response_pipeline_mode,
+            execution_pipeline_mode=actual_pipeline_mode,
             run_seed=int(run_seed),
             refinement_policy=str(candidate_diag.refinement_policy or req.refinement_policy or ""),
             selected_candidate_count=int(candidate_diag.selected_candidate_count),
@@ -19539,7 +19764,7 @@ async def compute_route(
             warnings=warnings,
             candidate_diag=candidate_diag,
             request_id=request_id,
-            pipeline_mode=actual_pipeline_mode,
+            pipeline_mode=response_pipeline_mode,
             run_seed=int(run_seed),
             duration_ms=round((time.perf_counter() - t0) * 1000, 2),
             selected_certificate=selected_certificate,
@@ -19554,7 +19779,7 @@ async def compute_route(
             selected=selected,
             candidates=pareto_options,
             run_id=str(route_run["run_id"]),
-            pipeline_mode=actual_pipeline_mode,  # type: ignore[arg-type]
+            pipeline_mode=response_pipeline_mode,  # type: ignore[arg-type]
             manifest_endpoint=str(route_run["manifest_endpoint"]),
             artifacts_endpoint=str(route_run["artifacts_endpoint"]),
             provenance_endpoint=str(route_run["provenance_endpoint"]),
