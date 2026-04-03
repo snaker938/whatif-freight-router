@@ -1,6 +1,6 @@
 # API Cookbook
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03
 Applies To: local backend API usage from PowerShell
 
 This page provides reproducible local examples for the current strict backend API.
@@ -19,7 +19,9 @@ $base = @{
 } | ConvertTo-Json -Depth 12
 ```
 
-## 2) Thesis-Pipeline Payload
+If you omit `pipeline_mode`, the public `POST /route` lane now defaults to `tri_source`. Use an explicit `pipeline_mode` only when you want to force a specific runtime variant or reproduce a non-default evaluation path.
+
+## 2) Explicit Pipeline Override Payload
 
 ```powershell
 $thesis = @{
@@ -53,15 +55,29 @@ $thesis = @{
 } | ConvertTo-Json -Depth 16
 ```
 
+Use an explicit override like this for targeted evaluation or debugging. Normal `POST /route` calls should usually omit `pipeline_mode` and use the public `tri_source` default.
+
 ## 3) Single Route (`POST /route`)
 
 ```powershell
-$routeResp = Invoke-RestMethod -Uri "http://localhost:8000/route" -Method Post -ContentType "application/json" -Body $thesis
+$routeResp = Invoke-RestMethod -Uri "http://localhost:8000/route" -Method Post -ContentType "application/json" -Body $base
+$routeResp.pipeline_mode
 $routeResp.run_id
 $routeResp.manifest_endpoint
 $routeResp.artifacts_endpoint
 $routeResp.provenance_endpoint
+$routeResp.decision_package.package_kind
+$routeResp.decision_package.pipeline_mode
+$routeResp.decision_package.preference_summary
+$routeResp.decision_package.certified_set_summary
+$routeResp.decision_package.abstention_summary
 ```
+
+`POST /route` defaults to the public `tri_source` lane when `pipeline_mode` is omitted. The returned `RouteResponse` still includes `selected`, `candidates`, `selected_certificate`, and `voi_stop_summary`, and it now also includes `decision_package`.
+
+`decision_package.pipeline_mode` is the public lane name. For single-leg requests, the current coordinator executes `tri_source` through `voi` internals while keeping the public lane name stable. If you send waypoint requests, the route runtime currently falls back to `legacy`.
+
+`decision_package.preference_summary` is the currently landed preference bridge. It is summary-only. The stable fields are selector metadata (`objective_id`, `objective_field`, `selector_policy`, `selective`, `tie_break_order`) plus `notes`, which are populated from current runtime facts such as weights, optimization mode, dominant objective, compatible routes, and preference stop-hint codes. There are no public preference query/update endpoints yet.
 
 The `RouteRequest` shape also accepts `waypoints`, `refinement_policy`, `pipeline_mode`, `pipeline_seed`, `search_budget`, `evidence_budget`, `cert_world_count`, `certificate_threshold`, `tau_stop`, and `evaluation_lean_mode` when you need the thesis controls enabled explicitly.
 
@@ -191,9 +207,27 @@ Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/provenance"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/signature"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/scenario-signature"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts"
+Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/decision_package.json" -OutFile ".\\$runId-decision_package.json"
+Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/preference_summary.json" -OutFile ".\\$runId-preference_summary.json"
+Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/certified_set.json" -OutFile ".\\$runId-certified_set.json"
 Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/evaluation_manifest.json" -OutFile ".\\$runId-evaluation_manifest.json"
 Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/thesis_report.md" -OutFile ".\\$runId-thesis_report.md"
 ```
+
+Current route runs may publish decision-package artifacts alongside the older route/certification artifacts:
+
+- `decision_package.json`
+- `preference_summary.json`
+- `support_summary.json`
+- `support_provenance.json`
+- `support_trace.jsonl`
+- `certified_set.json`
+- `certified_set_routes.jsonl`
+- `abstention_summary.json` when the package includes an abstention summary
+- `witness_summary.json` and `witness_routes.jsonl` when witness state is available
+- `controller_summary.json` and `controller_trace.jsonl` when controller state is available
+- `theorem_hook_map.json`
+- `lane_manifest.json`
 
 ## 14) Signature Verify (`POST /verify/signature`)
 

@@ -57,6 +57,10 @@ Do not run this at the same time as `.\scripts\dev.ps1`.
 - Copy `.env.example` to `.env` if you do not already have one.
 - Strict startup runs `backend/scripts/preflight_live_runtime.py` before backend launch.
 - Backend strict route readiness and strict live readiness both surface through `GET /health/ready`.
+- `POST /route` now defaults to the public `tri_source` lane when `pipeline_mode` is omitted. Single-leg `tri_source` requests currently execute through `voi` internals, and waypoint requests still fall back to `legacy` because the current thesis runtime path is single-leg only.
+- The public `pipeline_mode` reported in `RouteResponse`, `DecisionPackage`, manifests, and rewritten artifacts stays `tri_source` for that default lane even when the current runtime executes through `voi` internally.
+- `RouteResponse` still returns `selected`, `candidates`, `selected_certificate`, and `voi_stop_summary`, and now also includes `decision_package`.
+- `decision_package.preference_summary` is the currently landed preference bridge. It is summary-only selector/runtime metadata, not a public preference query/update API.
 - Current compute fallback defaults in `.env.example` are intentionally long-running for thesis/evaluation workloads:
   - `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S=1200`
   - `COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`
@@ -138,6 +142,7 @@ Hot-rerun cache state can be restored separately through `POST /cache/hot-rerun/
 Per-run artifact directories may include:
 
 - core outputs: results.json, results.csv, metadata.json, routes.geojson, results_summary.csv
+- decision-package outputs: decision_package.json, preference_summary.json, support_summary.json, support_provenance.json, support_trace.jsonl, certified_set.json, certified_set_routes.jsonl, abstention_summary.json when present, witness_summary.json when present, witness_routes.jsonl when present, controller_summary.json when present, controller_trace.jsonl when present, theorem_hook_map.json, lane_manifest.json
 - DCCS outputs: dccs_candidates.jsonl, dccs_summary.json, refined_routes.jsonl, strict_frontier.jsonl
 - REFC outputs: winner_summary.json, certificate_summary.json, route_fragility_map.json, competitor_fragility_breakdown.json, sampled_world_manifest.json, evidence_snapshot_manifest.json
 - VOI outputs: value_of_refresh.json, voi_action_trace.json, voi_controller_state.jsonl, voi_action_scores.csv, voi_stop_certificate.json, final_route_trace.json
