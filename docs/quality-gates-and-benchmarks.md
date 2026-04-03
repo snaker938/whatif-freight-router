@@ -1,6 +1,6 @@
 # Quality Gates and Benchmarks
 
-Last Updated: 2026-04-03
+Last Updated: 2026-03-31  
 Applies To: backend tests, thesis evaluation lanes, composed suite reporting, and hot-rerun reuse benchmarks
 
 This page defines the current gate sequence used locally for backend quality, thesis proof, and production-style hot-rerun validation.
@@ -41,7 +41,6 @@ uv run --project backend python backend/scripts/compose_thesis_suite_report.py
 - use `.\scripts\run_backend_tests_safe.ps1` on constrained machines
 - use `uv run --project backend pytest backend/tests` only when a full suite is appropriate
 - strict failures, baseline identity, and artifact semantics should be treated as hard regressions
-- the public `tri_source` route seam is now part of that hard-regression surface; the smallest focused backend check starts with `backend/tests/test_api_streaming.py` for public `tri_source` mode preservation, internal `voi` execution, `decision_package` response population, and emitted decision-package artifacts, with `backend/tests/test_route_baseline_api.py` remaining the focused waypoint-fallback check for `tri_source -> legacy`
 
 ## Thesis Evaluation Lanes
 
@@ -66,14 +65,14 @@ uv run --project backend python backend/scripts/compose_thesis_suite_report.py
 
 - scope: focused VOI lane
 - goal: controller engagement, waste, lift, and refine-cost evidence
-- expected outputs include VOI artifacts such as value_of_refresh.json, voi_action_trace.json, voi_action_scores.csv, voi_stop_certificate.json, voi_controller_state.jsonl, and the public decision-package family when the route seam is exercised: decision_package.json, preference_summary.json, support_summary.json, support_trace.jsonl, support_provenance.json, certified_set.json, certified_set_routes.jsonl, abstention_summary.json, witness_summary.json, witness_routes.jsonl, controller_summary.json, controller_trace.jsonl, theorem_hook_map.json, lane_manifest.json, thesis_summary_by_cohort.*, and cohort_composition.json
+- expected outputs include VOI artifacts such as value_of_refresh.json, voi_action_trace.json, voi_action_scores.csv, voi_stop_certificate.json, voi_controller_state.jsonl, thesis_summary_by_cohort.*, and cohort_composition.json
 - evaluator metadata also records `evaluation_suite` and `cohort_scaffolding`
 
 ### DCCS Diagnostic Probe
 
 - scope: diagnostic probe lane
 - goal: inspect candidate richness, rescue behavior, and collapse-prone rows
-- expected outputs emphasize dccs_candidates.jsonl, dccs_summary.json, refined_routes.jsonl, strict_frontier.jsonl, and the route-facing certification outputs that feed the public decision package on the landed route seam, plus thesis_summary_by_cohort.*, and cohort_composition.json
+- expected outputs emphasize dccs_candidates.jsonl, dccs_summary.json, refined_routes.jsonl, strict_frontier.jsonl, thesis_summary_by_cohort.*, and cohort_composition.json
 - evaluator metadata also records `evaluation_suite` and `cohort_scaffolding`
 
 ## Hot-Rerun Production / Reuse Benchmark
@@ -125,7 +124,6 @@ The composed suite is where provenance-visible summary views should live; it sho
 
 - cold thesis proof and hot-rerun proof are separate claims and should stay separate
 - broad, focused, probe, and hot-rerun roles should remain explicit in metadata and output naming
-- public route-contract changes should be documented and regression-tested together; `pipeline_mode="tri_source"`, optional `decision_package`, and legacy compatibility fields are one contract surface
 - authored docs are not proof artifacts; generated run outputs are not authored docs
 - do not treat partial or interrupted artifacts as successful evidence
 

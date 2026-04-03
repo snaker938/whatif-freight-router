@@ -1,26 +1,20 @@
 # VOI Thesis Pipeline Spec
 
-Last Updated: 2026-04-03
-Applies To: `backend/app/main.py`, `backend/app/models.py`, `backend/app/run_store.py`, `backend/app/decision_critical.py`, `backend/app/evidence_certification.py`, `backend/app/voi_controller.py`, and the evaluation scripts
+Last Updated: 2026-03-31  
+Applies To: `backend/app/decision_critical.py`, `backend/app/evidence_certification.py`, `backend/app/voi_controller.py`, `backend/app/models.py`, and the evaluation scripts
 
 This document defines the current thesis-facing routing pipeline for the DCCS, REFC, and VOI-AD2R workstream.
 
 ## 1. Pipeline Modes
 
-The pipeline supports five public modes:
+The pipeline supports four modes:
 
 - `legacy`: existing staged routing flow with no DCCS, no REFC, and no VOI loop
 - `dccs`: DCCS triage before refinement, then normal route build and frontier selection
 - `dccs_refc`: DCCS plus strict-frontier certification
 - `voi`: full thesis pipeline, including DCCS, REFC, and the VOI-AD2R controller
-- `tri_source`: current public default route mode; for single-leg OD requests it dispatches through the VOI-backed thesis runtime while preserving `pipeline_mode="tri_source"` on the public response and artifacts
 
-The effective public mode is carried on route, Pareto, and batch requests through `pipeline_mode`.
-
-For the current route seam:
-
-- single-leg requests in `tri_source` run through the thesis runtime with an internal execution path of `voi`
-- requests with waypoints still fall back to `legacy`, and that fallback is surfaced publicly in the route response, manifest warnings, and artifacts
+The effective mode is carried on route, Pareto, and batch requests through `pipeline_mode`.
 
 ## 2. Candidate Lifecycle
 
@@ -129,31 +123,13 @@ Current stop reasons include controller outcomes such as:
 
 Current thesis-relevant route response fields include:
 
-- `selected`
-- `candidates`
 - `run_id`
 - `pipeline_mode`
 - `manifest_endpoint`
 - `artifacts_endpoint`
 - `provenance_endpoint`
-- `decision_package` (optional in the public model; current `/route` runtime populates it on the landed seam, but clients should keep compatibility handling)
 - `selected_certificate`
 - `voi_stop_summary`
-
-### `DecisionPackage`
-
-Current `decision_package` payloads summarize the public thesis decision state without removing the legacy route fields. The top-level summaries include:
-
-- `preference_summary`
-- `support_summary`
-- `certified_set_summary`
-- `abstention_summary`
-- `witness_summary`
-- `controller_summary`
-- `theorem_hook_summary`
-- `lane_manifest`
-
-The current runtime assembles this package from the existing route, certification, VOI, and artifact facts already produced during the request; it is not a second independent decision engine.
 
 ## 5. Stable Artifact Contract
 
@@ -165,20 +141,6 @@ The stable public run-store allowlist includes:
 - strict_frontier.jsonl
 - winner_summary.json
 - certificate_summary.json
-- decision_package.json
-- preference_summary.json
-- support_summary.json
-- support_trace.jsonl
-- support_provenance.json
-- certified_set.json
-- certified_set_routes.jsonl
-- abstention_summary.json
-- witness_summary.json
-- witness_routes.jsonl
-- controller_summary.json
-- controller_trace.jsonl
-- theorem_hook_map.json
-- lane_manifest.json
 - route_fragility_map.json
 - competitor_fragility_breakdown.json
 - value_of_refresh.json
@@ -203,24 +165,7 @@ Focused and broad evaluation runs also emit OD corpus and baseline helper artifa
 
 The public allowlist is intentionally narrow: code should only rely on the named artifact family outputs above, plus signed manifests and provenance, rather than on ad hoc intermediate files.
 
-For the current route seam, `decision_package.json`, `preference_summary.json`, `support_summary.json`, `support_trace.jsonl`, `support_provenance.json`, `certified_set.json`, and `certified_set_routes.jsonl` are part of the normal public output family. The abstention, witness, controller, theorem-hook, and lane-manifest artifacts are also public and should be treated as additive contract members when the corresponding summary is populated.
-
-The run-store schema registry now has explicit schema-version coverage for both the VOI trace artifacts and the decision-package family, including:
-
-- `decision_package.json`
-- `preference_summary.json`
-- `support_summary.json`
-- `support_trace.jsonl`
-- `support_provenance.json`
-- `certified_set.json`
-- `certified_set_routes.jsonl`
-- `abstention_summary.json`
-- `witness_summary.json`
-- `witness_routes.jsonl`
-- `controller_summary.json`
-- `controller_trace.jsonl`
-- `theorem_hook_map.json`
-- `lane_manifest.json`
+The VOI JSON artifacts now have explicit schema-version coverage:
 
 - `voi_action_trace.json`
 - `voi_stop_certificate.json`
