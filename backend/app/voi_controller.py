@@ -8,6 +8,12 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .decision_critical import DCCSResult, DCCSCandidateRecord
 from .evidence_certification import FragilityResult
+from .replay_oracle import (
+    ActionReplayRecord,
+    ActionValueEstimate,
+    build_action_replay_record as _build_replay_action_record,
+    build_action_value_estimate as _build_replay_action_value_estimate,
+)
 
 # VOI-AD2R uses a deterministic myopic value-per-cost controller. The design is
 # inspired by decision-theoretic control of computation and one-step
@@ -5350,18 +5356,151 @@ def _cap_action_certificate_headroom(
     )
 
 
-def score_action(action: VOIAction, *, config: VOIConfig | None = None) -> VOIAction:
+def build_action_value_estimate(
+    action: VOIAction,
+    *,
+    config: VOIConfig | None = None,
+) -> ActionValueEstimate:
     cfg = config or VOIConfig()
-    cost = max(0.0, float(action.cost_search + action.cost_evidence))
+    return _build_replay_action_value_estimate(
+        action_id=action.action_id,
+        action_kind=action.kind,
+        action_target=action.target,
+        action_reason=action.reason,
+        cost_search=action.cost_search,
+        cost_evidence=action.cost_evidence,
+        predicted_delta_certificate=action.predicted_delta_certificate,
+        predicted_delta_margin=action.predicted_delta_margin,
+        predicted_delta_frontier=action.predicted_delta_frontier,
+        lambda_certificate=cfg.lambda_certificate,
+        lambda_margin=cfg.lambda_margin,
+        lambda_frontier=cfg.lambda_frontier,
+        epsilon=cfg.epsilon,
+        ranked_q_score=_as_float(action.q_score),
+        metadata=dict(action.metadata),
+    )
+
+
+def action_scoring_primitives(
+    action: VOIAction,
+    *,
+    config: VOIConfig | None = None,
+) -> dict[str, float]:
+    estimate = build_action_value_estimate(action, config=config)
+    return {
+        "predicted_delta_certificate": estimate.predicted_delta_certificate,
+        "predicted_delta_margin": estimate.predicted_delta_margin,
+        "predicted_delta_frontier": estimate.predicted_delta_frontier,
+        "weighted_certificate_value": estimate.weighted_certificate_value,
+        "weighted_margin_value": estimate.weighted_margin_value,
+        "weighted_frontier_value": estimate.weighted_frontier_value,
+        "total_predicted_value": estimate.total_predicted_value,
+        "total_cost": estimate.total_cost,
+        "base_q_score": estimate.base_q_score,
+        "ranked_q_score": estimate.ranked_q_score,
+        "q_score_adjustment": estimate.ranked_q_score - estimate.base_q_score,
+    }
+
+
+def build_action_trace_metadata(
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    action_menu: Sequence[VOIAction],
+    chosen_action: VOIAction | None,
+    best_rejected_action: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    rejected_payload = dict(best_rejected_action) if isinstance(best_rejected_action, Mapping) else {}
+    return {
+        "trace_version": 1,
+        "trace_source": "voi_controller.run_controller",
+        "iteration": int(state.iteration_index),
+        "winner_id": state.winner_id,
+        "selected_route_id": state.selected_route_id,
+        "current_certificate": round(_as_float(current_certificate), 6),
+        "certificate_margin": round(_as_float(state.certificate_margin), 6),
+        "search_completeness_score": round(_as_float(state.search_completeness_score), 6),
+        "support_richness": round(_as_float(state.support_richness), 6),
+        "ambiguity_pressure": round(_as_float(state.ambiguity_pressure), 6),
+        "remaining_search_budget": int(state.remaining_search_budget),
+        "remaining_evidence_budget": int(state.remaining_evidence_budget),
+        "used_search_budget": int(state.used_search_budget),
+        "used_evidence_budget": int(state.used_evidence_budget),
+        "frontier_size": len(state.frontier),
+        "action_menu_count": len(action_menu),
+        "chosen_action_id": chosen_action.action_id if chosen_action is not None else "",
+        "chosen_action_kind": chosen_action.kind if chosen_action is not None else "",
+        "best_rejected_action_id": str(rejected_payload.get("action_id", "")).strip(),
+        "best_rejected_action_kind": str(rejected_payload.get("kind", "")).strip(),
+        "credible_search_uncertainty": bool(state.credible_search_uncertainty),
+        "credible_evidence_uncertainty": bool(state.credible_evidence_uncertainty),
+    }
+
+
+def build_action_replay_record(
+    action: VOIAction,
+    *,
+    config: VOIConfig | None = None,
+    trace_entry: Mapping[str, Any] | None = None,
+    trace_metadata: Mapping[str, Any] | None = None,
+    replay_metadata: Mapping[str, Any] | None = None,
+    oracle_metadata: Mapping[str, Any] | None = None,
+) -> ActionReplayRecord:
+    estimate = build_action_value_estimate(action, config=config)
+    return _build_replay_action_record(
+        estimate,
+        trace_entry=trace_entry,
+        trace_metadata=trace_metadata,
+        replay_metadata=replay_metadata,
+        oracle_metadata=oracle_metadata,
+    )
+
+
+def _action_value_trace_payload(
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    action_menu: Sequence[VOIAction],
+    chosen_action: VOIAction | None,
+    best_rejected_action: Mapping[str, Any] | None,
+    config: VOIConfig | None = None,
+) -> dict[str, Any]:
+    trace_metadata = build_action_trace_metadata(
+        state=state,
+        current_certificate=current_certificate,
+        action_menu=action_menu,
+        chosen_action=chosen_action,
+        best_rejected_action=best_rejected_action,
+    )
+    chosen_action_value_record = (
+        build_action_replay_record(
+            chosen_action,
+            config=config,
+            trace_metadata=trace_metadata,
+            replay_metadata={
+                "record_mode": "predicted_only",
+                "controller_trace_source": "voi_controller.run_controller",
+            },
+        ).as_dict()
+        if chosen_action is not None
+        else None
+    )
+    return {
+        "trace_metadata": trace_metadata,
+        "chosen_action_value_record": chosen_action_value_record,
+        "action_menu_value_estimates": [
+            build_action_value_estimate(action, config=config).as_dict()
+            for action in action_menu
+        ],
+    }
+
+
+def score_action(action: VOIAction, *, config: VOIConfig | None = None) -> VOIAction:
     # Thesis controller heuristic: a deterministic value-per-cost ranking over
     # certificate gain, margin gain, and frontier gain. This is a transparent
     # metareasoning surrogate, not a claim of optimal VOI.
-    q_score = (
-        (cfg.lambda_certificate * action.predicted_delta_certificate)
-        + (cfg.lambda_margin * action.predicted_delta_margin)
-        + (cfg.lambda_frontier * action.predicted_delta_frontier)
-    ) / (cost + cfg.epsilon)
-    return replace(action, q_score=float(q_score))
+    estimate = build_action_value_estimate(action, config=config)
+    return replace(action, q_score=float(estimate.base_q_score))
 
 
 def build_action_menu(
@@ -6672,7 +6811,16 @@ def _state_snapshot(
     feasible_actions: Sequence[VOIAction],
     chosen_action: VOIAction | None,
     best_rejected_action: dict[str, Any] | None,
+    config: VOIConfig | None = None,
 ) -> dict[str, Any]:
+    value_trace_payload = _action_value_trace_payload(
+        state=state,
+        current_certificate=current_certificate,
+        action_menu=feasible_actions,
+        chosen_action=chosen_action,
+        best_rejected_action=best_rejected_action,
+        config=config,
+    )
     return {
         "iteration": state.iteration_index,
         "winner_id": state.winner_id,
@@ -6703,6 +6851,7 @@ def _state_snapshot(
         "feasible_actions": [action.as_dict() for action in feasible_actions],
         "chosen_action": chosen_action.as_dict() if chosen_action is not None else None,
         "best_rejected_action": best_rejected_action,
+        **value_trace_payload,
     }
 
 
@@ -6862,6 +7011,14 @@ def run_controller(
             )
         if hooks is None and top_action.kind != "stop":
             failed_best_rejected = feasible_actions[1].as_dict() if len(feasible_actions) > 1 else None
+            failure_value_trace_payload = _action_value_trace_payload(
+                state=state,
+                current_certificate=current_certificate,
+                action_menu=actions,
+                chosen_action=top_action,
+                best_rejected_action=failed_best_rejected,
+                config=cfg,
+            )
             failure_trace_entry = {
                 "iteration": state.iteration_index,
                 "feasible_actions": [action.as_dict() for action in actions],
@@ -6870,6 +7027,7 @@ def run_controller(
                 "remaining_search_budget": state.remaining_search_budget,
                 "remaining_evidence_budget": state.remaining_evidence_budget,
                 "best_rejected_action": failed_best_rejected,
+                **failure_value_trace_payload,
             }
             failure_state_snapshot = _state_snapshot(
                 state,
@@ -6877,6 +7035,7 @@ def run_controller(
                 feasible_actions=actions,
                 chosen_action=top_action,
                 best_rejected_action=failed_best_rejected,
+                config=cfg,
             )
             return VOIStopCertificate(
                 final_winner_route_id=state.winner_id,
@@ -6901,6 +7060,14 @@ def run_controller(
         previous_winner_id = state.winner_id
         previous_frontier_ids = {_route_id(route) for route in state.frontier}
         previous_certificate = current_certificate
+        value_trace_payload = _action_value_trace_payload(
+            state=state,
+            current_certificate=current_certificate,
+            action_menu=actions,
+            chosen_action=top_action,
+            best_rejected_action=best_rejected_action,
+            config=cfg,
+        )
         trace_entry = {
             "iteration": state.iteration_index,
             "feasible_actions": [action.as_dict() for action in actions],
@@ -6909,6 +7076,7 @@ def run_controller(
             "remaining_search_budget": state.remaining_search_budget,
             "remaining_evidence_budget": state.remaining_evidence_budget,
             "best_rejected_action": best_rejected_action,
+            **value_trace_payload,
         }
         state = replace(
             state,
@@ -6921,6 +7089,7 @@ def run_controller(
                     feasible_actions=actions,
                     chosen_action=top_action,
                     best_rejected_action=best_rejected_action,
+                    config=cfg,
                 ),
             ],
         )

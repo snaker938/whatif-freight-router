@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 import app.main as main_module
+import app.replay_oracle as replay_oracle_module
 import app.voi_controller as voi_module
 from app.decision_critical import DCCSConfig, select_candidates
 from app.evidence_certification import compute_certificate, compute_fragility_maps, sample_world_manifest
@@ -12191,3 +12192,122 @@ def test_evidence_exhausted_uncertified_search_tail_stops_low_value_terminal_top
         current_certificate=0.67354,
         config=VOIConfig(certificate_threshold=0.84),
     ) is True
+
+
+def test_replay_oracle_action_value_estimate_tracks_tri_source_terms() -> None:
+    estimate = replay_oracle_module.build_action_value_estimate(
+        action_id="refresh:scenario",
+        action_kind="refresh_top1_vor",
+        action_target="scenario",
+        action_reason="refresh_evidence_family",
+        cost_evidence=2,
+        predicted_delta_certificate=0.40,
+        predicted_delta_margin=0.10,
+        predicted_delta_frontier=0.20,
+        lambda_certificate=0.50,
+        lambda_margin=0.30,
+        lambda_frontier=0.20,
+        ranked_q_score=0.31,
+        metadata={"structured_refresh_signal": True},
+    )
+
+    assert estimate.weighted_certificate_value == pytest.approx(0.20)
+    assert estimate.weighted_margin_value == pytest.approx(0.03)
+    assert estimate.weighted_frontier_value == pytest.approx(0.04)
+    assert estimate.total_predicted_value == pytest.approx(0.27)
+    assert estimate.base_q_score == pytest.approx(0.135)
+    assert estimate.ranked_q_score == pytest.approx(0.31)
+    assert estimate.score_terms["certificate_delta"] == pytest.approx(0.40)
+    assert estimate.metadata["structured_refresh_signal"] is True
+
+
+def test_controller_build_action_replay_record_merges_predicted_and_realized_values() -> None:
+    cfg = VOIConfig(lambda_certificate=0.50, lambda_margin=0.30, lambda_frontier=0.20)
+    action = voi_module.VOIAction(
+        action_id="refresh:fuel",
+        kind="refresh_top1_vor",
+        target="fuel",
+        cost_evidence=2,
+        predicted_delta_certificate=0.16,
+        predicted_delta_margin=0.08,
+        predicted_delta_frontier=0.02,
+        q_score=0.19,
+        metadata={"structured_refresh_signal": True},
+        reason="refresh_evidence_family",
+    )
+    trace_entry = {
+        "realized_certificate_before": 0.41,
+        "realized_certificate_after": 0.54,
+        "realized_certificate_delta": 0.13,
+        "realized_frontier_gain": 1.0,
+        "realized_selected_route_changed": True,
+        "realized_selected_score_delta": 0.07,
+        "realized_productive": True,
+        "trace_metadata": {"trace_source": "main.voi", "iteration": 2},
+        "replay_metadata": {"replay_token": "replay-3"},
+        "oracle_metadata": {"oracle_run_id": "oracle-7"},
+    }
+
+    record = voi_module.build_action_replay_record(
+        action,
+        config=cfg,
+        trace_entry=trace_entry,
+        trace_metadata={"lane": "controller"},
+    )
+    primitives = voi_module.action_scoring_primitives(action, config=cfg)
+
+    assert record.estimate.base_q_score == pytest.approx(0.054)
+    assert primitives["weighted_certificate_value"] == pytest.approx(0.08)
+    assert primitives["base_q_score"] == pytest.approx(0.054)
+    assert primitives["q_score_adjustment"] == pytest.approx(0.136)
+    assert record.realization is not None
+    assert record.realization.realized_certificate_delta == pytest.approx(0.13)
+    assert record.realization.realized_frontier_gain == pytest.approx(1.0)
+    payload = record.as_dict()
+    assert payload["trace_metadata"]["trace_source"] == "main.voi"
+    assert payload["trace_metadata"]["lane"] == "controller"
+    assert payload["replay_metadata"]["replay_token"] == "replay-3"
+    assert payload["oracle_metadata"]["oracle_run_id"] == "oracle-7"
+
+
+def test_run_controller_trace_carries_action_value_records_for_replay() -> None:
+    dccs = _dccs_result()
+    fragility = _fragility_result()
+    frontier = [{"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)}]
+
+    def _refresh(state: VOIControllerState, action):
+        return replace(
+            state,
+            iteration_index=state.iteration_index + 1,
+            remaining_evidence_budget=max(0, state.remaining_evidence_budget - action.cost_evidence),
+            certificate={"route_a": 0.81, "route_b": 0.10},
+        )
+
+    stop_certificate = run_controller(
+        initial_frontier=frontier,
+        dccs=dccs,
+        fragility=fragility,
+        winner_id="route_a",
+        certificate_value=0.20,
+        certificate_map={"route_a": 0.20, "route_b": 0.10},
+        selected_route_id="route_a",
+        config=VOIConfig(
+            certificate_threshold=0.80,
+            search_completeness_threshold=0.0,
+            stop_threshold=0.0,
+            search_budget=0,
+            evidence_budget=1,
+        ),
+        hooks=VOIActionHooks(refresh=_refresh),
+    )
+
+    trace_entry = stop_certificate.action_trace[0]
+    value_record = trace_entry["chosen_action_value_record"]
+    state_value_record = stop_certificate.state_trace[0]["chosen_action_value_record"]
+
+    assert trace_entry["trace_metadata"]["trace_source"] == "voi_controller.run_controller"
+    assert trace_entry["trace_metadata"]["action_menu_count"] == len(trace_entry["feasible_actions"])
+    assert value_record["estimate"]["action_id"] == trace_entry["chosen_action"]["action_id"]
+    assert value_record["realization"] is None
+    assert len(trace_entry["action_menu_value_estimates"]) == len(trace_entry["feasible_actions"])
+    assert state_value_record["estimate"]["action_id"] == value_record["estimate"]["action_id"]
