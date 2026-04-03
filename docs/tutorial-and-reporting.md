@@ -1,6 +1,6 @@
 # Tutorial Mode and Reporting
 
-Last Updated: 2026-04-03  
+Last Updated: 2026-04-03
 Applies To: frontend tutorial flows, devtools reporting surfaces, run artifacts, and signature inspection
 
 This page describes the current frontend tutorial/reporting flow and the backend artifact surfaces it depends on.

@@ -1,6 +1,6 @@
 # Dissertation Math Overview
 
-Last Updated: 2026-04-03  
+Last Updated: 2026-04-03
 Applies To: objective scoring, strict-frontier selection, DCCS triage, REFC certification, and VOI stopping
 
 This page gives the high-level mathematical framing for the current thesis pipeline.

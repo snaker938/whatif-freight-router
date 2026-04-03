@@ -1,6 +1,6 @@
 # Expanded Math Appendix
 
-Last Updated: 2026-04-03  
+Last Updated: 2026-04-03
 Applies To: backend objective decomposition, dominance semantics, uncertainty summaries, and certificate-related invariants
 
 ## Objective Decomposition

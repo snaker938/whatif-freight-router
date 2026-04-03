@@ -1,6 +1,6 @@
 # Frontend Dev Tools Coverage
 
-Last Updated: 2026-04-03  
+Last Updated: 2026-04-03
 Applies To: `frontend/app/components/devtools/*`, `frontend/app/api/*`, and adjacent operator panels in `frontend/app/components/*`
 
 This page maps current frontend tooling surfaces to the backend or proxy routes they expose.
