@@ -1,9 +1,11 @@
 # Reproducibility Capsule
 
-Last Updated: 2026-03-31  
-Applies To: deterministic evaluation, signed run artifacts, cold thesis proof, and hot-rerun reuse proof
+Last Updated: 2026-04-03
+Applies To: deterministic evaluation, signed run artifacts, cold thesis proof, hot-rerun reuse proof, and archived public route-seam replay bundles
 
 This page summarizes how to reproduce and archive the current proof workflows without mixing cold and hot claims.
+
+This capsule is primarily evaluator/reporting proof guidance. Direct `/route` seam runs are adjacent runtime artifacts, but when they are archived for public route-seam replay they should preserve the additive decision-package artifact family when present.
 
 ## One-Command Demo
 
@@ -55,6 +57,17 @@ Treat the cold thesis proof as its own bundle. Archive:
 - `backend/out/artifacts/<run_id>/evaluation_manifest.json`
 - evaluator payloads should also retain `evaluation_suite` and `cohort_scaffolding` in their JSON metadata
 
+If a direct `/route` seam run is being archived alongside this proof surface for public replay, preserve the route-seam artifacts when present rather than assuming every evaluator run emits them. The additive route-seam family is:
+
+- `backend/out/artifacts/<run_id>/decision_package.json`
+- `backend/out/artifacts/<run_id>/preference_summary.json`
+- `backend/out/artifacts/<run_id>/support_summary.json`
+- `backend/out/artifacts/<run_id>/support_provenance.json`
+- `backend/out/artifacts/<run_id>/support_trace.jsonl`
+- `backend/out/artifacts/<run_id>/certified_set.json`
+- `backend/out/artifacts/<run_id>/certified_set_routes.jsonl`
+- any populated `abstention_summary.json`, `witness_summary.json`, `witness_routes.jsonl`, `controller_summary.json`, `controller_trace.jsonl`, `theorem_hook_map.json`, and `lane_manifest.json`
+
 ## Hot-Rerun Production / Reuse Proof Bundle
 
 Treat the hot-rerun proof as a separate bundle. Archive:
@@ -102,6 +115,7 @@ Before attributing differences to algorithmic changes, verify:
 - evaluator payloads should keep `evaluation_suite` and `cohort_scaffolding` explicit so downstream readers can recover lane and cohort context without parsing filenames
 - composed suite outputs should record suite_sources.json so stale-versus-fresh provenance stays explicit
 - signed manifests should carry `run_id`, `created_at`, the payload body, and a nested signature block
+- archived public route-seam replay bundles should keep any populated decision-package artifacts with the same manifest/provenance discipline as the rest of the run
 
 ## Related Docs
 
