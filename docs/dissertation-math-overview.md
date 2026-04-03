@@ -1,6 +1,6 @@
 # Dissertation Math Overview
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03  
 Applies To: objective scoring, strict-frontier selection, DCCS triage, REFC certification, and VOI stopping
 
 This page gives the high-level mathematical framing for the current thesis pipeline.
@@ -23,7 +23,7 @@ The strict frontier `F` is derived from the refined candidate set `R` and exclud
 
 This frontier is the object consumed by REFC and VOI. Presentation-layer backfill should not be treated as part of the certified frontier.
 
-In the current response contract, the selected route and its frontier context are surfaced through `RouteResponse.selected`, `RouteResponse.candidates`, `RouteResponse.selected_certificate`, and `RouteResponse.voi_stop_summary`.
+This page describes the maintained mathematical and state vocabulary for certification. It does not assume that every support or witness object is already wired into the public route-response surface.
 
 ## DCCS
 
@@ -38,15 +38,22 @@ The thesis-facing quantities here are not only winner preservation, but also:
 
 ## REFC
 
-REFC defines certificate-style winner evidence over deterministic sampled worlds.
+REFC defines certificate-style winner evidence over bounded world bundles plus explicit support and challenger-state summaries.
 
 Key quantities:
 
-- `C(r)`: fraction of sampled worlds in which route `r` wins under the fixed selector
+- empirical certificate `C(r)`: conservative winner frequency over the bounded world bundle
+- world-bundle fidelity, including probabilistic bundle state and audit correction state
+- support strength derived from ambiguity support, provenance coverage, and proxy penalties
+- winner confidence bounds and pairwise challenger-gap summaries
+- flip radius and decision-region state for winner-vs-challenger separation
+- certified-set state for routes whose lower bounds clear the threshold
 - certification threshold
 - winner fragility
 - competitor-side fragility
 - value of refresh by evidence family
+
+The maintained certification layer now names these concepts explicitly through objects such as `ProbabilisticWorldBundle`, `AuditWorldBundle`, `WorldSupportState`, `WinnerConfidenceState`, `PairwiseGapState`, `FlipRadiusState`, `DecisionRegionState`, `CertifiedSetState`, `CertificationState`, `CertificateWitness`, and `AbstentionRecord`.
 
 ## VOI-AD2R
 
@@ -63,6 +70,8 @@ Key quantities:
 The controller should stop honestly when no admissible action clears the threshold.
 
 Current stop summaries also expose `search_completeness_score`, `search_completeness_gap`, and `credible_search_uncertainty` so the thesis can distinguish a deliberate stop from a premature one.
+
+Those controller summaries should be read as public stop records, not as a replacement for the larger maintained support/certification state layer described above.
 
 ## Related Docs
 

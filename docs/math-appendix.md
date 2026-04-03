@@ -1,6 +1,6 @@
 # Expanded Math Appendix
 
-Last Updated: 2026-03-31  
+Last Updated: 2026-04-03  
 Applies To: backend objective decomposition, dominance semantics, uncertainty summaries, and certificate-related invariants
 
 ## Objective Decomposition
@@ -30,16 +30,32 @@ When uncertainty is active, route outputs may expose:
 
 These are descriptive summaries, not replacements for certificate semantics.
 
+## Support and Audit Semantics
+
+The maintained certification layer distinguishes between empirical world sampling and support-quality state:
+
+- `ProbabilisticWorldBundle` tracks active families, world-kind weights, family-state weights, proxy fraction, stress fraction, refreshed fraction, targeting fraction, and effective world count
+- `AuditWorldBundle` and `ProxyAuditRecord` summarize proxy-heavy, fallback-heavy, or low-coverage evidence families and apply an explicit audit correction penalty
+- `WorldSupportState` aggregates ambiguity support, source entropy/count, provenance coverage, bundle support mass, and audit correction into a support-strength summary and recommended fidelity mode
+
+Support strength is not itself a certificate. It is a separate signal that can justify downgrade, abstention, or additional audit work even when empirical winner frequencies look strong.
+
 ## Certificate Invariants
 
-For a fixed selector and sampled-world set:
+For the current maintained certification layer:
 
 - `0 <= C(r) <= 1`
-- certification requires `C(r*) >= certificate_threshold`
+- empirical certification still requires `C(r*) >= certificate_threshold`
+- winner-confidence state should satisfy `0 <= lower_bound <= point_estimate <= upper_bound <= 1`
+- pairwise-gap state should satisfy `min_gap <= mean_gap <= max_gap`
+- flip radius should remain nonnegative
+- certified-set state should only mark a route certified when its lower bound clears the threshold
 - uncertified results remain explicitly uncertified
 - fragility maps and value-of-refresh summaries are conditioned on the same sampled-world frame used by the certificate calculation
 
-The current certificate summary contract exposes the same frame explicitly through `RouteCertificationSummary.active_families`, `top_fragility_families`, `top_competitor_route_id`, `top_value_of_refresh_family`, and `ambiguity_context`.
+The maintained code now names this layer explicitly through `WinnerConfidenceState`, `PairwiseGapState`, `FlipRadiusState`, `DecisionRegionState`, `CertifiedSetState`, `CertificationState`, `CertificateWitness`, and `AbstentionRecord`.
+
+These are maintained support/certification state objects. They should not be conflated with the smaller public summary contracts carried by `RouteCertificationSummary` and `VoiStopSummary`.
 
 ## VOI Budget Invariants
 
@@ -48,6 +64,8 @@ The current certificate summary contract exposes the same frame explicitly throu
 - the controller should not imply certification when it stopped without reaching threshold
 
 The current stop-summary contract records `final_route_id`, `iteration_count`, `search_budget_used`, `evidence_budget_used`, `stop_reason`, `best_rejected_action`, and `best_rejected_q` so the stopping rationale stays auditable.
+
+That stop-summary surface is intentionally smaller than the maintained certification-state layer. It records controller-stop facts without claiming to carry every witness, abstention, or challenger-state object.
 
 ## Related Docs
 
