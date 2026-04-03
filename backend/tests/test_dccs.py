@@ -4,6 +4,8 @@ import math
 
 import pytest
 
+from app.candidate_bounds import CandidateEnvelope, CandidateEnvelopeBounds
+from app.candidate_criticality import CandidateCriticalityEstimate
 from app.decision_critical import (
     _direct_fallback_via_label_shrink_fraction,
     _legacy_predicted_refine_cost,
@@ -109,6 +111,11 @@ def test_candidate_ledger_is_stable_and_auditable() -> None:
     assert record.proxy_objective == (10.0, 11.0, 12.0)
     assert 0.0 <= record.flip_probability <= 1.0
     assert record.predicted_refine_cost > 0.0
+    assert isinstance(record.candidate_envelope, CandidateEnvelope)
+    assert isinstance(record.criticality_estimate, CandidateCriticalityEstimate)
+    assert record.candidate_envelope.objective_bounds["time"].lower <= record.proxy_objective[0]
+    assert record.candidate_envelope.objective_bounds["time"].upper >= record.proxy_objective[0]
+    assert record.criticality_estimate.decision_critical is True
     assert set(record.score_terms) == {
         "objective_gap",
         "mechanism_gap",
@@ -123,6 +130,30 @@ def test_candidate_ledger_is_stable_and_auditable() -> None:
         "comparator_seed_penalty",
     }
     assert record.comparator_seeded is False
+    payload = record.as_dict()
+    assert payload["candidate_envelope"]["schema_version"] == "dccs-envelope-v1"
+    assert payload["criticality_estimate"]["schema_version"] == "dccs-criticality-v1"
+
+
+def test_direct_record_instantiation_backfills_explicit_state() -> None:
+    record = _score_only_record(
+        "explicit_state",
+        objective_gap=0.3,
+        mechanism_gap=0.2,
+        overlap=0.15,
+        stretch=1.1,
+        time_regret_gap=0.1,
+        time_preservation_bonus=0.4,
+        predicted_refine_cost=6.0,
+        flip_probability=0.65,
+    )
+
+    assert isinstance(record.candidate_envelope, CandidateEnvelope)
+    assert isinstance(record.candidate_envelope.refine_cost_bounds, CandidateEnvelopeBounds)
+    assert record.candidate_envelope.refine_cost_bounds.lower >= 0.0
+    assert isinstance(record.criticality_estimate, CandidateCriticalityEstimate)
+    assert record.criticality_estimate.criticality_band in {"medium", "high"}
+    assert record.criticality_estimate.flip_probability == pytest.approx(0.65)
 
 
 def test_bootstrap_mode_selects_diverse_representatives_under_budget() -> None:
@@ -722,6 +753,9 @@ def test_observed_refine_cost_is_attached_to_ledger_records() -> None:
     assert updated.observed_refine_cost == record.predicted_refine_cost + 2.5
     assert updated.refine_cost_ratio > 1.0
     assert updated.decision_reason == "frontier_addition"
+    assert updated.criticality_estimate is not None
+    assert updated.criticality_estimate.observed_refine_cost == pytest.approx(updated.observed_refine_cost)
+    assert updated.criticality_estimate.refine_cost_error == pytest.approx(updated.refine_cost_error)
 
 
 def test_missing_observed_refine_cost_does_not_fake_perfect_calibration() -> None:

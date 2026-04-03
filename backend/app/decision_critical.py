@@ -5,6 +5,12 @@ import hashlib
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from .candidate_bounds import CandidateEnvelope, build_candidate_envelope
+from .candidate_criticality import (
+    CandidateCriticalityEstimate,
+    build_candidate_criticality_estimate,
+)
+
 # DCCS is thesis-specific, but its objective-space coverage and diversity terms
 # borrow from standard multi-objective search ideas such as normalized
 # nearest-neighbour spacing and crowding/diversification; see Deb et al.,
@@ -880,6 +886,41 @@ class DCCSCandidateRecord:
     refine_cost_error: float | None = None
     refine_cost_ratio: float | None = None
     near_duplicate: bool = False
+    candidate_envelope: CandidateEnvelope | None = None
+    criticality_estimate: CandidateCriticalityEstimate | None = None
+
+    def __post_init__(self) -> None:
+        if self.candidate_envelope is None:
+            object.__setattr__(
+                self,
+                "candidate_envelope",
+                build_candidate_envelope(
+                    proxy_objective=self.proxy_objective,
+                    proxy_confidence=self.proxy_confidence,
+                    predicted_refine_cost=self.predicted_refine_cost,
+                    overlap=self.overlap,
+                    stretch=self.stretch,
+                    objective_names=OBJECTIVE_NAMES,
+                ),
+            )
+        if self.criticality_estimate is None:
+            object.__setattr__(
+                self,
+                "criticality_estimate",
+                build_candidate_criticality_estimate(
+                    objective_gap=self.objective_gap,
+                    mechanism_gap=self.mechanism_gap,
+                    flip_probability=self.flip_probability,
+                    overlap=self.overlap,
+                    stretch=self.stretch,
+                    time_preservation_bonus=self.time_preservation_bonus,
+                    predicted_refine_cost=self.predicted_refine_cost,
+                    proxy_confidence=self.proxy_confidence,
+                    candidate_envelope=self.candidate_envelope,
+                    observed_refine_cost=self.observed_refine_cost,
+                    refine_cost_error=self.refine_cost_error,
+                ),
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1133,6 +1174,7 @@ def record_refine_outcome(
             refine_cost_error=None,
             refine_cost_ratio=None,
             decision_reason=label,
+            criticality_estimate=None,
         )
     delta = observed_refine_cost - record.predicted_refine_cost
     ratio = observed_refine_cost / max(1e-9, record.predicted_refine_cost)
@@ -1143,6 +1185,7 @@ def record_refine_outcome(
         refine_cost_error=float(delta),
         refine_cost_ratio=float(ratio),
         decision_reason=label,
+        criticality_estimate=None,
     )
 
 
