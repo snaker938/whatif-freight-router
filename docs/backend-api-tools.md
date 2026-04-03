@@ -167,6 +167,8 @@ Route-producing requests may also carry:
 
 `decision_package` is optional at the response-contract level, but the current route runtime wires it from the same decision/support/controller bundle that is also persisted as `decision_package.json`.
 
+When `pipeline_mode` is omitted on `POST /route`, the public default remains `tri_source`. Single-leg `tri_source` requests currently execute through the internal `voi` runtime path while preserving `pipeline_mode="tri_source"` on the public response and persisted route artifacts; requests with waypoints still fall back to `legacy`. Within that package, `decision_package.preference_summary` is summary-only selector/runtime metadata, not a public preference query/update API.
+
 Returned `RouteOption` objects may include richer fields such as:
 
 - `knee_score`, `is_knee`

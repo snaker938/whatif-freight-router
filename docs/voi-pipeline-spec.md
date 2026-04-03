@@ -155,6 +155,8 @@ Current `decision_package` payloads summarize the public thesis decision state w
 
 The current runtime assembles this package from the existing route, certification, VOI, and artifact facts already produced during the request. It is a public summary seam, not a second independent decision engine.
 
+`preference_summary` is the current landed preference bridge and remains summary-only selector/runtime metadata rather than a public preference query/update surface.
+
 ## 5. Stable Artifact Contract
 
 The stable public run-store allowlist includes:
