@@ -4676,7 +4676,7 @@ Taken together, these current artifacts show one consistent suite-level body sna
 | `ScenarioObservation` | one calibrated scenario observation with context key, mode, factor quantiles, pressures, and provenance |
 | `ScenarioPolicy` | resolved runtime scenario multipliers plus live source, coverage, and projection metadata |
 | `RouteOption` | a fully modeled route alternative |
-| `RouteResponse` | selected route plus alternative set and metadata |
+| `RouteResponse` | selected route plus alternative set, decision package, and metadata |
 | `RouteBaselineResponse` | baseline route plus baseline method metadata |
 | `ParetoResponse` | Pareto route set and diagnostics |
 | `ScenarioCompareRequest/Response` | compare results across scenario modes |
@@ -11970,7 +11970,7 @@ Each term is explained in a way that preserves technical meaning without assumin
 - Risk aversion controls how strongly the robust objective penalizes bad tails.
 - In plain English, it is the dial for how much the user or config fears nasty outcomes.
 - This matters most when routes differ in volatility rather than average.
-- In thesis terms, it is the preference bridge from stochastic summary to decision rule.
+- In thesis terms, it is the current preference bridge from stochastic summary into `PreferenceState`, `PreferenceQuery`, and the elicited constraint/stop-rule path that turns those summaries into a decision rule.
 
 ### `terrain coverage`
 
@@ -15000,12 +15000,13 @@ export type RouteResponse = {
   manifest_endpoint?: string | null;
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
+  decision_package?: DecisionPackage | null;
   selected_certificate?: RouteCertificationSummary | null;
   voi_stop_summary?: VoiStopSummary | null;
 };
 ```
 
-This is one of the clearest reasons the UI is shaped as a workbench. The route answer is not just "the route". It is also an entry point into the run’s evidence and certification context.
+This is one of the clearest reasons the UI is shaped as a workbench. The route answer is not just "the route". It is also an entry point into the run’s evidence, preference, support, certification, and controller context.
 
 ### AL23. Why Some Controls Are Browser-Visible
 
@@ -15524,7 +15525,7 @@ That is why the browser exposes it.
 
 The repository uses run IDs and run endpoints as part of ordinary workflow, not only as a back-office artifact system. The proof is in the browser types and panels:
 
-- `RouteResponse` contains `run_id`, `manifest_endpoint`, `artifacts_endpoint`, and `provenance_endpoint`
+- `RouteResponse` contains `run_id`, `manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`, and the nested `decision_package`
 - `ScenarioCompareResponse` contains `scenario_manifest_endpoint` and `scenario_signature_endpoint`
 - `RouteCertificationPanel.tsx` offers `Open Run Inspector`
 - `RunInspector.tsx` can inspect manifest, scenario manifest, provenance, signature, scenario signature, and listed artifacts
@@ -23433,17 +23434,19 @@ class RouteResponse(BaseModel):
     selected: RouteOption
     candidates: list[RouteOption]
     run_id: str | None = None
-    pipeline_mode: PipelineMode = "legacy"
+    pipeline_mode: PipelineMode = "tri_source"
     manifest_endpoint: str | None = None
     artifacts_endpoint: str | None = None
     provenance_endpoint: str | None = None
+    decision_package: DecisionPackage | None = None
     selected_certificate: RouteCertificationSummary | None = None
     voi_stop_summary: VoiStopSummary | None = None
 ```
 
 The implications are explicit:
 
-- `pipeline_mode` is a runtime input and output concept, not only a thesis label.
+- `pipeline_mode` defaults to `tri_source`, which the runtime aliases to the internal `voi` executor unless a waypoint request forces the legacy fallback.
+- `decision_package` carries the typed runtime bundle for preference, support, certified-set, abstention, witness, controller, and theorem-hook summaries.
 - `selected_certificate` becomes meaningful only once REFC is active.
 - `voi_stop_summary` becomes meaningful only once VOI is active.
 
@@ -23586,7 +23589,8 @@ The next table answers a more detailed reviewer question: what exactly is new in
 
 | Surface | `V0` | `A` | `B` | `C` | Why this matters |
 | --- | --- | --- | --- | --- | --- |
-| `pipeline_mode` in `RouteResponse` | yes | yes | yes | yes | Variant identity is part of the runtime contract. |
+| `pipeline_mode` in `RouteResponse` | yes | yes | yes | yes | The public default is `tri_source`, which aliases to the internal `voi` executor unless waypoint fallback forces `legacy`. |
+| `decision_package` in `RouteResponse` | populated | populated | populated | populated | The typed runtime bundle carries preference, support, certification, abstention, witness, controller, and theorem-hook summaries. |
 | `selected_certificate` in `RouteResponse` | no semantic content | no semantic content | populated | populated | Certification is a later layer, not a baseline feature. |
 | `voi_stop_summary` in `RouteResponse` | absent or empty | absent or empty | absent or empty | populated | Controller output exists only when VOI runs. |
 | `strict_frontier.jsonl` | yes | yes | yes | yes | Frontier provenance remains visible across all variants. |
