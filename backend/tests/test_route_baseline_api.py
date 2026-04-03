@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -7,6 +8,14 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.main import app, ors_client, osrm_client
+from app.models import (
+    GeoJSONLineString,
+    RouteCertificationSummary,
+    RouteMetrics,
+    RouteOption,
+    ScenarioMode,
+    ScenarioSummary,
+)
 from app.routing_osrm import OSRMError
 from app.settings import settings
 
@@ -159,6 +168,53 @@ class SingleRouteBaselineOSRM(FakeBaselineOSRM):
         return routes[:1]
 
 
+def _route_response_option(
+    route_id: str,
+    *,
+    monetary_cost: float,
+    duration_s: float = 8100.0,
+    emissions_kg: float = 144.2,
+    certificate: float = 0.84,
+    certified: bool = True,
+    threshold: float = 0.8,
+) -> RouteOption:
+    return RouteOption(
+        id=route_id,
+        geometry=GeoJSONLineString(
+            type="LineString",
+            coordinates=[(-1.8904, 52.4862), (-0.1276, 51.5072)],
+        ),
+        metrics=RouteMetrics(
+            distance_km=185.0,
+            duration_s=duration_s,
+            monetary_cost=monetary_cost,
+            emissions_kg=emissions_kg,
+            avg_speed_kmh=82.2,
+        ),
+        scenario_summary=ScenarioSummary(
+            mode=ScenarioMode.NO_SHARING,
+            duration_multiplier=1.0,
+            incident_rate_multiplier=1.0,
+            incident_delay_multiplier=1.0,
+            fuel_consumption_multiplier=1.0,
+            emissions_multiplier=1.0,
+            stochastic_sigma_multiplier=1.0,
+            source="pytest",
+            version="pytest",
+        ),
+        certification=RouteCertificationSummary(
+            route_id=route_id,
+            certificate=certificate,
+            certified=certified,
+            threshold=threshold,
+            active_families=["scenario", "weather"],
+            top_fragility_families=["weather"],
+            top_competitor_route_id="route_b",
+            top_value_of_refresh_family="weather",
+        ),
+    )
+
+
 @pytest.fixture
 def baseline_osrm() -> FakeBaselineOSRM:
     return FakeBaselineOSRM()
@@ -172,6 +228,212 @@ def baseline_client(baseline_osrm: FakeBaselineOSRM):
             yield client
     finally:
         app.dependency_overrides.clear()
+
+
+def test_route_defaults_to_tri_source_and_returns_decision_package(
+    monkeypatch: pytest.MonkeyPatch,
+    baseline_osrm: FakeBaselineOSRM,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "route_pipeline_default_mode", "tri_source")
+    monkeypatch.setattr(main_module, "_routing_graph_warmup_failfast_detail", lambda: None)
+
+    async def _fail_if_legacy_called(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        main_module.TerrainDiagnostics,
+        main_module.CandidateDiagnostics,
+    ]:
+        raise AssertionError("legacy route collector should not run for default tri_source requests")
+
+    selected = _route_response_option("tri_source_route_a", monetary_cost=110.0, certificate=0.86, certified=True)
+    challenger = _route_response_option(
+        "tri_source_route_b",
+        monetary_cost=128.0,
+        duration_s=8420.0,
+        emissions_kg=150.1,
+        certificate=0.73,
+        certified=False,
+    )
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["pipeline_mode"] == "tri_source"
+        return {
+            "selected": selected,
+            "candidates": [selected, challenger],
+            "warnings": ["tri_source support placeholder active"],
+            "candidate_fetches": 2,
+            "terrain_diag": main_module.TerrainDiagnostics(),
+            "candidate_diag": main_module.CandidateDiagnostics(raw_count=2, deduped_count=2, candidate_budget=2),
+            "selected_certificate": selected.certification,
+            "voi_stop_summary": None,
+            "extra_json_artifacts": {
+                "winner_summary.json": {"route_id": selected.id},
+                "certificate_summary.json": {
+                    "selected_route_id": selected.id,
+                    "selected_certificate": 0.86,
+                    "selected_certificate_basis": "empirical",
+                },
+                "sampled_world_manifest.json": {"world_count": 16},
+            },
+            "extra_jsonl_artifacts": {
+                "strict_frontier.jsonl": [
+                    {
+                        "route_id": selected.id,
+                        "monetary_cost": 110.0,
+                        "duration_s": 8100.0,
+                        "emissions_kg": 144.2,
+                        "certificate": 0.86,
+                        "certificate_threshold": 0.8,
+                        "certified": True,
+                    },
+                    {
+                        "route_id": challenger.id,
+                        "monetary_cost": 128.0,
+                        "duration_s": 8420.0,
+                        "emissions_kg": 150.1,
+                        "certificate": 0.73,
+                        "certificate_threshold": 0.8,
+                        "certified": False,
+                    },
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fail_if_legacy_called,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_validate_route_options_evidence",
+        lambda options: {
+            "status": "ok",
+            "issues": [],
+            "validations": [{"route_id": option.id, "status": "ok"} for option in options],
+        },
+    )
+
+    app.dependency_overrides[osrm_client] = lambda: baseline_osrm
+    app.dependency_overrides[ors_client] = lambda: FakeBaselineORS()
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/route",
+                json={
+                    **_payload(),
+                    "od_ambiguity_source_count": 3,
+                    "od_ambiguity_source_mix": (
+                        "routing_graph_probe,engine_augmented_probe,historical_results_bootstrap"
+                    ),
+                    "od_ambiguity_source_entropy": 0.92,
+                    "od_ambiguity_support_ratio": 0.81,
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pipeline_mode"] == "tri_source"
+    assert data["selected"]["id"] == selected.id
+    assert data["decision_package"]["pipeline_mode"] == "tri_source"
+    assert data["decision_package"]["selected_route_id"] == selected.id
+    assert data["decision_package"]["support_summary"]["observed_source_count"] == 3
+    assert data["decision_package"]["certified_set_summary"]["selected_route_id"] == selected.id
+    artifact_path = tmp_path / "artifacts" / data["run_id"] / "decision_package.json"
+    assert artifact_path.exists()
+    artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact_payload["pipeline_mode"] == "tri_source"
+
+
+def test_route_waypoints_fall_back_from_tri_source_to_legacy_with_manifest_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    baseline_osrm: FakeBaselineOSRM,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+    monkeypatch.setattr(main_module, "_routing_graph_warmup_failfast_detail", lambda: None)
+
+    legacy_route = _route_response_option(
+        "legacy_waypoint_route",
+        monetary_cost=132.0,
+        duration_s=9200.0,
+        emissions_kg=152.5,
+        certificate=0.62,
+        certified=False,
+    )
+
+    async def _fake_legacy_collect(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        main_module.TerrainDiagnostics,
+        main_module.CandidateDiagnostics,
+    ]:
+        return (
+            [legacy_route],
+            [],
+            1,
+            main_module.TerrainDiagnostics(),
+            main_module.CandidateDiagnostics(raw_count=1, deduped_count=1, candidate_budget=1),
+        )
+
+    async def _fail_if_direct_called(**kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("direct tri_source runtime should not run for waypoint fallback requests")
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fake_legacy_collect,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fail_if_direct_called,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_validate_route_options_evidence",
+        lambda options: {
+            "status": "ok",
+            "issues": [],
+            "validations": [{"route_id": option.id, "status": "ok"} for option in options],
+        },
+    )
+
+    app.dependency_overrides[osrm_client] = lambda: baseline_osrm
+    app.dependency_overrides[ors_client] = lambda: FakeBaselineORS()
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/route",
+                json={
+                    **_payload(with_waypoint=True),
+                    "pipeline_mode": "tri_source",
+                    "od_ambiguity_source_count": 2,
+                    "od_ambiguity_source_mix": "routing_graph_probe,engine_augmented_probe",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pipeline_mode"] == "legacy"
+    assert data["decision_package"]["pipeline_mode"] == "legacy"
+    assert data["decision_package"]["abstention_summary"]["reason_code"] == "legacy_runtime_selected"
+    manifest_path = tmp_path / "manifests" / f"{data['run_id']}.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert any("tri_source" in warning and "legacy" in warning for warning in manifest_payload["warnings"])
 
 
 def test_route_baseline_returns_osrm_quick_route(

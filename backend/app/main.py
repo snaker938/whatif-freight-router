@@ -46,12 +46,14 @@ from .calibration_loader import (
     refresh_live_runtime_route_caches,
 )
 from .carbon_model import apply_scope_emissions_adjustment, resolve_carbon_price
+from .certificate_witness import CertificateWitness
 from .certification_cache import (
     certification_cache_stats,
     clear_certification_cache,
     get_cached_certification,
     set_cached_certification,
 )
+from .certification_models import CertificationState
 from .k_raw_cache import clear_k_raw_cache, get_cached_k_raw, k_raw_cache_stats, set_cached_k_raw
 from .departure_profile import time_of_day_multiplier_uk
 from .decision_critical import (
@@ -65,6 +67,7 @@ from .decision_critical import (
     stable_candidate_id,
     summarize_refine_outcomes,
 )
+from .abstention import AbstentionRecord
 from .evidence_certification import (
     CertificateResult,
     FragilityResult,
@@ -103,8 +106,19 @@ from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
+    CertifiedSetSummary,
     CostToggles,
     CustomVehicleListResponse,
+    DecisionAbstentionSummary,
+    DecisionControllerSummary,
+    DecisionLaneManifest,
+    DecisionPackage,
+    DecisionPreferenceSummary,
+    DecisionSupportSourceRecord,
+    DecisionSupportSummary,
+    DecisionTheoremHookRecord,
+    DecisionTheoremHookSummary,
+    DecisionWitnessSummary,
     DepartureOptimizeCandidate,
     DepartureOptimizeRequest,
     DepartureOptimizeResponse,
@@ -165,6 +179,7 @@ from .oracle_quality_store import (
     write_summary_artifacts,
 )
 from .pareto_methods import annotate_knee_scores, filter_by_epsilon, select_pareto_routes
+from .preference_state import build_preference_state
 from .provenance_store import provenance_event, provenance_path_for_run, write_provenance
 from .rbac import require_role
 from .risk_model import robust_objective
@@ -5259,6 +5274,423 @@ def _legacy_final_route_trace(
             "evidence_validation": "evidence_validation.json",
         },
     }
+
+
+def _build_route_decision_package(
+    *,
+    req: RouteRequest,
+    requested_pipeline_mode: str,
+    actual_pipeline_mode: str,
+    selected: RouteOption,
+    candidates: Sequence[RouteOption],
+    warnings: Sequence[str],
+    selected_certificate: RouteCertificationSummary | None,
+    voi_stop_summary: VoiStopSummary | None,
+    evidence_validation: Mapping[str, Any] | None,
+    extra_json_artifacts: Mapping[str, dict[str, Any] | list[Any]] | None = None,
+    extra_jsonl_artifacts: Mapping[str, list[dict[str, Any]]] | None = None,
+    extra_csv_artifacts: Mapping[str, tuple[list[str], list[dict[str, Any]]]] | None = None,
+    extra_text_artifacts: Mapping[str, str] | None = None,
+) -> DecisionPackage:
+    def _coerce_float(value: Any) -> float | None:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric):
+            return None
+        return float(numeric)
+
+    def _coerce_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _string_list(value: Any) -> list[str]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            if text.startswith("[") and text.endswith("]"):
+                try:
+                    decoded = json.loads(text)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    decoded = None
+                if isinstance(decoded, list):
+                    return [str(item).strip() for item in decoded if str(item).strip()]
+            if "," in text:
+                return [item.strip() for item in text.split(",") if item.strip()]
+            return [text]
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            values: list[str] = []
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    values.append(text)
+            return values
+        return []
+
+    requested_mode = str(requested_pipeline_mode or "legacy").strip().lower() or "legacy"
+    actual_mode = str(actual_pipeline_mode or requested_mode).strip().lower() or "legacy"
+    execution_mode = "dccs_refc" if actual_mode == "tri_source" else actual_mode
+    warnings_list = [str(warning).strip() for warning in warnings if str(warning).strip()]
+    ambiguity_context = _request_ambiguity_context(req)
+    evidence_validation_payload = dict(evidence_validation or {})
+    evidence_validation_status = str(
+        evidence_validation_payload.get("status", "unknown")
+    ).strip() or "unknown"
+
+    source_mix = _string_list(ambiguity_context.get("od_ambiguity_source_mix"))
+    observed_source_count = _coerce_int(ambiguity_context.get("od_ambiguity_source_count"))
+    if observed_source_count is None:
+        observed_source_count = len(source_mix)
+    observed_source_count = max(observed_source_count, len(source_mix))
+    support_notes = [
+        f"evidence_validation_status={evidence_validation_status}",
+        f"internal_execution_mode={execution_mode}",
+    ]
+    if requested_mode != actual_mode:
+        support_notes.append(f"requested_mode={requested_mode}")
+    if not source_mix and observed_source_count > 0:
+        source_mix = [f"observed_source_{idx + 1}" for idx in range(observed_source_count)]
+        support_notes.append("Observed ambiguity source labels were unavailable; generic source ids were used.")
+    support_ratio = _coerce_float(ambiguity_context.get("od_ambiguity_support_ratio"))
+    source_entropy = _coerce_float(ambiguity_context.get("od_ambiguity_source_entropy"))
+    support_records = [
+        DecisionSupportSourceRecord(
+            source_id=source_id,
+            role="ambiguity_source",
+            required=index < 3,
+            present=True,
+            status="observed",
+            provenance="request_ambiguity_context",
+            details={
+                **(
+                    {"support_ratio": round(float(support_ratio), 6)}
+                    if support_ratio is not None
+                    else {}
+                ),
+                **(
+                    {"selected_certificate": round(float(selected_certificate.certificate), 6)}
+                    if selected_certificate is not None
+                    else {}
+                ),
+                "evidence_validation_ok": evidence_validation_status == "ok",
+            },
+        )
+        for index, source_id in enumerate(source_mix)
+    ]
+    missing_sources = [
+        f"tri_source_slot_{slot_index}"
+        for slot_index in range(len(support_records) + 1, 4)
+    ]
+    support_satisfied = (
+        actual_mode != "legacy"
+        and observed_source_count >= 3
+        and evidence_validation_status == "ok"
+    )
+    if actual_mode == "legacy":
+        support_notes.append("Legacy runtime path bypassed the tri_source support gate.")
+    elif not support_satisfied:
+        support_notes.append("tri_source support contract is not fully satisfied by the current runtime facts.")
+
+    frontier_rows: list[dict[str, Any]] = []
+    raw_frontier_rows = (extra_jsonl_artifacts or {}).get("strict_frontier.jsonl")
+    if isinstance(raw_frontier_rows, list):
+        for row in raw_frontier_rows:
+            if isinstance(row, Mapping):
+                frontier_rows.append(dict(row))
+    if not frontier_rows:
+        frontier_rows = _strict_frontier_rows_from_options(
+            list(candidates),
+            selected_id=selected.id,
+            evidence_snapshot_hash="",
+        )
+    frontier_route_ids = [
+        str(row.get("route_id", "")).strip()
+        for row in frontier_rows
+        if str(row.get("route_id", "")).strip()
+    ]
+    if not frontier_route_ids:
+        frontier_route_ids = [option.id for option in candidates]
+    certified_route_ids = [
+        route_id
+        for route_id, row in (
+            (str(row.get("route_id", "")).strip(), row) for row in frontier_rows
+        )
+        if route_id
+        and (
+            bool(row.get("certified"))
+            or (
+                _coerce_float(row.get("certificate")) is not None
+                and _coerce_float(row.get("certificate_threshold")) is not None
+                and float(_coerce_float(row.get("certificate")) or 0.0)
+                >= float(_coerce_float(row.get("certificate_threshold")) or 0.0)
+            )
+        )
+    ]
+    if not certified_route_ids:
+        certified_route_ids = [
+            option.id
+            for option in candidates
+            if option.certification is not None and bool(option.certification.certified)
+        ]
+
+    def _frontier_sort_key(row: Mapping[str, Any]) -> tuple[float, float, float, float, str]:
+        cost = _coerce_float(row.get("monetary_cost"))
+        certificate = _coerce_float(row.get("certificate"))
+        duration = _coerce_float(row.get("duration_s"))
+        emissions = _coerce_float(row.get("emissions_kg"))
+        route_id = str(row.get("route_id", "")).strip()
+        return (
+            float(cost if cost is not None else float("inf")),
+            float(-(certificate if certificate is not None else -1.0)),
+            float(duration if duration is not None else float("inf")),
+            float(emissions if emissions is not None else float("inf")),
+            route_id,
+        )
+
+    minimum_cost_route_id = None
+    if frontier_rows:
+        minimum_cost_route_id = min(frontier_rows, key=_frontier_sort_key).get("route_id")
+        minimum_cost_route_id = str(minimum_cost_route_id).strip() or None
+    if minimum_cost_route_id is None and candidates:
+        minimum_cost_route_id = min(
+            candidates,
+            key=lambda option: (
+                float(option.metrics.monetary_cost),
+                float(-(option.certification.certificate if option.certification is not None else -1.0)),
+                float(option.metrics.duration_s),
+                float(option.metrics.emissions_kg),
+                option.id,
+            ),
+        ).id
+
+    certificate_summary_payload = (extra_json_artifacts or {}).get("certificate_summary.json")
+    certificate_basis = "pending_runtime_wiring"
+    if isinstance(certificate_summary_payload, Mapping):
+        certificate_basis = str(
+            certificate_summary_payload.get(
+                "selected_certificate_basis",
+                certificate_summary_payload.get("status", certificate_basis),
+            )
+        ).strip() or certificate_basis
+    elif selected_certificate is not None:
+        certificate_basis = "route_certification_summary"
+    elif actual_mode == "legacy":
+        certificate_basis = "legacy_selected_route"
+
+    selected_certificate_value = (
+        float(selected_certificate.certificate) if selected_certificate is not None else None
+    )
+    selected_certificate_threshold = (
+        float(selected_certificate.threshold) if selected_certificate is not None else None
+    )
+    selected_certified = bool(selected_certificate.certified) if selected_certificate is not None else False
+    selective_gate_passed = bool(
+        actual_mode in {"tri_source", "dccs_refc", "voi"}
+        and support_satisfied
+        and selected_certified
+        and minimum_cost_route_id is not None
+        and selected.id == minimum_cost_route_id
+    )
+
+    preference_notes = [
+        (
+            "request_weights="
+            f"time:{float(req.weights.time):.6f},"
+            f"money:{float(req.weights.money):.6f},"
+            f"co2:{float(req.weights.co2):.6f}"
+        ),
+        f"optimization_mode={req.optimization_mode}",
+        f"risk_aversion={float(req.risk_aversion):.6f}",
+    ]
+    if actual_mode == "tri_source":
+        preference_notes.append("tri_source currently executes through the dccs_refc runtime path.")
+    if requested_mode != actual_mode:
+        preference_notes.append(f"requested_mode={requested_mode}")
+
+    sampled_world_manifest = (extra_json_artifacts or {}).get("sampled_world_manifest.json")
+    witness_world_count = None
+    if isinstance(sampled_world_manifest, Mapping):
+        witness_world_count = _coerce_int(sampled_world_manifest.get("world_count"))
+    challenger_route_ids = [route_id for route_id in frontier_route_ids if route_id != selected.id]
+    top_competitor_route_id = (
+        str(selected_certificate.top_competitor_route_id).strip()
+        if selected_certificate is not None and selected_certificate.top_competitor_route_id
+        else ""
+    )
+    if top_competitor_route_id and top_competitor_route_id not in challenger_route_ids:
+        challenger_route_ids.insert(0, top_competitor_route_id)
+    witness_notes: list[str] = []
+    if actual_mode == "legacy":
+        witness_notes.append("Legacy route responses do not carry sampled-world witnesses; frontier rows are used.")
+    if witness_world_count is None:
+        witness_notes.append("Witness world count is unavailable in the current runtime payloads.")
+
+    voi_action_trace_payload = (extra_json_artifacts or {}).get("voi_action_trace.json")
+    action_trace_rows: list[dict[str, Any]] = []
+    if isinstance(voi_action_trace_payload, Mapping):
+        raw_action_trace = voi_action_trace_payload.get("action_trace", voi_action_trace_payload.get("actions"))
+        if isinstance(raw_action_trace, list):
+            action_trace_rows = [dict(row) for row in raw_action_trace if isinstance(row, Mapping)]
+    controller_notes: list[str] = []
+    if actual_mode == "tri_source":
+        controller_notes.append("tri_source executed with dccs_refc internals in this runtime packet.")
+    if requested_mode != actual_mode:
+        controller_notes.append(f"request fell back from {requested_mode} to {actual_mode}")
+
+    artifact_names = sorted(
+        {
+            "decision_package.json",
+            *list((extra_json_artifacts or {}).keys()),
+            *list((extra_jsonl_artifacts or {}).keys()),
+            *list((extra_csv_artifacts or {}).keys()),
+            *list((extra_text_artifacts or {}).keys()),
+        }
+    )
+    hook_artifacts = (
+        ("decision_package", "decision_package.json"),
+        ("winner_summary", "winner_summary.json"),
+        ("certificate_summary", "certificate_summary.json"),
+        ("strict_frontier", "strict_frontier.jsonl"),
+        ("sampled_world_manifest", "sampled_world_manifest.json"),
+        ("evidence_validation", "evidence_validation.json"),
+        ("voi_action_trace", "voi_action_trace.json"),
+    )
+
+    abstention_summary = None
+    if actual_mode == "legacy":
+        abstention_summary = DecisionAbstentionSummary(
+            abstained=False,
+            reason_code="legacy_runtime_selected",
+            message="Legacy routing was used for this response; tri_source certification gating was not enforced.",
+            blocking_sources=missing_sources,
+            retryable=(requested_mode != "legacy"),
+        )
+    elif not support_satisfied:
+        abstention_summary = DecisionAbstentionSummary(
+            abstained=False,
+            reason_code="tri_source_support_incomplete",
+            message="decision_package is populated from current runtime facts, but the tri_source support contract is incomplete.",
+            blocking_sources=missing_sources,
+            retryable=True,
+        )
+    elif selected_certificate is not None and not selected_certificate.certified:
+        abstention_summary = DecisionAbstentionSummary(
+            abstained=False,
+            reason_code="selected_route_not_certified",
+            message="The selected route is returned, but its certificate remains below threshold.",
+            blocking_sources=[],
+            retryable=True,
+        )
+
+    return DecisionPackage(
+        pipeline_mode=actual_mode,  # type: ignore[arg-type]
+        selected_route_id=selected.id,
+        preference_summary=DecisionPreferenceSummary(notes=preference_notes),
+        support_summary=DecisionSupportSummary(
+            observed_source_count=int(observed_source_count),
+            satisfied=support_satisfied,
+            sources=support_records,
+            source_mix=source_mix,
+            missing_sources=missing_sources,
+            source_entropy=source_entropy,
+            provenance_mode="request_ambiguity_context+evidence_validation",
+            notes=support_notes + warnings_list[:3],
+        ),
+        certified_set_summary=CertifiedSetSummary(
+            selected_route_id=selected.id,
+            minimum_cost_route_id=minimum_cost_route_id,
+            certified_route_ids=certified_route_ids,
+            frontier_route_ids=frontier_route_ids,
+            certificate_value=selected_certificate_value,
+            certificate_threshold=selected_certificate_threshold,
+            certificate_basis=certificate_basis,
+            certified=selected_certified,
+            selective_gate_passed=selective_gate_passed,
+        ),
+        abstention_summary=abstention_summary,
+        witness_summary=DecisionWitnessSummary(
+            primary_witness_route_id=selected.id,
+            witness_route_ids=(certified_route_ids or [selected.id]),
+            challenger_route_ids=challenger_route_ids,
+            witness_world_count=witness_world_count,
+            witness_source_ids=source_mix,
+            notes=witness_notes,
+        ),
+        controller_summary=DecisionControllerSummary(
+            controller_mode=("voi" if actual_mode == "voi" else "single_pass"),
+            engaged=actual_mode == "voi",
+            iteration_count=(
+                int(voi_stop_summary.iteration_count)
+                if voi_stop_summary is not None
+                else len(action_trace_rows)
+            ),
+            action_count=len(action_trace_rows),
+            stop_reason=(
+                str(voi_stop_summary.stop_reason)
+                if voi_stop_summary is not None
+                else ("single_pass" if actual_mode != "legacy" else "legacy_single_pass")
+            ),
+            search_budget_used=(
+                int(voi_stop_summary.search_budget_used) if voi_stop_summary is not None else 0
+            ),
+            evidence_budget_used=(
+                int(voi_stop_summary.evidence_budget_used) if voi_stop_summary is not None else 0
+            ),
+            notes=controller_notes,
+        ),
+        theorem_hook_summary=DecisionTheoremHookSummary(
+            hooks=[
+                DecisionTheoremHookRecord(
+                    hook_id=hook_id,
+                    artifact_name=artifact_name,
+                    status=("present" if artifact_name in artifact_names else "planned"),
+                    note=(
+                        "Runtime placeholder hook mapped from existing artifact surfaces."
+                        if artifact_name in artifact_names
+                        else "Artifact not yet emitted on this route path."
+                    ),
+                )
+                for hook_id, artifact_name in hook_artifacts
+            ]
+        ),
+        lane_manifest=DecisionLaneManifest(
+            lane_id=actual_mode,
+            lane_name=(
+                "Tri-Source Default Route"
+                if actual_mode == "tri_source"
+                else ("Legacy Route" if actual_mode == "legacy" else actual_mode.replace("_", " ").title())
+            ),
+            lane_version="0.1.0",
+            artifact_names=artifact_names,
+            notes=(
+                [
+                    "decision_package assembled from current runtime facts without a dedicated preference/support backend."
+                ]
+                + ([f"requested_mode={requested_mode}"] if requested_mode != actual_mode else [])
+            ),
+        ),
+        provenance={
+            "requested_pipeline_mode": requested_mode,
+            "actual_pipeline_mode": actual_mode,
+            "internal_execution_mode": execution_mode,
+            "selected_certificate": selected_certificate_value,
+            "selected_certified": selected_certified,
+            "warning_count": len(warnings_list),
+            "candidate_count": len(candidates),
+            "evidence_validation_ok": evidence_validation_status == "ok",
+            "weight_time": float(req.weights.time),
+            "weight_money": float(req.weights.money),
+            "weight_co2": float(req.weights.co2),
+            "risk_aversion": float(req.risk_aversion),
+            "ambiguity_source_count": int(observed_source_count),
+            "ambiguity_source_entropy": source_entropy,
+            "ambiguity_support_ratio": support_ratio,
+        },
+    )
 
 
 def _route_signature_cells(
@@ -11632,19 +12064,221 @@ def _resolve_pipeline_mode(requested_mode: str | None) -> str:
         "dccs": "dccs",
         "dccs_refc": "dccs_refc",
         "voi": "voi",
+        "tri_source": "tri_source",
         "thesis_voi": "voi",
         "voi_ad2r": "voi",
         "dccs+refc": "dccs_refc",
     }
-    env_mode = aliases.get(str(settings.route_pipeline_default_mode or "legacy").strip().lower(), "legacy")
-    if env_mode not in {"legacy", "dccs", "dccs_refc", "voi"}:
-        env_mode = "legacy"
+    env_mode = aliases.get(
+        str(settings.route_pipeline_default_mode or "tri_source").strip().lower(),
+        "tri_source",
+    )
+    if env_mode not in {"legacy", "dccs", "dccs_refc", "voi", "tri_source"}:
+        env_mode = "tri_source"
     if not bool(settings.route_pipeline_request_override_enabled):
         return env_mode
     request_mode = aliases.get(str(requested_mode or "").strip().lower(), "")
-    if request_mode in {"legacy", "dccs", "dccs_refc", "voi"}:
+    if request_mode in {"legacy", "dccs", "dccs_refc", "voi", "tri_source"}:
         return request_mode
     return env_mode
+
+
+def _selected_evidence_validation(
+    evidence_validation: Mapping[str, Any] | None,
+    *,
+    route_id: str,
+) -> dict[str, Any]:
+    if not isinstance(evidence_validation, Mapping):
+        return {}
+    raw_validations = evidence_validation.get("validations", [])
+    if not isinstance(raw_validations, Sequence) or isinstance(raw_validations, (str, bytes)):
+        return {}
+    for row in raw_validations:
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("route_id", "")).strip() == route_id:
+            return dict(row)
+    return {}
+
+
+def _route_certificate_map_for_decision_package(
+    *,
+    candidates: Sequence[RouteOption],
+    selected: RouteOption,
+    selected_certificate: RouteCertificationSummary | None,
+    certificate_summary_payload: Mapping[str, Any] | None,
+) -> dict[str, float]:
+    certificate_map: dict[str, float] = {}
+    payload = dict(certificate_summary_payload) if isinstance(certificate_summary_payload, Mapping) else {}
+    raw_route_certificates = payload.get("route_certificates")
+    if isinstance(raw_route_certificates, Mapping):
+        for route_id, value in raw_route_certificates.items():
+            route_text = str(route_id).strip()
+            if not route_text:
+                continue
+            try:
+                certificate_map[route_text] = round(float(value), 6)
+            except (TypeError, ValueError):
+                continue
+    raw_rows = payload.get("route_certification_rows")
+    if isinstance(raw_rows, Sequence) and not isinstance(raw_rows, (str, bytes)):
+        for row in raw_rows:
+            if not isinstance(row, Mapping):
+                continue
+            route_text = str(row.get("route_id", "")).strip()
+            if not route_text:
+                continue
+            try:
+                certificate_map[route_text] = round(float(row.get("certificate", 0.0)), 6)
+            except (TypeError, ValueError):
+                continue
+    for option in candidates:
+        if option.certification is None:
+            continue
+        certificate_map.setdefault(option.id, round(float(option.certification.certificate), 6))
+    if selected_certificate is not None:
+        certificate_map[selected.id] = round(float(selected_certificate.certificate), 6)
+    return certificate_map
+
+
+def _rewrite_public_pipeline_mode_in_artifacts(
+    *,
+    extra_json_artifacts: dict[str, dict[str, Any] | list[Any]],
+    extra_jsonl_artifacts: dict[str, list[dict[str, Any]]],
+    pipeline_mode: str,
+) -> None:
+    for payload in extra_json_artifacts.values():
+        if isinstance(payload, dict) and "pipeline_mode" in payload:
+            payload["pipeline_mode"] = pipeline_mode
+    for rows in extra_jsonl_artifacts.values():
+        if not isinstance(rows, Sequence):
+            continue
+        for row in rows:
+            if isinstance(row, dict) and "pipeline_mode" in row:
+                row["pipeline_mode"] = pipeline_mode
+
+
+def _build_support_summary_for_decision_package(
+    *,
+    selected: RouteOption,
+    selected_validation: Mapping[str, Any],
+    certification_state: CertificationState | None,
+) -> tuple[DecisionSupportSummary, dict[str, Any], list[dict[str, Any]]]:
+    provenance = selected.evidence_provenance
+    support_payload = certification_state.support_state.as_dict() if certification_state is not None else {}
+    live_count = int(support_payload.get("live_family_count", selected_validation.get("live_family_count", 0)) or 0)
+    snapshot_count = int(
+        support_payload.get("snapshot_family_count", selected_validation.get("snapshot_family_count", 0)) or 0
+    )
+    model_count = int(support_payload.get("model_family_count", selected_validation.get("model_family_count", 0)) or 0)
+    if provenance is not None and live_count == 0 and snapshot_count == 0 and model_count == 0:
+        for record in provenance.families:
+            marker = " ".join(
+                str(value)
+                for value in (record.family, record.source, record.signature, record.fallback_source)
+                if value not in (None, "")
+            ).lower()
+            if record.family == "stochastic" or "model" in marker:
+                model_count += 1
+            elif "snapshot" in marker:
+                snapshot_count += 1
+            elif record.active:
+                live_count += 1
+    source_mix = list(provenance.active_families) if provenance is not None else []
+    if not source_mix and certification_state is not None:
+        source_mix = list(certification_state.world_bundle.active_families)
+    if not source_mix and provenance is not None:
+        source_mix = [record.family for record in provenance.families if str(record.family).strip()]
+    source_mix = sorted({family for family in source_mix if str(family).strip()})
+    recommended_fidelity = str(support_payload.get("recommended_fidelity", "")).strip()
+    if not recommended_fidelity:
+        if live_count > 0 and model_count > 0 and snapshot_count == 0:
+            recommended_fidelity = "probabilistic"
+        elif live_count > 0 and (snapshot_count > 0 or model_count > 0):
+            recommended_fidelity = "probabilistic_audit"
+        else:
+            recommended_fidelity = "audit_first"
+    if recommended_fidelity == "probabilistic":
+        required_source_ids = ("live", "model")
+    elif recommended_fidelity == "audit_first":
+        required_source_ids = ("snapshot",) if snapshot_count > 0 else ("live",)
+    else:
+        required_source_ids = ("live", "snapshot", "model")
+    latest_freshness_timestamp = None
+    support_trace_rows: list[dict[str, Any]] = []
+    if provenance is not None:
+        for record in provenance.families:
+            support_trace_rows.append(record.model_dump(mode="json"))
+            if record.freshness_timestamp_utc:
+                latest_freshness_timestamp = record.freshness_timestamp_utc
+    support_strength = float(support_payload.get("support_strength", 1.0) or 1.0)
+    source_entropy = support_payload.get("source_entropy")
+    try:
+        normalized_entropy = None if source_entropy is None else round(float(source_entropy), 6)
+    except (TypeError, ValueError):
+        normalized_entropy = None
+    source_rows = [
+        DecisionSupportSourceRecord(
+            source_id="live",
+            role="support_bucket",
+            required="live" in required_source_ids,
+            present=live_count > 0,
+            status="ok" if live_count > 0 else "missing",
+            freshness_timestamp_utc=latest_freshness_timestamp,
+            provenance="live",
+            details={"family_count": int(live_count)},
+        ),
+        DecisionSupportSourceRecord(
+            source_id="snapshot",
+            role="support_bucket",
+            required="snapshot" in required_source_ids,
+            present=snapshot_count > 0,
+            status="ok" if snapshot_count > 0 else "missing",
+            freshness_timestamp_utc=latest_freshness_timestamp,
+            provenance="snapshot",
+            details={"family_count": int(snapshot_count)},
+        ),
+        DecisionSupportSourceRecord(
+            source_id="model",
+            role="support_bucket",
+            required="model" in required_source_ids,
+            present=model_count > 0,
+            status="ok" if model_count > 0 else "missing",
+            freshness_timestamp_utc=latest_freshness_timestamp,
+            provenance="model",
+            details={"family_count": int(model_count)},
+        ),
+    ]
+    missing_sources = [row.source_id for row in source_rows if row.required and not row.present]
+    observed_source_count = len([row for row in source_rows if row.required and row.present])
+    support_satisfied = bool(
+        support_strength >= 0.5
+        and not missing_sources
+        and str(selected_validation.get("status", "ok")).strip().lower() != "rejected"
+    )
+    notes = [str(note) for note in support_payload.get("notes", ()) if str(note).strip()]
+    if not notes and str(selected_validation.get("status", "ok")).strip().lower() != "ok":
+        notes.append("validation_rejected")
+    support_summary = DecisionSupportSummary(
+        support_mode="tri_source_selective",
+        required_source_count=len(required_source_ids),
+        observed_source_count=observed_source_count,
+        satisfied=support_satisfied,
+        sources=source_rows,
+        source_mix=source_mix,
+        missing_sources=missing_sources,
+        source_entropy=normalized_entropy,
+        provenance_mode=recommended_fidelity,
+        notes=notes,
+    )
+    support_provenance_payload = {
+        "selected_route_id": selected.id,
+        "active_families": list(provenance.active_families) if provenance is not None else [],
+        "families": [record.model_dump(mode="json") for record in provenance.families] if provenance is not None else [],
+        "validation": dict(selected_validation),
+        "support_state": support_payload,
+    }
+    return support_summary, support_provenance_payload, support_trace_rows
 
 
 def _resolve_pipeline_seed(req: RouteRequest) -> int:
@@ -14554,6 +15188,7 @@ async def _compute_direct_route_pipeline(
     pipeline_mode: str,
     run_seed: int,
 ) -> dict[str, Any]:
+    execution_pipeline_mode = "dccs_refc" if pipeline_mode == "tri_source" else pipeline_mode
     warnings: list[str] = []
     stage_timings: dict[str, float] = {}
     stage_events: list[dict[str, Any]] = []
@@ -14589,7 +15224,7 @@ async def _compute_direct_route_pipeline(
     tau_stop = float(req.tau_stop if req.tau_stop is not None else settings.route_pipeline_tau_stop)
     world_increment = max(1, int(settings.route_pipeline_world_increment))
     weather_bucket = req.weather.profile if req.weather.enabled else "clear"
-    refinement_policy = _effective_refinement_policy(req, pipeline_mode=pipeline_mode)
+    refinement_policy = _effective_refinement_policy(req, pipeline_mode=execution_pipeline_mode)
     request_ambiguity_context = _request_ambiguity_context(req)
     ambiguity_strength = _ambiguity_strength_from_context(request_ambiguity_context)
     engine_disagreement_prior = max(0.0, float(req.od_engine_disagreement_prior or 0.0))
@@ -14701,8 +15336,10 @@ async def _compute_direct_route_pipeline(
         od_corridor_family_count=getattr(req, "od_corridor_family_count", None),
         od_nominal_margin_proxy=getattr(req, "od_nominal_margin_proxy", None),
         od_objective_spread=getattr(req, "od_objective_spread", None),
-        allow_supported_ambiguity_fast_fallback=(pipeline_mode in {"dccs", "dccs_refc", "voi"}),
-        enable_voi_support_rich_short_haul_graph_probe=(pipeline_mode == "voi"),
+        allow_supported_ambiguity_fast_fallback=(
+            execution_pipeline_mode in {"dccs", "dccs_refc", "voi"}
+        ),
+        enable_voi_support_rich_short_haul_graph_probe=(execution_pipeline_mode == "voi"),
     )
     _stage_finished("k_raw", graph_started)
     fallback_k_raw_reason = str(graph_diag.no_path_reason or "").strip()
@@ -14988,7 +15625,7 @@ async def _compute_direct_route_pipeline(
 
     async def _apply_preemptive_comparator_seeds() -> None:
         nonlocal candidate_fetches
-        if pipeline_mode not in {"dccs", "dccs_refc", "voi"}:
+        if execution_pipeline_mode not in {"dccs", "dccs_refc", "voi"}:
             return
         if not bool(settings.route_dccs_preemptive_comparator_seed_enabled):
             return
@@ -15226,9 +15863,9 @@ async def _compute_direct_route_pipeline(
         else 0.0
     )
     reserve_diversity_rescue_slot = bool(
-        pipeline_mode in {"dccs", "voi"}
+        execution_pipeline_mode in {"dccs", "voi"}
         and total_search_budget >= 2
-        and (pipeline_mode != "voi" or total_search_budget >= 3)
+        and (execution_pipeline_mode != "voi" or total_search_budget >= 3)
         and len(raw_candidate_payloads) >= 3
         and raw_candidate_corridor_count >= 2
         and (
@@ -15247,7 +15884,7 @@ async def _compute_direct_route_pipeline(
     ):
         reserve_diversity_rescue_slots = 2
     initial_budget = total_search_budget
-    if pipeline_mode == "voi":
+    if execution_pipeline_mode == "voi":
         initial_budget = min(
             total_search_budget,
             max(1, int(settings.route_dccs_bootstrap_count)),
@@ -15898,7 +16535,7 @@ async def _compute_direct_route_pipeline(
     ]:
         nonlocal candidate_fetches
         nonlocal search_used
-        if pipeline_mode not in {"dccs", "dccs_refc"}:
+        if execution_pipeline_mode not in {"dccs", "dccs_refc"}:
             return (
                 list(current_options),
                 list(current_frontier),
@@ -16456,10 +17093,10 @@ async def _compute_direct_route_pipeline(
         nonlocal selected
         nonlocal force_single_frontier_full_stress_requested_worlds
         ambiguity_context = _request_ambiguity_context(req)
-        if pipeline_mode not in {"dccs_refc", "voi"}:
+        if execution_pipeline_mode not in {"dccs_refc", "voi"}:
             return
         certification_frontier, certification_frontier_meta = _refc_certification_frontier_options(
-            pipeline_mode=pipeline_mode,
+            pipeline_mode=execution_pipeline_mode,
             strict_frontier=strict_frontier,
             options=options,
             selected=selected,
@@ -16818,7 +17455,7 @@ async def _compute_direct_route_pipeline(
         nonlocal display_candidates
         nonlocal selected
         nonlocal selection_score_map
-        if pipeline_mode != "voi":
+        if execution_pipeline_mode != "voi":
             return
         if not forced_refreshed_families or not active_families or not evidence_base_options:
             return
@@ -16935,7 +17572,7 @@ async def _compute_direct_route_pipeline(
         selected = refreshed_selected
         selection_score_map = dict(refreshed_state[-1])
 
-    if pipeline_mode in {"dccs_refc", "voi"}:
+    if execution_pipeline_mode in {"dccs_refc", "voi"}:
         _refresh_certification_views()
         (
             initial_certificate_summary,
@@ -16963,7 +17600,7 @@ async def _compute_direct_route_pipeline(
             "sampled_world_manifest": initial_sampled_world_manifest,
         }
 
-    if pipeline_mode == "voi":
+    if execution_pipeline_mode == "voi":
         voi_started = _stage_started("voi")
         voi_config = VOIConfig(
             certificate_threshold=certificate_threshold,
@@ -17805,7 +18442,7 @@ async def _compute_direct_route_pipeline(
             break
 
         _stage_finished("voi", voi_started)
-    elif pipeline_mode in {"dccs", "dccs_refc"}:
+    elif execution_pipeline_mode in {"dccs", "dccs_refc"}:
         stop_reason = "single_pass"
 
     route_signature_map = _route_signature_map(options)
@@ -17814,7 +18451,7 @@ async def _compute_direct_route_pipeline(
         if certificate_result is not None
         else None
     )
-    if pipeline_mode == "voi":
+    if execution_pipeline_mode == "voi":
         best_rejected_action = None
         best_rejected_q = None
         if best_rejected_action_payload is not None:
@@ -18293,7 +18930,7 @@ async def _compute_direct_route_pipeline(
                 ),
             },
         }
-        if pipeline_mode == "voi"
+        if execution_pipeline_mode == "voi"
         else {
             "pipeline_mode": pipeline_mode,
             "status": "not_requested",
@@ -18524,7 +19161,8 @@ async def compute_route(
     if req.waypoints and effective_pipeline_mode != "legacy":
         actual_pipeline_mode = "legacy"
         legacy_mode_warning = (
-            "VOI pipeline currently supports single-leg OD requests only; using legacy routing for waypoint requests."
+            f"{effective_pipeline_mode} pipeline currently supports single-leg OD requests only; "
+            "falling back to legacy routing for waypoint requests."
         )
     run_seed = _resolve_pipeline_seed(req)
     log_event(
@@ -18553,6 +19191,7 @@ async def compute_route(
         extra_text_artifacts: dict[str, str] | None = None
         selected_certificate: RouteCertificationSummary | None = None
         voi_stop_summary: VoiStopSummary | None = None
+        decision_package: DecisionPackage | None = None
         legacy_strict_frontier: list[RouteOption] | None = None
         route_cache_runtime: dict[str, Any] = {}
         route_option_cache_runtime: dict[str, Any] = {}
@@ -18797,6 +19436,22 @@ async def compute_route(
                 route_cache_runtime=route_cache_runtime,
                 route_option_cache_runtime=route_option_cache_runtime,
             )
+        decision_package = _build_route_decision_package(
+            req=req,
+            requested_pipeline_mode=effective_pipeline_mode,
+            actual_pipeline_mode=actual_pipeline_mode,
+            selected=selected,
+            candidates=pareto_options,
+            warnings=warnings,
+            selected_certificate=selected_certificate,
+            voi_stop_summary=voi_stop_summary,
+            evidence_validation=evidence_validation,
+            extra_json_artifacts=extra_json_artifacts,
+            extra_jsonl_artifacts=extra_jsonl_artifacts,
+            extra_csv_artifacts=extra_csv_artifacts,
+            extra_text_artifacts=extra_text_artifacts,
+        )
+        extra_json_artifacts["decision_package.json"] = decision_package.model_dump(mode="json")
 
         log_event(
             "route_request",
@@ -18903,6 +19558,7 @@ async def compute_route(
             manifest_endpoint=str(route_run["manifest_endpoint"]),
             artifacts_endpoint=str(route_run["artifacts_endpoint"]),
             provenance_endpoint=str(route_run["provenance_endpoint"]),
+            decision_package=decision_package,
             selected_certificate=selected_certificate,
             voi_stop_summary=voi_stop_summary,
         )
