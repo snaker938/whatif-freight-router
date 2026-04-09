@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import app.routing_graph as routing_graph
 import scripts.benchmark_model_v2 as benchmark_model_v2
 import scripts.build_departure_profiles_uk as build_departure_profiles_uk
 import scripts.build_model_assets as build_model_assets
 import scripts.build_pricing_tables_uk as build_pricing_tables_uk
+import scripts.build_route_graph_subset as build_route_graph_subset
 import scripts.build_routing_graph_uk as build_routing_graph_uk
 import scripts.build_scenario_profiles_uk as build_scenario_profiles_uk
 import scripts.build_stochastic_calibration_uk as build_stochastic_calibration_uk
@@ -179,6 +183,143 @@ def test_build_routing_graph_geojson_builds_nodes_edges_and_meta(tmp_path: Path)
     assert report["edges"] > 0
     assert output.exists()
     assert output.with_suffix(".meta.json").exists()
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["version"] == "uk-routing-graph-v1"
+    assert isinstance(payload["nodes"], list) and payload["nodes"]
+    assert isinstance(payload["edges"], list) and payload["edges"]
+
+
+def test_build_routing_graph_streams_payload_and_writes_compact_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "roads.geojson"
+    source.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"highway": "primary"},
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[-1.5000, 52.4000], [-1.4900, 52.3950], [-1.4800, 52.3900]],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "routing_graph_uk.json"
+    compact_bundle_output = tmp_path / "routing_graph_uk.compact.pkl"
+
+    original_dumps = build_routing_graph_uk.json.dumps
+
+    def _guarded_dumps(value: object, *args: object, **kwargs: object) -> str:
+        if (
+            isinstance(value, dict)
+            and isinstance(value.get("nodes"), list)
+            and isinstance(value.get("edges"), list)
+        ):
+            raise AssertionError("graph build should stream the full payload instead of json.dumps on it")
+        return original_dumps(value, *args, **kwargs)
+
+    monkeypatch.setattr(build_routing_graph_uk.json, "dumps", _guarded_dumps)
+
+    report = build_routing_graph_uk.build(
+        source=source,
+        output=output,
+        compact_bundle_output=compact_bundle_output,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["version"] == "uk-routing-graph-v1"
+    assert len(payload["nodes"]) == report["nodes"]
+    assert len(payload["edges"]) == report["edges"]
+    assert compact_bundle_output.exists()
+    assert compact_bundle_output.with_suffix(".meta.json").exists()
+    assert report["compact_bundle"] == str(compact_bundle_output)
+    assert report["compact_bundle_edges"] >= report["edges"]
+
+
+def test_build_routing_graph_corpus_bbox_derivation_applies_buffer(tmp_path: Path) -> None:
+    corpus_csv = tmp_path / "campaign.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon\n"
+        "od-1,51.5000,-3.2000,54.9700,-1.6000\n"
+        "od-2,51.8000,-4.0000,55.9000,-2.5000\n",
+        encoding="utf-8",
+    )
+
+    bbox = build_routing_graph_uk._load_corpus_bbox(corpus_csv=corpus_csv, buffer_km=25.0)
+
+    lat_min, lat_max, lon_min, lon_max = bbox
+    assert lat_min < 51.5
+    assert lat_max > 55.9
+    assert lon_min < -4.0
+    assert lon_max > -1.6
+
+
+def test_build_routing_graph_main_uses_corpus_bbox_when_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "roads.geojson"
+    source.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"highway": "primary"},
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[-3.2000, 51.5000], [-1.6000, 54.9700]],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    corpus_csv = tmp_path / "campaign.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon\n"
+        "od-1,51.5000,-3.2000,54.9700,-1.6000\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "routing_graph_uk.json"
+    observed: dict[str, object] = {}
+
+    original_build = build_routing_graph_uk.build
+
+    def _recording_build(**kwargs):
+        observed["bbox"] = kwargs.get("bbox")
+        return original_build(**kwargs)
+
+    monkeypatch.setattr(build_routing_graph_uk, "build", _recording_build)
+    argv = [
+        "--source",
+        str(source),
+        "--output",
+        str(output),
+        "--od-corpus-csv",
+        str(corpus_csv),
+        "--bbox-buffer-km",
+        "10",
+    ]
+    build_routing_graph_uk.main(argv)
+
+    assert output.exists()
+    assert observed["bbox"] is not None
+    lat_min, lat_max, lon_min, lon_max = observed["bbox"]
+    assert lat_min < 51.5
+    assert lat_max > 54.97
+    assert lon_min < -3.2
+    assert lon_max > -1.6
 
 
 def test_build_scenario_profiles_helpers_cover_core_behaviors() -> None:
@@ -655,3 +796,289 @@ def test_build_model_assets_rejects_proxy_toll_raw_inputs(tmp_path: Path) -> Non
             tariffs_path=tariffs_path,
             source_policy="strict_external",
         )
+
+
+def test_build_route_graph_subset_filters_by_corridor_not_global_bbox(tmp_path: Path) -> None:
+    graph_json = tmp_path / "routing_graph.json"
+    graph_json.write_text(
+        json.dumps(
+            {
+                "version": "uk-routing-graph-v1",
+                "source": "unit-test-source.osm.pbf",
+                "generated_at_utc": "2026-04-05T00:00:00Z",
+                "as_of_utc": "2026-04-05T00:00:00Z",
+                "bbox": {"lat_min": 0.0, "lat_max": 2.0, "lon_min": 0.0, "lon_max": 2.0},
+                "nodes": [
+                    {"id": "a", "lat": 0.0, "lon": 0.0},
+                    {"id": "b", "lat": 1.0, "lon": 1.0},
+                    {"id": "c", "lat": 2.0, "lon": 2.0},
+                    {"id": "d", "lat": 0.0, "lon": 2.0},
+                ],
+                "edges": [
+                    {"u": "a", "v": "b", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                    {"u": "b", "v": "c", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                    {"u": "a", "v": "d", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    corpus_csv = tmp_path / "corpus.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon\n"
+        "od-1,0.0,0.0,2.0,2.0\n",
+        encoding="utf-8",
+    )
+    output_json = tmp_path / "subset.json"
+
+    report = build_route_graph_subset.build_subset(
+        graph_json=graph_json,
+        corpus_csv=corpus_csv,
+        output_json=output_json,
+        buffer_km=40.0,
+    )
+
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    kept_ids = {str(node["id"]) for node in payload["nodes"]}
+    kept_edges = {(str(edge["u"]), str(edge["v"])) for edge in payload["edges"]}
+    assert kept_ids == {"a", "b", "c"}
+    assert kept_edges == {("a", "b"), ("b", "c")}
+    assert report["selection_mode"] == "corridor_union_segment_buffer"
+    assert report["corridor_count"] == 1
+    assert report["nodes_kept"] == 3
+    assert report["edges_kept"] == 2
+
+
+def test_build_route_graph_subset_supports_multiple_disjoint_corridors(tmp_path: Path) -> None:
+    graph_json = tmp_path / "routing_graph.json"
+    graph_json.write_text(
+        json.dumps(
+            {
+                "version": "uk-routing-graph-v1",
+                "source": "unit-test-source.osm.pbf",
+                "generated_at_utc": "2026-04-05T00:00:00Z",
+                "as_of_utc": "2026-04-05T00:00:00Z",
+                "bbox": {"lat_min": 0.0, "lat_max": 4.0, "lon_min": 0.0, "lon_max": 4.0},
+                "nodes": [
+                    {"id": "a", "lat": 0.0, "lon": 0.0},
+                    {"id": "b", "lat": 0.0, "lon": 1.0},
+                    {"id": "c", "lat": 4.0, "lon": 4.0},
+                    {"id": "d", "lat": 4.0, "lon": 3.0},
+                    {"id": "x", "lat": 2.0, "lon": 2.0},
+                ],
+                "edges": [
+                    {"u": "a", "v": "b", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                    {"u": "d", "v": "c", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                    {"u": "b", "v": "x", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    corpus_csv = tmp_path / "corpus.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon\n"
+        "od-1,0.0,0.0,0.0,1.0\n"
+        "od-2,4.0,3.0,4.0,4.0\n",
+        encoding="utf-8",
+    )
+    output_json = tmp_path / "subset.json"
+
+    report = build_route_graph_subset.build_subset(
+        graph_json=graph_json,
+        corpus_csv=corpus_csv,
+        output_json=output_json,
+        buffer_km=20.0,
+    )
+
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    kept_ids = {str(node["id"]) for node in payload["nodes"]}
+    kept_edges = {(str(edge["u"]), str(edge["v"])) for edge in payload["edges"]}
+    assert kept_ids == {"a", "b", "c", "d"}
+    assert kept_edges == {("a", "b"), ("d", "c")}
+    assert report["corridor_count"] == 2
+
+
+def test_build_route_graph_subset_main_uses_explicit_corridor_km_and_cleans_staging(tmp_path: Path) -> None:
+    graph_json = tmp_path / "routing_graph.json"
+    graph_json.write_text(
+        json.dumps(
+            {
+                "version": "uk-routing-graph-v1",
+                "source": "unit-test-source.osm.pbf",
+                "generated_at_utc": "2026-04-05T00:00:00Z",
+                "as_of_utc": "2026-04-05T00:00:00Z",
+                "bbox": {"lat_min": 0.0, "lat_max": 5.0, "lon_min": 0.0, "lon_max": 5.0},
+                "nodes": [
+                    {"id": "keep-1", "lat": 0.0, "lon": 0.0},
+                    {"id": "keep-2", "lat": 0.3, "lon": 0.3},
+                    {"id": "drop-1", "lat": 2.0, "lon": 2.0},
+                ],
+                "edges": [
+                    {"u": "keep-1", "v": "keep-2", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                    {"u": "keep-2", "v": "drop-1", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    corpus_csv = tmp_path / "corpus.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon\n"
+        "od-1,0.0,0.0,0.3,0.3\n",
+        encoding="utf-8",
+    )
+    output_json = tmp_path / "subset.json"
+
+    exit_code = build_route_graph_subset.main(
+        [
+            "--graph-json",
+            str(graph_json),
+            "--corpus-csv",
+            str(corpus_csv),
+            "--output-json",
+            str(output_json),
+            "--corridor-km",
+            "12",
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    report = json.loads(output_json.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert {str(node["id"]) for node in payload["nodes"]} == {"keep-1", "keep-2"}
+    assert {(str(edge["u"]), str(edge["v"])) for edge in payload["edges"]} == {("keep-1", "keep-2")}
+    assert report["corridor_km"] == pytest.approx(12.0)
+    assert report["filter_mode"] == "per_od_corridor_union"
+    assert report["staging_mode"] == "node_jsonl_staging"
+    assert Path(report["binary_cache"]).exists()
+    assert Path(report["binary_cache_meta"]).exists()
+    assert Path(report["compact_bundle"]).exists()
+    assert Path(report["compact_bundle_meta"]).exists()
+    assert report["compact_bundle_nodes"] == 2
+    assert report["compact_bundle_edges"] >= 1
+    assert output_json.with_suffix(".nodes.tmp.jsonl").exists() is False
+    assert output_json.with_suffix(".nodes.tmp.sqlite3").exists() is False
+
+
+def test_build_route_graph_subset_resumes_from_existing_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph_json = tmp_path / "routing_graph.json"
+    graph_json.write_text(
+        json.dumps(
+            {
+                "version": "uk-routing-graph-v1",
+                "source": "unit-test-source.osm.pbf",
+                "generated_at_utc": "2026-04-05T00:00:00Z",
+                "as_of_utc": "2026-04-05T00:00:00Z",
+                "bbox": {"lat_min": 0.0, "lat_max": 5.0, "lon_min": 0.0, "lon_max": 5.0},
+                "nodes": [],
+                "edges": [
+                    {"u": "keep-1", "v": "keep-2", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                    {"u": "keep-2", "v": "drop-1", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    corpus_csv = tmp_path / "corpus.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon\n"
+        "od-1,0.0,0.0,0.3,0.3\n",
+        encoding="utf-8",
+    )
+    output_json = tmp_path / "subset.json"
+    output_json.write_text(
+        json.dumps(
+            {
+                "version": "uk-routing-graph-v1",
+                "source": "unit-test-source.osm.pbf#subset:corpus.csv",
+                "generated_at_utc": "2026-04-05T00:00:00Z",
+                "as_of_utc": "2026-04-05T00:00:00Z",
+                "bbox": {"lat_min": 0.0, "lat_max": 1.0, "lon_min": 0.0, "lon_max": 1.0},
+                "nodes": [
+                    {"id": "keep-1", "lat": 0.0, "lon": 0.0},
+                    {"id": "keep-2", "lat": 0.3, "lon": 0.3},
+                ],
+                "edges": [
+                    {"u": "keep-1", "v": "keep-2", "distance_m": 1000.0, "generalized_cost": 1000.0, "oneway": False, "highway": "primary", "toll": False},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    node_staging_path = output_json.with_suffix(".nodes.tmp.jsonl")
+    membership_db_path = output_json.with_suffix(".nodes.tmp.sqlite3")
+    node_staging_path.write_text(
+        "\n".join(
+            (
+                json.dumps({"id": "keep-1", "lat": 0.0, "lon": 0.0}, separators=(",", ":")),
+                json.dumps({"id": "keep-2", "lat": 0.3, "lon": 0.3}, separators=(",", ":")),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    connection = sqlite3.connect(membership_db_path)
+    try:
+        connection.execute("CREATE TABLE kept_nodes (id TEXT PRIMARY KEY) WITHOUT ROWID")
+        connection.executemany(
+            "INSERT OR IGNORE INTO kept_nodes (id) VALUES (?)",
+            [("keep-1",), ("keep-2",)],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    original_load_staged_nodes = build_route_graph_subset._load_staged_nodes
+    load_staged_nodes_calls = 0
+
+    def _counting_load_staged_nodes(*args, **kwargs):
+        nonlocal load_staged_nodes_calls
+        load_staged_nodes_calls += 1
+        return original_load_staged_nodes(*args, **kwargs)
+
+    monkeypatch.setattr(build_route_graph_subset, "_load_staged_nodes", _counting_load_staged_nodes)
+
+    report = build_route_graph_subset.build_subset(
+        graph_json=graph_json,
+        corpus_csv=corpus_csv,
+        output_json=output_json,
+        corridor_km=12.0,
+    )
+
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    assert report["resumed_from_staging"] is True
+    assert report["used_existing_output_json"] is True
+    assert {str(node["id"]) for node in payload["nodes"]} == {"keep-1", "keep-2"}
+    assert {(str(edge["u"]), str(edge["v"])) for edge in payload["edges"]} == {("keep-1", "keep-2")}
+    assert Path(report["binary_cache"]).exists()
+    assert Path(report["binary_cache_meta"]).exists()
+    assert Path(report["compact_bundle"]).exists()
+    assert Path(report["compact_bundle_meta"]).exists()
+    with Path(report["compact_bundle"]).open("rb") as fh:
+        compact_payload = pickle.load(fh)
+    graph_payload = compact_payload["graph"]
+    assert graph_payload["schema_version"] == 2
+    assert isinstance(graph_payload["adjacency"]["keep-1"], tuple)
+    assert isinstance(graph_payload["adjacency"]["keep-1"][0], routing_graph.GraphEdge)
+    for key in (
+        "grid_index",
+        "component_by_node",
+        "component_sizes",
+        "component_count",
+        "largest_component_nodes",
+        "largest_component_ratio",
+        "graph_fragmented",
+    ):
+        assert key in graph_payload
+    rebuilt = routing_graph._load_route_graph_compact_bundle(output_json)
+    assert rebuilt is not None
+    assert rebuilt.grid_index
+    assert rebuilt.component_by_node == {"keep-1": 1, "keep-2": 1}
+    assert rebuilt.component_sizes == {1: 2}
+    assert load_staged_nodes_calls == 1
+    assert output_json.with_suffix(".nodes.tmp.jsonl").exists() is False
+    assert output_json.with_suffix(".nodes.tmp.sqlite3").exists() is False

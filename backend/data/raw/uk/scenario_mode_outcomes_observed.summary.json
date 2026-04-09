@@ -1,5 +1,5 @@
 {
-  "rows": 245,
+  "rows": 501,
   "output_jsonl": "data\\raw\\uk\\scenario_mode_outcomes_observed.jsonl",
   "mode_observation_source": "empirical_outcome_public_feeds_v1"
 }

@@ -5,6 +5,12 @@ import hashlib
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from .candidate_bounds import CandidateEnvelope, build_candidate_envelope
+from .candidate_criticality import (
+    CandidateCriticalityEstimate,
+    build_candidate_criticality_estimate,
+)
+
 # DCCS is thesis-specific, but its objective-space coverage and diversity terms
 # borrow from standard multi-objective search ideas such as normalized
 # nearest-neighbour spacing and crowding/diversification; see Deb et al.,
@@ -14,6 +20,19 @@ from typing import Any, Iterable, Mapping, Sequence
 OBJECTIVE_NAMES: tuple[str, str, str] = ("time", "money", "co2")
 ROAD_CLASS_NAMES: tuple[str, ...] = ("motorway_share", "a_road_share", "urban_share", "other_share")
 BASELINE_SELECTION_POLICIES: tuple[str, ...] = ("first_n", "random_n", "uniform_corridor_n", "corridor_uniform")
+SCORE_TERM_KEYS: tuple[str, ...] = (
+    "objective_gap",
+    "mechanism_gap",
+    "overlap_penalty",
+    "stretch_penalty",
+    "time_regret_gap",
+    "time_preservation_bonus",
+    "time_bonus_scale",
+    "flip_probability",
+    "predicted_refine_cost",
+    "objective_extremeness",
+    "comparator_seed_penalty",
+)
 # Deterministic refine-cost coefficients are fixed in-repo so the predictor
 # stays auditable and does not refit at runtime.
 _REFINE_COST_PIPELINE_ALIASES: dict[str, str] = {
@@ -408,6 +427,240 @@ def _jaccard_overlap(path: tuple[str, ...], peer_paths: Sequence[tuple[str, ...]
     return float(best)
 
 
+def _dominates(candidate: tuple[float, float, float], peer: tuple[float, float, float]) -> bool:
+    return all(candidate[idx] <= peer[idx] for idx in range(3)) and any(
+        candidate[idx] < peer[idx] for idx in range(3)
+    )
+
+
+def _dominance_margin(candidate: tuple[float, float, float], peer: tuple[float, float, float]) -> float:
+    if _dominates(peer, candidate):
+        return float(
+            sum(max(0.0, candidate[idx] - peer[idx]) for idx in range(3)) / 3.0
+        )
+    return 0.0
+
+
+def _dominance_metadata(
+    candidate: tuple[float, float, float],
+    *,
+    frontier_records: Sequence[Mapping[str, Any]],
+    refined_records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    dominating_ids: list[str] = []
+    dominated_ids: list[str] = []
+    dominance_margin = 0.0
+    for peer in [*frontier_records, *refined_records]:
+        peer_id = stable_candidate_id(peer)
+        peer_objective = _objective_vector(peer)
+        if _dominates(peer_objective, candidate):
+            dominating_ids.append(peer_id)
+            dominance_margin = max(dominance_margin, _dominance_margin(candidate, peer_objective))
+        elif _dominates(candidate, peer_objective):
+            dominated_ids.append(peer_id)
+    safe_elimination_reason = None
+    if dominating_ids:
+        frontier_ids = {stable_candidate_id(item) for item in frontier_records}
+        safe_elimination_reason = (
+            "dominated_by_frontier" if any(peer_id in frontier_ids for peer_id in dominating_ids) else "dominated_by_peer"
+        )
+    elif dominated_ids:
+        safe_elimination_reason = "dominates_peer"
+    else:
+        safe_elimination_reason = "non_dominated"
+    resolved_dominating_ids = _stable_unique_candidate_ids(dominating_ids)
+    resolved_dominated_ids = _stable_unique_candidate_ids(dominated_ids)
+    return {
+        "safe_elimination_reason": safe_elimination_reason,
+        "dominance_margin": float(dominance_margin),
+        "dominating_candidate_ids": resolved_dominating_ids,
+        "dominated_candidate_ids": resolved_dominated_ids,
+        "dominated_by_count": len(resolved_dominating_ids),
+        "dominates_count": len(resolved_dominated_ids),
+    }
+
+
+def _search_deficiency_score(
+    *,
+    candidate_count: int,
+    frontier_count: int,
+    refined_count: int,
+    corridor_family_count: int,
+    selected_corridor_count: int,
+    long_corridor: bool,
+    objective_gap: float,
+) -> float:
+    candidate_count = max(1, int(candidate_count))
+    frontier_count = max(0, int(frontier_count))
+    refined_count = max(0, int(refined_count))
+    corridor_family_count = max(0, int(corridor_family_count))
+    selected_corridor_count = max(0, int(selected_corridor_count))
+    frontier_gap = 1.0 - min(1.0, frontier_count / float(candidate_count))
+    refine_gap = 1.0 - min(1.0, refined_count / float(candidate_count))
+    corridor_gap = 1.0 - min(1.0, corridor_family_count / float(candidate_count))
+    collapse_gap = 1.0 - min(1.0, selected_corridor_count / float(max(1, corridor_family_count)))
+    long_corridor_adjustment = 0.12 if long_corridor else 0.0
+    return max(
+        0.0,
+        min(
+            1.0,
+            (0.40 * frontier_gap)
+            + (0.20 * refine_gap)
+            + (0.15 * corridor_gap)
+            + (0.15 * collapse_gap)
+            + (0.10 * max(0.0, min(1.0, objective_gap)))
+            + long_corridor_adjustment,
+        ),
+    )
+
+
+def _hidden_challenger_score(
+    *,
+    objective_gap: float,
+    mechanism_gap: float,
+    overlap: float,
+    flip_probability: float,
+    time_preservation_bonus: float,
+) -> float:
+    return max(
+        0.0,
+        min(
+            1.0,
+            (0.28 * max(0.0, objective_gap))
+            + (0.22 * max(0.0, mechanism_gap))
+            + (0.20 * max(0.0, flip_probability))
+            + (0.18 * max(0.0, 1.0 - overlap))
+            + (0.12 * max(0.0, time_preservation_bonus)),
+        ),
+    )
+
+
+def _anti_collapse_quota(
+    *,
+    candidate_count: int,
+    corridor_family_count: int,
+    selected_corridor_count: int,
+    bootstrap_seed_size: int,
+) -> float:
+    candidate_count = max(1, int(candidate_count))
+    corridor_family_count = max(0, int(corridor_family_count))
+    selected_corridor_count = max(0, int(selected_corridor_count))
+    bootstrap_seed_size = max(1, int(bootstrap_seed_size))
+    corridor_pressure = 1.0 - min(1.0, selected_corridor_count / float(max(1, corridor_family_count or 1)))
+    budget_pressure = min(1.0, bootstrap_seed_size / float(candidate_count))
+    return max(0.0, min(1.0, (0.65 * corridor_pressure) + (0.35 * budget_pressure)))
+
+
+def _bounded_unit(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _dominance_signal(record: "DCCSCandidateRecord") -> float:
+    return _bounded_unit(record.dominance_margin / 0.12)
+
+
+def _seed_preservation_pressure(record: "DCCSCandidateRecord") -> float:
+    long_corridor_gap = _bounded_unit(1.0 - record.long_corridor_search_completeness)
+    return _bounded_unit(
+        (0.34 * record.hidden_challenger_score)
+        + (0.28 * record.search_deficiency_score)
+        + (0.22 * record.anti_collapse_quota)
+        + (0.16 * long_corridor_gap)
+    )
+
+
+def _seed_support_signal(record: "DCCSCandidateRecord") -> float:
+    return _bounded_unit(
+        (0.42 * record.objective_gap)
+        + (0.30 * _dominance_signal(record))
+        + (0.28 * record.time_preservation_bonus)
+    )
+
+
+def _comparator_seed_relief_signal(record: "DCCSCandidateRecord") -> float:
+    preservation_pressure = _seed_preservation_pressure(record)
+    support_signal = _seed_support_signal(record)
+    return _bounded_unit(preservation_pressure * (0.35 + (0.65 * support_signal)))
+
+
+def _time_competitiveness_signal(record: "DCCSCandidateRecord") -> float:
+    return _bounded_unit(
+        (0.60 * record.time_preservation_bonus)
+        + (0.25 * _dominance_signal(record))
+        + (0.15 * _bounded_unit(1.0 - record.time_regret_gap))
+    )
+
+
+def _slow_tradeoff_penalty(record: "DCCSCandidateRecord") -> float:
+    time_competitiveness = _time_competitiveness_signal(record)
+    time_shortfall = _bounded_unit((0.60 - time_competitiveness) / 0.60)
+    non_dominance = _bounded_unit(1.0 - _dominance_signal(record))
+    return _bounded_unit(time_shortfall * (0.45 + (0.55 * non_dominance)))
+
+
+def _comparator_seed_penalty_scale(
+    record: "DCCSCandidateRecord",
+    *,
+    overlap_penalty: float,
+    corridor_reuse_count: int,
+) -> float:
+    overlap_signal = _bounded_unit(max(record.overlap, overlap_penalty))
+    dominance_signal = _dominance_signal(record)
+    support_signal = _seed_support_signal(record)
+    seed_relief_signal = _comparator_seed_relief_signal(record)
+    time_competitiveness = _time_competitiveness_signal(record)
+    strong_competitive_seed = (
+        not record.near_duplicate
+        and corridor_reuse_count <= 0
+        and overlap_signal < 0.55
+        and time_competitiveness >= 0.78
+        and (
+            record.objective_gap >= 0.05
+            or dominance_signal >= 0.45
+            or (support_signal >= 0.60 and record.time_preservation_bonus >= 0.78)
+        )
+    )
+    time_competitive_nonduplicate_seed = (
+        not record.near_duplicate
+        and corridor_reuse_count <= 0
+        and overlap_signal < 0.68
+        and time_competitiveness >= 0.72
+        and record.time_preservation_bonus >= 0.84
+        and (
+            record.objective_gap >= 0.03
+            or dominance_signal >= 0.20
+            or support_signal >= 0.42
+            or seed_relief_signal >= 0.35
+        )
+    )
+    if strong_competitive_seed or time_competitive_nonduplicate_seed:
+        return 0.0
+    if record.near_duplicate or overlap_signal >= 0.82:
+        weak_relief = max(0.0, min(seed_relief_signal, support_signal))
+        return max(0.35, 1.0 - (0.55 * weak_relief))
+    blended_relief = max(
+        seed_relief_signal,
+        (0.55 * time_competitiveness) + (0.45 * support_signal),
+    )
+    scale = (1.0 - blended_relief) + (0.20 * overlap_signal)
+    if corridor_reuse_count > 0:
+        scale += 0.15 * _bounded_unit(corridor_reuse_count / 2.0)
+    return _bounded_unit(scale)
+
+
+def _long_corridor_search_completeness(
+    *,
+    stretch: float,
+    graph_length_km: float,
+    frontier_count: int,
+    candidate_count: int,
+) -> float:
+    coverage = min(1.0, max(0.0, frontier_count / float(max(1, candidate_count))))
+    corridor_pressure = max(0.0, min(1.0, 1.0 - ((max(1.0, stretch) - 1.0) / 1.75)))
+    length_pressure = max(0.0, min(1.0, 1.0 - (max(0.0, graph_length_km) / 500.0)))
+    return max(0.0, min(1.0, (0.45 * coverage) + (0.35 * corridor_pressure) + (0.20 * length_pressure)))
+
+
 def _stretch_ratio(candidate: Mapping[str, Any]) -> float:
     graph_length_km = max(0.0, _as_float(candidate.get("graph_length_km", candidate.get("distance_km"))))
     straight_line_km = max(1e-6, _as_float(candidate.get("straight_line_km", candidate.get("od_distance_km", graph_length_km))))
@@ -449,6 +702,31 @@ def _pipeline_variant_key(value: Any) -> str:
     return _REFINE_COST_PIPELINE_ALIASES.get(token, "dccs")
 
 
+def initial_bootstrap_budget(
+    *,
+    total_search_budget: int,
+    pipeline_variant: str,
+    bootstrap_seed_size: int,
+    reserve_diversity_slots: int = 0,
+) -> int:
+    total_budget = max(1, int(total_search_budget))
+    seed_budget = max(1, int(bootstrap_seed_size))
+    reserve_slots = max(0, int(reserve_diversity_slots))
+    variant_token = str(pipeline_variant or "").strip().lower()
+    normalized_variant = _REFINE_COST_PIPELINE_ALIASES.get(variant_token, variant_token or "dccs")
+
+    initial_budget = total_budget
+    if normalized_variant in {"dccs", "dccs_refc", "voi"}:
+        initial_budget = min(total_budget, seed_budget)
+        if normalized_variant in {"dccs", "dccs_refc"} and total_budget >= 2:
+            # Preserve at least one downstream challenger step so A/B rows do
+            # not spend the whole search budget inside bootstrap seeding.
+            initial_budget = min(initial_budget, total_budget - 1)
+    if reserve_slots > 0:
+        initial_budget = min(initial_budget, max(1, total_budget - reserve_slots))
+    return max(1, min(total_budget, initial_budget))
+
+
 def _candidate_source_label(candidate: Mapping[str, Any]) -> str:
     return str(candidate.get("candidate_source_label") or "").strip()
 
@@ -460,9 +738,27 @@ def _seed_refine_cost_blend_weight(
     source_stage: str,
 ) -> float:
     normalized_stage = str(source_stage or "").strip().lower()
-    if normalized_stage not in {"direct_k_raw_fallback", "long_corridor_fallback"}:
+    if normalized_stage not in {
+        "direct_k_raw_fallback",
+        "long_corridor_fallback",
+        "preemptive_comparator_seed",
+    }:
         return 0.0
     normalized_label = str(source_label or "").strip().lower()
+    if normalized_stage == "preemptive_comparator_seed":
+        base_weights = {
+            "dccs": 0.22,
+            "dccs_refc": 0.28,
+            "voi": 0.18,
+        }
+        weight = base_weights.get(pipeline_variant, 0.22)
+        if "osrm_realized_seed" in normalized_label:
+            weight += 0.06
+        if "repo_local_ors" in normalized_label or "local_ors" in normalized_label:
+            weight += 0.04
+        if "alternatives" in normalized_label:
+            weight += 0.02
+        return max(0.16, min(0.38, weight))
     base_weights = {
         "dccs": 0.58,
         "dccs_refc": 0.68,
@@ -551,6 +847,16 @@ def _effective_refine_cost_label_weight(
     if shrink_fraction <= 0.0:
         return raw_label_weight
     return raw_label_weight * (1.0 - shrink_fraction)
+
+
+def _score_terms_with_applied_comparator_penalty(
+    record: "DCCSCandidateRecord",
+    *,
+    applied_penalty: float,
+) -> dict[str, float]:
+    score_terms = dict(record.score_terms)
+    score_terms["comparator_seed_penalty"] = float(max(0.0, applied_penalty))
+    return score_terms
 
 
 def _blend_seed_observed_refine_cost(
@@ -797,6 +1103,30 @@ def _extremeness_score(
     return max(normalized)
 
 
+def _stable_unique_candidate_ids(values: Iterable[Any]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        candidate_id = str(value or "").strip()
+        if not candidate_id or candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        ordered.append(candidate_id)
+    return tuple(ordered)
+
+
+def _normalized_score_terms(score_terms: Mapping[str, Any] | None) -> dict[str, float]:
+    if not isinstance(score_terms, Mapping):
+        return {}
+    normalized: dict[str, float] = {}
+    for key in SCORE_TERM_KEYS:
+        if key not in score_terms:
+            continue
+        value = _as_float(score_terms.get(key))
+        normalized[key] = value
+    return normalized
+
+
 def _overlap_to_selected(
     record: "DCCSCandidateRecord",
     *,
@@ -843,6 +1173,34 @@ class DCCSConfig:
     bootstrap_overlap_decay_weight: float = 0.90
     bootstrap_time_regret_penalty_weight: float = 0.75
     comparator_seed_penalty_weight: float = 0.45
+    challenger_selected_overlap_weight: float = 1.0
+    challenger_corridor_reuse_penalty: float = 0.5
+
+
+@dataclass(frozen=True)
+class DCCSControlState:
+    candidate_count: int
+    frontier_count: int
+    refined_count: int
+    selected_count: int
+    skipped_count: int
+    safe_elimination_count: int
+    dominated_count: int
+    hidden_challenger_count: int
+    hidden_challenger_budget: int
+    anti_collapse_quota: float
+    anti_collapse_pressure: float
+    search_deficiency_score: float
+    search_deficiency_gap: float
+    long_corridor_search_completeness: float
+    long_corridor_search_gap: float
+    collapse_detected: bool
+    collapse_reason: str | None
+    long_corridor_count: int
+    selected_corridor_count: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -880,6 +1238,70 @@ class DCCSCandidateRecord:
     refine_cost_error: float | None = None
     refine_cost_ratio: float | None = None
     near_duplicate: bool = False
+    safe_elimination_reason: str | None = None
+    dominance_margin: float = 0.0
+    dominating_candidate_ids: tuple[str, ...] = ()
+    dominated_candidate_ids: tuple[str, ...] = ()
+    search_deficiency_score: float = 0.0
+    hidden_challenger_score: float = 0.0
+    anti_collapse_quota: float = 0.0
+    long_corridor_search_completeness: float = 1.0
+    candidate_envelope: CandidateEnvelope | None = None
+    criticality_estimate: CandidateCriticalityEstimate | None = None
+
+    def __post_init__(self) -> None:
+        resolved_dominating_ids = _stable_unique_candidate_ids(self.dominating_candidate_ids)
+        if resolved_dominating_ids != self.dominating_candidate_ids:
+            object.__setattr__(self, "dominating_candidate_ids", resolved_dominating_ids)
+        resolved_dominated_ids = _stable_unique_candidate_ids(self.dominated_candidate_ids)
+        if resolved_dominated_ids != self.dominated_candidate_ids:
+            object.__setattr__(self, "dominated_candidate_ids", resolved_dominated_ids)
+        resolved_score_terms = _normalized_score_terms(self.score_terms)
+        if resolved_score_terms != self.score_terms:
+            object.__setattr__(self, "score_terms", resolved_score_terms)
+        if self.candidate_envelope is None:
+            object.__setattr__(
+                self,
+                "candidate_envelope",
+                build_candidate_envelope(
+                    proxy_objective=self.proxy_objective,
+                    proxy_confidence=self.proxy_confidence,
+                    predicted_refine_cost=self.predicted_refine_cost,
+                    overlap=self.overlap,
+                    stretch=self.stretch,
+                    dominance_margin=self.dominance_margin,
+                    safe_elimination_reason=self.safe_elimination_reason,
+                    search_deficiency_score=self.search_deficiency_score,
+                    hidden_challenger_score=self.hidden_challenger_score,
+                    anti_collapse_quota=self.anti_collapse_quota,
+                    long_corridor_search_completeness=self.long_corridor_search_completeness,
+                    objective_names=OBJECTIVE_NAMES,
+                ),
+            )
+        if self.criticality_estimate is None:
+            object.__setattr__(
+                self,
+                "criticality_estimate",
+                build_candidate_criticality_estimate(
+                    objective_gap=self.objective_gap,
+                    mechanism_gap=self.mechanism_gap,
+                    flip_probability=self.flip_probability,
+                    overlap=self.overlap,
+                    stretch=self.stretch,
+                    time_preservation_bonus=self.time_preservation_bonus,
+                    predicted_refine_cost=self.predicted_refine_cost,
+                    dominance_margin=self.dominance_margin,
+                    safe_elimination_reason=self.safe_elimination_reason,
+                    search_deficiency_score=self.search_deficiency_score,
+                    hidden_challenger_score=self.hidden_challenger_score,
+                    anti_collapse_pressure=self.anti_collapse_quota,
+                    long_corridor_search_completeness=self.long_corridor_search_completeness,
+                    proxy_confidence=self.proxy_confidence,
+                    candidate_envelope=self.candidate_envelope,
+                    observed_refine_cost=self.observed_refine_cost,
+                    refine_cost_error=self.refine_cost_error,
+                ),
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -894,6 +1316,7 @@ class DCCSResult:
     skipped: list[DCCSCandidateRecord]
     candidate_ledger: list[DCCSCandidateRecord]
     summary: dict[str, Any]
+    control_state: DCCSControlState | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -904,6 +1327,7 @@ class DCCSResult:
             "skipped": [item.as_dict() for item in self.skipped],
             "candidate_ledger": [item.as_dict() for item in self.candidate_ledger],
             "summary": dict(self.summary),
+            "control_state": self.control_state.as_dict() if self.control_state is not None else None,
         }
 
 
@@ -950,6 +1374,32 @@ def build_candidate_record(
     mechanism_gap = 0.0 if (refined_items and not refined_pool) else _mechanism_distance(mechanism, refined_pool)
     time_regret_gap = _time_regret_gap(objective, objective_reference_pool)
     time_preservation_bonus = _time_preservation_bonus(time_regret_gap)
+    dominance_metadata = _dominance_metadata(
+        objective,
+        frontier_records=frontier_items,
+        refined_records=refined_items,
+    )
+    search_deficiency_score = _search_deficiency_score(
+        candidate_count=len(candidate_pool) or len(frontier_items) or 1,
+        frontier_count=len(frontier_items),
+        refined_count=len(refined_items),
+        corridor_family_count=len({item.get("corridor_signature") or _corridor_signature(_normalise_path(item.get("graph_path", item.get("path", item.get("node_ids"))))) for item in candidate_pool}),
+        selected_corridor_count=len({item.get("corridor_signature") or _corridor_signature(_normalise_path(item.get("graph_path", item.get("path", item.get("node_ids"))))) for item in refined_items}),
+        long_corridor=stretch >= 1.5 or max(0.0, _as_float(candidate.get("graph_length_km", candidate.get("distance_km")))) >= 120.0,
+        objective_gap=objective_gap,
+    )
+    anti_collapse_quota = _anti_collapse_quota(
+        candidate_count=len(candidate_pool) or 1,
+        corridor_family_count=len({item.get("corridor_signature") or _corridor_signature(_normalise_path(item.get("graph_path", item.get("path", item.get("node_ids"))))) for item in candidate_pool}),
+        selected_corridor_count=len({item.get("corridor_signature") or _corridor_signature(_normalise_path(item.get("graph_path", item.get("path", item.get("node_ids"))))) for item in refined_items}),
+        bootstrap_seed_size=cfg.bootstrap_seed_size,
+    )
+    long_corridor_search_completeness = _long_corridor_search_completeness(
+        stretch=stretch,
+        graph_length_km=max(0.0, _as_float(candidate.get("graph_length_km", candidate.get("distance_km")))),
+        frontier_count=len(frontier_items),
+        candidate_count=len(candidate_pool) or 1,
+    )
     predicted_cost = _predicted_refine_cost(candidate, config=cfg)
     flip_probability = _flip_probability(
         candidate,
@@ -958,6 +1408,13 @@ def build_candidate_record(
         overlap=overlap,
         stretch=stretch,
         config=cfg,
+    )
+    hidden_challenger_score = _hidden_challenger_score(
+        objective_gap=objective_gap,
+        mechanism_gap=mechanism_gap,
+        overlap=overlap,
+        flip_probability=flip_probability,
+        time_preservation_bonus=time_preservation_bonus,
     )
     near_duplicate = overlap >= cfg.near_duplicate_threshold
     candidate_source_engine = str(candidate.get("candidate_source_engine") or "").strip() or None
@@ -1013,16 +1470,24 @@ def build_candidate_record(
         candidate_source_stage=candidate_source_stage,
         comparator_seeded=comparator_seeded,
         near_duplicate=near_duplicate,
+        safe_elimination_reason=str(dominance_metadata["safe_elimination_reason"]),
+        dominance_margin=float(dominance_metadata["dominance_margin"]),
+        dominating_candidate_ids=tuple(str(item) for item in dominance_metadata["dominating_candidate_ids"]),
+        dominated_candidate_ids=tuple(str(item) for item in dominance_metadata["dominated_candidate_ids"]),
+        search_deficiency_score=float(search_deficiency_score),
+        hidden_challenger_score=float(hidden_challenger_score),
+        anti_collapse_quota=float(anti_collapse_quota),
+        long_corridor_search_completeness=float(long_corridor_search_completeness),
     )
 
 
-def _bootstrap_score(
+def _bootstrap_score_details(
     record: DCCSCandidateRecord,
     *,
     selected: Sequence[DCCSCandidateRecord],
     candidate_pool: Sequence[DCCSCandidateRecord],
     config: DCCSConfig,
-) -> float:
+) -> tuple[float, float]:
     # Objective-space novelty follows a max-min style dispersion heuristic
     # similar in spirit to crowding-based diversity preservation in NSGA-II:
     # Deb et al. (2002), https://doi.org/10.1109/4235.996017
@@ -1045,6 +1510,14 @@ def _bootstrap_score(
     time_preservation = record.time_preservation_bonus
     overlap_penalty = _overlap_to_selected(record, selected=selected)
     corridor_reuse_count = sum(1 for item in selected if item.corridor_signature == record.corridor_signature)
+    dominance_signal = _dominance_signal(record)
+    preservation_pressure = _seed_preservation_pressure(record)
+    seed_relief_signal = _comparator_seed_relief_signal(record)
+    time_competitiveness = _time_competitiveness_signal(record)
+    slow_tradeoff_penalty = _slow_tradeoff_penalty(record)
+    corridor_relief = _bounded_unit(
+        (0.70 * preservation_pressure) + (0.30 * max(dominance_signal, time_preservation))
+    )
     corridor_diversity = 1.0 / float(1 + corridor_reuse_count)
     benefit = (
         (config.bootstrap_coverage_weight * coverage)
@@ -1052,58 +1525,166 @@ def _bootstrap_score(
         + (config.bootstrap_diversity_weight * diversity)
         + (config.bootstrap_corridor_diversity_weight * corridor_diversity)
         + (config.bootstrap_plausibility_weight * plausibility)
-        + (config.bootstrap_objective_support_weight * objective_support)
+        + (config.bootstrap_objective_support_weight * objective_support * (0.35 + (0.65 * time_competitiveness)))
         + (config.bootstrap_time_preservation_weight * time_preservation)
         + (config.bootstrap_overlap_weight * max(0.0, 1.0 - overlap_penalty))
+        + (0.20 * time_competitiveness)
+        + (0.30 * dominance_signal)
+        + (0.12 * preservation_pressure * dominance_signal)
     )
     cost = (
         1.0
         + (config.cost_weight * record.predicted_refine_cost)
         + (config.bootstrap_overlap_decay_weight * overlap_penalty)
         + (config.bootstrap_time_regret_penalty_weight * record.time_regret_gap)
+        + (0.60 * slow_tradeoff_penalty)
     )
     if corridor_reuse_count > 0:
-        cost += config.bootstrap_corridor_penalty_weight * corridor_reuse_count
+        corridor_penalty_scale = max(0.20, 1.0 - (0.75 * corridor_relief))
+        cost += config.bootstrap_corridor_penalty_weight * corridor_reuse_count * corridor_penalty_scale
+    applied_comparator_penalty = 0.0
     if record.comparator_seeded:
-        cost += config.comparator_seed_penalty_weight
-    return benefit / max(1e-9, cost)
+        comparator_penalty_scale = _comparator_seed_penalty_scale(
+            record,
+            overlap_penalty=overlap_penalty,
+            corridor_reuse_count=corridor_reuse_count,
+        )
+        applied_comparator_penalty = config.comparator_seed_penalty_weight * comparator_penalty_scale
+        cost += applied_comparator_penalty
+    return benefit / max(1e-9, cost), applied_comparator_penalty
 
 
-def _challenger_score(record: DCCSCandidateRecord, *, config: DCCSConfig) -> float:
+def _bootstrap_score(
+    record: DCCSCandidateRecord,
+    *,
+    selected: Sequence[DCCSCandidateRecord],
+    candidate_pool: Sequence[DCCSCandidateRecord],
+    config: DCCSConfig,
+) -> float:
+    score, _ = _bootstrap_score_details(
+        record,
+        selected=selected,
+        candidate_pool=candidate_pool,
+        config=config,
+    )
+    return score
+
+
+def _challenger_score_details(
+    record: DCCSCandidateRecord,
+    *,
+    config: DCCSConfig,
+    selected: Sequence[DCCSCandidateRecord] = (),
+) -> tuple[float, float]:
     time_bonus_scale = _time_bonus_scale(
         objective_gap=record.objective_gap,
         mechanism_gap=record.mechanism_gap,
         flip_probability=record.flip_probability,
     )
+    selected_overlap = _overlap_to_selected(record, selected=selected)
+    corridor_reuse_count = sum(1 for item in selected if item.corridor_signature == record.corridor_signature)
+    dominance_signal = _dominance_signal(record)
+    preservation_pressure = _seed_preservation_pressure(record)
+    seed_relief_signal = _comparator_seed_relief_signal(record)
+    time_competitiveness = _time_competitiveness_signal(record)
+    slow_tradeoff_penalty = _slow_tradeoff_penalty(record)
     # Budget pressure should favour challengers that are both support-bearing
     # and time-plausible; mechanism-only detours otherwise consume search
     # budget ahead of productive via candidates on collapse-prone rows.
     support_gate = min(
         1.0,
-        max(0.0, record.objective_gap + (0.45 * record.time_preservation_bonus)),
+        max(0.0, record.objective_gap + (0.20 * dominance_signal) + (0.60 * record.time_preservation_bonus)),
+    )
+    long_corridor_gap = _bounded_unit(1.0 - record.long_corridor_search_completeness)
+    collapse_signal = preservation_pressure
+    long_corridor_gate = _bounded_unit((0.65 - record.long_corridor_search_completeness) / 0.25)
+    rescue_plausibility = _bounded_unit(
+        support_gate
+        * max(0.25, time_bonus_scale)
+        * (0.35 + (0.65 * _bounded_unit(record.time_preservation_bonus)))
+    )
+    long_corridor_rescue_gain = (
+        0.45 * config.challenger_gain_weight * collapse_signal * long_corridor_gate * rescue_plausibility
     )
     gain = (
-        (config.objective_gap_weight * record.objective_gap)
+        (config.objective_gap_weight * record.objective_gap * (0.40 + (0.60 * time_competitiveness)))
         + (config.mechanism_gap_weight * record.mechanism_gap * support_gate)
         + (config.challenger_gain_weight * record.flip_probability * support_gate)
-        + (0.25 * (1.0 - record.overlap))
+        + (0.25 * (1.0 - selected_overlap))
         + (config.challenger_time_preservation_weight * record.time_preservation_bonus * time_bonus_scale)
+        + (0.18 * time_competitiveness)
+        + (0.35 * dominance_signal * max(0.35, support_gate))
+        + (0.12 * dominance_signal * collapse_signal)
+        + long_corridor_rescue_gain
     )
     penalty = (
-        (config.overlap_penalty_weight * record.overlap)
+        (config.overlap_penalty_weight * selected_overlap)
         + (config.stretch_penalty_weight * max(0.0, record.stretch - 1.0))
         + (config.cost_weight * record.predicted_refine_cost)
+        + (0.70 * slow_tradeoff_penalty)
     )
+    if corridor_reuse_count > 0:
+        corridor_penalty_scale = max(
+            0.20,
+            1.0 - (0.60 * collapse_signal) - (0.20 * max(dominance_signal, record.time_preservation_bonus)),
+        )
+        penalty += (
+            config.challenger_selected_overlap_weight * max(0.0, selected_overlap - record.overlap)
+        ) + (config.challenger_corridor_reuse_penalty * corridor_reuse_count * corridor_penalty_scale)
+    applied_comparator_penalty = 0.0
     if record.comparator_seeded:
-        penalty += config.comparator_seed_penalty_weight
-    return gain / max(1e-9, penalty)
+        comparator_penalty_scale = _comparator_seed_penalty_scale(
+            record,
+            overlap_penalty=selected_overlap,
+            corridor_reuse_count=corridor_reuse_count,
+        )
+        base_penalty = config.comparator_seed_penalty_weight * comparator_penalty_scale
+        long_corridor_seed_relief = (
+            config.comparator_seed_penalty_weight
+            * 0.60
+            * collapse_signal
+            * long_corridor_gate
+            * rescue_plausibility
+        )
+        comparator_seed_relief = max(
+            long_corridor_seed_relief,
+            base_penalty * 0.85 * seed_relief_signal,
+        )
+        applied_comparator_penalty = max(0.0, base_penalty - comparator_seed_relief)
+        penalty += applied_comparator_penalty
+    return gain / max(1e-9, penalty), applied_comparator_penalty
 
 
-def score_candidate(record: DCCSCandidateRecord, *, config: DCCSConfig | None = None) -> float:
+def _challenger_score(
+    record: DCCSCandidateRecord,
+    *,
+    config: DCCSConfig,
+    selected: Sequence[DCCSCandidateRecord] = (),
+) -> float:
+    score, _ = _challenger_score_details(record, config=config, selected=selected)
+    return score
+
+
+def _score_candidate_details(
+    record: DCCSCandidateRecord,
+    *,
+    config: DCCSConfig | None = None,
+    selected: Sequence[DCCSCandidateRecord] = (),
+) -> tuple[float, float]:
     cfg = config or DCCSConfig()
     if cfg.mode == "bootstrap":
-        return _bootstrap_score(record, selected=(), candidate_pool=[record], config=cfg)
-    return _challenger_score(record, config=cfg)
+        return _bootstrap_score_details(record, selected=(), candidate_pool=[record], config=cfg)
+    return _challenger_score_details(record, config=cfg, selected=selected)
+
+
+def score_candidate(
+    record: DCCSCandidateRecord,
+    *,
+    config: DCCSConfig | None = None,
+    selected: Sequence[DCCSCandidateRecord] = (),
+) -> float:
+    score, _ = _score_candidate_details(record, config=config, selected=selected)
+    return score
 
 
 def record_refine_outcome(
@@ -1133,6 +1714,7 @@ def record_refine_outcome(
             refine_cost_error=None,
             refine_cost_ratio=None,
             decision_reason=label,
+            criticality_estimate=None,
         )
     delta = observed_refine_cost - record.predicted_refine_cost
     ratio = observed_refine_cost / max(1e-9, record.predicted_refine_cost)
@@ -1143,6 +1725,7 @@ def record_refine_outcome(
         refine_cost_error=float(delta),
         refine_cost_ratio=float(ratio),
         decision_reason=label,
+        criticality_estimate=None,
     )
 
 
@@ -1208,6 +1791,67 @@ def summarize_refine_outcomes(
         "refine_cost_rank_correlation": _rank_correlation(predicted_costs, observed_costs),
         "refine_cost_sample_count": len(refined),
     }
+
+
+def build_control_state(
+    records: Sequence[DCCSCandidateRecord],
+    *,
+    selected: Sequence[DCCSCandidateRecord],
+    skipped: Sequence[DCCSCandidateRecord],
+    frontier: Sequence[Mapping[str, Any]] = (),
+    config: DCCSConfig | None = None,
+) -> DCCSControlState:
+    cfg = config or DCCSConfig()
+    candidate_count = len(records)
+    frontier_count = len(frontier)
+    refined_count = len(selected)
+    skipped_count = len(skipped)
+    safe_elimination_count = sum(1 for record in records if record.safe_elimination_reason in {"dominated_by_frontier", "dominated_by_peer"})
+    dominated_count = sum(1 for record in records if record.dominating_candidate_ids)
+    hidden_challenger_count = sum(1 for record in records if record.hidden_challenger_score > 0.55)
+    long_corridor_count = sum(1 for record in records if record.long_corridor_search_completeness < 0.65)
+    selected_corridor_count = len({record.corridor_signature for record in selected})
+    anti_collapse_quota = _anti_collapse_quota(
+        candidate_count=candidate_count or 1,
+        corridor_family_count=len({record.corridor_signature for record in records}),
+        selected_corridor_count=selected_corridor_count,
+        bootstrap_seed_size=cfg.bootstrap_seed_size,
+    )
+    anti_collapse_pressure = max(
+        0.0,
+        min(1.0, 1.0 - anti_collapse_quota),
+    )
+    search_deficiency_score = (
+        sum(record.search_deficiency_score for record in records) / float(candidate_count or 1)
+    )
+    search_deficiency_gap = max(0.0, 1.0 - search_deficiency_score)
+    long_corridor_search_completeness = (
+        sum(record.long_corridor_search_completeness for record in records) / float(candidate_count or 1)
+    )
+    long_corridor_search_gap = max(0.0, 1.0 - long_corridor_search_completeness)
+    collapse_detected = bool(selected and len({record.corridor_signature for record in selected}) == 1 and frontier_count > 1)
+    collapse_reason = "single_frontier_after_multi_family_refine" if collapse_detected else None
+    return DCCSControlState(
+        candidate_count=candidate_count,
+        frontier_count=frontier_count,
+        refined_count=refined_count,
+        selected_count=refined_count,
+        skipped_count=skipped_count,
+        safe_elimination_count=safe_elimination_count,
+        dominated_count=dominated_count,
+        hidden_challenger_count=hidden_challenger_count,
+        hidden_challenger_budget=max(0, candidate_count - refined_count),
+        anti_collapse_quota=anti_collapse_quota,
+        anti_collapse_pressure=anti_collapse_pressure,
+        search_deficiency_score=search_deficiency_score,
+        search_deficiency_gap=search_deficiency_gap,
+        long_corridor_search_completeness=long_corridor_search_completeness,
+        long_corridor_search_gap=long_corridor_search_gap,
+        collapse_detected=collapse_detected,
+        collapse_reason=collapse_reason,
+        long_corridor_count=long_corridor_count,
+        selected_corridor_count=selected_corridor_count,
+    )
 
 
 def build_candidate_ledger(
@@ -1317,11 +1961,15 @@ def select_baseline_result(
     selected: list[DCCSCandidateRecord] = []
     skipped: list[DCCSCandidateRecord] = []
     for rank, record in enumerate(ordered):
-        score = score_candidate(record, config=cfg)
+        score, applied_penalty = _score_candidate_details(record, config=cfg)
         if rank < budget:
             selected.append(
                 replace(
                     record,
+                    score_terms=_score_terms_with_applied_comparator_penalty(
+                        record,
+                        applied_penalty=applied_penalty,
+                    ),
                     final_score=float(score),
                     decision="refine",
                     decision_reason=f"selected_by_baseline_policy:{policy_key}",
@@ -1333,6 +1981,10 @@ def select_baseline_result(
             skipped.append(
                 replace(
                     record,
+                    score_terms=_score_terms_with_applied_comparator_penalty(
+                        record,
+                        applied_penalty=applied_penalty,
+                    ),
                     final_score=float(score),
                     decision="skip",
                     decision_reason="budget_exhausted",
@@ -1344,15 +1996,27 @@ def select_baseline_result(
     for record in ledger:
         if record.candidate_id in selected_ids or any(item.candidate_id == record.candidate_id for item in skipped):
             continue
+        score, applied_penalty = _score_candidate_details(record, config=cfg)
         skipped.append(
             replace(
                 record,
-                final_score=float(score_candidate(record, config=cfg)),
+                score_terms=_score_terms_with_applied_comparator_penalty(
+                    record,
+                    applied_penalty=applied_penalty,
+                ),
+                final_score=float(score),
                 decision="skip",
                 decision_reason="not_selected",
                 mode=f"{cfg.mode}:{policy_key}",
             )
         )
+    control_state = build_control_state(
+        ledger,
+        selected=selected,
+        skipped=skipped,
+        frontier=frontier,
+        config=cfg,
+    )
     return DCCSResult(
         mode=f"{cfg.mode}:{policy_key}",
         search_budget=budget,
@@ -1369,7 +2033,19 @@ def select_baseline_result(
             "selected_count": len(selected),
             "skipped_count": len(skipped),
             "selected_corridor_count": len({item.corridor_signature for item in selected}),
+            "safe_elimination_count": control_state.safe_elimination_count,
+            "dominated_count": control_state.dominated_count,
+            "hidden_challenger_count": control_state.hidden_challenger_count,
+            "hidden_challenger_budget": control_state.hidden_challenger_budget,
+            "anti_collapse_quota": control_state.anti_collapse_quota,
+            "anti_collapse_pressure": control_state.anti_collapse_pressure,
+            "search_deficiency_score": control_state.search_deficiency_score,
+            "search_deficiency_gap": control_state.search_deficiency_gap,
+            "long_corridor_search_completeness": control_state.long_corridor_search_completeness,
+            "long_corridor_search_gap": control_state.long_corridor_search_gap,
+            "control_state": control_state.as_dict(),
         },
+        control_state=control_state,
     )
 
 
@@ -1406,7 +2082,12 @@ def select_candidates(
                 ),
             )
             record = ranked[0]
-            score = _bootstrap_score(record, selected=selected, candidate_pool=ledger, config=cfg)
+            score, applied_penalty = _bootstrap_score_details(
+                record,
+                selected=selected,
+                candidate_pool=ledger,
+                config=cfg,
+            )
             reason = "selected_by_bootstrap"
             if record.graph_path in {item.graph_path for item in selected}:
                 reason = "duplicate_signature"
@@ -1414,6 +2095,10 @@ def select_candidates(
                 reason = "duplicate_corridor_bootstrap"
             chosen = replace(
                 record,
+                score_terms=_score_terms_with_applied_comparator_penalty(
+                    record,
+                    applied_penalty=applied_penalty,
+                ),
                 final_score=float(score),
                 decision="refine" if reason == "selected_by_bootstrap" else "skip",
                 decision_reason=reason,
@@ -1426,31 +2111,43 @@ def select_candidates(
                 skipped.append(chosen)
             remaining = [item for item in remaining if item.candidate_id != record.candidate_id]
     else:
-        sorted_records = sorted(
-            ledger,
-            key=lambda record: (
-                -score_candidate(record, config=cfg),
-                record.near_duplicate,
-                record.candidate_id,
-            ),
-        )
-        for record in sorted_records:
+        remaining = list(ledger)
+        while remaining:
+            ranked = sorted(
+                remaining,
+                key=lambda record: (
+                    -score_candidate(record, config=cfg, selected=selected),
+                    record.near_duplicate,
+                    record.candidate_id,
+                ),
+            )
+            record = ranked[0]
             if len(selected) >= budget:
+                score, applied_penalty = _score_candidate_details(record, config=cfg, selected=selected)
                 skipped.append(
                     replace(
                         record,
-                        final_score=score_candidate(record, config=cfg),
+                        score_terms=_score_terms_with_applied_comparator_penalty(
+                            record,
+                            applied_penalty=applied_penalty,
+                        ),
+                        final_score=score,
                         decision="skip",
                         decision_reason="budget_exhausted",
                     )
                 )
+                remaining = [item for item in remaining if item.candidate_id != record.candidate_id]
                 continue
-            score = score_candidate(record, config=cfg)
+            score, applied_penalty = _score_candidate_details(record, config=cfg, selected=selected)
             reason = "selected_by_challenger"
             if record.graph_path in {item.graph_path for item in selected}:
                 reason = "duplicate_signature"
             selected_record = replace(
                 record,
+                score_terms=_score_terms_with_applied_comparator_penalty(
+                    record,
+                    applied_penalty=applied_penalty,
+                ),
                 final_score=float(score),
                 decision="refine" if reason != "duplicate_signature" else "skip",
                 decision_reason=reason,
@@ -1458,23 +2155,29 @@ def select_candidates(
             )
             if reason == "duplicate_signature":
                 skipped.append(selected_record)
+                remaining = [item for item in remaining if item.candidate_id != record.candidate_id]
                 continue
             selected.append(selected_record)
             selected_ids.add(record.candidate_id)
-        sorted_records = ledger
+            remaining = [item for item in remaining if item.candidate_id != record.candidate_id]
 
     skipped_ids = {item.candidate_id for item in skipped}
     for record in ledger:
         if record.candidate_id in selected_ids or record.candidate_id in skipped_ids:
             continue
+        score, applied_penalty = (
+            _bootstrap_score_details(record, selected=selected, candidate_pool=ledger, config=cfg)
+            if cfg.mode == "bootstrap"
+            else _score_candidate_details(record, config=cfg, selected=selected)
+        )
         skipped.append(
             replace(
                 record,
-                final_score=float(
-                    _bootstrap_score(record, selected=selected, candidate_pool=ledger, config=cfg)
-                    if cfg.mode == "bootstrap"
-                    else score_candidate(record, config=cfg)
+                score_terms=_score_terms_with_applied_comparator_penalty(
+                    record,
+                    applied_penalty=applied_penalty,
                 ),
+                final_score=float(score),
                 decision="skip",
                 decision_reason="not_selected",
             )
@@ -1521,6 +2224,30 @@ def select_candidates(
         "selected_mean_overlap": sum(item.overlap for item in selected) / float(len(selected) or 1),
         "selected_mean_predicted_refine_cost": sum(item.predicted_refine_cost for item in selected) / float(len(selected) or 1),
     }
+    control_state = build_control_state(
+        ledger,
+        selected=selected,
+        skipped=skipped,
+        frontier=frontier,
+        config=cfg,
+    )
+    summary.update(
+        {
+            "safe_elimination_count": control_state.safe_elimination_count,
+            "dominated_count": control_state.dominated_count,
+            "hidden_challenger_count": control_state.hidden_challenger_count,
+            "hidden_challenger_budget": control_state.hidden_challenger_budget,
+            "anti_collapse_quota": control_state.anti_collapse_quota,
+            "anti_collapse_pressure": control_state.anti_collapse_pressure,
+            "search_deficiency_score": control_state.search_deficiency_score,
+            "search_deficiency_gap": control_state.search_deficiency_gap,
+            "long_corridor_search_completeness": control_state.long_corridor_search_completeness,
+            "long_corridor_search_gap": control_state.long_corridor_search_gap,
+            "collapse_detected": control_state.collapse_detected,
+            "collapse_reason": control_state.collapse_reason,
+            "control_state": control_state.as_dict(),
+        }
+    )
     return DCCSResult(
         mode=cfg.mode,
         search_budget=budget,
@@ -1529,4 +2256,5 @@ def select_candidates(
         skipped=skipped,
         candidate_ledger=_resolved_candidate_ledger(ledger, selected=selected, skipped=skipped),
         summary=summary,
+        control_state=control_state,
     )

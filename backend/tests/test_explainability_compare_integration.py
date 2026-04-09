@@ -58,6 +58,7 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr(settings, "out_dir", str(out_dir))
     monkeypatch.setattr(settings, "route_pareto_backfill_enabled", True)
     monkeypatch.setattr(settings, "route_pareto_backfill_min_alternatives", 4)
+    monkeypatch.setattr(main_module, "_routing_graph_warmup_failfast_detail", lambda: None)
     monkeypatch.setattr(
         main_module,
         "_validate_route_options_evidence",
@@ -184,6 +185,40 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
         main_module,
         "_collect_route_options_with_diagnostics",
         _fake_collect_route_options_with_diagnostics,
+    )
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["pipeline_mode"] == "tri_source"
+        req = kwargs["req"]
+        options, warnings, candidate_fetches, terrain_diag, candidate_diag = (
+            await _fake_collect_route_options_with_diagnostics(
+                origin=req.origin,
+                destination=req.destination,
+                option_prefix="route",
+                scenario_mode=req.scenario_mode,
+                weather=req.weather,
+            )
+        )
+        selected = options[0]
+        return {
+            "selected": selected,
+            "candidates": options,
+            "warnings": warnings,
+            "candidate_fetches": candidate_fetches,
+            "terrain_diag": terrain_diag,
+            "candidate_diag": candidate_diag,
+            "selected_certificate": selected.certification,
+            "voi_stop_summary": None,
+            "extra_json_artifacts": {},
+            "extra_jsonl_artifacts": {},
+            "extra_csv_artifacts": {},
+            "extra_text_artifacts": {},
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
     )
     app.dependency_overrides[osrm_client] = lambda: fake
 

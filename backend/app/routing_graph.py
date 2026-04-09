@@ -475,6 +475,33 @@ def _warmup_worker() -> None:
                     warmup=route_graph_warmup_status(),
                 )
                 return
+            should_promote, candidate_mode, candidate_size_bytes, effective_max_bytes = (
+                _fast_startup_full_hydration_candidate(path)
+            )
+            if should_promote:
+                try:
+                    graph = _load_route_graph_uncached(path)
+                except TimeoutError:
+                    _clear_loaded_route_graph_caches()
+                except Exception:
+                    _clear_loaded_route_graph_caches()
+                else:
+                    if graph is not None and not bool(graph.graph_fragmented):
+                        _mark_warmup_ready(graph)
+                        log_event(
+                            "route_graph_warmup_ready",
+                            timeout_s=timeout_s,
+                            warmup=route_graph_warmup_status(),
+                            node_count=len(graph.nodes),
+                            adjacency_count=len(graph.adjacency),
+                            edge_count=_graph_edge_count(graph),
+                            mode="fast_startup_promoted_full",
+                            promotion_candidate_mode=candidate_mode,
+                            promotion_candidate_size_bytes=candidate_size_bytes,
+                            promotion_max_bytes=effective_max_bytes,
+                        )
+                        return
+                    _clear_loaded_route_graph_caches()
             _set_warmup_phase("metadata_validation", force_log=True)
             _mark_warmup_ready_fast(
                 source=str(signature.get("source", str(path))),
@@ -488,6 +515,9 @@ def _warmup_worker() -> None:
                 adjacency_count=0,
                 edge_count=0,
                 mode="fast_startup_metadata",
+                promotion_candidate_mode=candidate_mode if should_promote else "skipped",
+                promotion_candidate_size_bytes=candidate_size_bytes if should_promote else 0,
+                promotion_max_bytes=effective_max_bytes if should_promote else 0,
             )
             return
         graph = load_route_graph()
@@ -630,6 +660,10 @@ def _graph_compact_bundle_meta_path(asset_path: Path) -> Path:
     return _graph_compact_bundle_path(asset_path).with_suffix(".meta.json")
 
 
+def _prefer_binary_cache_for_asset(path: Path) -> bool:
+    return ".subset." in path.name
+
+
 def _graph_asset_signature(path: Path) -> dict[str, Any] | None:
     try:
         stat = path.stat()
@@ -658,6 +692,91 @@ def _graph_edge_count(graph: RouteGraph) -> int:
 def _set_last_load_strategy(strategy: str) -> None:
     global _LAST_LOAD_STRATEGY
     _LAST_LOAD_STRATEGY = str(strategy or "none")
+
+
+def _clear_loaded_route_graph_caches() -> None:
+    load_route_graph.cache_clear()
+    with _ADJ_CACHE_LOCK:
+        _BASE_ADJ_COST_VIEW_CACHE.clear()
+        _SCENARIO_ADJ_COST_VIEW_CACHE.clear()
+    with _EDGE_LOOKUP_CACHE_LOCK:
+        _EDGE_LOOKUP_CACHE.clear()
+
+
+def _fast_startup_full_hydration_candidate(path: Path) -> tuple[bool, str, int, int]:
+    if not bool(settings.route_graph_fast_startup_enabled):
+        return False, "fast_startup_disabled", 0, 0
+    effective_max_bytes = int(settings.route_graph_binary_cache_warmup_max_bytes)
+    if effective_max_bytes <= 0:
+        effective_max_bytes = 128 * 1024 * 1024
+    bundle_path = _graph_compact_bundle_path(path)
+    candidate_path = bundle_path if bundle_path.exists() else path
+    try:
+        size_bytes = int(candidate_path.stat().st_size)
+    except OSError:
+        return False, "candidate_missing", 0, effective_max_bytes
+    if size_bytes > effective_max_bytes:
+        return False, "candidate_oversize", size_bytes, effective_max_bytes
+    if candidate_path == bundle_path:
+        return True, "compact_bundle", size_bytes, effective_max_bytes
+    return True, "json_asset", size_bytes, effective_max_bytes
+
+
+def _load_route_graph_uncached(path: Path) -> RouteGraph | None:
+    prefer_binary_cache = _prefer_binary_cache_for_asset(path)
+    if ijson is None:
+        if prefer_binary_cache:
+            graph = _load_route_graph_binary_cache(path)
+            if graph is not None:
+                _set_last_load_strategy("binary_cache")
+                return graph
+            graph = _load_route_graph_compact_bundle(path)
+            if graph is not None:
+                _set_last_load_strategy("compact_bundle")
+                return graph
+        else:
+            graph = _load_route_graph_compact_bundle(path)
+            if graph is not None:
+                _set_last_load_strategy("compact_bundle")
+                return graph
+            graph = _load_route_graph_binary_cache(path)
+            if graph is not None:
+                _set_last_load_strategy("binary_cache")
+                return graph
+        _set_last_load_strategy("streaming_unavailable")
+        return None
+    try:
+        graph = _load_route_graph_streaming(path=path)
+        if graph is not None:
+            _set_last_load_strategy("streaming_json")
+            _save_route_graph_binary_cache(path, graph)
+            _save_route_graph_compact_bundle(path, graph)
+            return graph
+        if prefer_binary_cache:
+            graph = _load_route_graph_binary_cache(path)
+            if graph is not None:
+                _set_last_load_strategy("binary_cache")
+                return graph
+            graph = _load_route_graph_compact_bundle(path)
+            if graph is not None:
+                _set_last_load_strategy("compact_bundle")
+                return graph
+        else:
+            graph = _load_route_graph_compact_bundle(path)
+            if graph is not None:
+                _set_last_load_strategy("compact_bundle")
+                return graph
+            graph = _load_route_graph_binary_cache(path)
+            if graph is not None:
+                _set_last_load_strategy("binary_cache")
+                return graph
+        _set_last_load_strategy("streaming_empty")
+        return None
+    except TimeoutError:
+        raise
+    except Exception:
+        _set_last_load_strategy("streaming_error")
+        return None
 
 
 def _graph_edge_lookup(graph: RouteGraph, current_node: str, next_node: str) -> GraphEdge | None:
@@ -828,92 +947,162 @@ def _load_route_graph_compact_bundle(path: Path) -> RouteGraph | None:
         return None
     nodes_raw = graph_payload.get("nodes")
     adjacency_raw = graph_payload.get("adjacency")
+    if not isinstance(nodes_raw, dict) or not isinstance(adjacency_raw, dict):
+        return None
+    version = str(graph_payload.get("version", "unknown"))
+    source = str(graph_payload.get("source", str(path)))
+    try:
+        min_cost_per_meter = float(graph_payload.get("min_cost_per_meter", 0.0))
+    except (TypeError, ValueError):
+        return None
+    schema_version = int(graph_payload.get("schema_version", 1) or 1)
+    # Newer compact bundles store the final graph-ready structures directly so the
+    # warmup thread does not need to duplicate the largest containers while
+    # reconstructing them. Fall back to the legacy coercion path only when the
+    # bundle still carries the older primitive-only encoding.
+    if schema_version >= 2:
+        if not nodes_raw or not adjacency_raw:
+            return None
+        nodes = nodes_raw if all(isinstance(node_id, str) for node_id in nodes_raw.keys()) else None
+        adjacency = (
+            adjacency_raw
+            if all(
+                isinstance(src, str)
+                and isinstance(entries, tuple)
+                and all(isinstance(edge, GraphEdge) for edge in entries)
+                for src, entries in adjacency_raw.items()
+            )
+            else None
+        )
+        if nodes is None or adjacency is None:
+            return None
+    else:
+        nodes: dict[str, tuple[float, float]] = {}
+        for node_id, coords in nodes_raw.items():
+            if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+                continue
+            try:
+                nodes[str(node_id)] = (float(coords[0]), float(coords[1]))
+            except (TypeError, ValueError):
+                continue
+        adjacency: dict[str, tuple[GraphEdge, ...]] = {}
+        for src, entries in adjacency_raw.items():
+            if not isinstance(entries, (list, tuple)):
+                continue
+            node_edges: list[GraphEdge] = []
+            src_id = str(src)
+            for raw in entries:
+                if not isinstance(raw, (list, tuple)) or len(raw) < 6:
+                    continue
+                try:
+                    to_node = str(raw[0])
+                    cost = max(1.0, float(raw[1]))
+                    distance_m = max(1.0, float(raw[2]))
+                    highway = str(raw[3]).strip().lower() or "unclassified"
+                    toll = bool(raw[4])
+                    maxspeed_raw = raw[5]
+                    maxspeed_kph = None if maxspeed_raw is None else float(maxspeed_raw)
+                except (TypeError, ValueError):
+                    continue
+                edge = GraphEdge(
+                    to=to_node,
+                    cost=cost,
+                    distance_m=distance_m,
+                    highway=highway,
+                    toll=toll,
+                    maxspeed_kph=maxspeed_kph,
+                )
+                node_edges.append(edge)
+            if node_edges:
+                adjacency[src_id] = tuple(node_edges)
+        if not nodes or not adjacency:
+            return None
     grid_raw = graph_payload.get("grid_index")
     component_by_node_raw = graph_payload.get("component_by_node")
     component_sizes_raw = graph_payload.get("component_sizes")
-    if not isinstance(nodes_raw, dict) or not isinstance(adjacency_raw, dict):
-        return None
-    if not isinstance(grid_raw, dict) or not isinstance(component_by_node_raw, dict) or not isinstance(
-        component_sizes_raw, dict
-    ):
-        return None
-    nodes: dict[str, tuple[float, float]] = {}
-    for node_id, coords in nodes_raw.items():
-        if not isinstance(coords, (list, tuple)) or len(coords) < 2:
-            continue
-        try:
-            nodes[str(node_id)] = (float(coords[0]), float(coords[1]))
-        except (TypeError, ValueError):
-            continue
-    adjacency_mut: dict[str, list[GraphEdge]] = {}
-    for src, entries in adjacency_raw.items():
-        if not isinstance(entries, (list, tuple)):
-            continue
-        node_edges: list[GraphEdge] = []
-        src_id = str(src)
-        for raw in entries:
-            if not isinstance(raw, (list, tuple)) or len(raw) < 6:
+    derived_topology_available = (
+        isinstance(grid_raw, dict)
+        and isinstance(component_by_node_raw, dict)
+        and isinstance(component_sizes_raw, dict)
+        and "component_count" in graph_payload
+        and "largest_component_nodes" in graph_payload
+        and "largest_component_ratio" in graph_payload
+        and "graph_fragmented" in graph_payload
+    )
+    if not derived_topology_available:
+        return _finalize_graph(
+            version=version,
+            source=source,
+            nodes=nodes,
+            adjacency_mut={node: list(edges) for node, edges in adjacency.items()},
+            edge_index={},
+            min_cost_per_meter_hint=min_cost_per_meter,
+        )
+    if schema_version >= 2:
+        grid_index = (
+            grid_raw
+            if all(
+                isinstance(key_raw, tuple)
+                and len(key_raw) >= 2
+                and isinstance(values, tuple)
+                for key_raw, values in grid_raw.items()
+            )
+            else None
+        )
+        component_by_node = (
+            component_by_node_raw
+            if all(isinstance(node_id, str) for node_id in component_by_node_raw.keys())
+            else None
+        )
+        component_sizes = (
+            component_sizes_raw
+            if all(isinstance(component_id_raw, int) for component_id_raw in component_sizes_raw.keys())
+            else None
+        )
+        if grid_index is None or component_by_node is None or component_sizes is None:
+            return _finalize_graph(
+                version=version,
+                source=source,
+                nodes=nodes,
+                adjacency_mut={node: list(edges) for node, edges in adjacency.items()},
+                edge_index={},
+                min_cost_per_meter_hint=min_cost_per_meter,
+            )
+    else:
+        grid_index: dict[tuple[int, int], tuple[str, ...]] = {}
+        for key_raw, values in grid_raw.items():
+            if not isinstance(key_raw, (list, tuple)) or len(key_raw) < 2:
                 continue
             try:
-                to_node = str(raw[0])
-                cost = max(1.0, float(raw[1]))
-                distance_m = max(1.0, float(raw[2]))
-                highway = str(raw[3]).strip().lower() or "unclassified"
-                toll = bool(raw[4])
-                maxspeed_raw = raw[5]
-                maxspeed_kph = None if maxspeed_raw is None else float(maxspeed_raw)
+                grid_key = (int(key_raw[0]), int(key_raw[1]))
             except (TypeError, ValueError):
                 continue
-            edge = GraphEdge(
-                to=to_node,
-                cost=cost,
-                distance_m=distance_m,
-                highway=highway,
-                toll=toll,
-                maxspeed_kph=maxspeed_kph,
-            )
-            node_edges.append(edge)
-        if node_edges:
-            adjacency_mut[src_id] = node_edges
-    if not nodes or not adjacency_mut:
-        return None
-    grid_index: dict[tuple[int, int], tuple[str, ...]] = {}
-    for key_raw, values in grid_raw.items():
-        if not isinstance(key_raw, (list, tuple)) or len(key_raw) < 2:
-            continue
-        try:
-            grid_key = (int(key_raw[0]), int(key_raw[1]))
-        except (TypeError, ValueError):
-            continue
-        if isinstance(values, (list, tuple)):
-            grid_index[grid_key] = tuple(str(value) for value in values)
-    component_by_node: dict[str, int] = {}
-    for node_id, component_raw in component_by_node_raw.items():
-        try:
-            component_by_node[str(node_id)] = int(component_raw)
-        except (TypeError, ValueError):
-            continue
-    component_sizes: dict[int, int] = {}
-    for component_id_raw, size_raw in component_sizes_raw.items():
-        try:
-            component_sizes[int(component_id_raw)] = int(size_raw)
-        except (TypeError, ValueError):
-            continue
+            if isinstance(values, (list, tuple)):
+                grid_index[grid_key] = tuple(str(value) for value in values)
+        component_by_node: dict[str, int] = {}
+        for node_id, component_raw in component_by_node_raw.items():
+            try:
+                component_by_node[str(node_id)] = int(component_raw)
+            except (TypeError, ValueError):
+                continue
+        component_sizes: dict[int, int] = {}
+        for component_id_raw, size_raw in component_sizes_raw.items():
+            try:
+                component_sizes[int(component_id_raw)] = int(size_raw)
+            except (TypeError, ValueError):
+                continue
     try:
         component_count = int(graph_payload.get("component_count", len(component_sizes)))
         largest_component_nodes = int(graph_payload.get("largest_component_nodes", 0))
         largest_component_ratio = float(graph_payload.get("largest_component_ratio", 0.0))
         graph_fragmented = bool(graph_payload.get("graph_fragmented", False))
-        min_cost_per_meter = float(graph_payload.get("min_cost_per_meter", 0.0))
     except (TypeError, ValueError):
         return None
-    version = str(graph_payload.get("version", "unknown"))
-    source = str(graph_payload.get("source", str(path)))
     return RouteGraph(
         version=version,
         source=source,
         nodes=nodes,
-        adjacency={node: tuple(edges) for node, edges in adjacency_mut.items()},
+        adjacency=adjacency,
         grid_index=grid_index,
         component_by_node=component_by_node,
         component_sizes=component_sizes,
@@ -978,25 +1167,13 @@ def _save_route_graph_compact_bundle(path: Path, graph: RouteGraph) -> None:
             "asset": signature,
             "saved_at_utc": _iso_utc_now(),
             "graph": {
+                "schema_version": 2,
                 "version": str(graph.version or "unknown"),
                 "source": str(graph.source or str(path)),
                 "generated_at_utc": _iso_utc_now(),
                 "as_of_utc": _iso_utc_now(),
                 "nodes": graph.nodes,
-                "adjacency": {
-                    node: tuple(
-                        (
-                            str(edge.to),
-                            float(edge.cost),
-                            float(edge.distance_m),
-                            str(edge.highway),
-                            bool(edge.toll),
-                            None if edge.maxspeed_kph is None else float(edge.maxspeed_kph),
-                        )
-                        for edge in edges
-                    )
-                    for node, edges in graph.adjacency.items()
-                },
+                "adjacency": graph.adjacency,
                 "grid_index": graph.grid_index,
                 "component_by_node": graph.component_by_node,
                 "component_sizes": graph.component_sizes,
@@ -1200,8 +1377,20 @@ def _finalize_graph(
     nodes: dict[str, tuple[float, float]],
     adjacency_mut: dict[str, list[GraphEdge]],
     edge_index: dict[tuple[str, str], GraphEdge],
+    min_cost_per_meter_hint: float = 0.0,
 ) -> RouteGraph | None:
-    adjacency = {k: tuple(v) for k, v in adjacency_mut.items() if v}
+    component_by_node, component_sizes, component_count, largest_component_nodes, largest_component_ratio = (
+        _compute_component_index(nodes, adjacency_mut)
+    )
+    empty_nodes: list[str] = []
+    for node_id, edges in adjacency_mut.items():
+        if edges:
+            adjacency_mut[node_id] = tuple(edges)  # type: ignore[assignment]
+        else:
+            empty_nodes.append(node_id)
+    for node_id in empty_nodes:
+        adjacency_mut.pop(node_id, None)
+    adjacency = adjacency_mut  # type: ignore[assignment]
     if not nodes or not adjacency:
         return None
 
@@ -1209,10 +1398,9 @@ def _finalize_graph(
     for node_id, (lat, lon) in nodes.items():
         key = _grid_key(lat, lon)
         grid_mut.setdefault(key, []).append(node_id)
-    grid_index = {key: tuple(values) for key, values in grid_mut.items()}
-    component_by_node, component_sizes, component_count, largest_component_nodes, largest_component_ratio = (
-        _compute_component_index(nodes, adjacency_mut)
-    )
+    for grid_key, values in grid_mut.items():
+        grid_mut[grid_key] = tuple(values)  # type: ignore[assignment]
+    grid_index = grid_mut  # type: ignore[assignment]
     min_giant_nodes = int(max(1, settings.route_graph_min_giant_component_nodes))
     min_giant_ratio = float(max(0.0, min(1.0, settings.route_graph_min_giant_component_ratio)))
     graph_fragmented = bool(
@@ -1228,6 +1416,8 @@ def _finalize_graph(
         ]
         if ratios:
             min_cost_per_meter = max(0.0, min(ratios))
+    if min_cost_per_meter <= 0.0 and min_cost_per_meter_hint > 0.0:
+        min_cost_per_meter = float(min_cost_per_meter_hint)
     return RouteGraph(
         version=version,
         source=source,
@@ -1256,6 +1446,8 @@ def _load_route_graph_streaming(
     nodes_seen = 0
     edges_seen = 0
     directed_edges_kept = 0
+    min_cost_per_meter_seen = 0.0
+    materialize_edge_index = bool(settings.route_graph_materialize_edge_index)
     nodes: dict[str, tuple[float, float]] = {}
     adjacency_mut: dict[str, list[GraphEdge]] = {}
     edge_index: dict[tuple[str, str], GraphEdge] = {}
@@ -1307,7 +1499,12 @@ def _load_route_graph_streaming(
                         u, v, edge, oneway = parsed
                         if u in nodes and v in nodes:
                             adjacency_mut.setdefault(u, []).append(edge)
-                            edge_index[(u, v)] = edge
+                            if materialize_edge_index:
+                                edge_index[(u, v)] = edge
+                            if edge.distance_m > 0.0 and edge.cost > 0.0:
+                                ratio = float(edge.cost) / float(edge.distance_m)
+                                if min_cost_per_meter_seen <= 0.0 or ratio < min_cost_per_meter_seen:
+                                    min_cost_per_meter_seen = max(0.0, ratio)
                             directed_edges_kept += 1
                             if not oneway:
                                 reverse = GraphEdge(
@@ -1319,7 +1516,8 @@ def _load_route_graph_streaming(
                                     maxspeed_kph=edge.maxspeed_kph,
                                 )
                                 adjacency_mut.setdefault(v, []).append(reverse)
-                                edge_index[(v, u)] = reverse
+                                if materialize_edge_index:
+                                    edge_index[(v, u)] = reverse
                                 directed_edges_kept += 1
                     if edges_seen % 200_000 == 0:
                         _set_warmup_phase(
@@ -1339,12 +1537,13 @@ def _load_route_graph_streaming(
     except Exception:
         return None
 
-    if edges_need_fallback or not edge_index:
+    if edges_need_fallback or (materialize_edge_index and not edge_index):
         # Compatibility fallback for parser implementations that cannot continue
         # from nodes.item to edges.item on the same file stream.
         try:
             edges_seen = 0
             directed_edges_kept = 0
+            min_cost_per_meter_seen = 0.0
             adjacency_mut = {}
             edge_index = {}
             _set_warmup_phase(
@@ -1363,7 +1562,12 @@ def _load_route_graph_streaming(
                         u, v, edge, oneway = parsed
                         if u in nodes and v in nodes:
                             adjacency_mut.setdefault(u, []).append(edge)
-                            edge_index[(u, v)] = edge
+                            if materialize_edge_index:
+                                edge_index[(u, v)] = edge
+                            if edge.distance_m > 0.0 and edge.cost > 0.0:
+                                ratio = float(edge.cost) / float(edge.distance_m)
+                                if min_cost_per_meter_seen <= 0.0 or ratio < min_cost_per_meter_seen:
+                                    min_cost_per_meter_seen = max(0.0, ratio)
                             directed_edges_kept += 1
                             if not oneway:
                                 reverse = GraphEdge(
@@ -1375,7 +1579,8 @@ def _load_route_graph_streaming(
                                     maxspeed_kph=edge.maxspeed_kph,
                                 )
                                 adjacency_mut.setdefault(v, []).append(reverse)
-                                edge_index[(v, u)] = reverse
+                                if materialize_edge_index:
+                                    edge_index[(v, u)] = reverse
                                 directed_edges_kept += 1
                     if edges_seen % 200_000 == 0:
                         _set_warmup_phase(
@@ -1391,7 +1596,7 @@ def _load_route_graph_streaming(
         except Exception:
             return None
 
-    if not edge_index:
+    if materialize_edge_index and not edge_index:
         return None
 
     _set_warmup_phase(
@@ -1408,6 +1613,7 @@ def _load_route_graph_streaming(
         nodes=nodes,
         adjacency_mut=adjacency_mut,
         edge_index=edge_index,
+        min_cost_per_meter_hint=min_cost_per_meter_seen,
     )
 
 
@@ -1417,14 +1623,25 @@ def load_route_graph() -> RouteGraph | None:
     if not path.exists():
         _set_last_load_strategy("missing_asset")
         return None
-    cached_graph = _load_route_graph_compact_bundle(path)
-    if cached_graph is not None:
-        _set_last_load_strategy("compact_bundle")
-        return cached_graph
-    cached_graph = _load_route_graph_binary_cache(path)
-    if cached_graph is not None:
-        _set_last_load_strategy("binary_cache")
-        return cached_graph
+    prefer_binary_cache = _prefer_binary_cache_for_asset(path)
+    if prefer_binary_cache:
+        cached_graph = _load_route_graph_binary_cache(path)
+        if cached_graph is not None:
+            _set_last_load_strategy("binary_cache")
+            return cached_graph
+        cached_graph = _load_route_graph_compact_bundle(path)
+        if cached_graph is not None:
+            _set_last_load_strategy("compact_bundle")
+            return cached_graph
+    else:
+        cached_graph = _load_route_graph_compact_bundle(path)
+        if cached_graph is not None:
+            _set_last_load_strategy("compact_bundle")
+            return cached_graph
+        cached_graph = _load_route_graph_binary_cache(path)
+        if cached_graph is not None:
+            _set_last_load_strategy("binary_cache")
+            return cached_graph
     if ijson is None:
         _set_last_load_strategy("streaming_unavailable")
         return None

@@ -1,18 +1,30 @@
 # Carbon-Aware Multi-Objective Freight Router
 
-This repo runs:
-- OSRM in Docker (routing engine)
-- FastAPI backend
-- Next.js frontend
+This repository contains a local-first freight-routing stack with:
+
+- self-hosted OSRM and ORS baseline engines
+- a FastAPI backend with strict live/runtime gates and signed run artifacts
+- a Next.js frontend with route tooling, dual OSRM/ORS baseline comparison, academic comparator overlays, certificate/artifact inspection, diagnostics, tutorial flows, and devtools
+- thesis-grade evaluation workflows for DCCS, REFC, and VOI-AD2R
+- a separate hot-rerun benchmark for production-style cache/reuse validation
+
+## Repo Layout
+
+- `backend/`: FastAPI app, evaluation scripts, model assets, and runtime outputs
+- `frontend/`: Next.js app, API proxy routes, map UI, tutorial system, and devtools
+- `docs/`: authored documentation
+- `notebooks/`: notebook policy only; the repo is maintained as a script-first workflow
+- `osrm/`, `ors/`: local baseline-engine infrastructure and graph data
+- `scripts/`: repo-level developer helpers and docs validation
 
 ## Prerequisites
 
-- Docker Desktop running
+- Docker Desktop
 - PowerShell
-- `uv` installed (for backend local dev)
-- Node.js and `pnpm` installed (for frontend local dev)
+- Python with `uv`
+- Node.js with `pnpm`
 
-## Recommended workflow (one command, local dev)
+## Recommended Local Development Flow
 
 From repo root:
 
@@ -20,272 +32,158 @@ From repo root:
 .\scripts\dev.ps1
 ```
 
-What `dev.ps1` does:
-- creates `.env` from `.env.example` if missing
-- starts OSRM with Docker (`docker compose up -d osrm`)
-- waits for OSRM to respond on `http://localhost:5000/`
-- runs strict live preflight (`backend/scripts/preflight_live_runtime.py`) and fails fast if required live feeds are invalid/stale
-- starts backend in a new PowerShell window:
-  - `uv sync --dev` (only if `.venv` missing)
-  - `uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-- starts frontend in a new PowerShell window:
-  - `pnpm install` (only if `node_modules` missing)
-  - `pnpm dev`
-- if port `8000` or `3000` is already in use, that service is skipped
+This is the preferred local startup path. It runs strict live preflight, boots the local routing stack, and starts backend/frontend services when needed.
 
-URLs:
+Key URLs:
+
 - Frontend: `http://localhost:3000`
-- Backend docs: `http://localhost:8000/docs`
+- Backend OpenAPI docs: `http://localhost:8000/docs`
 - Backend readiness: `http://localhost:8000/health/ready`
 - OSRM: `http://localhost:5000`
+- ORS health: `http://localhost:8082/ors/v2/health`
 
-### Route compute timeout/fallback knobs
+## Full Container Stack
 
-The frontend compute flow now runs bounded fallback attempts with degraded alternatives (`12 -> 6 -> 3` by default).
-Configure in `.env` / `.env.example`:
-
-- `COMPUTE_ATTEMPT_TIMEOUT_MS` (server route-handler timeout override; default `420000`)
-- `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (server route-handler fallback timeout override; default `180000`)
-- `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS` (browser fallback; default `420000`)
-- `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (browser fallback; default `180000`)
-- `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS` (default `12,6,3`)
-- backend attempt ceiling: `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S` (default `420`)
-- bounded OD context probe: `ROUTE_CONTEXT_PROBE_TIMEOUT_MS` (default `2500`)
-- bounded OD context probe path budget: `ROUTE_CONTEXT_PROBE_MAX_PATHS` (default `2`)
-- strict scenario-source resiliency:
-  - `LIVE_SCENARIO_COEFFICIENT_URL` (default tracks `main` scenario artifact)
-  - `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES` (default `4320`)
-  - `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT` (default `true`)
-  - `LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT` (default `3`)
-  - `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT` (default `0.75`)
-- graph warmup on backend startup: `ROUTE_GRAPH_WARMUP_ON_STARTUP` (default `1`)
-- strict warmup fail-fast gate: `ROUTE_GRAPH_WARMUP_FAILFAST` (default `1`)
-- graph warmup timeout: `ROUTE_GRAPH_WARMUP_TIMEOUT_S` (default `1200`)
-- graph status check timeout: `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS` (default `1000`)
-- strict giant-component floor (nodes): `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES` (default `50000`)
-- strict giant-component floor (ratio): `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO` (default `0.20`)
-- strict OD nearest-node max distance (m): `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M` (default `10000`)
-- strict terrain fail-closed gate: `TERRAIN_DEM_FAIL_CLOSED_UK` (default `true`)
-- strict terrain minimum DEM coverage: `TERRAIN_DEM_COVERAGE_MIN_UK` (default `0.96`)
-- dev live-call tracing knobs (development only, sensitive when enabled):
-  - `DEV_ROUTE_DEBUG_CONSOLE_ENABLED`
-  - `DEV_ROUTE_DEBUG_INCLUDE_SENSITIVE`
-  - `DEV_ROUTE_DEBUG_MAX_CALLS_PER_REQUEST`
-  - `DEV_ROUTE_DEBUG_TRACE_TTL_SECONDS`
-  - `DEV_ROUTE_DEBUG_MAX_REQUEST_TRACES`
-
-Strict-live route compute now uses a hybrid cache refresh strategy: scenario coefficients refresh each attempt, while expensive live context feeds (DfT/WebTRIS/Traffic/Meteo) remain short-cached by TTL for fallback reliability.
-Frontend fallback now treats strict business failures (`HTTP 4xx` from route/pareto endpoints) as terminal and stops additional fallback attempts immediately.
-Routing graph runtime now always loads the full `backend/out/model_assets/routing_graph_uk.json` dataset in strict mode (no streamed/capped graph loading path exposed via env config).
-When graph warmup fail-fast is enabled, strict route endpoints return `routing_graph_warming_up` quickly until `GET /health/ready` reports `strict_route_ready=true`. If warmup exceeds timeout, endpoints return `routing_graph_warmup_failed` with rebuild guidance. If the loaded graph is fragmented, strict failures use `routing_graph_fragmented`; OD-specific failures use `routing_graph_disconnected_od` or `routing_graph_coverage_gap`.
-`GET /health/ready` now also reports `strict_live` readiness for scenario coefficients; if stale/unavailable under strict policy, `recommended_action=refresh_live_sources`.
-The frontend compute button is readiness-gated and remains disabled until strict route readiness is true.
-Before triggering compute, confirm `GET /health/ready` is reachable and reports `strict_route_ready=true` and `strict_live.ok=true`.
-Route Compute Diagnostics overlay now includes per-attempt live API call tracing (expected sources, observed URL calls, request/success/cache/retry status, headers, and extra diagnostics). Backend dev trace endpoint: `GET /debug/live-calls/{request_id}`.
-Repeated same-tile terrain route-cache hits are deduplicated in trace rows per request; use trace summary/terrain diagnostics for total cache-hit volume.
-
-
-## Stopping the dev workflow
-
-1. In backend window: `Ctrl+C`
-2. In frontend window: `Ctrl+C`
-3. From repo root:
-
-```powershell
-docker compose down
-```
-
-## Changing region data (`REGION_PBF_URL`)
-
-Set this in `.env`, for example:
-
-```env
-REGION_PBF_URL=https://download.geofabrik.de/europe/united-kingdom-latest.osm.pbf
-```
-
-Then run `.\scripts\dev.ps1` again.
-
-You do not need `clean.ps1` for normal region changes. The scripts now handle this automatically:
-- changed URL -> re-download `.pbf`
-- changed URL -> rebuild OSRM artifacts
-- unchanged URL -> reuse cache
-
-## Full Docker stack
-
-Run everything in containers:
+Run the complete Dockerized stack:
 
 ```powershell
 docker compose up --build
 ```
 
-Use this for full containerized verification. Do not run this at the same time as `.\scripts\dev.ps1` (port conflicts on `3000`, `5000`, `8000`).
+Do not run this at the same time as `.\scripts\dev.ps1`.
 
-## Utility scripts
+## Environment and Runtime Notes
 
-- `osrm/scripts/download_pbf.sh`
-  - runs automatically via service `osrm_download`
-  - downloads `region.osm.pbf` into `osrm/data/pbf`
-  - tracks `REGION_PBF_URL` and refreshes cache when URL changes
+- Copy `.env.example` to `.env` if you do not already have one.
+- Strict startup runs `backend/scripts/preflight_live_runtime.py` before backend launch.
+- Backend strict route readiness and strict live readiness both surface through `GET /health/ready`; evaluator summary artifacts now add `route_graph_readiness_class`, `route_graph_full_hydration_observed`, `degraded_evaluation_observed`, `degraded_reason_codes_observed`, `precheck_gate_actions_observed`, `route_fallback_observed`, and `strict_full_search_proof_eligible` so `ok_fast` lanes are not mistaken for full-hydration strict-search proof.
+- `POST /route` now defaults to the public `tri_source` lane when `pipeline_mode` is omitted. The landed thesis coordinator currently executes the `tri_source` path through `voi` internals for single-leg requests, and waypoint requests still fall back to `legacy`.
+- The public `pipeline_mode` reported in `RouteResponse`, `DecisionPackage`, manifests, and rewritten artifacts stays `tri_source` for that default lane even when the internal runtime path is `voi`.
+- `RouteResponse` still returns `selected`, `candidates`, `selected_certificate`, and `voi_stop_summary`, and now also includes `decision_package`.
+- `decision_package` is the public decision summary mirror. Its public `terminal_kind` contract is now exactly `certified_singleton`, `certified_set`, or `typed_abstention`, and it also carries `preference_summary`, `support_summary`, `world_support_summary`, `world_fidelity_summary`, `certification_state_summary`, `certified_set_summary`, `abstention_summary`, `witness_summary`, `controller_summary`, `theorem_hook_summary`, and `lane_manifest`.
+- Waypoint compatibility fallback remains explicit routing behavior. When `/route` has to execute through the legacy runtime for waypoint support, that is surfaced through `pipeline_mode`, provenance, warnings, and `abstention_summary.reason_code=legacy_runtime_selected`, not through a fourth public terminal outcome.
+- `decision_package.preference_summary` is the landed preference bridge. It is summary-only selector/runtime metadata, includes suggestion hints, and is not a public preference query/update API.
+- The frontend route result now treats `RouteCertificationPanel` plus `RunInspector` as the primary certificate/artifact inspection path. The browser groups artifacts into route-core, decision-package, support, DCCS/REFC, controller/VOI, witness/fragility, theorem/lane, and evaluation families using existing artifact names from the run store rather than any extra backend-only fields.
+- Current compute fallback defaults in `.env.example` are intentionally long-running for thesis/evaluation workloads:
+  - `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S=1200`
+  - `COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`
+  - `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`
+  - `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`
+  - `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`
+  - `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT=false`
+- Current live refresh and strict route-compute controls are driven by:
+  - `LIVE_ROUTE_COMPUTE_REFRESH_MODE`
+  - `LIVE_ROUTE_COMPUTE_REQUIRE_ALL_EXPECTED`
+  - `LIVE_ROUTE_COMPUTE_FORCE_NO_CACHE_HEADERS`
+  - `LIVE_ROUTE_COMPUTE_FORCE_UNCACHED`
+  - `LIVE_ROUTE_COMPUTE_PREFETCH_TIMEOUT_MS`
+  - `LIVE_ROUTE_COMPUTE_PREFETCH_MAX_CONCURRENCY`
+  - `LIVE_ROUTE_COMPUTE_PROBE_TERRAIN`
+- Current graph warmup and strict graph controls are driven by:
+  - `ROUTE_GRAPH_WARMUP_ON_STARTUP`
+  - `ROUTE_GRAPH_WARMUP_FAILFAST`
+  - `ROUTE_GRAPH_WARMUP_TIMEOUT_S`
+  - `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS`
+  - `ROUTE_GRAPH_FAST_STARTUP_ENABLED`
+  - `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES`
+  - `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO`
+  - `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M`
+- In strict runtime, settings validation forces strict live data on, requires expected live route-compute sources, requires strict graph readiness, and disables fast graph startup.
 
-- `osrm/scripts/run_osrm.sh`
-  - runs automatically via service `osrm`
-  - reuses existing OSRM graph data when valid
-  - rebuilds OSRM graph data when required artifacts are missing or region URL changed
+## Important Scripts
 
-- `scripts/clean.ps1`
-  - manual hard reset script
-  - runs `docker compose down`
-  - removes `osrm/data/pbf` and `osrm/data/osrm` caches
-  - recreates those folders with `.gitkeep`
-  - use when forcing a fully clean rebuild or recovering from suspected cache corruption
+Repo-level:
 
-- `scripts/serve_docs.ps1`
-  - serves markdown docs from `docs/` over a local HTTP server
-  - run from repo root:
-  - `.\scripts\serve_docs.ps1`
-  - then open `http://localhost:8088/`
+- `.\scripts\dev.ps1`: preferred local startup
+- `.\scripts\clean.ps1`: clean Docker/OSRM caches and force rebuild
+- `.\scripts\run_backend_tests_safe.ps1`: low-resource backend test runner
+- `.\scripts\serve_docs.ps1`: local markdown docs viewer
+- `python scripts/check_docs.py`: docs path/link/endpoint/index consistency checks
+- `.\scripts\demo_repro_run.ps1`: reproducibility demo path
 
-- `backend/scripts/benchmark_batch_pareto.py`
-  - benchmark harness with runtime/resource logs
-  - run from `backend/`:
-  - `uv run python scripts/benchmark_batch_pareto.py --mode inprocess-fake --pair-count 100 --seed 20260212`
+Backend build and evaluation:
 
-- `backend/scripts/run_headless_scenario.py`
-  - headless batch runner with artifact download
-  - run from `backend/` with JSON input:
-  - `uv run python scripts/run_headless_scenario.py --input-json ../docs/examples/sample_batch_request.json`
-  - run from `backend/` with CSV input:
-  - `uv run python scripts/run_headless_scenario.py --input-csv .\pairs.csv`
+- `uv run --project backend python backend/scripts/build_model_assets.py`
+- `uv run --project backend python backend/scripts/publish_live_artifacts_uk.py`
+- `uv run --project backend python backend/scripts/preflight_live_runtime.py`
+- `uv run --project backend python backend/scripts/run_headless_scenario.py`
+- `uv run --project backend python backend/scripts/run_thesis_lane.py`
+- `uv run --project backend python backend/scripts/run_thesis_evaluation.py`
+- `uv run --project backend python backend/scripts/run_thesis_campaign.py`
+- `uv run --project backend python backend/scripts/expand_thesis_broad_corpus.py`
+- `uv run --project backend python backend/scripts/run_hot_rerun_benchmark.py`
+- `uv run --project backend python backend/scripts/compare_thesis_runs.py`
+- `uv run --project backend python backend/scripts/compose_thesis_sharded_report.py`
+- `uv run --project backend python backend/scripts/compose_thesis_suite_report.py`
+- `uv run --project backend python backend/scripts/check_eta_concept_drift.py`
 
-- `backend/scripts/run_robustness_analysis.py`
-  - multi-seed robustness analysis runner
-  - run from `backend/`:
-  - `uv run python scripts/run_robustness_analysis.py --mode inprocess-fake --seeds 11,22,33 --pair-count 100`
+## Evaluation Workflows
 
-- `backend/scripts/run_sensitivity_analysis.py`
-  - one-factor sensitivity sweep runner for cost toggles
-  - run from `backend/`:
-  - `uv run python scripts/run_sensitivity_analysis.py --mode inprocess-fake --pair-count 50 --include-no-tolls`
+- Use `backend/scripts/run_thesis_lane.py` for smaller lane-local checks and focused iteration.
+- Use `backend/scripts/run_thesis_evaluation.py` for the broad cold thesis proof, focused REFC proof, focused VOI proof, and DCCS diagnostic probe. Evaluator runs also emit cohort-scaffolded metadata such as `evaluation_suite`, `thesis_cohort_scaffolding_v2`, the explicit cohort labels (`collapse_prone`, `osrm_brittle`, `ors_brittle`, `refresh_sensitive`, `time_preserving_conflict`, `low_ambiguity_fast_path`, `preference_sensitive`, `support_fragile`, `audit_heavy`, `proxy_friendly`), `thesis_summary_by_cohort.csv/json`, and `cohort_composition.json`.
+- Use `backend/scripts/run_thesis_campaign.py` when you need sequential OD widening with regression carry-forward. It bootstraps a known-green corpus, adds only a small batch of unseen ODs per tranche, reruns the prior green ODs on every widening step, treats any expected OD missing from evaluator output as a tranche failure, and writes a persistent campaign ledger with gate config, evaluated-vs-expected OD inventory, artifact-evidence status, tranche-local filtered corpora, and per-OD pass/fail summaries alongside the underlying thesis-run artifacts.
+- Use `backend/scripts/run_hot_rerun_benchmark.py` for the dedicated second-run reuse benchmark and hot-vs-cold comparison artifacts.
+- Use `backend/scripts/compose_thesis_suite_report.py` to compose completed evaluation lanes into a final suite report with cohort summaries, cohort composition, suite-source provenance, and prior coverage summaries.
 
-- `backend/scripts/check_eta_concept_drift.py`
-  - compares predicted vs observed ETA CSV values and flags concept drift
-  - run from `backend/`:
-  - `uv run python scripts/check_eta_concept_drift.py --input-csv .\eta_observations.csv --mae-threshold-s 120 --mape-threshold-pct 10`
+## Current Checked-In Result Anchors
 
-- `backend/scripts/generate_run_report.py`
-  - regenerate `report.pdf` from manifest/results/metadata for a run
-  - run from `backend/`:
-  - `uv run python scripts/generate_run_report.py --run-id <run_id> --out-dir out`
+- repaired broad cold headline bundle: `backend/out/thesis_eval_core120_green_repaired/artifacts/thesis_eval_core120_green_repaired_20260404/` with `120` ODs / `480` evaluated rows / `0` failures; `weighted_win_rate_v0` is `0.541667` for `A`, `0.55` for `B`, and `0.633333` for `C`, while `C` reports `mean_voi_realized_certificate_lift=0.168752`
+- focused REFC anchor: `backend/out/artifacts/refc_focus_20260331_h2/`; variant `C` reports `mean_certificate=0.870634`, `mean_voi_realized_certificate_lift=0.165028`, `voi_controller_engagement_rate=0.9`, and `mean_runtime_ms=8520.1158`
+- focused VOI anchor: `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/`; variant `C` reports `mean_certificate=0.861459`, `mean_voi_realized_certificate_lift=0.097638`, `mean_voi_action_count=1.3`, and `voi_controller_engagement_rate=0.8`
+- hot-rerun anchor pair: `backend/out/artifacts/hot_full_20260331_f2_cold/` and `backend/out/artifacts/hot_full_20260331_f2_hot/`; `mean_runtime_ms` drops from `18903.988263 -> 1629.783632` for `V0`, `22722.158474 -> 2537.876947` for `A`, `6407.758 -> 2247.957474` for `B`, and `10213.524474 -> 2122.009263` for `C`, while `mean_refc_world_reuse_rate` rises from `0.0` to `1.0` for `B` and `C`
+- harder-story / widening anchors: `backend/out/thesis_campaigns/hard_mixed24_corr12p5_t4_inproc_r4/tranche_001/artifacts/hard_mixed24_corr12p5_t4_inproc_r4_t001/` is the current fully green proof-grade harder-story tranche, while `longcorr_cardiff_newcastle4_corr12p5_r1` and `dominance_cluster5_cardiff_bath_corr12p5_r2` are current partially green but not proof-eligible campaign anchors
+- staged broadening assets: `backend/data/eval/uk_od_corpus_thesis_broad_expanded_1200.csv` and `backend/data/eval/thesis_shards_1200/*.csv` are checked in, but `backend/out/thesis_1200_s01_repo_local/artifacts/thesis_1200_s01_repo_local/` currently contains only `repo_asset_preflight.json` and `baseline_smoke_summary.json`, so it should not be cited as a completed thesis result
 
-- `backend/scripts/publish_live_artifacts_uk.py`
-  - publishes strict JSON live artifacts into tracked `backend/assets/uk/` paths
-  - converts compiled toll outputs into strict runtime JSON payloads (`backend/assets/uk/toll_topology_uk.json`, `backend/assets/uk/toll_tariffs_uk.json`)
-  - validates/regenerates fuel signature when needed
-  - run from repo root:
-  - `uv run --project backend python backend/scripts/publish_live_artifacts_uk.py`
+## Runtime Outputs
 
-- `backend/scripts/preflight_live_runtime.py`
-  - validates strict live runtime loaders before app startup
-  - writes summary to `backend/out/model_assets/preflight_live_runtime.json`
-  - run from repo root:
-  - `uv run --project backend python backend/scripts/preflight_live_runtime.py`
+Current runtime and evaluation outputs are written under `backend/out/`:
 
-- `scripts/demo_repro_run.ps1`
-  - scripted reproducibility capsule run (fixed seed and pair count)
-  - run from repo root:
-  - `.\scripts\demo_repro_run.ps1`
+- `backend/out/manifests/`
+- `backend/out/scenario_manifests/`
+- `backend/out/provenance/`
+- `backend/out/artifacts/<run_id>/`
+- `backend/out/model_assets/`
+- `backend/out/test_runs/<timestamp>/`
+
+Completed runs are typically inspected through signed manifests and the artifact API rather than by opening files directly:
+
+- `GET /runs/{run_id}/manifest`
+- `GET /runs/{run_id}/scenario-manifest`
+- `GET /runs/{run_id}/signature`
+- `GET /runs/{run_id}/scenario-signature`
+- `GET /runs/{run_id}/artifacts`
+- `GET /runs/{run_id}/artifacts/{artifact_name}`
+
+Hot-rerun cache state can be restored separately through `POST /cache/hot-rerun/restore` when you are preparing a dedicated reuse benchmark.
+
+Per-run artifact directories may include:
+
+- core outputs: results.json, results.csv, metadata.json, routes.geojson, results_summary.csv
+- decision-package outputs: decision_package.json, preference_summary.json, support_summary.json, support_provenance.json, support_trace.jsonl, certified_set.json, certified_set_routes.jsonl, final_route_trace.json, plus conditional files such as abstention_summary.json, witness_summary.json, witness_routes.jsonl, controller_summary.json, controller_trace.jsonl, voi_action_trace.json, voi_controller_state.jsonl, voi_controller_trace_summary.json, voi_replay_oracle_summary.json, theorem_hook_map.json, and lane_manifest.json when the corresponding runtime state exists
+- DCCS outputs: `dccs_summary.json`, `dccs_candidates.jsonl`, and `strict_frontier.jsonl` are the main DCCS export contract; `dccs_summary.json` now carries `control_state`, and `dccs_candidates.jsonl` / `strict_frontier.jsonl` carry the row-level DCCS vocabulary for `safe_elimination_reason`, `dominance_margin`, `dominating_candidate_ids`, `dominated_candidate_ids`, `search_deficiency_score`, `hidden_challenger_score`, `anti_collapse_quota`, and `long_corridor_search_completeness`. `refined_routes.jsonl` remains the downstream refinement output. These surfaces are instrumented for later validation, not empirically cleared in this pass
+- REFC outputs: winner_summary.json, certificate_summary.json, route_fragility_map.json, competitor_fragility_breakdown.json, sampled_world_manifest.json, evidence_snapshot_manifest.json
+- VOI outputs: value_of_refresh.json, voi_action_trace.json, voi_controller_state.jsonl, voi_action_scores.csv, voi_stop_certificate.json, final_route_trace.json
+- evaluation outputs: thesis_results.*, thesis_summary.*, thesis_summary_by_cohort.*, thesis_metrics.json, thesis_plots.json, cohort_composition.json, evaluation_manifest.json, with `metric_family_scaffolding` carried through `metadata.json`, `results.json`, `thesis_metrics.json`, `thesis_plots.json`, and `evaluation_manifest.json`; summary `metadata.json` and `evaluation_manifest.json` also carry `route_graph_readiness_class`, `route_graph_full_hydration_observed`, `degraded_evaluation_observed`, `degraded_reason_codes_observed`, `precheck_gate_actions_observed`, `route_fallback_observed`, and `strict_full_search_proof_eligible`
+- report outputs: methods_appendix.md, thesis_report.md
+- corpus/baseline helpers: od_corpus.*, ors_snapshot.json
+- hot-rerun outputs when applicable: hot_rerun_vs_cold_comparison.json, hot_rerun_vs_cold_comparison.csv, hot_rerun_gate.json, hot_rerun_report.md
+
+The thesis evaluator and run-store registry keep `schema_version` on dict-backed JSON artifacts and version-tracked registry entries for JSONL/JSON outputs such as `voi_action_trace.json`, `voi_controller_trace_summary.json`, `voi_replay_oracle_summary.json`, `theorem_hook_map.json`, `lane_manifest.json`, and `final_route_trace.json`. Runtime `reuse_rate`, `world_reuse_rate`, and related cache/provenance fields are instrumented reporting surfaces unless a later empirical pass verifies them explicitly. Treat `route_graph_readiness_class="fast_startup_metadata_ready"` or `degraded_evaluation_observed=true` in evaluator summaries as degraded-evaluation evidence, not as full-search proof.
+
+The browser-facing inspection workflow should read those files in two tiers: guaranteed route files such as `decision_package.json`, `preference_summary.json`, `support_summary.json`, `support_provenance.json`, `certified_set.json`, `certified_set_routes.jsonl`, and `final_route_trace.json`, then conditional follow-on files for abstention, witnesses, controller traces, theorem hooks, lane manifests, and evaluator outputs when they are actually present for the run.
 
 ## Documentation
 
-- `docs/DOCS_INDEX.md`
-  - central docs index and source-of-truth navigation
-- `docs/run-and-operations.md`
-  - complete local runbook (frontend/backend/full stack/docs/tests)
-- run docs checks from repo root:
-  - `python scripts/check_docs.py`
-- serve docs locally from repo root:
-  - `.\scripts\serve_docs.ps1`
-- `docs/backend-api-tools.md`
-  - backend endpoint inventory, strict contract shape, and tooling commands
-- `docs/api-cookbook.md`
-  - reproducible CLI/API examples (notebook-free)
-- `docs/strict-errors-reference.md`
-  - reason-code catalog and stream/non-stream failure shape
-- `docs/quality-gates-and-benchmarks.md`
-  - quality and performance gate workflow
-- `notebooks/NOTEBOOKS_POLICY.md`
-  - notebook-free policy and alternatives
+Start with [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md).
 
-## API Quick Commands
+High-value docs:
 
-Duty chain (multi-leg):
+- [Run and Operations Guide](docs/run-and-operations.md)
+- [Backend APIs and Tooling](docs/backend-api-tools.md)
+- [API Cookbook](docs/api-cookbook.md)
+- [Quality Gates and Benchmarks](docs/quality-gates-and-benchmarks.md)
+- [Reproducibility Capsule](docs/reproducibility-capsule.md)
+- [VOI Thesis Pipeline Spec](docs/voi-pipeline-spec.md)
+- [Notebook Policy](notebooks/NOTEBOOKS_POLICY.md)
 
-```powershell
-$body = @{
-  stops = @(
-    @{ lat = 52.4862; lon = -1.8904; label = "Birmingham" }
-    @{ lat = 52.2053; lon = 0.1218; label = "Cambridge" }
-    @{ lat = 51.5072; lon = -0.1276; label = "London" }
-  )
-  vehicle_type = "rigid_hgv"
-  scenario_mode = "no_sharing"
-} | ConvertTo-Json -Depth 8
-
-Invoke-RestMethod -Uri "http://localhost:8000/duty/chain" -Method Post -ContentType "application/json" -Body $body
-```
-
-Oracle quality ingest + dashboard:
-
-```powershell
-$check = @{
-  source = "oracle_demo"
-  schema_valid = $true
-  signature_valid = $true
-  freshness_s = 45
-  latency_ms = 120
-  record_count = 10
-} | ConvertTo-Json
-
-Invoke-RestMethod -Uri "http://localhost:8000/oracle/quality/check" -Method Post -ContentType "application/json" -Body $check
-Invoke-RestMethod -Uri "http://localhost:8000/oracle/quality/dashboard" -Method Get
-Invoke-WebRequest -Uri "http://localhost:8000/oracle/quality/dashboard.csv" -OutFile ".\oracle_quality_dashboard.csv"
-```
-
-Weather + synthetic incidents:
-
-```powershell
-$body = @{
-  origin = @{ lat = 52.4862; lon = -1.8904 }
-  destination = @{ lat = 51.5072; lon = -0.1276 }
-  vehicle_type = "rigid_hgv"
-  scenario_mode = "no_sharing"
-  weather = @{
-    enabled = $true
-    profile = "rain"
-    intensity = 1.2
-    apply_incident_uplift = $true
-  }
-  incident_simulation = @{
-    enabled = $true
-    seed = 123
-    dwell_rate_per_100km = 1.0
-    accident_rate_per_100km = 0.3
-    closure_rate_per_100km = 0.05
-  }
-} | ConvertTo-Json -Depth 10
-
-Invoke-RestMethod -Uri "http://localhost:8000/route" -Method Post -ContentType "application/json" -Body $body
-```
-
-## Accessibility and i18n Readiness
-
-- Frontend now includes a language selector (`English`/`Español`) with locale-aware date/number formatting in key panels.
-- Keyboard support includes a skip link (`Skip to controls panel`) and focus-visible states for primary controls.
-- Screen-reader updates are announced through a live region for compute/compare/optimization/duty-chain status changes.
-
-## Troubleshooting
-
-- `dev.ps1` stuck on "Waiting for OSRM...":
-  - check `docker compose logs -f osrm`
-- OSRM exits unexpectedly:
-  - run `.\scripts\clean.ps1`, then `.\scripts\dev.ps1`
+`docs/thesis-codebase-report.md` is maintained separately from the general docs set.

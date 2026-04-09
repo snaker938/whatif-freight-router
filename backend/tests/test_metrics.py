@@ -15,8 +15,9 @@ from app.calibration_loader import (
     load_live_scenario_context,
     load_scenario_profiles,
 )
-from app.main import app, osrm_client
+from app.main import CandidateDiagnostics, TerrainDiagnostics, app, osrm_client
 from app.metrics_store import reset_metrics
+from app.models import GeoJSONLineString, RouteMetrics, RouteOption
 from app.route_cache import clear_route_cache
 from app.routing_graph import GraphCandidateDiagnostics
 from app.routing_osrm import OSRMError
@@ -412,6 +413,23 @@ def _make_route() -> dict[str, Any]:
     }
 
 
+def _make_route_option(route_id: str = "route_0") -> RouteOption:
+    return RouteOption(
+        id=route_id,
+        geometry=GeoJSONLineString(
+            type="LineString",
+            coordinates=[(-1.0, 52.0), (-0.8, 51.9), (-0.6, 51.8)],
+        ),
+        metrics=RouteMetrics(
+            distance_km=12.0,
+            duration_s=900.0,
+            monetary_cost=45.0,
+            emissions_kg=18.0,
+            avg_speed_kmh=48.0,
+        ),
+    )
+
+
 class SuccessOSRM:
     async def fetch_routes(self, **_: Any) -> list[dict[str, Any]]:
         return [_make_route()]
@@ -422,9 +440,45 @@ class FailingOSRM:
         raise OSRMError("forced failure")
 
 
-def test_metrics_endpoint_tracks_successful_core_requests() -> None:
+def test_metrics_endpoint_tracks_successful_core_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
     reset_metrics()
     clear_route_cache()
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["pipeline_mode"] == "tri_source"
+        selected = _make_route_option()
+        return {
+            "selected": selected,
+            "candidates": [selected],
+            "warnings": [],
+            "candidate_fetches": 1,
+            "terrain_diag": TerrainDiagnostics(),
+            "candidate_diag": CandidateDiagnostics(
+                raw_count=1,
+                deduped_count=1,
+                graph_explored_states=1,
+                graph_generated_paths=1,
+                graph_emitted_paths=1,
+                candidate_budget=1,
+                selected_candidate_count=1,
+            ),
+            "selected_certificate": selected.certification,
+            "voi_stop_summary": None,
+            "extra_json_artifacts": {},
+            "extra_jsonl_artifacts": {},
+            "extra_csv_artifacts": {},
+            "extra_text_artifacts": {},
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
     app.dependency_overrides[osrm_client] = lambda: SuccessOSRM()
     try:
         with TestClient(app) as client:

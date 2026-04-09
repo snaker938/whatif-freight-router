@@ -277,3 +277,182 @@ def test_ambiguous_corpus_selection_prefers_stronger_budget_prior() -> None:
     assert len(selected) == 1
     assert selected[0]["od_id"] == "hard-1"
     assert selected[0]["selection_score"] > 0.75
+
+
+def test_build_dual_od_corpora_emits_disjoint_broad_rows(monkeypatch) -> None:
+    pool_rows = [
+        {
+            "od_id": "amb-1",
+            "distance_bin": "30-100 km",
+            "corridor_bucket": "a",
+            "ambiguity_index": 0.91,
+            "od_ambiguity_index": 0.91,
+            "ambiguity_budget_prior": 0.91,
+            "hard_case_prior": 0.88,
+            "candidate_probe_engine_disagreement_prior": 0.85,
+            "od_ambiguity_support_ratio": 0.82,
+            "od_ambiguity_source_entropy": 0.66,
+            "candidate_probe_path_count": 5,
+        },
+        {
+            "od_id": "rep-1",
+            "distance_bin": "30-100 km",
+            "corridor_bucket": "b",
+            "ambiguity_index": 0.41,
+            "od_ambiguity_index": 0.41,
+            "ambiguity_budget_prior": 0.41,
+            "hard_case_prior": 0.33,
+            "candidate_probe_engine_disagreement_prior": 0.30,
+            "od_ambiguity_support_ratio": 0.35,
+            "od_ambiguity_source_entropy": 0.05,
+            "candidate_probe_path_count": 2,
+        },
+        {
+            "od_id": "amb-2",
+            "distance_bin": "30-100 km",
+            "corridor_bucket": "c",
+            "ambiguity_index": 0.86,
+            "od_ambiguity_index": 0.86,
+            "ambiguity_budget_prior": 0.86,
+            "hard_case_prior": 0.81,
+            "candidate_probe_engine_disagreement_prior": 0.78,
+            "od_ambiguity_support_ratio": 0.77,
+            "od_ambiguity_source_entropy": 0.61,
+            "candidate_probe_path_count": 4,
+        },
+        {
+            "od_id": "rep-2",
+            "distance_bin": "30-100 km",
+            "corridor_bucket": "d",
+            "ambiguity_index": 0.47,
+            "od_ambiguity_index": 0.47,
+            "ambiguity_budget_prior": 0.47,
+            "hard_case_prior": 0.38,
+            "candidate_probe_engine_disagreement_prior": 0.36,
+            "od_ambiguity_support_ratio": 0.29,
+            "od_ambiguity_source_entropy": 0.08,
+            "candidate_probe_path_count": 2,
+        },
+    ]
+
+    def _fake_build_od_corpus(**kwargs):  # noqa: ARG001
+        return {
+            "schema_version": "2.0.0",
+            "seed": 7,
+            "acceptance_mode": "graph_candidates",
+            "corpus_hash": "pool-hash",
+            "accepted_count": len(pool_rows),
+            "distance_bins": [],
+            "rows": [dict(row) for row in pool_rows],
+        }
+
+    monkeypatch.setattr(corpus_module, "build_od_corpus", _fake_build_od_corpus)
+
+    bundle = corpus_module.build_dual_od_corpora(
+        seed=7,
+        representative_count=2,
+        ambiguous_count=2,
+        bbox=corpus_module.UKBBox(south=50.0, north=56.0, west=-6.0, east=2.0),
+        max_attempts=100,
+    )
+
+    representative_ids = {row["od_id"] for row in bundle["representative"]["rows"]}
+    ambiguous_ids = {row["od_id"] for row in bundle["ambiguous"]["rows"]}
+    broad_ids = [row["od_id"] for row in bundle["broad"]["rows"]]
+
+    assert representative_ids == {"rep-1", "rep-2"}
+    assert ambiguous_ids == {"amb-1", "amb-2"}
+    assert representative_ids.isdisjoint(ambiguous_ids)
+    assert len(broad_ids) == 4
+    assert len(set(broad_ids)) == 4
+    assert bundle["broad"]["component_counts"] == {"representative": 2, "ambiguous": 2}
+    assert bundle["broad"]["component_overlap_count"] == 0
+    assert bundle["broad"]["distinct_od_id_count"] == 4
+
+
+def test_main_dual_builder_writes_broad_outputs(tmp_path: Path, monkeypatch) -> None:
+    bundle = {
+        "source_pool": {"corpus_hash": "pool-hash"},
+        "representative": {
+            "rows": [{"od_id": "rep-1", "corpus_kind": "representative"}],
+        },
+        "ambiguous": {
+            "rows": [{"od_id": "amb-1", "corpus_kind": "ambiguous"}],
+        },
+        "broad": {
+            "rows": [
+                {"od_id": "rep-1", "corpus_kind": "representative"},
+                {"od_id": "amb-1", "corpus_kind": "ambiguous"},
+            ],
+        },
+    }
+
+    monkeypatch.setattr(corpus_module, "build_dual_od_corpora", lambda **kwargs: bundle)  # noqa: ARG005
+
+    exit_code = corpus_module.main(
+        [
+            "--output-dir",
+            str(tmp_path),
+            "--pair-count",
+            "1",
+            "--ambiguous-pair-count",
+            "1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert (tmp_path / "uk_od_corpus_representative.csv").exists()
+    assert (tmp_path / "uk_od_corpus_ambiguous.csv").exists()
+    assert (tmp_path / "uk_od_corpus_thesis_broad_generated.csv").exists()
+    broad_summary = json.loads((tmp_path / "uk_od_corpus_thesis_broad_generated.summary.json").read_text(encoding="utf-8"))
+    assert len(broad_summary["rows"]) == 2
+
+
+def test_harder_eval_corpora_are_curated_from_existing_rows_with_family_caps() -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+
+    def _load_rows(path: Path) -> list[dict[str, str]]:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+
+    def _canon_od_family(od_id: str) -> str:
+        parts = [part for part in od_id.split("_") if not part.startswith("alt")]
+        if len(parts) >= 2:
+            return f"{parts[0]}_{parts[-1]}"
+        return od_id
+
+    hard_mixed_path = backend_dir / "data" / "eval" / "uk_od_corpus_hard_mixed_24.csv"
+    longcorr_hard_path = backend_dir / "data" / "eval" / "uk_od_corpus_longcorr_hard_32.csv"
+
+    hard_mixed_rows = _load_rows(hard_mixed_path)
+    longcorr_hard_rows = _load_rows(longcorr_hard_path)
+
+    hard_mixed_sources = (
+        _load_rows(backend_dir / "data" / "eval" / "uk_od_corpus_dominance_cluster_8.csv")
+        + _load_rows(backend_dir / "data" / "eval" / "uk_od_corpus_thesis_broad_expanded_1200.csv")
+        + _load_rows(backend_dir / "out" / "thesis_corpus" / "uk_od_corpus_thesis_broad_longcorr_250km.csv")
+    )
+    hard_mixed_source_ids = {row["od_id"] for row in hard_mixed_sources}
+    longcorr_source_ids = {
+        row["od_id"]
+        for row in _load_rows(backend_dir / "out" / "thesis_corpus" / "uk_od_corpus_thesis_broad_longcorr_250km.csv")
+    }
+
+    assert len(hard_mixed_rows) == 24
+    assert {row["corpus_group"] for row in hard_mixed_rows} == {"ambiguity", "representative"}
+    assert sum(1 for row in hard_mixed_rows if row["trip_length_bin"] in {"250-500 km", "500+ km"}) >= 12
+    assert max(
+        sum(1 for inner in hard_mixed_rows if _canon_od_family(inner["od_id"]) == family)
+        for family in {_canon_od_family(row["od_id"]) for row in hard_mixed_rows}
+    ) <= 4
+    assert {row["od_id"] for row in hard_mixed_rows}.issubset(hard_mixed_source_ids)
+
+    assert len(longcorr_hard_rows) == 32
+    assert {row["corpus_group"] for row in longcorr_hard_rows} == {"ambiguity", "representative"}
+    assert all(row["trip_length_bin"] in {"250-500 km", "500+ km"} for row in longcorr_hard_rows)
+    assert sum(1 for row in longcorr_hard_rows if float(row["od_ambiguity_index"]) >= 0.30) >= 16
+    assert max(
+        sum(1 for inner in longcorr_hard_rows if _canon_od_family(inner["od_id"]) == family)
+        for family in {_canon_od_family(row["od_id"]) for row in longcorr_hard_rows}
+    ) <= 4
+    assert {row["od_id"] for row in longcorr_hard_rows}.issubset(longcorr_source_ids)

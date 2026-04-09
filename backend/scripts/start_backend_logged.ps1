@@ -1,13 +1,47 @@
 param(
-    [int]$Port = 8000
+    [int]$Port = 8000,
+    [int]$MemoryLimitMB = 0,
+    [string]$LeaseManifestPath = "",
+    [string]$LeaseTopology = "split_process"
 )
 
 $backendRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $python = Join-Path $backendRoot ".venv\Scripts\python.exe"
+$memoryWrapper = Join-Path $backendRoot "scripts\run_with_job_memory_limit.ps1"
 $outDir = Join-Path $backendRoot "out"
 $stdout = Join-Path $outDir "backend_stdout.log"
 $stderr = Join-Path $outDir "backend_stderr.log"
-$pidFile = Join-Path $outDir "backend_server.pid"
+$primaryPidFile = Join-Path $outDir ("backend_server_{0}.pid" -f $Port)
+$pidFiles = @($primaryPidFile)
+if ($Port -eq 8000) {
+    $pidFiles += Join-Path $outDir "backend_server.pid"
+}
+$resolvedLeaseManifestPath = if ([string]::IsNullOrWhiteSpace($LeaseManifestPath)) {
+    ""
+} elseif ([System.IO.Path]::IsPathRooted($LeaseManifestPath)) {
+    [System.IO.Path]::GetFullPath($LeaseManifestPath)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $backendRoot $LeaseManifestPath))
+}
+
+function Write-BackendLeaseManifest {
+    param($Payload)
+
+    if ([string]::IsNullOrWhiteSpace($resolvedLeaseManifestPath)) {
+        return
+    }
+
+    $manifestDirectory = Split-Path -Parent $resolvedLeaseManifestPath
+    if (-not [string]::IsNullOrWhiteSpace($manifestDirectory)) {
+        New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
+    }
+
+    $tempPath = "$resolvedLeaseManifestPath.tmp"
+    $json = $Payload | ConvertTo-Json -Depth 8
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
+    Move-Item -LiteralPath $tempPath -Destination $resolvedLeaseManifestPath -Force
+}
 
 function Get-ProcessInfoById {
     param(
@@ -75,7 +109,10 @@ function Get-BackendListenerProcess {
 
 function Get-BackendProcesses {
     $rows = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^python(3)?\.exe$' -and $_.CommandLine -match 'uvicorn\s+app\.main:app' }
+        Where-Object {
+            ($_.Name -match '^python(3)?\.exe$' -and $_.CommandLine -match 'uvicorn\s+app\.main:app') -or
+            ($_.Name -match '^powershell(\.exe)?$|^pwsh(\.exe)?$' -and $_.CommandLine -match 'run_with_job_memory_limit\.ps1' -and $_.CommandLine -match 'uvicorn' -and $_.CommandLine -match 'app\.main:app')
+        }
     if ($null -eq $rows) {
         return @()
     }
@@ -97,7 +134,28 @@ function Test-IsBackendProcess {
         return $false
     }
     $commandLine = [string]$ProcessInfo.CommandLine
-    return $commandLine.Contains("uvicorn") -and $commandLine.Contains("app.main:app")
+    return (
+        $commandLine.Contains("uvicorn") -and $commandLine.Contains("app.main:app")
+    ) -or (
+        $commandLine.Contains("run_with_job_memory_limit.ps1") -and
+        $commandLine.Contains("uvicorn") -and
+        $commandLine.Contains("app.main:app")
+    )
+}
+
+function Test-BackendProcessMatchesPort {
+    param(
+        [object]$ProcessInfo,
+        [int]$TargetPort
+    )
+
+    if (-not (Test-IsBackendProcess -ProcessInfo $ProcessInfo)) {
+        return $false
+    }
+
+    $commandLine = [string]$ProcessInfo.CommandLine
+    $escapedPort = [regex]::Escape([string]$TargetPort)
+    return [regex]::IsMatch($commandLine, "--port(?:'|`"|,|\s)+$escapedPort\b")
 }
 
 function Wait-BackendPortClear {
@@ -121,22 +179,24 @@ if (-not (Test-Path $python)) {
     Write-Error ("Backend virtualenv python not found: {0}" -f $python)
     exit 1
 }
+if (($MemoryLimitMB -gt 0) -and (-not (Test-Path $memoryWrapper))) {
+    Write-Error ("Backend memory-limit wrapper not found: {0}" -f $memoryWrapper)
+    exit 1
+}
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-if (Test-Path $pidFile) {
-    $existingPid = Get-Content $pidFile | Select-Object -First 1
-    if ($existingPid) {
-        $existingInfo = Get-ProcessInfoById -ProcessId ([int]$existingPid)
-        if (Test-IsBackendProcess -ProcessInfo $existingInfo) {
-            Stop-BackendProcess -ProcessId ([int]$existingPid)
+foreach ($pidFile in $pidFiles) {
+    if (Test-Path $pidFile) {
+        $existingPid = Get-Content $pidFile | Select-Object -First 1
+        if ($existingPid) {
+            $existingInfo = Get-ProcessInfoById -ProcessId ([int]$existingPid)
+            if (Test-BackendProcessMatchesPort -ProcessInfo $existingInfo -TargetPort $Port) {
+                Stop-BackendProcess -ProcessId ([int]$existingPid)
+            }
         }
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-}
-
-foreach ($backendProcess in (Get-BackendProcesses)) {
-    Stop-BackendProcess -ProcessId ([int]$backendProcess.ProcessId)
 }
 
 $listenerProcess = Get-BackendListenerProcess -TargetPort $Port
@@ -156,20 +216,68 @@ if ($null -ne $listenerProcess) {
     }
 }
 
-foreach ($path in @($stdout, $stderr, $pidFile)) {
+foreach ($path in @($stdout, $stderr) + $pidFiles) {
     if (Test-Path $path) {
         Remove-Item $path -Force -ErrorAction SilentlyContinue
     }
 }
 
-$proc = Start-Process `
-    -FilePath $python `
-    -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$Port") `
-    -WorkingDirectory $backendRoot `
-    -RedirectStandardOutput $stdout `
-    -RedirectStandardError $stderr `
-    -PassThru `
-    -WindowStyle Hidden
+if ($MemoryLimitMB -gt 0) {
+    $launcher = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell.exe" }
+    $commandParts = @(
+        "&", ('"' + $memoryWrapper + '"'),
+        "-MemoryLimitMB", "$MemoryLimitMB",
+        "-WorkingDirectory", ('"' + $backendRoot + '"'),
+        "-FilePath", ('"' + $python + '"'),
+        "-ArgumentList", "@('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','{0}')" -f $Port
+    )
+    if (-not [string]::IsNullOrWhiteSpace($resolvedLeaseManifestPath)) {
+        $commandParts += @(
+            "-LeaseManifestPath", ('"' + $resolvedLeaseManifestPath + '"'),
+            "-LeaseRole", '"backend"',
+            "-LeaseTopology", ('"' + $LeaseTopology + '"')
+        )
+    }
+    $command = $commandParts -join " "
+    $proc = Start-Process `
+        -FilePath $launcher `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command) `
+        -WorkingDirectory $backendRoot `
+        -RedirectStandardOutput $stdout `
+        -RedirectStandardError $stderr `
+        -PassThru `
+        -WindowStyle Hidden
+} else {
+    $proc = Start-Process `
+        -FilePath $python `
+        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$Port") `
+        -WorkingDirectory $backendRoot `
+        -RedirectStandardOutput $stdout `
+        -RedirectStandardError $stderr `
+        -PassThru `
+        -WindowStyle Hidden
+    if (-not [string]::IsNullOrWhiteSpace($resolvedLeaseManifestPath)) {
+        Write-BackendLeaseManifest -Payload ([ordered]@{
+            schema_version = 1
+            role = "backend"
+            topology = [string]$LeaseTopology
+            started_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+            updated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+            status = "running"
+            watchdog_triggered = $false
+            memory_limit_mb = [int]$MemoryLimitMB
+            working_directory = $backendRoot
+            resolved_file_path = $python
+            argument_list = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$Port")
+            command_line = ('"{0}" -m uvicorn app.main:app --host 127.0.0.1 --port {1}' -f $python, $Port)
+            root_process_pid = [int]$proc.Id
+            primary_tracked_process_id = [int]$proc.Id
+            tracked_child_pids = @()
+            tracked_pids = @([int]$proc.Id)
+            aggregate_working_set_mb = 0.0
+        })
+    }
+}
 
 Start-Sleep -Milliseconds 800
 $proc.Refresh()
@@ -187,5 +295,8 @@ if ($proc.HasExited) {
     exit ([Math]::Max(1, $exitCode))
 }
 
-Set-Content -Path $pidFile -Value $proc.Id -Encoding ascii
+Set-Content -Path $primaryPidFile -Value $proc.Id -Encoding ascii
+if ($Port -eq 8000) {
+    Set-Content -Path (Join-Path $outDir "backend_server.pid") -Value $proc.Id -Encoding ascii
+}
 Write-Output $proc.Id

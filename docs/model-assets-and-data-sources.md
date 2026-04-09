@@ -1,121 +1,124 @@
 # Model Assets and Data Sources
 
-Last Updated: 2026-02-23  
-Applies To: `backend/assets/uk/*`, `backend/out/model_assets/*`, live-source settings in `backend/app/settings.py`
+Last Updated: 2026-04-09  
+Applies To: `backend/assets/uk/*`, `backend/out/model_assets/*`, raw live-source captures under `backend/data/raw/uk/*`, and strict runtime settings
 
 This page tracks where backend model inputs come from, where compiled artifacts are written, and which strict gates protect route-producing APIs.
 
 ## Asset Locations
 
-- Source snapshots and curated reference inputs:
-  - `backend/assets/uk/`
-- Generated strict runtime assets:
-  - `backend/out/model_assets/`
-- Live scenario collection corpus:
-  - `backend/data/raw/uk/scenario_live_observed.jsonl`
-- Runtime-generated custom vehicle profiles:
-  - `backend/out/config/` (runtime file: vehicles_v2.json)
+- curated reference inputs: `backend/assets/uk/`
+- generated runtime assets: `backend/out/model_assets/`
+- staged subset/runtime graph assets: `backend/out/model_assets/staged_subsets/`, `backend/out/route_graph_subsets/`
+- raw live/source captures: `backend/data/raw/uk/`
+- runtime custom vehicle profiles: `backend/out/config/`
 
-Generated files in `backend/out/` are runtime artifacts and should not be treated as source-of-truth config.
+Generated files under `backend/out/` are runtime outputs, not source-of-truth configuration.
 
 ## Asset Family Map
 
 ### Routing Graph
 
-- Purpose: graph-native candidate generation and strict fallback when OSRM refinement fails.
-- Build script: `backend/scripts/build_routing_graph_uk.py`
-- Aggregated build entry: `backend/scripts/build_model_assets.py`
-- Runtime gate signals: `routing_graph_unavailable`, `model_asset_unavailable`
+- purpose: graph-native candidate generation and strict route fallback behavior
+- build path: `backend/scripts/build_routing_graph_uk.py`
+- aggregated build entry: `backend/scripts/build_model_assets.py`
+- runtime signals: `routing_graph_unavailable`, `routing_graph_fragmented`, `routing_graph_disconnected_od`, `routing_graph_coverage_gap`
+- staged thesis subsets built through `backend/scripts/build_route_graph_subset.py` now write three sibling runtime artifacts for the same subset graph: the JSON asset, a binary cache at `*.json.pkl`, and a graph-ready compact bundle at `*.compact.pkl`
+- the subset builder also writes a sibling `*.meta.json` report with `corridor_km`, `filter_mode`, `corridor_union_bbox`, `nodes_kept`, and `edges_kept`
+- runtime load order for `.subset.` assets now prefers the staged binary cache first, then falls back to the compact bundle, then finally to the JSON asset when neither cache is available or valid
 
 ### Toll Topology and Tariffs
 
-- Purpose: map route geometry to tolled segments and apply class-aware tariffs.
-- Build scripts:
-  - `backend/scripts/extract_osm_tolls_uk.py`
-  - `backend/scripts/build_pricing_tables_uk.py`
-- Live refresh inputs:
-  - `LIVE_TOLL_TOPOLOGY_URL`
-  - `LIVE_TOLL_TARIFFS_URL`
-- Runtime gate signals: `toll_topology_unavailable`, `toll_tariff_unavailable`, `toll_tariff_unresolved`
+- `backend/assets/uk/toll_topology_uk.json`
+- `backend/assets/uk/toll_tariffs_uk.json`
+- `backend/assets/uk/toll_tariffs_uk.yaml`
+- runtime signals: `toll_topology_unavailable`, `toll_tariff_unavailable`, `toll_tariff_unresolved`
 
 ### Departure Profiles
 
-- Purpose: departure-time uplift and time-window optimization behavior.
-- Build script: `backend/scripts/build_departure_profiles_uk.py`
-- Live refresh input: `LIVE_DEPARTURE_PROFILE_URL`
-- Runtime gate signal: `departure_profile_unavailable`
+- `backend/assets/uk/departure_profiles_uk.json`
+- runtime signal: `departure_profile_unavailable`
 
 ### Stochastic Calibration
 
-- Purpose: uncertainty posteriors and calibrated regime shocks.
-- Build script: `backend/scripts/build_stochastic_calibration_uk.py`
-- Strict-required structure:
-  - `posterior_model.context_to_regime_probs`
-  - per-regime `transform_family: quantile_mapping_v1`
-  - per-regime `shock_quantile_mapping` keys for `traffic`, `incident`, `weather`, `price`, `eco`
-- Runtime gate signal: `stochastic_calibration_unavailable`
+- `backend/assets/uk/stochastic_regimes_uk.json`
+- `backend/assets/uk/stochastic_residual_priors_uk.json`
+- `backend/assets/uk/stochastic_residuals_empirical.csv`
+- `backend/data/raw/uk/stochastic_residuals_raw.csv`
+- runtime signal: `stochastic_calibration_unavailable`
 
-### Scenario Profile + Live Context
+### Scenario Profiles and Live Context
 
-- Purpose: strict scenario multipliers for no/partial/full sharing behavior.
-- Build/ingest scripts:
-  - `backend/scripts/fetch_scenario_live_uk.py`
-  - `backend/scripts/build_scenario_profiles_uk.py`
-- Strict-required live coefficient source:
-  - `LIVE_SCENARIO_COEFFICIENT_URL`
-- Core live context sources:
-  - WebTRIS (`LIVE_SCENARIO_WEBTRIS_SITES_URL`, `LIVE_SCENARIO_WEBTRIS_DAILY_URL`)
-  - Traffic England (`LIVE_SCENARIO_TRAFFIC_ENGLAND_URL`)
-  - DfT raw counts (`LIVE_SCENARIO_DFT_COUNTS_URL`)
-  - Open-Meteo (`LIVE_SCENARIO_OPEN_METEO_FORECAST_URL`, `LIVE_SCENARIO_OPEN_METEO_ARCHIVE_URL`)
-- Runtime gate signals: `scenario_profile_unavailable`, `scenario_profile_invalid`
+- `backend/assets/uk/scenario_profiles_uk.json`
+- `backend/data/raw/uk/scenario_live_observed.jsonl`
+- `backend/data/raw/uk/scenario_live_observed_20260404.jsonl`
+- `backend/data/raw/uk/scenario_live_observed_head_restore.jsonl`
+- `backend/data/raw/uk/scenario_live_observed_strict.jsonl`
+- `backend/data/raw/uk/scenario_mode_outcomes_observed.jsonl`
+- `backend/data/raw/uk/scenario_mode_outcomes_observed.summary.json`
+- `backend/data/raw/uk/scenario_mode_outcomes_observed_strict.jsonl`
+- runtime signals: `scenario_profile_unavailable`, `scenario_profile_invalid`
 
-### Terrain DEM
+### Terrain
 
-- Purpose: terrain-aware fuel/emissions uplift and strict fail-closed coverage behavior.
-- Build scripts:
-  - `backend/scripts/fetch_public_dem_tiles_uk.py`
-  - `backend/scripts/build_terrain_tiles_uk.py`
-- Live request-time terrain source:
-  - `LIVE_TERRAIN_DEM_URL_TEMPLATE`
-- Runtime gate signals: `terrain_dem_asset_unavailable`, `terrain_dem_coverage_insufficient`, `terrain_region_unsupported`
+- `backend/assets/uk/terrain_dem_grid_uk.json`
+- live request-time terrain source is configured through `LIVE_TERRAIN_DEM_URL_TEMPLATE`
+- runtime signals: `terrain_dem_asset_unavailable`, `terrain_dem_coverage_insufficient`, `terrain_region_unsupported`
 
-### Fuel + Carbon Inputs
+### Fuel and Carbon
 
-- Fuel strict inputs:
-  - `LIVE_FUEL_PRICE_URL`
-  - auth: `LIVE_FUEL_AUTH_TOKEN` or `LIVE_FUEL_API_KEY` + `LIVE_FUEL_API_KEY_HEADER`
-- Carbon strict input:
-  - `LIVE_CARBON_SCHEDULE_URL`
-- Runtime gate signals:
-  - `fuel_price_auth_unavailable`
-  - `fuel_price_source_unavailable`
-  - `carbon_policy_unavailable`
-  - `carbon_intensity_unavailable`
+- `backend/assets/uk/fuel_prices_uk.json`
+- `backend/assets/uk/carbon_price_schedule_uk.json`
+- `backend/assets/uk/carbon_intensity_hourly_uk.json`
+- raw captures such as `backend/data/raw/uk/fuel_prices_raw.json` and `backend/data/raw/uk/carbon_intensity_hourly_raw.json`
+- runtime signals: `fuel_price_auth_unavailable`, `fuel_price_source_unavailable`, `carbon_policy_unavailable`, `carbon_intensity_unavailable`
 
 ### Vehicle Profiles
 
-- Built-in strict profile asset:
-  - `backend/assets/uk/vehicle_profiles_uk.json`
-- Custom profile persistence:
-  - runtime output config directory `backend/out/config/` (runtime file name: vehicles_v2.json)
-- Runtime gate signals:
-  - `vehicle_profile_unavailable`
-  - `vehicle_profile_invalid`
+- `backend/assets/uk/vehicle_profiles_uk.json`
+- runtime signals: `vehicle_profile_unavailable`, `vehicle_profile_invalid`
 
-## Build/Refresh Commands
+## Evaluation Corpus Assets
+
+The checked-in evaluation corpora are now part of the asset story because the current proof and tuning bundles depend on them directly.
+
+- baseline broad corpus: `backend/data/eval/uk_od_corpus_thesis_broad.csv`
+- expanded broad corpus: `backend/data/eval/uk_od_corpus_thesis_broad_expanded_120.csv`
+- expanded broad summary: `backend/data/eval/uk_od_corpus_thesis_broad_expanded_120.summary.json`
+- staged broadening corpus: `backend/data/eval/uk_od_corpus_thesis_broad_expanded_1200.csv`
+- staged shard family: `backend/data/eval/thesis_shards_1200/uk_od_corpus_thesis_broad_expanded_1200_s01of10.csv` through `..._s10of10.csv`
+- harder-story corpora: `backend/data/eval/uk_od_corpus_hard_mixed_24.csv` and `backend/data/eval/uk_od_corpus_longcorr_hard_32.csv`
+- focused / tuning corpora: `backend/data/eval/uk_od_corpus_dominance_cluster_8.csv`, `backend/data/eval/uk_od_corpus_london_newcastle_family_4.csv`, `backend/data/eval/uk_od_corpus_london_newcastle_manchester_liverpool_family_12.csv`, and `backend/data/eval/uk_od_cardiff_liverpool_single.csv`
+
+Current checked-in counts:
+
+- `uk_od_corpus_thesis_broad_expanded_120.csv` carries `120` rows / `120` unique `od_id` values
+- `uk_od_corpus_thesis_broad_expanded_1200.csv` carries `1200` rows / `1200` unique `od_id` values
+- `backend/data/eval/thesis_shards_1200/` splits that staged `1200`-row corpus into `10` shard CSVs of `120` rows each
+
+The scripts that build or widen these corpora are:
+
+- `backend/scripts/build_od_corpus_uk.py`
+- `backend/scripts/expand_thesis_broad_corpus.py`
+- `backend/scripts/run_thesis_campaign.py`
+- `backend/scripts/compose_thesis_sharded_report.py`
+
+The current `backend/out/thesis_1200_s01_repo_local/` directory should be read as staging evidence only. Its checked-in artifact directory currently contains `repo_asset_preflight.json` and `baseline_smoke_summary.json`, not a completed thesis bundle.
+
+## Build and Refresh Commands
 
 From `backend/`:
 
 ```powershell
 uv run python scripts/build_model_assets.py
 uv run python scripts/build_routing_graph_uk.py
+uv run python scripts/build_route_graph_subset.py --help
 uv run python scripts/build_terrain_tiles_uk.py --source-dem-glob "assets/uk/dem/*.tif"
 uv run python scripts/build_departure_profiles_uk.py
 uv run python scripts/build_stochastic_calibration_uk.py
 ```
 
-Live-source fetch helpers (from repo root):
+From repo root:
 
 ```powershell
 uv run --project backend python backend/scripts/fetch_scenario_live_uk.py --batch --output-jsonl backend/data/raw/uk/scenario_live_observed.jsonl
@@ -123,31 +126,32 @@ uv run --project backend python backend/scripts/fetch_fuel_history_uk.py --outpu
 uv run --project backend python backend/scripts/fetch_carbon_intensity_uk.py --schedule backend/assets/uk/carbon_price_schedule_uk.json
 ```
 
-## Strict Runtime Gate Controls (Settings)
+## Strict Runtime Policy Notes
 
-Strict defaults are forced in code (`backend/app/settings.py`) during settings validation.
+The strict-policy story now lives in `backend/app/settings.py`.
 
-Key enforced controls:
+Important points:
 
-- `STRICT_LIVE_DATA_REQUIRED=true`
-- URL-required flags:
-  - `LIVE_SCENARIO_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_FUEL_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_CARBON_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_TOLL_TOPOLOGY_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_TOLL_TARIFFS_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_DEPARTURE_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_STOCHASTIC_REQUIRE_URL_IN_STRICT=true`
-  - `LIVE_TERRAIN_REQUIRE_URL_IN_STRICT=true`
-- Signed fallback controls forced off for strict production paths:
-  - `LIVE_*_ALLOW_SIGNED_FALLBACK=false` (all strict live families)
-- Signature requirement:
-  - `SCENARIO_REQUIRE_SIGNATURE=true`
-  - `LIVE_FUEL_REQUIRE_SIGNATURE=true`
+- `STRICT_LIVE_DATA_REQUIRED` remains the top-level strict gate
+- per-family URL requirements exist through `LIVE_*_REQUIRE_URL_IN_STRICT`
+- strict route-compute refresh behavior is controlled through `LIVE_ROUTE_COMPUTE_*`
+- route graph strict readiness is enforced in settings validation
+- strict runtime disables route-graph fast startup
+- staged subset assets are part of that strict-runtime story for low-RAM campaigns; when `ROUTE_GRAPH_ASSET_PATH` points at a subset graph, the sibling `*.meta.json`, `*.json.pkl`, and `*.compact.pkl` files are part of the reproducible asset surface
 
-Test-only bypass is explicit:
+The exact strict-policy behavior depends on settings resolution, especially the live-source policy path, so this page should be read as a map to the source assets and settings, not as a hard-coded claim that every individual switch is always forced the same way in every environment.
 
-- `STRICT_RUNTIME_TEST_BYPASS=1` (for controlled tests only)
+## Asset Readiness In Evaluation Outputs
+
+Evaluation and benchmarking artifacts may include readiness evidence such as:
+
+- repo_asset_preflight.json in a completed artifact directory
+- evaluation_manifest.json in a completed artifact directory
+- signed manifests and provenance logs
+
+These are the primary places to inspect asset freshness and strict readiness in completed runs. The manifest and summary files also carry the current evaluator scaffolding fields when present: `cohort_scaffolding` uses `thesis_cohort_scaffolding_v2`, `metric_family_scaffolding` uses `thesis_metric_family_scaffolding_v1`, and those scaffold payloads are expected to appear in `evaluation_manifest.json`, `thesis_metrics.json`, `thesis_plots.json`, `results.json`, and `metadata.json` for thesis-evaluation runs.
+
+The route-facing artifact layer should be read as an instrumented honesty surface, not as a fresh empirical proof of performance in this pass. That includes the public decision-package family `decision_package.json`, `preference_summary.json`, `support_summary.json`, `support_trace.jsonl`, `support_provenance.json`, `certified_set.json`, `certified_set_routes.jsonl`, and the conditional abstention/witness/controller summaries when they are populated, alongside the route-seam replay and trace artifacts `voi_action_trace.json`, `voi_controller_state.jsonl`, `voi_controller_trace_summary.json`, `voi_replay_oracle_summary.json`, `controller_trace.jsonl`, `theorem_hook_map.json`, `lane_manifest.json`, and `final_route_trace.json`.
 
 ## Related Docs
 
@@ -155,4 +159,3 @@ Test-only bypass is explicit:
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
-

@@ -55,6 +55,34 @@ def _option(
     )
 
 
+def _thesis_time_preserving_guard_context() -> dict[str, float | int | str]:
+    return {
+        "od_ambiguity_index": 0.224232,
+        "od_ambiguity_confidence": 0.868936,
+        "od_engine_disagreement_prior": 0.391726,
+        "od_hard_case_prior": 0.407092,
+        "od_ambiguity_support_ratio": 0.574272,
+        "od_ambiguity_source_entropy": 0.83723,
+        "od_candidate_path_count": 12,
+        "od_corridor_family_count": 5,
+        "ambiguity_budget_band": "high",
+    }
+
+
+def _nonqualifying_time_preserving_guard_context() -> dict[str, float | int | str]:
+    return {
+        "od_ambiguity_index": 0.11,
+        "od_ambiguity_confidence": 0.31,
+        "od_engine_disagreement_prior": 0.18,
+        "od_hard_case_prior": 0.14,
+        "od_ambiguity_support_ratio": 0.32,
+        "od_ambiguity_source_entropy": 0.28,
+        "od_candidate_path_count": 1,
+        "od_corridor_family_count": 1,
+        "ambiguity_budget_band": "low",
+    }
+
+
 def test_pick_best_option_changes_between_expected_and_robust() -> None:
     high_variance_fast = _option(
         route_id="a",
@@ -410,6 +438,246 @@ def test_pick_best_option_preserves_time_when_savings_are_marginal() -> None:
 
     assert picked.id == "time_preserving"
     assert picked.id == min(score_map, key=score_map.get)
+
+
+def test_pick_best_option_redesigned_time_preserving_frontier_guard_prefers_thesis_row_faster_frontier() -> None:
+    slower_tradeoff = _option(
+        route_id="slow_fallback",
+        duration_s=26079.51,
+        money=457.02,
+        co2=673.632,
+        mean_duration_s=26079.51,
+        std_duration_s=5.0,
+        cvar95_duration_s=26092.0,
+        mean_money=457.02,
+        cvar95_money=458.0,
+        mean_co2=673.632,
+        cvar95_co2=674.5,
+        distance_km=448.091,
+    )
+    faster_frontier = _option(
+        route_id="fast_frontier",
+        duration_s=25556.74,
+        money=465.59,
+        co2=691.075,
+        mean_duration_s=25556.74,
+        std_duration_s=5.0,
+        cvar95_duration_s=25569.0,
+        mean_money=465.59,
+        cvar95_money=466.5,
+        mean_co2=691.075,
+        cvar95_co2=692.0,
+        distance_km=454.429,
+    )
+
+    options = [slower_tradeoff, faster_frontier]
+    unguarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+    )
+    guarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_thesis_time_preserving_guard_context(),
+    )
+    guarded_score_map = _route_selection_score_map(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_thesis_time_preserving_guard_context(),
+    )
+
+    assert unguarded_pick.id == "slow_fallback"
+    assert guarded_pick.id == "fast_frontier"
+    assert guarded_pick.id == min(guarded_score_map, key=guarded_score_map.get)
+
+
+def test_pick_best_option_redesigned_time_preserving_frontier_guard_requires_normalized_supported_context() -> None:
+    slower_tradeoff = _option(
+        route_id="slow_fallback",
+        duration_s=26079.51,
+        money=457.02,
+        co2=673.632,
+        mean_duration_s=26079.51,
+        std_duration_s=5.0,
+        cvar95_duration_s=26092.0,
+        mean_money=457.02,
+        cvar95_money=458.0,
+        mean_co2=673.632,
+        cvar95_co2=674.5,
+        distance_km=448.091,
+    )
+    faster_frontier = _option(
+        route_id="fast_frontier",
+        duration_s=25556.74,
+        money=465.59,
+        co2=691.075,
+        mean_duration_s=25556.74,
+        std_duration_s=5.0,
+        cvar95_duration_s=25569.0,
+        mean_money=465.59,
+        cvar95_money=466.5,
+        mean_co2=691.075,
+        cvar95_co2=692.0,
+        distance_km=454.429,
+    )
+
+    options = [slower_tradeoff, faster_frontier]
+    unguarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+    )
+    guarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_nonqualifying_time_preserving_guard_context(),
+    )
+
+    assert unguarded_pick.id == "slow_fallback"
+    assert guarded_pick.id == "slow_fallback"
+
+
+def test_pick_best_option_redesigned_time_preserving_frontier_guard_does_not_override_large_sacrifices() -> None:
+    slower_tradeoff = _option(
+        route_id="slow_fallback",
+        duration_s=26079.51,
+        money=457.02,
+        co2=673.632,
+        mean_duration_s=26079.51,
+        std_duration_s=5.0,
+        cvar95_duration_s=26092.0,
+        mean_money=457.02,
+        cvar95_money=458.0,
+        mean_co2=673.632,
+        cvar95_co2=674.5,
+        distance_km=448.091,
+    )
+    faster_but_costly = _option(
+        route_id="fast_but_costly",
+        duration_s=25556.74,
+        money=492.50,
+        co2=714.25,
+        mean_duration_s=25556.74,
+        std_duration_s=5.0,
+        cvar95_duration_s=25569.0,
+        mean_money=492.50,
+        cvar95_money=493.5,
+        mean_co2=714.25,
+        cvar95_co2=715.0,
+        distance_km=462.25,
+    )
+
+    options = [slower_tradeoff, faster_but_costly]
+    guarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_thesis_time_preserving_guard_context(),
+    )
+    guarded_score_map = _route_selection_score_map(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_thesis_time_preserving_guard_context(),
+    )
+
+    assert guarded_pick.id == "slow_fallback"
+    assert guarded_pick.id == min(guarded_score_map, key=guarded_score_map.get)
+
+
+def test_pick_best_option_redesigned_time_preserving_frontier_guard_blocks_excessive_time_loss() -> None:
+    slower_tradeoff = _option(
+        route_id="slow_tradeoff",
+        duration_s=25556.74,
+        money=465.59,
+        co2=691.075,
+        mean_duration_s=25556.74,
+        std_duration_s=5.0,
+        cvar95_duration_s=25569.0,
+        mean_money=465.59,
+        cvar95_money=466.5,
+        mean_co2=691.075,
+        cvar95_co2=692.0,
+        distance_km=454.429,
+    )
+    faster_frontier = _option(
+        route_id="faster_frontier",
+        duration_s=23670.46,
+        money=490.0,
+        co2=735.0,
+        mean_duration_s=23670.46,
+        std_duration_s=5.0,
+        cvar95_duration_s=23683.0,
+        mean_money=490.0,
+        cvar95_money=491.0,
+        mean_co2=735.0,
+        cvar95_co2=736.0,
+        distance_km=460.0,
+    )
+
+    options = [slower_tradeoff, faster_frontier]
+    unguarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+    )
+    guarded_pick = _pick_best_option(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_thesis_time_preserving_guard_context(),
+    )
+    guarded_score_map = _route_selection_score_map(
+        options,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        time_preserving_frontier_guard=True,
+        ambiguity_context=_thesis_time_preserving_guard_context(),
+    )
+
+    assert unguarded_pick.id == "slow_tradeoff"
+    assert guarded_pick.id == "faster_frontier"
+    assert guarded_pick.id == min(guarded_score_map, key=guarded_score_map.get)
 
 
 def test_clone_option_with_objectives_scales_uncertainty_tails_for_robust_selection() -> None:

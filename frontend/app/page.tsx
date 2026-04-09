@@ -180,6 +180,7 @@ type RouteRunMeta = {
   manifest_endpoint?: string | null;
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
+  decision_package?: RouteResponse['decision_package'];
   selected_certificate?: RouteResponse['selected_certificate'];
   voi_stop_summary?: RouteResponse['voi_stop_summary'];
 };
@@ -5820,6 +5821,7 @@ export default function Page() {
         manifest_endpoint: payload.manifest_endpoint ?? null,
         artifacts_endpoint: payload.artifacts_endpoint ?? null,
         provenance_endpoint: payload.provenance_endpoint ?? null,
+        decision_package: payload.decision_package ?? null,
         selected_certificate: payload.selected_certificate ?? payload.selected.certification ?? null,
         voi_stop_summary: payload.voi_stop_summary ?? null,
       });
@@ -8198,6 +8200,7 @@ export default function Page() {
                 route={selectedRoute}
                 runId={routeRunMeta?.run_id ?? null}
                 pipelineMode={routeRunMeta?.pipeline_mode}
+                decisionPackage={routeRunMeta?.decision_package ?? null}
                 selectedCertificate={routeRunMeta?.selected_certificate ?? selectedRoute?.certification ?? null}
                 voiStopSummary={routeRunMeta?.voi_stop_summary ?? null}
                 onOpenRunInspector={openRunInspectorForRun}
@@ -8831,6 +8834,11 @@ export default function Page() {
               onRunIdChange={setRunInspectorRunId}
               loading={runInspectorLoading}
               error={runInspectorError}
+              decisionPackage={
+                routeRunMeta?.run_id && routeRunMeta.run_id === runInspectorRunId
+                  ? routeRunMeta.decision_package ?? null
+                  : null
+              }
               manifest={runManifest}
               scenarioManifest={runScenarioManifest}
               provenance={runProvenance}

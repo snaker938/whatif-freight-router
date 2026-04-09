@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import sys
 import types
@@ -30,11 +31,16 @@ def _mock_backend_ready(monkeypatch) -> None:
             "compute_ms": 12.5,
             "wait_elapsed_ms": 42.0,
             "route_graph": {
-                "status": "ready",
+                "status": "ok",
                 "state": "ready",
+                "ready_mode": "full",
+                "load_strategy": "streaming_json",
                 "elapsed_ms": 1250.0,
                 "started_at_utc": "2026-03-24T12:00:00Z",
                 "ready_at_utc": "2026-03-24T12:00:01.250000Z",
+                "nodes_kept": 128,
+                "edges_kept": 256,
+                "edge_count": 256,
             },
             "strict_live": {"ok": True},
         },
@@ -58,6 +64,143 @@ def test_route_graph_startup_to_ready_prefers_timestamps_and_ignores_ready_lifet
         {"route_graph": {"state": "ready", "elapsed_ms": 999999.0}}
     )
     assert ready_without_timestamp is None
+
+
+def test_evaluation_honesty_summary_flags_fast_startup_degraded_lane() -> None:
+    summary = thesis_module._evaluation_honesty_summary(
+        readiness_summary={
+            "strict_route_ready": True,
+            "route_graph": {
+                "status": "ok_fast",
+                "state": "ready",
+                "ready_mode": "fast",
+                "load_strategy": "fast_startup_metadata",
+                "nodes_kept": 0,
+                "edges_kept": 0,
+                "edge_count": 0,
+            },
+        },
+        rows=[
+            {
+                "route_graph_degraded_reason_code": "routing_graph_deferred_load",
+                "route_graph_precheck_gate_action": "degraded_continue",
+                "route_fallback_observed": True,
+            }
+        ],
+    )
+
+    assert summary["route_graph_readiness_class"] == "fast_startup_metadata_ready"
+    assert summary["route_graph_full_hydration_observed"] is False
+    assert summary["degraded_evaluation_observed"] is True
+    assert summary["degraded_reason_codes_observed"] == ["routing_graph_deferred_load"]
+    assert summary["precheck_gate_actions_observed"] == ["degraded_continue"]
+    assert summary["route_fallback_observed"] is True
+    assert summary["strict_full_search_proof_eligible"] is False
+
+
+def test_evaluation_honesty_summary_ignores_benign_ok_precheck_values() -> None:
+    summary = thesis_module._evaluation_honesty_summary(
+        readiness_summary={
+            "strict_route_ready": True,
+            "route_graph": {
+                "status": "ok",
+                "state": "ready",
+                "ready_mode": "full",
+                "load_strategy": "streaming_json",
+                "nodes_kept": 10,
+                "edges_kept": 12,
+                "edge_count": 12,
+            },
+        },
+        rows=[
+            {
+                "route_graph_degraded_reason_code": "ok",
+                "route_graph_precheck_gate_action": "ok",
+                "route_fallback_observed": False,
+            }
+        ],
+    )
+
+    assert summary["route_graph_readiness_class"] == "full_hydration_ready"
+    assert summary["route_graph_full_hydration_observed"] is True
+    assert summary["degraded_evaluation_observed"] is False
+    assert summary["degraded_reason_codes_observed"] == []
+    assert summary["precheck_gate_actions_observed"] == []
+    assert summary["route_fallback_observed"] is False
+    assert summary["strict_full_search_proof_eligible"] is True
+
+
+def test_evaluation_honesty_summary_requires_successful_route_evidence_rows_for_proof_eligibility() -> None:
+    summary = thesis_module._evaluation_honesty_summary(
+        readiness_summary={
+            "strict_route_ready": True,
+            "route_graph": {
+                "status": "ok",
+                "state": "ready",
+                "ready_mode": "full",
+                "load_strategy": "streaming_json",
+                "nodes_kept": 10,
+                "edges_kept": 12,
+                "edge_count": 12,
+            },
+        },
+        rows=[
+            {
+                "route_graph_degraded_reason_code": "ok",
+                "route_graph_precheck_gate_action": "ok",
+                "route_fallback_observed": False,
+                "route_evidence_ok": False,
+                "failure_reason": "transport_error",
+            }
+        ],
+    )
+
+    assert summary["route_graph_readiness_class"] == "full_hydration_ready"
+    assert summary["route_graph_full_hydration_observed"] is True
+    assert summary["degraded_evaluation_observed"] is False
+    assert summary["route_fallback_observed"] is False
+    assert summary["strict_full_search_proof_eligible"] is False
+
+
+def test_evaluation_honesty_summary_requires_all_rows_proof_complete_for_proof_eligibility() -> None:
+    summary = thesis_module._evaluation_honesty_summary(
+        readiness_summary={
+            "strict_route_ready": True,
+            "route_graph": {
+                "status": "ok",
+                "state": "ready",
+                "ready_mode": "full",
+                "load_strategy": "streaming_json",
+                "nodes_kept": 10,
+                "edges_kept": 12,
+                "edge_count": 12,
+            },
+        },
+        rows=[
+            {
+                "route_graph_degraded_reason_code": "ok",
+                "route_graph_precheck_gate_action": "ok",
+                "route_fallback_observed": False,
+                "route_evidence_ok": True,
+                "artifact_complete": True,
+                "failure_reason": "",
+            },
+            {
+                "route_graph_degraded_reason_code": "ok",
+                "route_graph_precheck_gate_action": "ok",
+                "route_fallback_observed": False,
+                "route_evidence_ok": False,
+                "artifact_complete": False,
+                "failure_reason": "transport_error",
+            },
+        ],
+    )
+
+    assert summary["route_graph_readiness_class"] == "full_hydration_ready"
+    assert summary["route_graph_full_hydration_observed"] is True
+    assert summary["degraded_evaluation_observed"] is False
+    assert summary["route_fallback_observed"] is False
+    assert summary["strict_full_search_proof_eligible"] is False
 
 
 def test_valid_refine_cost_rows_keeps_small_positive_observed_costs() -> None:
@@ -129,6 +272,7 @@ def test_resolve_evaluation_suite_metadata_prefers_explicit_role_and_infers_focu
 
     assert explicit_metadata == {
         "role": "hot_rerun",
+        "family": "benchmark",
         "scope": "hot_rerun",
         "focus": "runtime_reuse",
         "label": "Hot rerun proof",
@@ -136,11 +280,71 @@ def test_resolve_evaluation_suite_metadata_prefers_explicit_role_and_infers_focu
     }
     assert inferred_metadata == {
         "role": "focused_refc_proof",
+        "family": "evaluation",
         "scope": "focused",
         "focus": "refc",
         "label": "Focused REFC proof",
         "source": "inferred_from_corpus_source_path",
     }
+
+
+def test_resolve_evaluation_suite_metadata_supports_new_evaluator_role_families() -> None:
+    explicit_cases = [
+        (
+            "preference_proof",
+            {"role": "preference_proof", "family": "evaluation", "scope": "focused", "focus": "preference", "label": "Preference proof"},
+        ),
+        (
+            "optional_stopping_coverage",
+            {"role": "optional_stopping_coverage", "family": "evaluation", "scope": "focused", "focus": "optional_stopping", "label": "Optional-stopping coverage"},
+        ),
+        (
+            "proxy_audit_calibration",
+            {"role": "proxy_audit_calibration", "family": "evaluation", "scope": "focused", "focus": "proxy_audit", "label": "Proxy-audit calibration"},
+        ),
+        (
+            "perturbation_flip_radius",
+            {"role": "perturbation_flip_radius", "family": "evaluation", "scope": "focused", "focus": "perturbation", "label": "Perturbation / flip-radius"},
+        ),
+        (
+            "public_transfer",
+            {"role": "public_transfer", "family": "evaluation", "scope": "transfer", "focus": "public_transfer", "label": "Public transfer"},
+        ),
+        (
+            "synthetic_ground_truth",
+            {"role": "synthetic_ground_truth", "family": "evaluation", "scope": "synthetic", "focus": "synthetic_ground_truth", "label": "Synthetic ground-truth"},
+        ),
+    ]
+
+    for explicit_role, expected in explicit_cases:
+        args = thesis_module._build_parser().parse_args(
+            ["--corpus-csv", "dummy.csv", "--evaluation-suite-role", explicit_role]
+        )
+        metadata = thesis_module._resolve_evaluation_suite_metadata(
+            args=args,
+            corpus_source_path=str(args.corpus_csv),
+            run_id=f"{explicit_role}-run",
+        )
+        assert metadata == {**expected, "source": "explicit_arg"}
+
+    inferred_cases = [
+        ("backend/out/uk_od_corpus_preference_proof.csv", "preference_proof"),
+        ("backend/out/uk_od_corpus_optional_stopping_coverage.csv", "optional_stopping_coverage"),
+        ("backend/out/uk_od_corpus_proxy_audit_calibration.csv", "proxy_audit_calibration"),
+        ("backend/out/uk_od_corpus_perturbation_flip_radius.csv", "perturbation_flip_radius"),
+        ("backend/out/uk_od_corpus_public_transfer.csv", "public_transfer"),
+        ("backend/out/uk_od_corpus_synthetic_ground_truth.csv", "synthetic_ground_truth"),
+    ]
+    for corpus_source_path, expected_role in inferred_cases:
+        args = thesis_module._build_parser().parse_args(["--corpus-csv", corpus_source_path])
+        metadata = thesis_module._resolve_evaluation_suite_metadata(
+            args=args,
+            corpus_source_path=corpus_source_path,
+            run_id="generic-run",
+        )
+        assert metadata["role"] == expected_role
+        assert metadata["family"] == "evaluation"
+        assert metadata["source"] == "inferred_from_corpus_source_path"
 
 
 def test_clear_backend_caches_uses_thesis_cold_scope() -> None:
@@ -1109,6 +1313,30 @@ def test_effective_request_config_adapts_budgets_from_corpus_ambiguity_prior() -
     assert high_cfg["world_count"] == 96
 
 
+def test_effective_request_config_threads_global_toll_fallback_rate() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--toll-cost-per-km",
+            "0.2",
+        ]
+    )
+    cfg = thesis_module._effective_request_config(
+        args,
+        {
+            "od_id": "tolled",
+            "origin_lat": 51.5,
+            "origin_lon": -0.1,
+            "destination_lat": 52.5,
+            "destination_lon": -1.0,
+        },
+        variant_seed=9,
+    )
+
+    assert cfg["cost_toggles"] == {"use_tolls": True, "toll_cost_per_km": 0.2}
+
+
 def test_budget_schedule_escalates_on_hard_case_prior_even_when_od_ambiguity_is_moderate() -> None:
     args = thesis_module._build_parser().parse_args(
         [
@@ -1599,6 +1827,146 @@ def test_thesis_broad_corpus_matches_current_cohort_union() -> None:
     assert any(str(row["profile_id"]).startswith("ambiguity_shorthaul_") for row in ambiguity_rows)
 
 
+def test_redesign_cohort_labels_are_surfaceable_in_summary_and_composition() -> None:
+    row_template = {
+        "variant_id": "C",
+        "pipeline_mode": "voi",
+        "certificate": 0.9,
+        "runtime_ms": 110.0,
+        "search_budget_utilization": 0.6,
+        "evidence_budget_utilization": 0.4,
+        "weighted_win_osrm": False,
+        "weighted_win_ors": False,
+        "dominates_osrm": False,
+        "dominates_ors": False,
+        "realized_diversity_collapse": False,
+        "frontier_diversity_index": 0.3,
+        "controller_refresh_fallback_activated": False,
+        "controller_empirical_vs_raw_refresh_disagreement": False,
+        "controller_top_refresh_gain": 0.0,
+        "time_preserving_win_osrm": True,
+        "time_preserving_win_ors": True,
+        "time_preserving_win_best_baseline": True,
+        "time_preserving_dominance_osrm": True,
+        "time_preserving_dominance_ors": True,
+        "time_preserving_dominance_best_baseline": True,
+        "graph_low_ambiguity_fast_path": False,
+        "od_ambiguity_support_ratio": 0.68,
+        "evidence_budget": 10.0,
+        "evidence_budget_used": 6.5,
+    }
+    rows: list[dict[str, object]] = []
+    for index, cohort_label in enumerate(
+        [
+            "collapse_prone",
+            "osrm_brittle",
+            "ors_brittle",
+            "refresh_sensitive",
+            "time_preserving_conflict",
+            "low_ambiguity_fast_path",
+            "preference_sensitive",
+            "support_fragile",
+            "audit_heavy",
+            "proxy_friendly",
+        ],
+        start=1,
+    ):
+        row = dict(row_template)
+        row.update(
+            {
+                "od_id": f"od-{index}",
+                "profile_id": f"profile-{index}",
+                "corpus_group": cohort_label,
+                "cohort_label": cohort_label,
+            },
+        )
+        if cohort_label == "collapse_prone":
+            row["realized_diversity_collapse"] = True
+        elif cohort_label == "osrm_brittle":
+            row["weighted_win_osrm"] = False
+        elif cohort_label == "ors_brittle":
+            row["weighted_win_ors"] = False
+        elif cohort_label == "refresh_sensitive":
+            row["controller_refresh_fallback_activated"] = True
+        elif cohort_label == "time_preserving_conflict":
+            row["time_preserving_win_ors"] = False
+        elif cohort_label == "low_ambiguity_fast_path":
+            row["graph_low_ambiguity_fast_path"] = True
+        elif cohort_label == "preference_sensitive":
+            row["preference_sensitive"] = True
+        elif cohort_label == "support_fragile":
+            row["od_ambiguity_support_ratio"] = 0.42
+        elif cohort_label == "audit_heavy":
+            row["evidence_budget_used"] = 9.5
+        elif cohort_label == "proxy_friendly":
+            row["od_ambiguity_support_ratio"] = 0.91
+        rows.append(row)
+
+    summary_rows = thesis_module._cohort_summary_rows(rows)
+    cohort_rows = [row for row in summary_rows if row["variant_id"] == "C"]
+    assert {row["cohort_label"] for row in cohort_rows} == {
+        "collapse_prone",
+        "hard_case",
+        "osrm_brittle",
+        "ors_brittle",
+        "refresh_sensitive",
+        "time_preserving_conflict",
+        "low_ambiguity_fast_path",
+        "preference_sensitive",
+        "support_fragile",
+        "audit_heavy",
+        "proxy_friendly",
+    }
+    composition = thesis_module._cohort_composition(rows)
+    cohort_counts = composition["by_variant"]["C"]["cohort_counts"]
+    assert cohort_counts["collapse_prone"] == 1
+    assert cohort_counts["low_ambiguity_fast_path"] == 1
+    assert cohort_counts["proxy_friendly"] == 1
+    scaffolding = thesis_module._cohort_scaffolding_payload()
+    assert scaffolding["cohort_scaffolding_version"] == "thesis_cohort_scaffolding_v2"
+    assert set(scaffolding["cohort_labels"]) >= {
+        "collapse_prone",
+        "osrm_brittle",
+        "ors_brittle",
+        "refresh_sensitive",
+        "time_preserving_conflict",
+        "low_ambiguity_fast_path",
+        "preference_sensitive",
+        "support_fragile",
+        "audit_heavy",
+        "proxy_friendly",
+    }
+    metric_scaffolding = thesis_module._metric_family_scaffolding_payload()
+    assert metric_scaffolding["metric_family_scaffolding_version"] == "thesis_metric_family_scaffolding_v1"
+    assert set(metric_scaffolding["metric_family_labels"]) >= {
+        "dccs",
+        "preference",
+        "multi_fidelity_support",
+        "refc",
+        "selective_certification",
+        "voi",
+        "route_quality",
+        "runtime_reuse",
+        "support",
+        "evaluation_size",
+    }
+    assert metric_scaffolding["metric_family_export_targets"]["results.json"] == ["metric_family_scaffolding"]
+    assert metric_scaffolding["metric_family_definitions"]["preference"]["status"] == "metadata_wired"
+    assert metric_scaffolding["metric_family_definitions"]["preference"]["wiring_level"] == "cohort_metadata_only"
+    assert metric_scaffolding["metric_family_definitions"]["preference"]["artifact_targets"] == [
+        "thesis_summary_by_cohort.json",
+        "cohort_composition.json",
+    ]
+    assert metric_scaffolding["metric_family_definitions"]["multi_fidelity_support"]["status"] == "partially_wired"
+    assert metric_scaffolding["metric_family_definitions"]["multi_fidelity_support"]["wiring_level"] == "shared_summary_metrics"
+    assert metric_scaffolding["metric_family_definitions"]["multi_fidelity_support"]["primary_export_keys"] == [
+        "mean_support_richness",
+        "mean_supported_ambiguity_alignment",
+        "mean_refc_world_reuse_rate",
+        "mean_refc_stress_world_fraction",
+    ]
+
+
 def test_is_hard_case_row_requires_observed_difficulty_not_ambiguity_label_only() -> None:
     easy_ambiguity = {
         "corpus_group": "ambiguity",
@@ -1678,8 +2046,82 @@ def test_controller_stress_row_counts_resolved_initial_stress_even_with_nonprodu
         "voi_realized_certificate_lift": 0.22,
         "time_to_certification_ms": 180.0,
     }
-
     assert thesis_module._is_controller_stress_row(resolved_controller_row) is True
+
+
+def test_comparator_brittle_cohorts_require_strong_evidence_for_derived_membership() -> None:
+    generic_row = {
+        "variant_id": "C",
+        "od_id": "generic",
+        "profile_id": "generic-profile",
+        "corpus_group": "representative",
+        "cohort_label": "representative",
+        "weighted_win_osrm": False,
+        "dominates_osrm": False,
+        "runtime_gap_vs_osrm_ms": 18.0,
+        "weighted_win_ors": False,
+        "dominates_ors": False,
+        "runtime_gap_vs_ors_ms": 16.0,
+    }
+
+    assert thesis_module._is_osrm_brittle_row(generic_row) is False
+    assert thesis_module._is_ors_brittle_row(generic_row) is False
+    assert thesis_module._cohort_rows([generic_row], "osrm_brittle") == []
+    assert thesis_module._cohort_rows([generic_row], "ors_brittle") == []
+
+
+def test_comparator_brittle_cohorts_derive_only_from_multi_signal_comparator_failures() -> None:
+    osrm_brittle = {
+        "variant_id": "C",
+        "od_id": "osrm-brittle",
+        "profile_id": "osrm-brittle-profile",
+        "corpus_group": "representative",
+        "cohort_label": "representative",
+        "weighted_win_osrm": False,
+        "dominates_osrm": False,
+        "weighted_margin_vs_osrm": -0.18,
+        "balanced_gain_vs_osrm_score": -0.07,
+        "time_preserving_win_osrm": False,
+        "time_preserving_dominance_osrm": False,
+        "runtime_gap_vs_osrm_ms": 92.0,
+        "best_baseline_provider": "osrm",
+        "weighted_win_best_baseline": False,
+    }
+    ors_brittle = {
+        "variant_id": "C",
+        "od_id": "ors-brittle",
+        "profile_id": "ors-brittle-profile",
+        "corpus_group": "representative",
+        "cohort_label": "representative",
+        "weighted_win_ors": False,
+        "dominates_ors": False,
+        "weighted_margin_vs_ors": -0.16,
+        "balanced_gain_vs_ors_score": -0.05,
+        "time_preserving_win_ors": False,
+        "time_preserving_dominance_ors": False,
+        "runtime_gap_vs_ors_ms": 87.0,
+        "best_baseline_provider": "ors",
+        "weighted_win_best_baseline": False,
+    }
+
+    assert thesis_module._is_osrm_brittle_row(osrm_brittle) is True
+    assert thesis_module._is_ors_brittle_row(ors_brittle) is True
+    assert thesis_module._cohort_rows([osrm_brittle], "osrm_brittle") == [osrm_brittle]
+    assert thesis_module._cohort_rows([ors_brittle], "ors_brittle") == [ors_brittle]
+
+
+def test_explicit_cohort_label_override_preserves_brittle_membership_over_generic_corpus_group() -> None:
+    explicit_brittle_row = {
+        "variant_id": "C",
+        "od_id": "explicit-osrm-brittle",
+        "profile_id": "explicit-osrm-brittle-profile",
+        "corpus_group": "representative",
+        "corpus_kind": "representative",
+        "cohort_label": "osrm_brittle",
+    }
+
+    assert thesis_module._cohort_label(explicit_brittle_row) == "osrm_brittle"
+    assert thesis_module._cohort_rows([explicit_brittle_row], "osrm_brittle") == [explicit_brittle_row]
 
 
 def test_finalize_cross_variant_metrics_uses_full_row_identity_not_od_id_only() -> None:
@@ -1768,6 +2210,53 @@ def test_finalize_cross_variant_metrics_uses_full_row_identity_not_od_id_only() 
     assert ambiguity_voi["voi_realized_certificate_lift"] == 0.15
     assert ambiguity_voi["voi_realized_frontier_gain"] == 0.2
     assert ambiguity_voi["voi_realized_runtime_delta_ms"] == 5.0
+
+
+def test_finalize_cross_variant_metrics_uses_row_effective_request_weights_for_v0() -> None:
+    rows = thesis_module._finalize_cross_variant_metrics(
+        [
+            {
+                "od_id": "weighted-v0",
+                "profile_id": "weighted_profile",
+                "corpus_group": "representative",
+                "origin_lat": 51.0,
+                "origin_lon": -1.0,
+                "destination_lat": 52.0,
+                "destination_lon": -2.0,
+                "variant_id": "V0",
+                "selected_duration_s": 110.0,
+                "selected_monetary_cost": 9.0,
+                "selected_emissions_kg": 9.0,
+                "runtime_ms": 120.0,
+                "algorithm_runtime_ms": 110.0,
+            },
+            {
+                "od_id": "weighted-v0",
+                "profile_id": "weighted_profile",
+                "corpus_group": "representative",
+                "origin_lat": 51.0,
+                "origin_lon": -1.0,
+                "destination_lat": 52.0,
+                "destination_lon": -2.0,
+                "variant_id": "A",
+                "selected_duration_s": 100.0,
+                "selected_monetary_cost": 10.0,
+                "selected_emissions_kg": 10.0,
+                "runtime_ms": 100.0,
+                "algorithm_runtime_ms": 90.0,
+                "effective_request_config_json": json.dumps(
+                    {"weights": {"time": 5.0, "money": 0.1, "co2": 0.1}},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            },
+        ]
+    )
+
+    weighted_row = next(row for row in rows if row["variant_id"] == "A")
+    assert weighted_row["weighted_win_v0"] is True
+    assert weighted_row["weighted_margin_vs_v0"] == pytest.approx(4.8, rel=0.0, abs=1e-6)
+    assert weighted_row["weighted_margin_gain_vs_v0"] == pytest.approx(4.8, rel=0.0, abs=1e-6)
 
 
 def test_strict_failure_elimination_rate_is_derived_from_v0_failure_rows() -> None:
@@ -1981,6 +2470,40 @@ def test_build_od_corpus_rejects_feasible_pairs_when_candidate_probe_fails(monke
 def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts(tmp_path: Path) -> None:
     corpus_csv = tmp_path / "corpus.csv"
     _build_corpus_csv(corpus_csv)
+    backend_lease_manifest = tmp_path / "backend_lease_manifest.json"
+    evaluator_lease_manifest = tmp_path / "evaluator_lease_manifest.json"
+    backend_lease_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "role": "backend",
+                "topology": "split_process",
+                "memory_limit_mb": 2304,
+                "root_process_pid": 12345,
+                "primary_tracked_process_id": 22345,
+                "tracked_pids": [22345, 12345],
+                "status": "running",
+            }
+        ),
+        encoding="utf-8",
+    )
+    evaluator_lease_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "role": "evaluator",
+                "topology": "split_process",
+                "memory_limit_mb": 1024,
+                "root_process_pid": 32345,
+                "primary_tracked_process_id": 32345,
+                "tracked_pids": [32345],
+                "status": "exited",
+                "exit_code": 0,
+                "watchdog_triggered": False,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     route_calls: list[str] = []
     run_modes = {
@@ -2111,6 +2634,10 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
                 str(tmp_path / "out"),
                 "--backend-url",
                 "http://testserver",
+                "--backend-lease-manifest-path",
+                str(backend_lease_manifest),
+                "--evaluator-lease-manifest-path",
+                str(evaluator_lease_manifest),
                 "--seed",
                 "7",
                 "--world-count",
@@ -2386,12 +2913,64 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
     assert manifest_payload["corpus_source_exists"] is True
     assert manifest_payload["corpus_source_path"].endswith(".csv")
     assert Path(manifest_payload["corpus_source_resolved_path"]).is_absolute()
+    artifact_dir = Path(payload["evaluation_manifest"]).parent
+    metrics_payload = json.loads((artifact_dir / "thesis_metrics.json").read_text(encoding="utf-8"))
+    plots_payload = json.loads((artifact_dir / "thesis_plots.json").read_text(encoding="utf-8"))
+    results_payload = json.loads((artifact_dir / "results.json").read_text(encoding="utf-8"))
+    metadata_payload = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata_payload["route_graph_readiness_class"] == "full_hydration_ready"
+    assert metadata_payload["route_graph_full_hydration_observed"] is True
+    assert metadata_payload["degraded_evaluation_observed"] is False
+    assert metadata_payload["degraded_reason_codes_observed"] == []
+    assert metadata_payload["precheck_gate_actions_observed"] == []
+    assert metadata_payload["route_fallback_observed"] is False
+    assert metadata_payload["strict_full_search_proof_eligible"] is True
+    assert metrics_payload["metric_family_scaffolding"]["metric_family_scaffolding_version"] == "thesis_metric_family_scaffolding_v1"
+    assert plots_payload["metric_family_scaffolding"]["metric_family_labels"] == metrics_payload["metric_family_scaffolding"]["metric_family_labels"]
+    assert results_payload["metric_family_scaffolding"]["metric_family_export_targets"]["results.json"] == ["metric_family_scaffolding"]
+    assert metadata_payload["metric_family_scaffolding"]["metric_family_labels"] == metrics_payload["metric_family_scaffolding"]["metric_family_labels"]
+    assert manifest_payload["metric_family_scaffolding"]["metric_family_labels"] == metrics_payload["metric_family_scaffolding"]["metric_family_labels"]
+    assert manifest_payload["route_graph_readiness_class"] == "full_hydration_ready"
+    assert manifest_payload["route_graph_full_hydration_observed"] is True
+    assert manifest_payload["degraded_evaluation_observed"] is False
+    assert manifest_payload["strict_full_search_proof_eligible"] is True
     request_manifest_payload = json.loads(Path(payload["manifest_path"]).read_text(encoding="utf-8"))
     assert request_manifest_payload["request"]["evaluation"]["corpus_source_format"] == "csv"
     assert request_manifest_payload["request"]["evaluation"]["corpus_source_exists"] is True
+    backend_snapshot_path = artifact_dir / "backend_lease_snapshot.json"
+    evaluator_snapshot_path = artifact_dir / "evaluator_lease_snapshot.json"
+    assert Path(payload["backend_lease_snapshot_path"]) == backend_snapshot_path
+    assert Path(payload["evaluator_lease_snapshot_path"]) == evaluator_snapshot_path
+    assert backend_snapshot_path.exists()
+    assert evaluator_snapshot_path.exists()
+    backend_snapshot_payload = json.loads(backend_snapshot_path.read_text(encoding="utf-8"))
+    evaluator_snapshot_payload = json.loads(evaluator_snapshot_path.read_text(encoding="utf-8"))
+    assert backend_snapshot_payload["memory_limit_mb"] == 2304
+    assert backend_snapshot_payload["snapshot_source_path"] == str(backend_lease_manifest.resolve())
+    assert evaluator_snapshot_payload["memory_limit_mb"] == 1024
+    assert evaluator_snapshot_payload["snapshot_source_path"] == str(evaluator_lease_manifest.resolve())
+    assert metadata_payload["execution_provenance"]["topology"] == "split_process"
+    assert metadata_payload["execution_provenance"]["backend_lease_snapshot_path"] == str(backend_snapshot_path)
+    assert metadata_payload["execution_provenance"]["backend_lease_manifest"]["memory_limit_mb"] == 2304
+    assert metadata_payload["execution_provenance"]["evaluator_lease_snapshot_path"] == str(evaluator_snapshot_path)
+    assert metadata_payload["execution_provenance"]["evaluator_lease_manifest"]["memory_limit_mb"] == 1024
+    assert manifest_payload["execution_provenance"]["topology"] == "split_process"
+    assert manifest_payload["execution_provenance"]["backend_lease_snapshot_path"] == str(backend_snapshot_path)
+    assert manifest_payload["execution_provenance"]["evaluator_lease_snapshot_path"] == str(evaluator_snapshot_path)
+    assert request_manifest_payload["execution"]["provenance"]["topology"] == "split_process"
+    assert request_manifest_payload["execution"]["provenance"]["backend_lease_snapshot_path"] == str(backend_snapshot_path)
+    assert request_manifest_payload["execution"]["provenance"]["evaluator_lease_snapshot_path"] == str(evaluator_snapshot_path)
+    assert payload["output_artifact_validation"]["artifacts"]["backend_lease_snapshot.json"]["path"] == str(backend_snapshot_path)
+    assert payload["output_artifact_validation"]["artifacts"]["evaluator_lease_snapshot.json"]["path"] == str(evaluator_snapshot_path)
     assert Path(payload["summary_by_cohort_csv"]).exists()
     cohort_rows = [row for row in payload["summary_by_cohort_rows"] if row["variant_id"] == "C"]
-    assert {row["cohort_label"] for row in cohort_rows} == {"ambiguity", "controller_stress", "hard_case"}
+    assert {row["cohort_label"] for row in cohort_rows} == {
+        "ambiguity",
+        "collapse_prone",
+        "controller_stress",
+        "hard_case",
+        "refresh_sensitive",
+    }
     assert all(row["cohort_share_of_variant"] == 1.0 for row in cohort_rows)
     assert all(row["mean_top_refresh_gain"] == pytest.approx(0.045, rel=0.0, abs=1e-6) for row in cohort_rows)
     assert all(row["mean_top_refresh_gain_denominator"] == 1 for row in cohort_rows)
@@ -2445,6 +3024,45 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
     assert "refine_cost_zero_observed_count=0" in report_text
     assert "zero_lift_controller_action_rate=0.0" in report_text
     assert "- none" in report_text
+
+
+def test_snapshot_lease_manifest_marks_nonterminal_evaluator_state_as_pre_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = tmp_path / "evaluator_lease_manifest.json"
+    source_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "role": "evaluator",
+                "topology": "split_process",
+                "memory_limit_mb": 1024,
+                "root_process_pid": 32345,
+                "primary_tracked_process_id": 32345,
+                "tracked_pids": [32345],
+                "status": "running",
+                "watchdog_triggered": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(thesis_module.settings, "out_dir", str(tmp_path / "out"))
+
+    snapshot_path, snapshot_payload = thesis_module._snapshot_lease_manifest(
+        "lease_snapshot_nonterminal",
+        source_path=str(source_path),
+        artifact_name="evaluator_lease_snapshot.json",
+    )
+
+    assert snapshot_path is not None
+    assert snapshot_payload is not None
+    assert snapshot_payload["snapshot_source_path"] == str(source_path.resolve())
+    assert snapshot_payload["snapshot_capture_phase"] == "pre_exit"
+    assert snapshot_payload["snapshot_terminal_state_observed"] is False
+    persisted_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert persisted_payload["snapshot_capture_phase"] == "pre_exit"
+    assert persisted_payload["snapshot_terminal_state_observed"] is False
 
 
 def test_run_thesis_evaluation_fails_fast_when_baseline_smoke_fails(tmp_path: Path) -> None:
@@ -2522,6 +3140,7 @@ def test_thesis_evaluation_main_supports_in_process_backend(tmp_path: Path, monk
     corpus_csv = tmp_path / "corpus.csv"
     _build_corpus_csv(corpus_csv)
     calls: dict[str, object] = {}
+    subset_graph = tmp_path / "subset-graph.json"
 
     class DummyClient:
         def __enter__(self):
@@ -2540,6 +3159,9 @@ def test_thesis_evaluation_main_supports_in_process_backend(tmp_path: Path, monk
     def fake_run(args, *, client=None):
         calls["client"] = client
         calls["in_process"] = bool(args.in_process_backend)
+        calls["route_graph_asset_path"] = thesis_module.os.environ.get("ROUTE_GRAPH_ASSET_PATH")
+        calls["route_graph_min_nodes"] = thesis_module.os.environ.get("ROUTE_GRAPH_MIN_NODES")
+        calls["route_graph_min_adjacency"] = thesis_module.os.environ.get("ROUTE_GRAPH_MIN_ADJACENCY")
         return {"run_id": "inproc"}
 
     monkeypatch.setattr(thesis_module, "run_thesis_evaluation", fake_run)
@@ -2551,6 +3173,12 @@ def test_thesis_evaluation_main_supports_in_process_backend(tmp_path: Path, monk
             "--out-dir",
             str(tmp_path / "out"),
             "--in-process-backend",
+            "--route-graph-asset-path",
+            str(subset_graph),
+            "--route-graph-min-nodes",
+            "12",
+            "--route-graph-min-adjacency",
+            "9",
         ]
     )
 
@@ -2559,6 +3187,12 @@ def test_thesis_evaluation_main_supports_in_process_backend(tmp_path: Path, monk
     assert calls["exited"] is True
     assert calls["client"] is not None
     assert calls["in_process"] is True
+    assert calls["route_graph_asset_path"] == str(subset_graph.resolve())
+    assert calls["route_graph_min_nodes"] == "12"
+    assert calls["route_graph_min_adjacency"] == "9"
+    assert thesis_module.settings.route_graph_asset_path == str(subset_graph.resolve())
+    assert thesis_module.settings.route_graph_min_nodes == 12
+    assert thesis_module.settings.route_graph_min_adjacency == 9
 
 
 def test_run_thesis_evaluation_fails_closed_when_required_route_artifact_is_missing(tmp_path: Path) -> None:
@@ -2897,6 +3531,15 @@ def test_run_thesis_evaluation_records_failure_rows_per_variant(tmp_path: Path) 
     failing_row = next(row for row in payload["rows"] if row["variant_id"] == "B")
     assert failing_row["failure_reason"] == "strict_dependency_missing"
     assert failing_row["route_id"] == ""
+    artifact_dir = Path(payload["evaluation_manifest"]).parent
+    manifest_payload = json.loads((artifact_dir / "evaluation_manifest.json").read_text(encoding="utf-8"))
+    metadata_payload = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert manifest_payload["strict_full_search_proof_eligible"] is False
+    assert metadata_payload["strict_full_search_proof_eligible"] is False
+    assert manifest_payload["degraded_evaluation_observed"] is False
+    assert metadata_payload["degraded_evaluation_observed"] is False
+    assert manifest_payload["run_validity"]["evaluation_rerun_success_rate"] == pytest.approx(0.75, rel=0.0, abs=1e-6)
+    assert metadata_payload["run_validity"]["evaluation_rerun_success_rate"] == pytest.approx(0.75, rel=0.0, abs=1e-6)
 
 
 def test_run_thesis_evaluation_continues_after_one_od_baseline_failure(tmp_path: Path) -> None:
@@ -4780,6 +5423,44 @@ def test_parser_defaults_favor_local_service_non_snapshot_runs() -> None:
     assert args.route_timeout_seconds == 600.0
 
 
+def test_route_compute_url_appends_repo_local_ors_seed_mode_from_effective_request_config() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--backend-url",
+            "http://backend.test",
+            "--ors-baseline-policy",
+            "repo_local",
+        ]
+    )
+    od = {
+        "od_id": "od-route-url",
+        "origin_lat": 52.0,
+        "origin_lon": -1.5,
+        "destination_lat": 51.5,
+        "destination_lon": -1.2,
+        "straight_line_km": 55.0,
+        "trip_length_bin": "30-100 km",
+        "seed": 7,
+        "profile_id": "controller_profile",
+        "corpus_group": "ambiguity",
+        "corpus_kind": "ambiguity",
+        "candidate_probe_path_count": 5,
+        "candidate_probe_corridor_family_count": 3,
+        "candidate_probe_objective_spread": 0.27,
+        "candidate_probe_engine_disagreement_prior": 0.41,
+        "hard_case_prior": 0.72,
+    }
+
+    request_config = thesis_module._effective_request_config(args, od, variant_seed=17)
+
+    assert request_config["internal_ors_seed_mode"] == "repo_local"
+    assert thesis_module._route_compute_url(args.backend_url, request_config=request_config) == (
+        "http://backend.test/route?ors_seed_mode=repo_local"
+    )
+
+
 def test_load_rows_accepts_od_ambiguity_index_only() -> None:
     rows = thesis_module._load_rows(
         [
@@ -5156,6 +5837,499 @@ def test_result_row_extracts_controller_and_option_build_runtime_metrics() -> No
     assert row["refine_cost_mape"] == pytest.approx(1.0, rel=0.0, abs=1e-6)
     assert row["refine_cost_mae_ms"] == pytest.approx(10.0, rel=0.0, abs=1e-6)
     assert row["refine_cost_rank_correlation"] is None
+
+
+def test_result_row_surfaces_internal_ors_seed_mode_in_exported_rows() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--backend-url",
+            "http://backend.test",
+            "--ors-baseline-policy",
+            "repo_local",
+        ]
+    )
+    od = {
+        "od_id": "od-internal-ors-seed-mode",
+        "origin_lat": 52.0,
+        "origin_lon": -1.5,
+        "destination_lat": 51.5,
+        "destination_lon": -1.2,
+        "straight_line_km": 55.0,
+        "trip_length_bin": "30-100 km",
+        "seed": 7,
+        "profile_id": "controller_profile",
+        "corpus_group": "ambiguity",
+        "corpus_kind": "ambiguity",
+        "od_ambiguity_index": 0.63,
+        "od_ambiguity_confidence": 0.81,
+        "od_ambiguity_source_count": 2,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1}',
+        "od_ambiguity_source_mix_count": 2,
+        "od_ambiguity_source_entropy": 0.63,
+        "od_ambiguity_support_ratio": 0.79,
+        "od_ambiguity_prior_strength": 0.63,
+        "od_ambiguity_family_density": 0.6,
+        "od_ambiguity_margin_pressure": 0.82,
+        "od_ambiguity_spread_pressure": 0.27,
+        "candidate_probe_path_count": 5,
+        "candidate_probe_corridor_family_count": 3,
+        "candidate_probe_objective_spread": 0.27,
+        "candidate_probe_nominal_margin": 0.18,
+        "candidate_probe_toll_disagreement_rate": 0.09,
+        "candidate_probe_engine_disagreement_prior": 0.41,
+        "hard_case_prior": 0.72,
+    }
+    request_config = thesis_module._effective_request_config(args, od, variant_seed=17)
+    selected = _route_payload("r-main", duration_s=100.0, cost=20.0, emissions=5.0)
+    route_response = {
+        "selected": selected,
+        "candidates": [selected],
+        "selected_certificate": {"certificate": 0.91, "certified": True},
+        "artifact_validation": {"status": "ok", "required": [], "missing": []},
+        "route_evidence_validation": {"status": "ok", "issues": []},
+        "run_id": "run-internal-ors-seed-mode",
+        "manifest_endpoint": "/runs/run-internal-ors-seed-mode/manifest",
+        "artifacts_endpoint": "/runs/run-internal-ors-seed-mode/artifacts",
+    }
+    artifacts = _artifact_bundle(
+        "run-internal-ors-seed-mode",
+        selected_id="r-main",
+        selected_certificate=0.91,
+        pipeline_mode="dccs",
+    )
+    baseline = thesis_module.BaselineResult(
+        route={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        metrics={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        method="baseline",
+        compute_ms=10.0,
+        provider_mode="repo_local",
+    )
+
+    row = thesis_module._result_row(
+        args,
+        od,
+        thesis_module.VariantSpec("A", "dccs"),
+        route_response,
+        120.0,
+        artifacts,
+        baseline,
+        baseline,
+        readiness_summary={
+            "strict_route_ready": True,
+            "wait_elapsed_ms": 1.0,
+            "compute_ms": 2.0,
+            "route_graph": {"elapsed_ms": 3.0},
+        },
+        request_config=request_config,
+    )
+
+    assert "internal_ors_seed_mode" in thesis_module.RESULT_FIELDS
+    assert row["internal_ors_seed_mode"] == "repo_local"
+    assert json.loads(row["effective_request_config_json"])["internal_ors_seed_mode"] == "repo_local"
+
+
+def test_result_row_exports_raw_comparator_audit_fields_when_selected_lineage_is_comparator_backed() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--backend-url",
+            "http://backend.test",
+        ]
+    )
+    od = {
+        "od_id": "od-raw-comparator",
+        "origin_lat": 52.0,
+        "origin_lon": -1.5,
+        "destination_lat": 51.5,
+        "destination_lon": -1.2,
+        "straight_line_km": 55.0,
+        "trip_length_bin": "30-100 km",
+        "seed": 7,
+    }
+    request_config = thesis_module._effective_request_config(args, od, variant_seed=17)
+    selected = _route_payload("r-main", duration_s=100.0, cost=20.0, emissions=5.0)
+    route_response = {
+        "selected": selected,
+        "candidates": [selected],
+        "selected_certificate": {"certificate": 0.91, "certified": True},
+        "artifact_validation": {"status": "ok", "required": [], "missing": []},
+        "route_evidence_validation": {"status": "ok", "issues": []},
+        "run_id": "run-raw-comparator",
+        "manifest_endpoint": "/runs/run-raw-comparator/manifest",
+        "artifacts_endpoint": "/runs/run-raw-comparator/artifacts",
+    }
+    artifacts = _artifact_bundle(
+        "run-raw-comparator",
+        selected_id="r-main",
+        selected_certificate=0.91,
+        pipeline_mode="dccs",
+    )
+    artifacts["final_route_trace.json"]["selected_candidate_ids"] = ["comp_a"]
+    artifacts["dccs_summary.json"]["selected_candidate_ids"] = ["comp_a"]
+    artifacts["dccs_candidates.jsonl"] = [
+        {
+            "candidate_id": "comp_a",
+            "candidate_source_stage": "preemptive_comparator_seed",
+            "candidate_source_label": "preemptive:repo_local_ors:secondary_seed:preemptive_comparator_seed",
+            "candidate_deduped_source_labels": [
+                "preemptive:repo_local_ors:secondary_seed:preemptive_comparator_seed"
+            ],
+            "candidate_materialized_preemptive_comparator": True,
+            "candidate_materialized_preemptive_engine": "ors_repo_local",
+            "decision_reason": "frontier_addition",
+            "proxy_objective": [90.0, 18.0, 4.0],
+        }
+    ]
+    baseline = thesis_module.BaselineResult(
+        route={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        metrics={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        method="baseline",
+        compute_ms=10.0,
+        provider_mode="repo_local",
+    )
+
+    row = thesis_module._result_row(
+        args,
+        od,
+        thesis_module.VariantSpec("A", "dccs"),
+        route_response,
+        120.0,
+        artifacts,
+        baseline,
+        baseline,
+        readiness_summary={
+            "strict_route_ready": True,
+            "wait_elapsed_ms": 1.0,
+            "compute_ms": 2.0,
+            "route_graph": {"elapsed_ms": 3.0},
+        },
+        request_config=request_config,
+    )
+
+    assert row["raw_comparator_audit_basis"] == "selected_lineage"
+    assert row["raw_comparator_candidate_id"] == "comp_a"
+    assert row["raw_comparator_source_label"] == "preemptive:repo_local_ors:secondary_seed:preemptive_comparator_seed"
+    assert row["raw_comparator_materialized"] is True
+    assert row["raw_comparator_decision_reason"] == "frontier_addition"
+    assert row["raw_comparator_protected_realization"] is True
+    assert row["raw_comparator_proxy_duration_s"] == pytest.approx(90.0, rel=0.0, abs=1e-6)
+    assert row["raw_comparator_proxy_monetary_cost"] == pytest.approx(18.0, rel=0.0, abs=1e-6)
+    assert row["raw_comparator_proxy_emissions_kg"] == pytest.approx(4.0, rel=0.0, abs=1e-6)
+    assert row["selected_duration_delta_vs_raw_comparator_proxy_s"] == pytest.approx(10.0, rel=0.0, abs=1e-6)
+    assert row["selected_monetary_delta_vs_raw_comparator_proxy"] == pytest.approx(2.0, rel=0.0, abs=1e-6)
+    assert row["selected_emissions_delta_vs_raw_comparator_proxy_kg"] == pytest.approx(1.0, rel=0.0, abs=1e-6)
+
+
+def test_result_row_leaves_raw_comparator_audit_fields_empty_without_comparator_candidates() -> None:
+    row = _result_row_with_selected_lineage(
+        selected_candidate_source_label="graph_family:cand_a",
+        selected_candidate_source_engine="routing_graph",
+        selected_candidate_source_stage="graph_search",
+        selected_final_route_source_label="graph_family:cand_a",
+        selected_final_route_source_engine="routing_graph",
+        selected_final_route_source_stage="graph_search",
+    )
+
+    assert row["raw_comparator_audit_basis"] is None
+    assert row["raw_comparator_candidate_id"] is None
+    assert row["raw_comparator_source_label"] is None
+    assert row["raw_comparator_materialized"] is None
+    assert row["raw_comparator_decision_reason"] is None
+    assert row["raw_comparator_protected_realization"] is None
+    assert row["raw_comparator_proxy_duration_s"] is None
+    assert row["raw_comparator_proxy_monetary_cost"] is None
+    assert row["raw_comparator_proxy_emissions_kg"] is None
+    assert row["selected_duration_delta_vs_raw_comparator_proxy_s"] is None
+    assert row["selected_monetary_delta_vs_raw_comparator_proxy"] is None
+    assert row["selected_emissions_delta_vs_raw_comparator_proxy_kg"] is None
+
+
+def _result_row_with_selected_lineage(
+    *,
+    selected_candidate_source_label: str,
+    selected_candidate_source_engine: str,
+    selected_candidate_source_stage: str,
+    selected_final_route_source_label: str | None,
+    selected_final_route_source_engine: str | None = None,
+    selected_final_route_source_stage: str | None = None,
+    graph_retry_outcome: str | None = None,
+) -> dict[str, object]:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--backend-url",
+            "http://backend.test",
+        ]
+    )
+    od = {
+        "od_id": "od-lineage",
+        "origin_lat": 52.0,
+        "origin_lon": -1.5,
+        "destination_lat": 51.5,
+        "destination_lon": -1.2,
+        "straight_line_km": 55.0,
+        "trip_length_bin": "30-100 km",
+        "seed": 7,
+        "profile_id": "controller_profile",
+        "corpus_group": "ambiguity",
+        "corpus_kind": "ambiguity",
+        "od_ambiguity_index": 0.63,
+        "od_ambiguity_confidence": 0.81,
+        "od_ambiguity_source_count": 2,
+        "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1}',
+        "od_ambiguity_source_mix_count": 2,
+        "od_ambiguity_source_entropy": 0.63,
+        "od_ambiguity_support_ratio": 0.79,
+        "od_ambiguity_prior_strength": 0.63,
+        "od_ambiguity_family_density": 0.6,
+        "od_ambiguity_margin_pressure": 0.82,
+        "od_ambiguity_spread_pressure": 0.27,
+        "candidate_probe_path_count": 5,
+        "candidate_probe_corridor_family_count": 3,
+        "candidate_probe_objective_spread": 0.27,
+        "candidate_probe_nominal_margin": 0.18,
+        "candidate_probe_toll_disagreement_rate": 0.09,
+        "candidate_probe_engine_disagreement_prior": 0.41,
+        "hard_case_prior": 0.72,
+    }
+    request_config = thesis_module._effective_request_config(args, od, variant_seed=17)
+    selected = _route_payload("r-main", duration_s=100.0, cost=20.0, emissions=5.0)
+    route_response = {
+        "selected": selected,
+        "candidates": [selected],
+        "selected_certificate": {"certificate": 0.91, "certified": True},
+        "artifact_validation": {"status": "ok", "required": [], "missing": []},
+        "route_evidence_validation": {"status": "ok", "issues": []},
+        "run_id": "run-lineage",
+        "manifest_endpoint": "/runs/run-lineage/manifest",
+        "artifacts_endpoint": "/runs/run-lineage/artifacts",
+    }
+    artifacts = _artifact_bundle(
+        "run-lineage",
+        selected_id="r-main",
+        selected_certificate=0.91,
+        pipeline_mode="dccs",
+    )
+    dccs_summary = artifacts["dccs_summary.json"]
+    assert isinstance(dccs_summary, dict)
+    dccs_summary.update(
+        {
+            "selected_candidate_source_label": selected_candidate_source_label,
+            "selected_candidate_source_engine": selected_candidate_source_engine,
+            "selected_candidate_source_stage": selected_candidate_source_stage,
+            "selected_final_route_source_label": selected_final_route_source_label,
+            "selected_final_route_source_engine": selected_final_route_source_engine,
+            "selected_final_route_source_stage": selected_final_route_source_stage,
+        }
+    )
+    final_route_trace = artifacts["final_route_trace.json"]
+    assert isinstance(final_route_trace, dict)
+    candidate_diagnostics = final_route_trace["candidate_diagnostics"]
+    assert isinstance(candidate_diagnostics, dict)
+    if graph_retry_outcome is not None:
+        candidate_diagnostics["graph_retry_outcome"] = graph_retry_outcome
+    baseline = thesis_module.BaselineResult(
+        route={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        metrics={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        method="baseline",
+        compute_ms=10.0,
+        provider_mode="repo_local",
+    )
+    return thesis_module._result_row(
+        args,
+        od,
+        thesis_module.VariantSpec("A", "dccs"),
+        route_response,
+        120.0,
+        artifacts,
+        baseline,
+        baseline,
+        readiness_summary={
+            "strict_route_ready": True,
+            "wait_elapsed_ms": 1.0,
+            "compute_ms": 2.0,
+            "route_graph": {"elapsed_ms": 3.0},
+        },
+        request_config=request_config,
+    )
+
+
+def test_result_row_route_fallback_observed_uses_final_lineage_not_raw_fallback_seed() -> None:
+    row = _result_row_with_selected_lineage(
+        selected_candidate_source_label="fallback:alternatives:direct_k_raw_fallback",
+        selected_candidate_source_engine="fallback",
+        selected_candidate_source_stage="direct_k_raw_fallback",
+        selected_final_route_source_label="graph_family:123cb11cf230bd9f64cbb27ad26bfb424cbcb8da:osrm_refined",
+        selected_final_route_source_engine="osrm_refined",
+        selected_final_route_source_stage="osrm_refined",
+    )
+
+    assert row["selected_candidate_source_label"] == "fallback:alternatives:direct_k_raw_fallback"
+    assert row["selected_final_route_source_label"] == "graph_family:123cb11cf230bd9f64cbb27ad26bfb424cbcb8da:osrm_refined"
+    assert row["route_fallback_observed"] is False
+
+
+def test_result_fields_export_route_honesty_trace_columns_to_csv() -> None:
+    row = _result_row_with_selected_lineage(
+        selected_candidate_source_label="fallback:alternatives:direct_k_raw_fallback",
+        selected_candidate_source_engine="fallback",
+        selected_candidate_source_stage="direct_k_raw_fallback",
+        selected_final_route_source_label="graph_family:123cb11cf230bd9f64cbb27ad26bfb424cbcb8da:osrm_refined",
+        selected_final_route_source_engine="osrm_refined",
+        selected_final_route_source_stage="osrm_refined",
+    )
+    row["route_graph_degraded_reason_code"] = "ok"
+    row["route_graph_precheck_gate_action"] = "ok"
+    row["route_fallback_observed"] = False
+
+    assert "route_graph_degraded_reason_code" in thesis_module.RESULT_FIELDS
+    assert "route_graph_precheck_gate_action" in thesis_module.RESULT_FIELDS
+    assert "route_fallback_observed" in thesis_module.RESULT_FIELDS
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=thesis_module.RESULT_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerow(row)
+    buffer.seek(0)
+    roundtrip = next(csv.DictReader(buffer))
+
+    assert roundtrip["route_graph_degraded_reason_code"] == str(row["route_graph_degraded_reason_code"])
+    assert roundtrip["route_graph_precheck_gate_action"] == str(row["route_graph_precheck_gate_action"])
+    assert roundtrip["route_fallback_observed"] == str(row["route_fallback_observed"])
+
+
+def test_result_row_route_fallback_observed_stays_true_for_fallback_like_final_lineage() -> None:
+    row = _result_row_with_selected_lineage(
+        selected_candidate_source_label="fallback:alternatives:direct_k_raw_fallback",
+        selected_candidate_source_engine="fallback",
+        selected_candidate_source_stage="direct_k_raw_fallback",
+        selected_final_route_source_label="fallback:alternatives:direct_k_raw_fallback",
+        selected_final_route_source_engine="fallback",
+        selected_final_route_source_stage="direct_k_raw_fallback",
+    )
+
+    assert row["selected_candidate_source_label"] == "fallback:alternatives:direct_k_raw_fallback"
+    assert row["route_fallback_observed"] is True
+
+
+def test_result_row_route_fallback_observed_missing_final_lineage_does_not_imply_fallback() -> None:
+    row = _result_row_with_selected_lineage(
+        selected_candidate_source_label="fallback:alternatives:direct_k_raw_fallback",
+        selected_candidate_source_engine="fallback",
+        selected_candidate_source_stage="direct_k_raw_fallback",
+        selected_final_route_source_label=None,
+        selected_final_route_source_engine=None,
+        selected_final_route_source_stage=None,
+    )
+
+    assert row["selected_candidate_source_label"] == "fallback:alternatives:direct_k_raw_fallback"
+    assert row["route_fallback_observed"] is False
+
+
+def test_result_row_route_fallback_observed_ignores_raw_retry_fallback_when_final_lineage_is_refined() -> None:
+    row = _result_row_with_selected_lineage(
+        selected_candidate_source_label="fallback:alternatives:direct_k_raw_fallback",
+        selected_candidate_source_engine="fallback",
+        selected_candidate_source_stage="direct_k_raw_fallback",
+        selected_final_route_source_label="graph_family:123cb11cf230bd9f64cbb27ad26bfb424cbcb8da:osrm_refined",
+        selected_final_route_source_engine="osrm_refined",
+        selected_final_route_source_stage="osrm_refined",
+        graph_retry_outcome="skipped_long_corridor_fast_fallback",
+    )
+
+    assert row["selected_final_route_source_label"] == "graph_family:123cb11cf230bd9f64cbb27ad26bfb424cbcb8da:osrm_refined"
+    assert row["route_fallback_observed"] is False
+
+
+def test_result_row_best_baseline_weighted_fields_follow_selected_provider() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--backend-url",
+            "http://backend.test",
+            "--weight-time",
+            "0.1",
+            "--weight-money",
+            "5.0",
+            "--weight-co2",
+            "5.0",
+        ]
+    )
+    od = {
+        "od_id": "od-best-baseline",
+        "origin_lat": 52.0,
+        "origin_lon": -1.5,
+        "destination_lat": 51.5,
+        "destination_lon": -1.2,
+        "straight_line_km": 55.0,
+        "trip_length_bin": "30-100 km",
+        "seed": 11,
+        "profile_id": "best_baseline_profile",
+        "corpus_group": "representative",
+        "corpus_kind": "representative",
+    }
+    request_config = thesis_module._effective_request_config(args, od, variant_seed=17)
+    selected = _route_payload("r-best-baseline", duration_s=100.0, cost=20.0, emissions=5.0)
+    route_response = {
+        "selected": selected,
+        "candidates": [selected],
+        "selected_certificate": {"certificate": 0.88, "certified": False},
+        "artifact_validation": {"status": "ok", "required": [], "missing": []},
+        "route_evidence_validation": {"status": "ok", "issues": []},
+        "run_id": "run-best-baseline",
+        "manifest_endpoint": "/runs/run-best-baseline/manifest",
+        "artifacts_endpoint": "/runs/run-best-baseline/artifacts",
+    }
+    artifacts = _artifact_bundle(
+        "run-best-baseline",
+        selected_id="r-best-baseline",
+        selected_certificate=0.88,
+        pipeline_mode="dccs_refc",
+    )
+    osrm = thesis_module.BaselineResult(
+        route={"distance_km": 10.0, "duration_s": 110.0, "monetary_cost": 19.0, "emissions_kg": 4.0},
+        metrics={"distance_km": 10.0, "duration_s": 110.0, "monetary_cost": 19.0, "emissions_kg": 4.0},
+        method="osrm_engine_baseline",
+        compute_ms=10.0,
+        provider_mode="repo_local",
+    )
+    ors = thesis_module.BaselineResult(
+        route={"distance_km": 12.0, "duration_s": 120.0, "monetary_cost": 30.0, "emissions_kg": 6.0},
+        metrics={"distance_km": 12.0, "duration_s": 120.0, "monetary_cost": 30.0, "emissions_kg": 6.0},
+        method="ors_local_engine_baseline",
+        compute_ms=12.0,
+        provider_mode="local_service",
+    )
+
+    row = thesis_module._result_row(
+        args,
+        od,
+        thesis_module.VariantSpec("B", "dccs_refc"),
+        route_response,
+        101.0,
+        artifacts,
+        osrm,
+        ors,
+        readiness_summary={
+            "strict_route_ready": True,
+            "wait_elapsed_ms": 1.0,
+            "compute_ms": 2.0,
+            "route_graph": {"elapsed_ms": 3.0},
+        },
+        request_config=request_config,
+    )
+
+    assert row["best_baseline_provider"] == "osrm"
+    assert row["weighted_win_osrm"] is False
+    assert row["weighted_win_ors"] is True
+    assert row["weighted_win_best_baseline"] is False
+    assert row["weighted_margin_vs_best_baseline"] == pytest.approx(-9.9, rel=0.0, abs=1e-6)
+    assert row["time_preserving_win_best_baseline"] is False
 
 
 def test_option_build_reuse_rate_prefers_trace_runtime_and_falls_back_to_candidate_diag() -> None:

@@ -63,7 +63,7 @@ class CostToggles(BaseModel):
 
 
 ParetoMethod = Literal["dominance", "epsilon_constraint"]
-PipelineMode = Literal["legacy", "dccs", "dccs_refc", "voi"]
+PipelineMode = Literal["legacy", "dccs", "dccs_refc", "voi", "tri_source"]
 RouteRefinementPolicy = Literal["dccs", "first_n", "random_n", "corridor_uniform"]
 TerrainProfile = Literal["flat", "rolling", "hilly"]
 OptimizationMode = Literal["expected_value", "robust"]
@@ -340,6 +340,73 @@ class EvidenceProvenance(BaseModel):
     families: list[EvidenceSourceRecord] = Field(default_factory=list)
 
 
+class DecisionWorldSupportSummary(BaseModel):
+    support_strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_support_strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    ambiguity_support_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_entropy: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_count: int = Field(default=0, ge=0)
+    source_mix_count: int = Field(default=0, ge=0)
+    family_density: float | None = Field(default=None, ge=0.0, le=1.0)
+    margin_pressure: float | None = Field(default=None, ge=0.0, le=1.0)
+    provenance_coverage: float | None = Field(default=None, ge=0.0, le=1.0)
+    live_family_count: int = Field(default=0, ge=0)
+    snapshot_family_count: int = Field(default=0, ge=0)
+    model_family_count: int = Field(default=0, ge=0)
+    proxy_penalty: float | None = Field(default=None, ge=0.0, le=1.0)
+    audit_correction: float | None = Field(default=None, ge=0.0, le=1.0)
+    recommended_fidelity: str = "audit_first"
+    support_sufficient: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionFidelitySummary(BaseModel):
+    world_bundle_id: str | None = None
+    audit_bundle_id: str | None = None
+    multi_fidelity_mode: str = "unknown"
+    policy: str = "unknown"
+    world_count: int = Field(default=0, ge=0)
+    unique_world_count: int = Field(default=0, ge=0)
+    requested_world_count: int = Field(default=0, ge=0)
+    effective_world_count: int = Field(default=0, ge=0)
+    route_ids: list[str] = Field(default_factory=list)
+    active_families: list[str] = Field(default_factory=list)
+    world_kind_weights: dict[str, float] = Field(default_factory=dict)
+    family_state_weights: dict[str, dict[str, float]] = Field(default_factory=dict)
+    targeted_route_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
+    stress_world_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
+    proxy_world_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
+    refreshed_world_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
+    world_reuse_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    audited_families: list[str] = Field(default_factory=list)
+    proxy_family_count: int = Field(default=0, ge=0)
+    audited_world_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
+    correction_scale: float | None = Field(default=None, ge=0.0, le=1.0)
+    correction_penalty: float | None = Field(default=None, ge=0.0, le=1.0)
+    recommended_policy: str = "unknown"
+    manifest_hash: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionCertificationStateSummary(BaseModel):
+    winner_id: str | None = None
+    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    certificate_map: dict[str, float] = Field(default_factory=dict)
+    certificate_value: float | None = Field(default=None, ge=0.0, le=1.0)
+    certified: bool = False
+    certification_basis: str = "pending_runtime_wiring"
+    world_bundle_id: str | None = None
+    audit_bundle_id: str | None = None
+    support_strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    winner_confidence: dict[str, Any] = Field(default_factory=dict)
+    pairwise_gap_states: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    flip_radius: dict[str, Any] | None = None
+    decision_region: dict[str, Any] = Field(default_factory=dict)
+    certified_set: dict[str, Any] = Field(default_factory=dict)
+    abstained: bool = False
+    manifest_hash: str | None = None
+
+
 class RouteCertificationSummary(BaseModel):
     route_id: str
     certificate: float = Field(ge=0.0, le=1.0)
@@ -350,6 +417,9 @@ class RouteCertificationSummary(BaseModel):
     top_competitor_route_id: str | None = None
     top_value_of_refresh_family: str | None = None
     ambiguity_context: dict[str, float | int | str | bool | None] | None = None
+    world_support_summary: DecisionWorldSupportSummary | None = None
+    world_fidelity_summary: DecisionFidelitySummary | None = None
+    certification_state_summary: DecisionCertificationStateSummary | None = None
 
 
 class VoiStopSummary(BaseModel):
@@ -365,6 +435,144 @@ class VoiStopSummary(BaseModel):
     search_completeness_score: float | None = Field(default=None, ge=0.0, le=1.0)
     search_completeness_gap: float | None = Field(default=None, ge=0.0)
     credible_search_uncertainty: bool | None = None
+
+
+class PreferenceQuerySummary(BaseModel):
+    key: str
+    kind: str
+    prompt: str
+    rationale: str
+    target: str | None = None
+    options: list[str] = Field(default_factory=list)
+    route_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DecisionPreferenceSummary(BaseModel):
+    objective_id: Literal["minimum_monetary_cost"] = "minimum_monetary_cost"
+    objective_field: Literal["monetary_cost"] = "monetary_cost"
+    selector_policy: str = "tri_source_selective_minimum_cost"
+    selective: bool = True
+    tie_break_order: list[str] = Field(
+        default_factory=lambda: ["certificate", "duration_s", "emissions_kg", "route_id"]
+    )
+    certified_only_required: bool = False
+    time_guard_active: bool = False
+    vetoed_targets: list[str] = Field(default_factory=list)
+    compatible_route_ids: list[str] = Field(default_factory=list)
+    certified_route_ids: list[str] = Field(default_factory=list)
+    selected_route_id: str | None = None
+    selected_certificate: float | None = Field(default=None, ge=0.0, le=1.0)
+    stop_reason: str | None = None
+    stop_hint_codes: list[str] = Field(default_factory=list)
+    suggested_queries: list[PreferenceQuerySummary] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionSupportSourceRecord(BaseModel):
+    source_id: str
+    role: str | None = None
+    required: bool = False
+    present: bool = False
+    status: str = "unknown"
+    freshness_timestamp_utc: str | None = None
+    provenance: str | None = None
+    details: dict[str, str | float | int | bool] = Field(default_factory=dict)
+
+
+class DecisionSupportSummary(BaseModel):
+    support_mode: str = "tri_source_selective"
+    required_source_count: int = Field(default=3, ge=0)
+    observed_source_count: int = Field(default=0, ge=0)
+    satisfied: bool = False
+    sources: list[DecisionSupportSourceRecord] = Field(default_factory=list)
+    source_mix: list[str] = Field(default_factory=list)
+    missing_sources: list[str] = Field(default_factory=list)
+    source_entropy: float | None = Field(default=None, ge=0.0, le=1.0)
+    provenance_mode: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class CertifiedSetSummary(BaseModel):
+    objective_field: Literal["monetary_cost"] = "monetary_cost"
+    selected_route_id: str | None = None
+    minimum_cost_route_id: str | None = None
+    certified_route_ids: list[str] = Field(default_factory=list)
+    frontier_route_ids: list[str] = Field(default_factory=list)
+    certificate_value: float | None = Field(default=None, ge=0.0, le=1.0)
+    certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    certificate_basis: str = "pending_runtime_wiring"
+    certified: bool = False
+    selective_gate_passed: bool = False
+
+
+class DecisionAbstentionSummary(BaseModel):
+    abstained: bool = False
+    reason_code: str | None = None
+    message: str | None = None
+    blocking_sources: list[str] = Field(default_factory=list)
+    retryable: bool = False
+    abstention_type: str | None = None
+    recommended_action: str | None = None
+
+
+class DecisionWitnessSummary(BaseModel):
+    primary_witness_route_id: str | None = None
+    witness_route_ids: list[str] = Field(default_factory=list)
+    challenger_route_ids: list[str] = Field(default_factory=list)
+    witness_world_count: int | None = Field(default=None, ge=0)
+    witness_source_ids: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionControllerSummary(BaseModel):
+    controller_mode: str = "single_pass"
+    engaged: bool = False
+    iteration_count: int = Field(default=0, ge=0)
+    action_count: int = Field(default=0, ge=0)
+    stop_reason: str | None = None
+    search_budget_used: int = Field(default=0, ge=0)
+    evidence_budget_used: int = Field(default=0, ge=0)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionTheoremHookRecord(BaseModel):
+    hook_id: str
+    artifact_name: str | None = None
+    status: str = "planned"
+    note: str | None = None
+
+
+class DecisionTheoremHookSummary(BaseModel):
+    hooks: list[DecisionTheoremHookRecord] = Field(default_factory=list)
+
+
+class DecisionLaneManifest(BaseModel):
+    lane_id: str | None = None
+    lane_name: str | None = None
+    lane_version: str | None = None
+    artifact_names: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionPackage(BaseModel):
+    schema_version: str = "0.1.0"
+    package_kind: Literal["decision_package"] = "decision_package"
+    pipeline_mode: PipelineMode = "tri_source"
+    terminal_kind: Literal["certified_singleton", "certified_set", "typed_abstention"] = "certified_singleton"
+    selected_route_id: str | None = None
+    preference_summary: DecisionPreferenceSummary = Field(default_factory=DecisionPreferenceSummary)
+    support_summary: DecisionSupportSummary = Field(default_factory=DecisionSupportSummary)
+    world_support_summary: DecisionWorldSupportSummary | None = None
+    world_fidelity_summary: DecisionFidelitySummary | None = None
+    certification_state_summary: DecisionCertificationStateSummary | None = None
+    certified_set_summary: CertifiedSetSummary = Field(default_factory=CertifiedSetSummary)
+    abstention_summary: DecisionAbstentionSummary | None = None
+    witness_summary: DecisionWitnessSummary | None = None
+    controller_summary: DecisionControllerSummary | None = None
+    theorem_hook_summary: DecisionTheoremHookSummary | None = None
+    lane_manifest: DecisionLaneManifest | None = None
+    provenance: dict[str, str | float | int | bool | None] = Field(default_factory=dict)
 
 
 class RouteOption(BaseModel):
@@ -393,14 +601,28 @@ class RouteOption(BaseModel):
     certification: RouteCertificationSummary | None = None
 
 
+class DecisionPackageResponse(BaseModel):
+    decision_package: DecisionPackage
+    selected: RouteOption | None = None
+    candidates: list[RouteOption] = Field(default_factory=list)
+    run_id: str | None = None
+    pipeline_mode: PipelineMode = "tri_source"
+    manifest_endpoint: str | None = None
+    artifacts_endpoint: str | None = None
+    provenance_endpoint: str | None = None
+    selected_certificate: RouteCertificationSummary | None = None
+    voi_stop_summary: VoiStopSummary | None = None
+
+
 class RouteResponse(BaseModel):
     selected: RouteOption
     candidates: list[RouteOption]
     run_id: str | None = None
-    pipeline_mode: PipelineMode = "legacy"
+    pipeline_mode: PipelineMode = "tri_source"
     manifest_endpoint: str | None = None
     artifacts_endpoint: str | None = None
     provenance_endpoint: str | None = None
+    decision_package: DecisionPackage | None = None
     selected_certificate: RouteCertificationSummary | None = None
     voi_stop_summary: VoiStopSummary | None = None
 
@@ -599,6 +821,34 @@ class DutyChainResponse(BaseModel):
     total_metrics: RouteMetrics
     leg_count: int
     successful_leg_count: int
+
+
+class CacheSnapshotStats(BaseModel):
+    size: int = Field(default=0, ge=0)
+    hits: int = Field(default=0, ge=0)
+    misses: int = Field(default=0, ge=0)
+    evictions: int = Field(default=0, ge=0)
+    oversize_rejections: int = Field(default=0, ge=0)
+    ttl_s: int = Field(default=0, ge=0)
+    max_entries: int = Field(default=0, ge=0)
+    estimated_bytes: int = Field(default=0, ge=0)
+    max_estimated_bytes: int = Field(default=0, ge=0)
+    schema_version: int | None = None
+    invalidation_counters: dict[str, int] = Field(default_factory=dict)
+    checkpoint_operations: int | None = None
+    checkpointed_entries: int | None = None
+    restore_operations: int | None = None
+    restored_entries: int | None = None
+
+
+class CacheStatsResponse(BaseModel):
+    route_cache: CacheSnapshotStats
+    hot_rerun_route_cache_checkpoint: CacheSnapshotStats
+    certification_cache: CacheSnapshotStats
+    k_raw_cache: CacheSnapshotStats
+    route_option_cache: CacheSnapshotStats
+    route_state_cache: CacheSnapshotStats
+    voi_dccs_cache: CacheSnapshotStats
 
 
 class OracleFeedCheckInput(BaseModel):

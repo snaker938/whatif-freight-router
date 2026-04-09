@@ -13,6 +13,8 @@ from app.main import app, osrm_client
 from app.model_data_errors import ModelDataError
 from app.models import (
     CostToggles,
+    EvidenceProvenance,
+    EvidenceSourceRecord,
     GeoJSONLineString,
     RouteCertificationSummary,
     RouteMetrics,
@@ -577,6 +579,204 @@ def test_route_uses_direct_pipeline_for_voi_mode(
     assert first_row["competitor_pressure"] == pytest.approx(0.62, rel=0.0, abs=1e-6)
     assert first_row["credible_search_uncertainty"] is True
     assert first_row["credible_evidence_uncertainty"] is True
+
+
+def test_route_defaults_to_tri_source_public_mode_and_emits_decision_package(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "route_pipeline_default_mode", "tri_source")
+    captured: dict[str, Any] = {}
+
+    route = RouteOption(
+        id="tri_route_1",
+        geometry=GeoJSONLineString(
+            type="LineString",
+            coordinates=[(-1.8904, 52.4862), (-0.1276, 51.5072)],
+        ),
+        metrics=RouteMetrics(
+            distance_km=184.5,
+            duration_s=8040.0,
+            monetary_cost=298.7,
+            emissions_kg=141.8,
+            avg_speed_kmh=82.6,
+        ),
+        scenario_summary=ScenarioSummary(
+            mode=ScenarioMode.NO_SHARING,
+            duration_multiplier=1.0,
+            incident_rate_multiplier=1.0,
+            incident_delay_multiplier=1.0,
+            fuel_consumption_multiplier=1.0,
+            emissions_multiplier=1.0,
+            stochastic_sigma_multiplier=1.0,
+            source="pytest",
+            version="pytest",
+        ),
+        evidence_provenance=EvidenceProvenance(
+            active_families=["traffic", "weather", "stochastic"],
+            families=[
+                EvidenceSourceRecord(
+                    family="traffic",
+                    source="tomtom_live",
+                    active=True,
+                    freshness_timestamp_utc="2026-04-03T08:00:00Z",
+                    confidence=0.94,
+                    coverage_ratio=0.98,
+                ),
+                EvidenceSourceRecord(
+                    family="weather",
+                    source="metoffice_live",
+                    active=True,
+                    freshness_timestamp_utc="2026-04-03T08:00:00Z",
+                    confidence=0.93,
+                    coverage_ratio=0.97,
+                ),
+                EvidenceSourceRecord(
+                    family="stochastic",
+                    source="stochastic_model",
+                    active=True,
+                    freshness_timestamp_utc="2026-04-03T08:00:00Z",
+                    confidence=0.9,
+                    coverage_ratio=0.95,
+                ),
+            ],
+        ),
+        certification=RouteCertificationSummary(
+            route_id="tri_route_1",
+            certificate=0.91,
+            certified=True,
+            threshold=0.8,
+            active_families=["traffic", "weather", "stochastic"],
+            top_fragility_families=["weather"],
+            top_competitor_route_id="tri_route_2",
+            top_value_of_refresh_family="weather",
+            ambiguity_context={
+                "od_ambiguity_support_ratio": 0.88,
+                "od_ambiguity_source_entropy": 0.74,
+            },
+        ),
+    )
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "selected": route,
+            "candidates": [route],
+            "warnings": [],
+            "candidate_fetches": 1,
+            "terrain_diag": TerrainDiagnostics(),
+            "candidate_diag": CandidateDiagnostics(raw_count=1, deduped_count=1, candidate_budget=1),
+            "selected_certificate": route.certification,
+            "voi_stop_summary": VoiStopSummary(
+                final_route_id="tri_route_1",
+                certificate=0.91,
+                certified=True,
+                iteration_count=1,
+                search_budget_used=1,
+                evidence_budget_used=0,
+                stop_reason="certified",
+                best_rejected_action="stop",
+                best_rejected_q=0.0,
+                search_completeness_score=0.93,
+                search_completeness_gap=0.02,
+                credible_search_uncertainty=True,
+            ),
+            "extra_json_artifacts": {
+                "certificate_summary.json": {
+                    "selected_route_id": "tri_route_1",
+                    "selected_certificate": 0.91,
+                    "selected_certificate_basis": "threshold_and_pairwise",
+                    "route_certificates": {"tri_route_1": 0.91},
+                    "frontier_route_ids": ["tri_route_1"],
+                },
+                "route_fragility_map.json": {
+                    "top_refresh_family": "weather",
+                    "controller_ranking_basis": "pairwise_gap",
+                },
+                "sampled_world_manifest.json": {
+                    "manifest_hash": "sha256:test-worlds",
+                    "selected_route_id": "tri_route_1",
+                    "world_count": 16,
+                    "requested_world_count": 16,
+                    "unique_world_count": 16,
+                    "world_reuse_rate": 0.0,
+                    "worlds": [
+                        {
+                            "target_route_id": "tri_route_1",
+                            "states": {
+                                "traffic": "nominal",
+                                "weather": "nominal",
+                                "stochastic": "nominal",
+                            },
+                        }
+                    ],
+                },
+                "evidence_snapshot_manifest.json": {
+                    "manifest_hash": "sha256:test-evidence",
+                    "family_snapshots": {
+                        "traffic": [
+                            {"source": "tomtom_live", "confidence": 0.94, "coverage_ratio": 0.98}
+                        ],
+                        "weather": [
+                            {"source": "metoffice_live", "confidence": 0.93, "coverage_ratio": 0.97}
+                        ],
+                        "stochastic": [
+                            {"source": "stochastic_model", "confidence": 0.9, "coverage_ratio": 0.95}
+                        ],
+                    },
+                },
+                "voi_action_trace.json": {
+                    "pipeline_mode": "tri_source",
+                    "selected_route_id": "tri_route_1",
+                    "actions": [{"kind": "stop", "action_id": "stop", "q_score": 0.0}],
+                },
+                "voi_stop_certificate.json": {
+                    "pipeline_mode": "tri_source",
+                    "final_winner_route_id": "tri_route_1",
+                    "certificate_value": 0.91,
+                },
+                "final_route_trace.json": {"pipeline_mode": "tri_source", "artifact_pointers": {}},
+            },
+            "extra_jsonl_artifacts": {
+                "strict_frontier.jsonl": [
+                    {
+                        "route_id": "tri_route_1",
+                        "selected": True,
+                        "certificate": 0.91,
+                        "certificate_threshold": 0.8,
+                        "monetary_cost": 298.7,
+                        "duration_s": 8040.0,
+                        "emissions_kg": 141.8,
+                    }
+                ],
+                "voi_controller_state.jsonl": [{"iteration_index": 0, "pipeline_mode": "tri_source"}],
+            },
+            "extra_csv_artifacts": {},
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+
+    resp = client.post("/route", json=_pareto_payload())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert captured["pipeline_mode"] == "tri_source"
+    assert data["pipeline_mode"] == "tri_source"
+    assert data["decision_package"]["pipeline_mode"] == "tri_source"
+
+    artifact_dir = artifact_dir_for_run(data["run_id"])
+    decision_package = json.loads((artifact_dir / "decision_package.json").read_text(encoding="utf-8"))
+    assert decision_package["pipeline_mode"] == "tri_source"
+    final_trace = json.loads((artifact_dir / "final_route_trace.json").read_text(encoding="utf-8"))
+    assert final_trace["pipeline_mode"] == "tri_source"
+    assert final_trace["artifact_pointers"]["decision_package"] == "decision_package.json"
+    assert (artifact_dir / "support_summary.json").exists()
+    assert (artifact_dir / "certified_set.json").exists()
 
 
 def test_route_legacy_persists_strict_frontier_and_final_trace(

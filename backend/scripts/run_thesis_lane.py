@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import scripts.run_thesis_evaluation as thesis_eval
+import scripts.run_thesis_campaign as thesis_campaign
 
 
 def _now() -> str:
@@ -30,6 +32,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--manage-local-backend", action="store_true")
     parser.add_argument("--keep-backend-running", action="store_true")
     parser.add_argument("--backend-port", type=int, default=8000)
+    parser.add_argument("--backend-memory-limit-mb", type=int, default=0)
     parser.add_argument("--powershell-exe", default="powershell.exe")
     parser.add_argument("--backend-start-script", type=Path, default=ROOT / "scripts" / "start_backend_logged.ps1")
     parser.add_argument("--backend-stop-script", type=Path, default=ROOT / "scripts" / "stop_backend_logged.ps1")
@@ -51,6 +54,9 @@ def _validated_artifact_paths(payload: dict[str, Any]) -> dict[str, Path]:
     required_path_keys = (
         "results_csv",
         "summary_csv",
+        "summary_by_cohort_csv",
+        "summary_by_cohort_json",
+        "cohort_composition_path",
         "thesis_report",
         "methods_appendix",
         "evaluation_manifest",
@@ -73,6 +79,10 @@ def _run_backend_script(
     powershell_exe: str,
     script_path: Path,
     port: int,
+    memory_limit_mb: int = 0,
+    lease_manifest_path: Path | None = None,
+    lease_topology: str | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if not script_path.exists():
         raise RuntimeError(f"backend_lifecycle_script_missing:{script_path}")
@@ -86,12 +96,23 @@ def _run_backend_script(
         "-Port",
         str(int(port)),
     ]
+    if int(memory_limit_mb) > 0:
+        command.extend(["-MemoryLimitMB", str(int(memory_limit_mb))])
+    if lease_manifest_path is not None:
+        command.extend(["-LeaseManifestPath", str(lease_manifest_path)])
+        if lease_topology:
+            command.extend(["-LeaseTopology", str(lease_topology)])
+    env = None
+    if env_overrides:
+        env = dict(os.environ)
+        env.update({str(key): str(value) for key, value in env_overrides.items()})
     completed = subprocess.run(
         command,
         cwd=str(ROOT),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     stdout = (completed.stdout or "").strip()
     stderr = (completed.stderr or "").strip()
@@ -109,6 +130,18 @@ def _run_backend_script(
             f"stdout={stdout or '<empty>'}:stderr={stderr or '<empty>'}"
         )
     return result
+
+
+def _managed_backend_route_graph_asset_plan(eval_args: argparse.Namespace) -> dict[str, Any]:
+    corpus_csv_text = str(getattr(eval_args, "corpus_csv", "") or "").strip()
+    plan = thesis_campaign._build_route_graph_asset_plan(
+        corpus_csv=Path(corpus_csv_text).expanduser() if corpus_csv_text else None,
+        requested_asset_path=str(getattr(eval_args, "route_graph_asset_path", "") or ""),
+        requested_min_nodes=getattr(eval_args, "route_graph_min_nodes", None),
+        requested_min_adjacency=getattr(eval_args, "route_graph_min_adjacency", None),
+    )
+    thesis_campaign._apply_route_graph_asset_plan_to_eval_args(eval_args, plan)
+    return plan
 
 
 def _variant_summary_lines(summary_rows: list[dict[str, Any]]) -> list[str]:
@@ -190,26 +223,46 @@ def main(argv: list[str] | None = None) -> int:
                 ]
             )
             in_process_backend = bool(getattr(eval_args, "in_process_backend", False))
+            route_graph_asset_plan: dict[str, Any] | None = None
+            raw_backend_lease_manifest_path = str(getattr(eval_args, "backend_lease_manifest_path", "") or "").strip()
+            backend_lease_manifest_path: Path | None = None
+            if raw_backend_lease_manifest_path:
+                backend_lease_manifest_path = Path(raw_backend_lease_manifest_path)
+                if not backend_lease_manifest_path.is_absolute():
+                    backend_lease_manifest_path = (ROOT / backend_lease_manifest_path).resolve()
+            elif bool(args.manage_local_backend):
+                backend_lease_manifest_path = (Path(str(args.out_dir)) / "backend_lease_manifest.json")
+                if not backend_lease_manifest_path.is_absolute():
+                    backend_lease_manifest_path = (ROOT / backend_lease_manifest_path).resolve()
+            if backend_lease_manifest_path is not None:
+                setattr(eval_args, "backend_lease_manifest_path", str(backend_lease_manifest_path))
             if bool(args.manage_local_backend):
                 if in_process_backend:
                     raise RuntimeError("thesis_lane_invalid_backend_mode:manage_local_backend_with_in_process_backend")
+                route_graph_asset_plan = _managed_backend_route_graph_asset_plan(eval_args)
+                route_graph_env_overrides = thesis_campaign._route_graph_asset_plan_env_overrides(route_graph_asset_plan)
+                backend_lifecycle = {
+                    "managed": True,
+                    "port": int(args.backend_port),
+                    "route_graph_asset_plan": route_graph_asset_plan,
+                }
                 stop_result = _run_backend_script(
                     powershell_exe=str(args.powershell_exe),
                     script_path=Path(args.backend_stop_script),
                     port=int(args.backend_port),
                 )
+                backend_lifecycle["stop_before_run"] = stop_result
                 start_result = _run_backend_script(
                     powershell_exe=str(args.powershell_exe),
                     script_path=Path(args.backend_start_script),
                     port=int(args.backend_port),
+                    memory_limit_mb=int(args.backend_memory_limit_mb),
+                    lease_manifest_path=backend_lease_manifest_path,
+                    lease_topology="split_process",
+                    env_overrides=route_graph_env_overrides,
                 )
                 backend_started_here = True
-                backend_lifecycle = {
-                    "managed": True,
-                    "port": int(args.backend_port),
-                    "stop_before_run": stop_result,
-                    "start_before_run": start_result,
-                }
+                backend_lifecycle["start_before_run"] = start_result
             if in_process_backend:
                 from app.main import app
 
@@ -224,6 +277,13 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # pragma: no cover - defensive boundary
             evaluation_exit = 1
             evaluation_payload = {"error": type(exc).__name__, "message": str(exc)}
+            if bool(args.manage_local_backend) and backend_lifecycle is None:
+                backend_lifecycle = {
+                    "managed": True,
+                    "port": int(args.backend_port),
+                }
+            if isinstance(backend_lifecycle, dict) and backend_lifecycle.get("managed"):
+                backend_lifecycle.setdefault("startup_error", str(exc))
         finally:
             if backend_started_here and not bool(args.keep_backend_running):
                 try:
@@ -288,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"- Results CSV: `{evaluation_payload.get('results_csv')}`",
                     f"- Summary CSV: `{evaluation_payload.get('summary_csv')}`",
                     f"- Cohort summary CSV: `{evaluation_payload.get('summary_by_cohort_csv')}`",
+                    f"- Cohort summary JSON: `{evaluation_payload.get('summary_by_cohort_json')}`",
+                    f"- Cohort composition JSON: `{evaluation_payload.get('cohort_composition_path')}`",
                     f"- Thesis report: `{evaluation_payload.get('thesis_report')}`",
                     f"- Methods appendix: `{evaluation_payload.get('methods_appendix')}`",
                     f"- Evaluation manifest: `{evaluation_payload.get('evaluation_manifest')}`",
@@ -298,6 +360,30 @@ def main(argv: list[str] | None = None) -> int:
             )
             if evaluation_payload.get("ors_snapshot_path"):
                 report_lines.append(f"- Secondary baseline snapshot: `{evaluation_payload.get('ors_snapshot_path')}`")
+            evaluation_suite = evaluation_payload.get("evaluation_suite")
+            if isinstance(evaluation_suite, dict):
+                report_lines.extend(
+                    [
+                        f"- Evaluation suite role: `{evaluation_suite.get('role')}`",
+                        f"- Evaluation suite family: `{evaluation_suite.get('family')}`",
+                        f"- Evaluation suite scope: `{evaluation_suite.get('scope')}`",
+                        f"- Evaluation suite focus: `{evaluation_suite.get('focus')}`",
+                        f"- Evaluation suite source: `{evaluation_suite.get('source')}`",
+                    ]
+                )
+            cohort_scaffolding = evaluation_payload.get("cohort_scaffolding")
+            if isinstance(cohort_scaffolding, dict):
+                cohort_labels = ", ".join(str(label) for label in list(cohort_scaffolding.get("cohort_labels") or []))
+                derived_labels = ", ".join(
+                    str(label) for label in list(cohort_scaffolding.get("derived_cohort_labels") or [])
+                )
+                report_lines.extend(
+                    [
+                        f"- Cohort scaffolding version: `{cohort_scaffolding.get('cohort_scaffolding_version')}`",
+                        f"- Cohort labels: `{cohort_labels}`",
+                        f"- Derived cohorts: `{derived_labels}`",
+                    ]
+                )
             summary_rows = evaluation_payload.get("summary_rows")
             if isinstance(summary_rows, list) and summary_rows:
                 report_lines.extend(["", "## Successful Variants", ""])

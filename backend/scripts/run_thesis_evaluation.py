@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import sys
 import uuid
 import time
@@ -103,41 +104,195 @@ THESIS_COLD_CACHE_SCOPES: tuple[str, ...] = (
 )
 VARIANT_PIPELINE_MODE = {"V0": "legacy", "A": "dccs", "B": "dccs_refc", "C": "voi"}
 STRICT_EVIDENCE_POLICY = "no_synthetic_no_proxy_no_fallback"
+COHORT_SCAFFOLDING_VERSION = "thesis_cohort_scaffolding_v2"
+BASE_COHORT_LABELS: tuple[str, ...] = ("representative", "ambiguity")
+DERIVED_COHORT_LABELS: tuple[str, ...] = (
+    "hard_case",
+    "controller_stress",
+    "collapse_prone",
+    "osrm_brittle",
+    "ors_brittle",
+    "refresh_sensitive",
+    "time_preserving_conflict",
+    "low_ambiguity_fast_path",
+    "preference_sensitive",
+    "support_fragile",
+    "audit_heavy",
+    "proxy_friendly",
+)
+ALL_COHORT_LABELS: tuple[str, ...] = (*BASE_COHORT_LABELS, *DERIVED_COHORT_LABELS)
+COHORT_DEFINITIONS: dict[str, str] = {
+    "representative": "Rows whose corpus_group is representative.",
+    "ambiguity": "Rows whose corpus_group is ambiguity.",
+    "hard_case": "Rows classified by stronger upstream ambiguity priors together with realized difficulty or controller-stress signals.",
+    "controller_stress": "Rows where the VOI controller engaged under materially stressed upstream or realized route conditions.",
+    "collapse_prone": "Rows explicitly tagged as collapse_prone or rows with a realized diversity collapse signal.",
+    "osrm_brittle": "Rows explicitly tagged as osrm_brittle or rows whose OSRM comparator looks fragile under the current heuristics.",
+    "ors_brittle": "Rows explicitly tagged as ors_brittle or rows whose ORS comparator looks fragile under the current heuristics.",
+    "refresh_sensitive": "Rows explicitly tagged as refresh_sensitive or rows where refresh-level evidence changed the controller decision materially.",
+    "time_preserving_conflict": "Rows explicitly tagged as time_preserving_conflict or rows where time-preserving signals disagree across comparators.",
+    "low_ambiguity_fast_path": "Rows explicitly tagged as low_ambiguity_fast_path or rows that take the low-ambiguity fast path in the route trace.",
+    "preference_sensitive": "Rows explicitly tagged as preference_sensitive so preference-gated analyses can be surfaced explicitly.",
+    "support_fragile": "Rows explicitly tagged as support_fragile or rows that carry weak support-relative ambiguity evidence.",
+    "audit_heavy": "Rows explicitly tagged as audit_heavy or rows where the audit path consumes most of the evidence budget.",
+    "proxy_friendly": "Rows explicitly tagged as proxy_friendly or rows whose support profile is strong enough for the proxy path to stay informative.",
+}
+METRIC_FAMILY_SCAFFOLDING_VERSION = "thesis_metric_family_scaffolding_v1"
+METRIC_FAMILY_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "dccs": {
+        "label": "dccs",
+        "status": "wired",
+        "description": "DCCS / search-deficiency diagnostics and frontier-quality summaries.",
+        "primary_export_keys": ["mean_dccs_frontier_recall_at_budget", "mean_dccs_corridor_family_recall"],
+    },
+    "preference": {
+        "label": "preference",
+        "status": "metadata_wired",
+        "wiring_level": "cohort_metadata_only",
+        "description": "Preference-sensitive cohort metadata is exported, but standalone preference-proof evaluator metrics are not yet computed.",
+        "primary_export_keys": ["preference_sensitive", "summary_by_cohort_rows", "cohort_composition"],
+        "artifact_targets": ["thesis_summary_by_cohort.json", "cohort_composition.json"],
+    },
+    "multi_fidelity_support": {
+        "label": "multi_fidelity_support",
+        "status": "partially_wired",
+        "wiring_level": "shared_summary_metrics",
+        "description": "Support-aware and world-reuse summaries are exported through shared evaluator metrics, but standalone proxy-audit calibration metrics are not yet separated.",
+        "primary_export_keys": [
+            "mean_support_richness",
+            "mean_supported_ambiguity_alignment",
+            "mean_refc_world_reuse_rate",
+            "mean_refc_stress_world_fraction",
+        ],
+        "artifact_targets": ["thesis_summary.json", "thesis_metrics.json", "results.json"],
+    },
+    "refc": {
+        "label": "refc",
+        "status": "wired",
+        "description": "Confidence-sequence certification, pairwise challengers, and certified-set evidence.",
+        "primary_export_keys": ["mean_certificate_margin", "mean_certificate_gain_per_world"],
+    },
+    "selective_certification": {
+        "label": "selective_certification",
+        "status": "wired",
+        "description": "Singleton-vs-set routing, abstention, and certificate-boundary summaries.",
+        "primary_export_keys": ["mean_initial_certificate", "initial_certificate_stop_rate"],
+    },
+    "voi": {
+        "label": "voi",
+        "status": "wired",
+        "description": "VOI controller trace, action-value, and stop-certificate summaries.",
+        "primary_export_keys": ["mean_voi_action_density", "mean_controller_shortcut_rate"],
+    },
+    "route_quality": {
+        "label": "route_quality",
+        "status": "wired",
+        "description": "Route-quality, dominance, and win-rate summary families.",
+        "primary_export_keys": ["weighted_win_rate_best_baseline", "mean_weighted_margin_vs_best_baseline"],
+    },
+    "runtime_reuse": {
+        "label": "runtime_reuse",
+        "status": "wired",
+        "description": "Runtime split, reuse, cache-honesty, and warmup accounting.",
+        "primary_export_keys": ["mean_cache_reuse_ratio", "mean_option_build_reuse_rate"],
+    },
+    "support": {
+        "label": "support",
+        "status": "wired",
+        "description": "Support-aware validity, support richness, and fallback diagnostics.",
+        "primary_export_keys": ["mean_support_richness", "mean_supported_ambiguity_alignment"],
+    },
+    "evaluation_size": {
+        "label": "evaluation_size",
+        "status": "wired",
+        "description": "Run-size, cohort-composition, and validation-count surfaces.",
+        "primary_export_keys": ["row_count", "cohort_composition"],
+    },
+}
 EVALUATION_SUITE_ROLE_DEFAULTS: dict[str, dict[str, str]] = {
     "generic_evaluation": {
+        "family": "evaluation",
         "scope": "generic",
         "focus": "all",
         "label": "Generic evaluation",
     },
     "broad_cold_proof": {
+        "family": "evaluation",
         "scope": "broad",
         "focus": "all",
         "label": "Broad cold thesis proof",
     },
     "focused_refc_proof": {
+        "family": "evaluation",
         "scope": "focused",
         "focus": "refc",
         "label": "Focused REFC proof",
     },
     "focused_voi_proof": {
+        "family": "evaluation",
         "scope": "focused",
         "focus": "voi",
         "label": "Focused VOI proof",
     },
+    "preference_proof": {
+        "family": "evaluation",
+        "scope": "focused",
+        "focus": "preference",
+        "label": "Preference proof",
+    },
+    "optional_stopping_coverage": {
+        "family": "evaluation",
+        "scope": "focused",
+        "focus": "optional_stopping",
+        "label": "Optional-stopping coverage",
+    },
+    "proxy_audit_calibration": {
+        "family": "evaluation",
+        "scope": "focused",
+        "focus": "proxy_audit",
+        "label": "Proxy-audit calibration",
+    },
+    "perturbation_flip_radius": {
+        "family": "evaluation",
+        "scope": "focused",
+        "focus": "perturbation",
+        "label": "Perturbation / flip-radius",
+    },
+    "public_transfer": {
+        "family": "evaluation",
+        "scope": "transfer",
+        "focus": "public_transfer",
+        "label": "Public transfer",
+    },
+    "synthetic_ground_truth": {
+        "family": "evaluation",
+        "scope": "synthetic",
+        "focus": "synthetic_ground_truth",
+        "label": "Synthetic ground-truth",
+    },
     "dccs_diagnostic_probe": {
+        "family": "evaluation",
         "scope": "probe",
         "focus": "dccs",
         "label": "DCCS diagnostic probe",
     },
     "hot_rerun_cold_source": {
+        "family": "benchmark",
         "scope": "hot_rerun_source",
         "focus": "runtime_reuse",
         "label": "Hot rerun cold source",
     },
     "hot_rerun": {
+        "family": "benchmark",
         "scope": "hot_rerun",
         "focus": "runtime_reuse",
         "label": "Hot rerun proof",
+    },
+    "composed_suite_report": {
+        "family": "suite",
+        "scope": "suite",
+        "focus": "all",
+        "label": "Composed thesis suite report",
     },
 }
 FRONTIER_ARTIFACT = "strict_frontier.jsonl"
@@ -575,12 +730,18 @@ RESULT_FIELDS = [
     "time_to_certification_ms", "controller_shortcut", "voi_stop_after_certification",
     "certificate_selective",
     "preemptive_comparator_seeded", "preemptive_comparator_candidate_count", "preemptive_comparator_source_count", "selected_from_preemptive_comparator_seed",
+    "raw_comparator_audit_basis", "raw_comparator_candidate_id", "raw_comparator_source_label",
+    "raw_comparator_materialized", "raw_comparator_decision_reason", "raw_comparator_protected_realization",
+    "raw_comparator_proxy_duration_s", "raw_comparator_proxy_monetary_cost", "raw_comparator_proxy_emissions_kg",
+    "selected_duration_delta_vs_raw_comparator_proxy_s",
+    "selected_monetary_delta_vs_raw_comparator_proxy",
+    "selected_emissions_delta_vs_raw_comparator_proxy_kg",
     "comparator_independent", "strict_failure_eliminated",
     "voi_realized_certificate_lift", "voi_realized_frontier_gain", "voi_realized_runtime_delta_ms",
     "weighted_margin_gain_vs_v0", "balanced_gain_delta_vs_v0_score", "duration_gain_vs_v0_s",
     "monetary_gain_vs_v0", "emissions_gain_vs_v0_kg", "frontier_hypervolume_gain_vs_v0", "certificate_lift_vs_v0",
     "certificate_availability_gain_vs_v0",
-    "ors_baseline_policy", "ors_asset_manifest_hash", "ors_asset_recorded_at", "ors_asset_freshness_status",
+    "ors_baseline_policy", "internal_ors_seed_mode", "ors_asset_manifest_hash", "ors_asset_recorded_at", "ors_asset_freshness_status",
     "ors_graph_identity_status", "ors_engine_image", "ors_graph_build_date", "ors_graph_osm_date",
     "ors_graph_file_count", "ors_graph_total_bytes", "ors_graph_listing_digest",
     "runtime_ms", "algorithm_runtime_ms", "baseline_acquisition_runtime_ms", "baseline_runtime_share",
@@ -619,6 +780,7 @@ RESULT_FIELDS = [
     "ors_snapshot_used", "ors_snapshot_recorded_at", "ors_snapshot_request_hash", "ors_snapshot_response_hash",
     "ors_snapshot_provider_mode", "artifact_complete", "artifact_status", "artifact_missing", "evidence_policy",
     "route_evidence_ok", "route_evidence_status", "route_evidence_issues",
+    "route_graph_degraded_reason_code", "route_graph_precheck_gate_action", "route_fallback_observed",
     "failure_reason", "artifact_run_id", "manifest_endpoint", "artifacts_endpoint",
 ]
 
@@ -744,6 +906,115 @@ def _text_or_none(value: Any) -> str | None:
     return text or None
 
 
+def _non_benign_precheck_text_or_none(value: Any) -> str | None:
+    text = _text_or_none(value)
+    if text is None:
+        return None
+    if text.lower() == "ok":
+        return None
+    return text
+
+
+def _fallback_like_final_lineage_observed(value: Any) -> bool:
+    text = _text_or_none(value)
+    if text is None:
+        return False
+    lowered = text.lower()
+    return lowered == "fallback" or lowered.startswith("fallback:") or ":fallback" in lowered
+
+
+def _string_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                decoded = json.loads(text)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                decoded = None
+            if isinstance(decoded, list):
+                return [str(item).strip() for item in decoded if str(item).strip()]
+        return [text]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _candidate_row_has_preemptive_comparator_lineage(row: Mapping[str, Any]) -> bool:
+    if bool(row.get("preemptive_comparator_seed")):
+        return True
+    if str(row.get("candidate_source_stage") or "").strip() == "preemptive_comparator_seed":
+        return True
+    return any(
+        "preemptive_comparator_seed" in label.lower()
+        for label in _string_values(row.get("candidate_deduped_source_labels"))
+    )
+
+
+def _candidate_row_preemptive_source_label(row: Mapping[str, Any]) -> str | None:
+    candidate_source_label = _text_or_none(row.get("candidate_source_label"))
+    if candidate_source_label and "preemptive_comparator_seed" in candidate_source_label.lower():
+        return candidate_source_label
+    for label in _string_values(row.get("candidate_deduped_source_labels")):
+        if "preemptive_comparator_seed" in label.lower():
+            return label
+    return None
+
+
+def _candidate_row_proxy_objective(row: Mapping[str, Any]) -> tuple[float, float, float] | None:
+    raw_objective = row.get("proxy_objective")
+    if isinstance(raw_objective, str):
+        try:
+            raw_objective = json.loads(raw_objective)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_objective = None
+    if not isinstance(raw_objective, Sequence) or isinstance(raw_objective, (str, bytes)):
+        return None
+    if len(raw_objective) < 3:
+        return None
+    try:
+        duration_s = float(raw_objective[0])
+        monetary_cost = float(raw_objective[1])
+        emissions_kg = float(raw_objective[2])
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (duration_s, monetary_cost, emissions_kg)):
+        return None
+    return duration_s, monetary_cost, emissions_kg
+
+
+def _select_raw_comparator_audit_candidate(
+    *,
+    candidate_rows: Sequence[Mapping[str, Any]],
+    candidate_row_by_id: Mapping[str, Mapping[str, Any]],
+    selected_candidate_ids: Sequence[str],
+) -> tuple[Mapping[str, Any] | None, str | None]:
+    for candidate_id in selected_candidate_ids:
+        candidate_row = candidate_row_by_id.get(str(candidate_id))
+        if isinstance(candidate_row, Mapping) and _candidate_row_has_preemptive_comparator_lineage(candidate_row):
+            return candidate_row, "selected_lineage"
+
+    comparator_rows = [
+        row
+        for row in candidate_rows
+        if isinstance(row, Mapping) and _candidate_row_has_preemptive_comparator_lineage(row)
+    ]
+    if not comparator_rows:
+        return None, None
+
+    def _audit_sort_key(row: Mapping[str, Any]) -> tuple[float, float, str]:
+        proxy_objective = _candidate_row_proxy_objective(row)
+        predicted_refine_cost = as_float(row.get("predicted_refine_cost"), float("inf"))
+        return (
+            float(proxy_objective[0]) if proxy_objective is not None else float("inf"),
+            float(predicted_refine_cost) if math.isfinite(predicted_refine_cost) else float("inf"),
+            str(row.get("candidate_id") or ""),
+        )
+
+    return min(comparator_rows, key=_audit_sort_key), "fastest_proxy_duration"
+
+
 def _source_mix_count(value: Any) -> int | None:
     if value in (None, ""):
         return None
@@ -836,6 +1107,18 @@ def _bool_or_default(value: Any, default: bool) -> bool:
     return bool(default)
 
 
+def _bool_or_none(value: Any) -> bool | None:
+    text = _text_or_none(value)
+    if text is None:
+        return None
+    lowered = text.lower()
+    if lowered in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return None
+
+
 def _time_preserving_outcome(*, duration_delta_s: Any, quality_win: Any) -> bool | None:
     duration_delta = as_float(duration_delta_s, float("nan"))
     if not math.isfinite(duration_delta):
@@ -872,6 +1155,122 @@ def _route_graph_startup_to_ready_ms(readiness_summary: Mapping[str, Any] | None
     if math.isfinite(elapsed_ms):
         return elapsed_ms
     return None
+
+
+def _route_graph_full_hydration_observed(readiness_summary: Mapping[str, Any] | None) -> bool:
+    if not isinstance(readiness_summary, Mapping):
+        return False
+    route_graph = readiness_summary.get("route_graph")
+    if not isinstance(route_graph, Mapping):
+        return False
+    ready_mode = str(route_graph.get("ready_mode") or "").strip().lower()
+    status = str(route_graph.get("status") or "").strip().lower()
+    load_strategy = str(route_graph.get("load_strategy") or "").strip().lower()
+    if ready_mode == "fast" or status == "ok_fast" or load_strategy == "fast_startup_metadata":
+        return False
+    counts = [
+        as_float(route_graph.get("nodes_kept"), float("nan")),
+        as_float(route_graph.get("edges_kept"), float("nan")),
+        as_float(route_graph.get("edge_count"), float("nan")),
+    ]
+    has_positive_counts = any(math.isfinite(count) and count > 0.0 for count in counts)
+    if ready_mode == "full":
+        return True
+    if status == "ok" and load_strategy not in {"", "none"} and has_positive_counts:
+        return True
+    return bool(readiness_summary.get("strict_route_ready")) and status == "ok" and load_strategy not in {
+        "",
+        "none",
+        "fast_startup_metadata",
+    }
+
+
+def _route_graph_readiness_class(
+    readiness_summary: Mapping[str, Any] | None,
+    *,
+    degraded_evaluation_observed: bool,
+) -> str:
+    if not isinstance(readiness_summary, Mapping):
+        return "unknown"
+    if not bool(readiness_summary.get("strict_route_ready")):
+        return "not_ready"
+    route_graph = readiness_summary.get("route_graph")
+    if not isinstance(route_graph, Mapping):
+        return "ready_unknown_hydration"
+    ready_mode = str(route_graph.get("ready_mode") or "").strip().lower()
+    status = str(route_graph.get("status") or "").strip().lower()
+    load_strategy = str(route_graph.get("load_strategy") or "").strip().lower()
+    if ready_mode == "fast" or status == "ok_fast" or load_strategy == "fast_startup_metadata":
+        return "fast_startup_metadata_ready"
+    if _route_graph_full_hydration_observed(readiness_summary):
+        return "full_hydration_ready"
+    if degraded_evaluation_observed:
+        return "degraded_ready"
+    return "ready_unknown_hydration"
+
+
+def _proof_complete_route_evidence_row(row: Mapping[str, Any]) -> bool:
+    failure_reason = _text_or_none(row.get("failure_reason"))
+    route_evidence_ok = _bool_or_default(
+        row.get("route_evidence_ok"),
+        failure_reason is None,
+    )
+    artifact_complete = _bool_or_default(
+        row.get("artifact_complete"),
+        route_evidence_ok and failure_reason is None,
+    )
+    return failure_reason is None and route_evidence_ok and artifact_complete
+
+
+def _evaluation_honesty_summary(
+    *,
+    readiness_summary: Mapping[str, Any] | None,
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    degraded_reason_codes: set[str] = set()
+    precheck_gate_actions: set[str] = set()
+    route_fallback_observed = False
+    considered_rows = 0
+    proof_complete_route_evidence_rows = 0
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        considered_rows += 1
+        degraded_reason = _non_benign_precheck_text_or_none(row.get("route_graph_degraded_reason_code"))
+        if degraded_reason is not None:
+            degraded_reason_codes.add(degraded_reason)
+        gate_action = _non_benign_precheck_text_or_none(row.get("route_graph_precheck_gate_action"))
+        if gate_action is not None:
+            precheck_gate_actions.add(gate_action)
+        route_fallback_observed = route_fallback_observed or _bool_or_default(
+            row.get("route_fallback_observed"),
+            False,
+        )
+        if _proof_complete_route_evidence_row(row):
+            proof_complete_route_evidence_rows += 1
+    degraded_evaluation_observed = bool(
+        degraded_reason_codes or precheck_gate_actions or route_fallback_observed
+    )
+    route_graph_full_hydration = _route_graph_full_hydration_observed(readiness_summary)
+    route_graph_readiness_class = _route_graph_readiness_class(
+        readiness_summary,
+        degraded_evaluation_observed=degraded_evaluation_observed,
+    )
+    return {
+        "route_graph_readiness_class": route_graph_readiness_class,
+        "route_graph_full_hydration_observed": route_graph_full_hydration,
+        "degraded_evaluation_observed": degraded_evaluation_observed,
+        "degraded_reason_codes_observed": sorted(degraded_reason_codes),
+        "precheck_gate_actions_observed": sorted(precheck_gate_actions),
+        "route_fallback_observed": route_fallback_observed,
+        "strict_full_search_proof_eligible": bool(
+            route_graph_readiness_class == "full_hydration_ready"
+            and route_graph_full_hydration
+            and not degraded_evaluation_observed
+            and considered_rows > 0
+            and proof_complete_route_evidence_rows == considered_rows
+        ),
+    }
 
 
 def _startup_components_ms(readiness_summary: Mapping[str, Any] | None) -> list[float]:
@@ -1109,11 +1508,20 @@ def _effective_request_config(args: argparse.Namespace, od: dict[str, Any], *, v
     )
     optimization_mode = _text_or_none(source.get("optimization_mode")) or str(args.optimization_mode)
     scenario_mode = _text_or_none(source.get("scenario_mode")) or str(args.scenario_mode)
+    toll_cost_per_km = max(0.0, float(getattr(args, "toll_cost_per_km", 0.0)))
+    cost_toggles: dict[str, Any] = {"use_tolls": not bool(args.disable_tolls)}
+    if cost_toggles["use_tolls"] and toll_cost_per_km > 0.0:
+        cost_toggles["toll_cost_per_km"] = round(toll_cost_per_km, 6)
     config = {
         "profile_id": profile_id,
         "corpus_group": corpus_group,
         "row_override_keys": sorted(row_overrides),
         "row_override_count": len(row_overrides),
+        "internal_ors_seed_mode": (
+            "repo_local"
+            if str(getattr(args, "ors_baseline_policy", "") or "").strip().lower() == "repo_local"
+            else None
+        ),
         "ambiguity_budget_band": schedule["ambiguity_budget_band"],
         "ambiguity_budget_prior": schedule["ambiguity_budget_prior"],
         "ambiguity_schedule_reason": {
@@ -1138,7 +1546,7 @@ def _effective_request_config(args: argparse.Namespace, od: dict[str, Any], *, v
         "max_alternatives": max_alternatives,
         "optimization_mode": optimization_mode,
         "weights": weights,
-        "cost_toggles": {"use_tolls": not bool(args.disable_tolls)},
+        "cost_toggles": cost_toggles,
         "weather": {
             "enabled": weather_enabled,
             "profile": weather_profile,
@@ -1332,6 +1740,22 @@ def _weights_tuple_from_config(config: Mapping[str, Any]) -> tuple[float, float,
     )
 
 
+def _weights_tuple_from_row(row: Mapping[str, Any]) -> tuple[float, float, float]:
+    config_json = _text_or_none(row.get("effective_request_config_json"))
+    if config_json:
+        try:
+            parsed = json.loads(config_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = None
+        if isinstance(parsed, Mapping):
+            return _weights_tuple_from_config(parsed)
+    return (
+        max(as_float(row.get("weight_time"), 1.0), 0.0),
+        max(as_float(row.get("weight_money"), 1.0), 0.0),
+        max(as_float(row.get("weight_co2"), 1.0), 0.0),
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run deterministic thesis evaluation over a fixed OD corpus.")
     corpus = parser.add_mutually_exclusive_group(required=True)
@@ -1339,12 +1763,44 @@ def _build_parser() -> argparse.ArgumentParser:
     corpus.add_argument("--corpus-csv", default=None)
     parser.add_argument("--backend-url", default="http://localhost:8000")
     parser.add_argument("--in-process-backend", action="store_true")
+    parser.add_argument(
+        "--route-graph-asset-path",
+        default="",
+        help="Override ROUTE_GRAPH_ASSET_PATH for in-process backend runs.",
+    )
+    parser.add_argument(
+        "--route-graph-min-nodes",
+        type=int,
+        default=None,
+        help="Override ROUTE_GRAPH_MIN_NODES for in-process backend runs.",
+    )
+    parser.add_argument(
+        "--route-graph-min-adjacency",
+        type=int,
+        default=None,
+        help="Override ROUTE_GRAPH_MIN_ADJACENCY for in-process backend runs.",
+    )
     parser.add_argument("--ready-timeout-seconds", type=float, default=1800.0)
     parser.add_argument("--ready-poll-seconds", type=float, default=5.0)
     parser.add_argument("--out-dir", default="out")
     parser.add_argument("--run-id", default=None)
+    parser.add_argument(
+        "--backend-lease-manifest-path",
+        default=None,
+        help="Optional split-process backend lease sidecar to snapshot into canonical evaluation artifacts.",
+    )
+    parser.add_argument(
+        "--evaluator-lease-manifest-path",
+        default=None,
+        help="Optional evaluator lease sidecar to snapshot into canonical evaluation artifacts.",
+    )
     parser.add_argument("--seed", type=int, default=20260320)
     parser.add_argument("--max-od", type=int, default=0)
+    parser.add_argument(
+        "--variants",
+        default=None,
+        help="Optional comma-separated thesis variant subset. Uses canonical suite order when filtering, e.g. `A` or `A,B`.",
+    )
     parser.add_argument("--vehicle-type", default="rigid_hgv")
     parser.add_argument("--scenario-mode", default="no_sharing")
     parser.add_argument("--departure-time-utc", default=None)
@@ -1376,6 +1832,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-co2", type=float, default=1.0)
     parser.add_argument("--fail-soft", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--disable-tolls", action="store_true")
+    parser.add_argument("--toll-cost-per-km", type=float, default=0.0)
     parser.add_argument("--baseline-refinement-policy", choices=("first_n", "random_n", "corridor_uniform"), default="corridor_uniform")
     parser.add_argument("--ors-baseline-policy", choices=("local_service", "repo_local", "snapshot_record", "snapshot_replay"), default="local_service")
     parser.add_argument("--ors-snapshot-mode", choices=("off", "record", "replay"), default="off")
@@ -1395,6 +1852,28 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _apply_in_process_route_graph_env(args: argparse.Namespace) -> dict[str, str]:
+    updates: dict[str, str] = {}
+    asset_path = str(getattr(args, "route_graph_asset_path", "") or "").strip()
+    if asset_path:
+        resolved_asset_path = str(Path(asset_path).expanduser().resolve())
+        updates["ROUTE_GRAPH_ASSET_PATH"] = resolved_asset_path
+        settings.route_graph_asset_path = resolved_asset_path
+    min_nodes = getattr(args, "route_graph_min_nodes", None)
+    if min_nodes is not None:
+        resolved_min_nodes = str(max(1, int(min_nodes)))
+        updates["ROUTE_GRAPH_MIN_NODES"] = resolved_min_nodes
+        settings.route_graph_min_nodes = int(resolved_min_nodes)
+    min_adjacency = getattr(args, "route_graph_min_adjacency", None)
+    if min_adjacency is not None:
+        resolved_min_adjacency = str(max(1, int(min_adjacency)))
+        updates["ROUTE_GRAPH_MIN_ADJACENCY"] = resolved_min_adjacency
+        settings.route_graph_min_adjacency = int(resolved_min_adjacency)
+    for key, value in updates.items():
+        os.environ[key] = value
+    return updates
+
+
 def _suite_role_descriptor(role: str | None) -> dict[str, str]:
     requested_role = _text_or_none(role)
     normalized_role = (
@@ -1408,10 +1887,43 @@ def _suite_role_descriptor(role: str | None) -> dict[str, str]:
     )
     return {
         "role": normalized_role,
+        "family": defaults["family"],
         "scope": defaults["scope"],
         "focus": defaults["focus"],
         "label": defaults["label"],
     }
+
+
+def _cohort_scaffolding_payload() -> dict[str, Any]:
+    return {
+        "cohort_scaffolding_version": COHORT_SCAFFOLDING_VERSION,
+        "cohort_labels": list(ALL_COHORT_LABELS),
+        "base_cohort_labels": list(BASE_COHORT_LABELS),
+        "derived_cohort_labels": list(DERIVED_COHORT_LABELS),
+        "cohort_membership_mode": "base_labels_mutually_exclusive;derived_labels_may_overlap",
+        "cohort_definitions": dict(COHORT_DEFINITIONS),
+    }
+
+
+def _metric_family_scaffolding_payload() -> dict[str, Any]:
+    return {
+        "metric_family_scaffolding_version": METRIC_FAMILY_SCAFFOLDING_VERSION,
+        "metric_family_labels": list(METRIC_FAMILY_DEFINITIONS),
+        "metric_family_definitions": dict(METRIC_FAMILY_DEFINITIONS),
+        "metric_family_export_targets": {
+            "thesis_metrics.json": ["metric_family_scaffolding"],
+            "thesis_plots.json": ["metric_family_scaffolding"],
+            "results.json": ["metric_family_scaffolding"],
+            "metadata.json": ["metric_family_scaffolding"],
+            "evaluation_manifest.json": ["metric_family_scaffolding"],
+        },
+    }
+
+
+def _cohort_summary_artifact_payload(summary_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"summary_rows": summary_rows}
+    payload.update(_cohort_scaffolding_payload())
+    return payload
 
 
 def _resolve_evaluation_suite_metadata(
@@ -1435,15 +1947,29 @@ def _resolve_evaluation_suite_metadata(
         hint = (raw_text or "").strip().lower()
         if not hint:
             continue
-        if "hot_rerun" in hint:
+        if "hot_rerun_cold_source" in hint or ("hot" in hint and "rerun" in hint and "cold" in hint):
+            role = "hot_rerun_cold_source"
+        elif "hot_rerun" in hint:
             role = "hot_rerun"
-        elif "dccs_probe" in hint or ("dccs" in hint and "probe" in hint):
+        elif "dccs_diagnostic_probe" in hint or "dccs_probe" in hint or ("dccs" in hint and "probe" in hint):
             role = "dccs_diagnostic_probe"
-        elif "refc_focus" in hint or ("refc" in hint and "focus" in hint):
+        elif "preference_proof" in hint or ("preference" in hint and "proof" in hint):
+            role = "preference_proof"
+        elif "optional_stopping_coverage" in hint or "optional-stopping-coverage" in hint or ("optional" in hint and "stopping" in hint):
+            role = "optional_stopping_coverage"
+        elif "proxy_audit_calibration" in hint or "proxy-audit-calibration" in hint or ("proxy" in hint and "audit" in hint and "calibration" in hint):
+            role = "proxy_audit_calibration"
+        elif "perturbation_flip_radius" in hint or "flip_radius" in hint or "flip-radius" in hint or ("perturbation" in hint and "flip" in hint):
+            role = "perturbation_flip_radius"
+        elif "public_transfer" in hint or "public-transfer" in hint or ("public" in hint and "transfer" in hint):
+            role = "public_transfer"
+        elif "synthetic_ground_truth" in hint or "synthetic-ground-truth" in hint or ("synthetic" in hint and "ground" in hint and "truth" in hint):
+            role = "synthetic_ground_truth"
+        elif "focused_refc" in hint or "refc_focus" in hint or ("refc" in hint and "focus" in hint):
             role = "focused_refc_proof"
-        elif "voi_focus" in hint or ("voi" in hint and "focus" in hint):
+        elif "focused_voi" in hint or "voi_focus" in hint or ("voi" in hint and "focus" in hint):
             role = "focused_voi_proof"
-        elif "thesis_broad" in hint or "broad" in hint:
+        elif "broad_cold" in hint or "thesis_broad" in hint or "broad" in hint:
             role = "broad_cold_proof"
         else:
             role = ""
@@ -1576,9 +2102,32 @@ def _variant_specs(args: argparse.Namespace) -> list[VariantSpec]:
     ]
 
 
+def _selected_variant_specs(args: argparse.Namespace) -> list[VariantSpec]:
+    specs = _variant_specs(args)
+    requested_text = str(getattr(args, "variants", "") or "").strip()
+    if not requested_text:
+        return specs
+    requested_ids: set[str] = set()
+    unknown_ids: set[str] = set()
+    for token in requested_text.split(","):
+        variant_id = token.strip().upper()
+        if not variant_id:
+            continue
+        if variant_id not in VARIANTS:
+            unknown_ids.add(variant_id)
+            continue
+        requested_ids.add(variant_id)
+    if unknown_ids:
+        raise ValueError(f"unknown_variants:{','.join(sorted(unknown_ids))}")
+    selected_specs = [spec for spec in specs if spec.variant_id in requested_ids]
+    if not selected_specs:
+        raise ValueError("variant_subset_empty")
+    return selected_specs
+
+
 def _variant_specs_for_od(args: argparse.Namespace, *, od_index: int) -> list[VariantSpec]:
     del od_index
-    return _variant_specs(args)
+    return _selected_variant_specs(args)
 
 
 def _stable_row_variant_seed(od: Mapping[str, Any], *, base_seed: int) -> int:
@@ -1629,6 +2178,15 @@ def _absolute_url(base_url: str, endpoint: str) -> str:
     if endpoint.startswith(("http://", "https://")):
         return endpoint
     return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def _route_compute_url(base_url: str, *, request_config: Mapping[str, Any] | None = None) -> str:
+    endpoint = "/route"
+    if isinstance(request_config, Mapping):
+        requested_mode = str(request_config.get("internal_ors_seed_mode") or "").strip().lower()
+        if requested_mode in {"local_service", "repo_local"}:
+            endpoint = f"/route?ors_seed_mode={requested_mode}"
+    return _absolute_url(base_url, endpoint)
 
 
 def _post_json(client: httpx.Client, url: str, payload: dict[str, Any]) -> tuple[dict[str, Any], float]:
@@ -2820,6 +3378,53 @@ def _validate_json_artifact_file(path: Path, *, artifact_name: str) -> None:
         raise RuntimeError(f"strict_output_artifact_invalid:{artifact_name}")
 
 
+def _snapshot_lease_manifest(
+    run_id: str,
+    *,
+    source_path: str | None,
+    artifact_name: str,
+) -> tuple[Path | None, dict[str, Any] | None]:
+    source_text = str(source_path or "").strip()
+    if not source_text:
+        return None, None
+    resolved_source_path = Path(source_text).expanduser().resolve()
+    _validate_json_artifact_file(resolved_source_path, artifact_name=artifact_name)
+    payload = json.loads(resolved_source_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise RuntimeError(f"strict_output_artifact_invalid:{artifact_name}")
+    snapshot_payload = dict(payload)
+    status = str(snapshot_payload.get("status") or "").strip().lower()
+    terminal_state_observed = status in {"exited", "limit_exceeded", "launch_error"}
+    snapshot_payload["snapshot_source_path"] = str(resolved_source_path)
+    snapshot_payload["snapshot_captured_at_utc"] = _now()
+    snapshot_payload["snapshot_capture_phase"] = "post_exit" if terminal_state_observed else "pre_exit"
+    snapshot_payload["snapshot_terminal_state_observed"] = terminal_state_observed
+    snapshot_path = Path(write_json_artifact(run_id, artifact_name, snapshot_payload))
+    return snapshot_path, snapshot_payload
+
+
+def _execution_provenance_payload(
+    *,
+    in_process_backend: bool,
+    backend_lease_snapshot_path: Path | None,
+    backend_lease_snapshot_payload: dict[str, Any] | None,
+    evaluator_lease_snapshot_path: Path | None,
+    evaluator_lease_snapshot_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    topology = (
+        "split_process"
+        if backend_lease_snapshot_path is not None or evaluator_lease_snapshot_path is not None
+        else ("in_process" if in_process_backend else "external_backend")
+    )
+    return {
+        "topology": topology,
+        "backend_lease_snapshot_path": str(backend_lease_snapshot_path) if backend_lease_snapshot_path is not None else None,
+        "evaluator_lease_snapshot_path": str(evaluator_lease_snapshot_path) if evaluator_lease_snapshot_path is not None else None,
+        "backend_lease_manifest": backend_lease_snapshot_payload,
+        "evaluator_lease_manifest": evaluator_lease_snapshot_payload,
+    }
+
+
 def _validate_text_artifact_file(path: Path, *, artifact_name: str) -> None:
     if not path.exists() or path.stat().st_size <= 0:
         raise RuntimeError(f"strict_output_artifact_missing:{artifact_name}")
@@ -3098,6 +3703,7 @@ def _result_row(
     effective_weights = _weights_tuple_from_config(request_config)
     effective_search_budget = int(request_config.get("search_budget") or args.search_budget)
     effective_evidence_budget = int(request_config.get("evidence_budget") or args.evidence_budget)
+    internal_ors_seed_mode = str(request_config.get("internal_ors_seed_mode") or "").strip() or None
     effective_certificate_threshold = float(
         request_config.get("certificate_threshold")
         if request_config.get("certificate_threshold") is not None
@@ -3145,6 +3751,8 @@ def _result_row(
     trace_route_option_cache_runtime = trace.get("route_option_cache_runtime", {}) if isinstance(trace, dict) else {}
     readiness = dict(readiness_summary or {})
     readiness_route_graph = readiness.get("route_graph", {}) if isinstance(readiness, Mapping) else {}
+    trace_precheck_reason_code = _text_or_none((trace_candidate_diag or {}).get("precheck_reason_code"))
+    trace_precheck_gate_action = _text_or_none((trace_candidate_diag or {}).get("precheck_gate_action"))
     frontier_rows = [_normalize_frontier_row(row) for row in artifacts.get(FRONTIER_ARTIFACT, []) if isinstance(row, dict)]
     reference_point = _reference_point(frontier_rows, [osrm.metrics, ors.metrics])
     frontier_hypervolume = hypervolume_3d(frontier_rows, reference=reference_point)
@@ -3218,14 +3826,18 @@ def _result_row(
     if weighted_osrm_base <= weighted_ors_base:
         best_baseline_provider = "osrm"
         best_baseline_metrics = osrm.metrics
+        best_baseline_weighted_selected = weighted_osrm
         best_baseline_weighted_base = weighted_osrm_base
+        best_baseline_duration_delta_s = round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6)
     else:
         best_baseline_provider = "ors"
         best_baseline_metrics = ors.metrics
+        best_baseline_weighted_selected = weighted_ors
         best_baseline_weighted_base = weighted_ors_base
+        best_baseline_duration_delta_s = round(selected_metrics["duration_s"] - ors.metrics["duration_s"], 6)
     weighted_margin_osrm = round(weighted_osrm_base - weighted_osrm, 6)
     weighted_margin_ors = round(weighted_ors_base - weighted_ors, 6)
-    weighted_margin_best_baseline = round(best_baseline_weighted_base - min(weighted_osrm, weighted_ors), 6)
+    weighted_margin_best_baseline = round(best_baseline_weighted_base - best_baseline_weighted_selected, 6)
     balanced_gain_osrm = round(balanced_gain_score(win_selected, osrm.metrics), 6)
     balanced_gain_ors = round(balanced_gain_score(win_selected, ors.metrics), 6)
     balanced_gain_best_baseline = round(balanced_gain_score(win_selected, best_baseline_metrics), 6)
@@ -3308,8 +3920,11 @@ def _result_row(
         or (selected_primary_candidate.get("candidate_source_stage") if isinstance(selected_primary_candidate, Mapping) else None)
         or ""
     ).strip() or None
+    explicit_selected_final_route_source_label = _text_or_none(
+        dccs_summary.get("selected_final_route_source_label") if isinstance(dccs_summary, Mapping) else None
+    )
     selected_final_route_source_label = str(
-        (dccs_summary.get("selected_final_route_source_label") if isinstance(dccs_summary, Mapping) else None)
+        explicit_selected_final_route_source_label
         or selected_candidate_source_label
         or ""
     ).strip() or None
@@ -3344,6 +3959,57 @@ def _result_row(
     preemptive_comparator_source_count = int(
         as_float((trace_candidate_diag or {}).get("preemptive_comparator_source_count"), 0.0)
     ) if isinstance(trace_candidate_diag, Mapping) else 0
+    raw_comparator_candidate, raw_comparator_audit_basis = _select_raw_comparator_audit_candidate(
+        candidate_rows=candidate_rows,
+        candidate_row_by_id=candidate_row_by_id,
+        selected_candidate_ids=selected_candidate_ids,
+    )
+    raw_comparator_candidate_id = None
+    raw_comparator_source_label = None
+    raw_comparator_materialized = None
+    raw_comparator_decision_reason = None
+    raw_comparator_protected_realization = None
+    raw_comparator_proxy_duration_s = None
+    raw_comparator_proxy_monetary_cost = None
+    raw_comparator_proxy_emissions_kg = None
+    selected_duration_delta_vs_raw_comparator_proxy_s = None
+    selected_monetary_delta_vs_raw_comparator_proxy = None
+    selected_emissions_delta_vs_raw_comparator_proxy_kg = None
+    if isinstance(raw_comparator_candidate, Mapping):
+        raw_comparator_candidate_id = _text_or_none(raw_comparator_candidate.get("candidate_id"))
+        raw_comparator_source_label = (
+            _candidate_row_preemptive_source_label(raw_comparator_candidate)
+            or _text_or_none(raw_comparator_candidate.get("candidate_source_label"))
+        )
+        raw_comparator_materialized = bool(
+            raw_comparator_candidate.get("candidate_materialized_preemptive_comparator")
+        )
+        raw_comparator_decision_reason = (
+            _text_or_none(raw_comparator_candidate.get("decision_reason"))
+            or _text_or_none(raw_comparator_candidate.get("candidate_decision_reason"))
+            or _text_or_none(raw_comparator_candidate.get("candidate_source_stage"))
+        )
+        raw_comparator_protected_realization = bool(
+            raw_comparator_candidate.get("candidate_materialized_preemptive_comparator")
+            or raw_comparator_candidate.get("candidate_materialized_preemptive_engine")
+        )
+        raw_comparator_proxy_objective = _candidate_row_proxy_objective(raw_comparator_candidate)
+        if raw_comparator_proxy_objective is not None:
+            raw_comparator_proxy_duration_s = round(raw_comparator_proxy_objective[0], 6)
+            raw_comparator_proxy_monetary_cost = round(raw_comparator_proxy_objective[1], 6)
+            raw_comparator_proxy_emissions_kg = round(raw_comparator_proxy_objective[2], 6)
+            selected_duration_delta_vs_raw_comparator_proxy_s = round(
+                selected_metrics["duration_s"] - raw_comparator_proxy_duration_s,
+                6,
+            )
+            selected_monetary_delta_vs_raw_comparator_proxy = round(
+                selected_metrics["monetary_cost"] - raw_comparator_proxy_monetary_cost,
+                6,
+            )
+            selected_emissions_delta_vs_raw_comparator_proxy_kg = round(
+                selected_metrics["emissions_kg"] - raw_comparator_proxy_emissions_kg,
+                6,
+            )
     graph_k_raw_cache_hit = bool(
         isinstance(trace_candidate_diag, Mapping)
         and bool((trace_candidate_diag or {}).get("graph_k_raw_cache_hit"))
@@ -3355,6 +4021,11 @@ def _result_row(
     graph_supported_ambiguity_fast_fallback = bool(
         isinstance(trace_candidate_diag, Mapping)
         and bool((trace_candidate_diag or {}).get("graph_supported_ambiguity_fast_fallback"))
+    )
+    route_fallback_observed = bool(
+        trace_precheck_gate_action == "degraded_continue"
+        or trace_precheck_reason_code == "routing_graph_deferred_load"
+        or _fallback_like_final_lineage_observed(explicit_selected_final_route_source_label)
     )
     winner_margin, _ = nominal_winner_margin(frontier_rows, weights=effective_weights)
     initial_selected_id = (
@@ -3744,6 +4415,7 @@ def _result_row(
         "corpus_group": request_config.get("corpus_group"),
         "row_override_count": request_config.get("row_override_count"),
         "row_override_keys": request_config.get("row_override_keys"),
+        "internal_ors_seed_mode": request_config.get("internal_ors_seed_mode"),
         "ambiguity_budget_band": request_config.get("ambiguity_budget_band"),
         "ambiguity_budget_prior": request_config.get("ambiguity_budget_prior"),
         "ambiguity_schedule_reason": request_config.get("ambiguity_schedule_reason"),
@@ -3864,6 +4536,7 @@ def _result_row(
         "ors_method": ors.method,
         "ors_provider_mode": ors.provider_mode,
         "ors_baseline_policy": ors.baseline_policy,
+        "internal_ors_seed_mode": internal_ors_seed_mode,
         "ors_asset_manifest_hash": ors.asset_manifest_hash,
         "ors_asset_recorded_at": ors.asset_recorded_at,
         "ors_asset_freshness_status": ors.asset_freshness_status,
@@ -3895,7 +4568,7 @@ def _result_row(
         "weighted_win_osrm": weighted_osrm < weighted_osrm_base,
         "weighted_win_ors": weighted_ors < weighted_ors_base,
         "weighted_win_v0": None,
-        "weighted_win_best_baseline": min(weighted_osrm, weighted_ors) < best_baseline_weighted_base,
+        "weighted_win_best_baseline": best_baseline_weighted_selected < best_baseline_weighted_base,
         "weighted_margin_vs_osrm": weighted_margin_osrm,
         "weighted_margin_vs_ors": weighted_margin_ors,
         "weighted_margin_vs_v0": None,
@@ -3913,12 +4586,8 @@ def _result_row(
             quality_win=(weighted_ors < weighted_ors_base),
         ),
         "time_preserving_win_best_baseline": _time_preserving_outcome(
-            duration_delta_s=(
-                round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6)
-                if best_baseline_provider == "osrm"
-                else round(selected_metrics["duration_s"] - ors.metrics["duration_s"], 6)
-            ),
-            quality_win=(min(weighted_osrm, weighted_ors) < best_baseline_weighted_base),
+            duration_delta_s=best_baseline_duration_delta_s,
+            quality_win=(best_baseline_weighted_selected < best_baseline_weighted_base),
         ),
         "time_preserving_dominance_osrm": _time_preserving_outcome(
             duration_delta_s=round(selected_metrics["duration_s"] - osrm.metrics["duration_s"], 6),
@@ -4035,6 +4704,18 @@ def _result_row(
         "preemptive_comparator_candidate_count": preemptive_comparator_candidate_count,
         "preemptive_comparator_source_count": preemptive_comparator_source_count,
         "selected_from_preemptive_comparator_seed": selected_from_preemptive_comparator_seed,
+        "raw_comparator_audit_basis": raw_comparator_audit_basis,
+        "raw_comparator_candidate_id": raw_comparator_candidate_id,
+        "raw_comparator_source_label": raw_comparator_source_label,
+        "raw_comparator_materialized": raw_comparator_materialized,
+        "raw_comparator_decision_reason": raw_comparator_decision_reason,
+        "raw_comparator_protected_realization": raw_comparator_protected_realization,
+        "raw_comparator_proxy_duration_s": raw_comparator_proxy_duration_s,
+        "raw_comparator_proxy_monetary_cost": raw_comparator_proxy_monetary_cost,
+        "raw_comparator_proxy_emissions_kg": raw_comparator_proxy_emissions_kg,
+        "selected_duration_delta_vs_raw_comparator_proxy_s": selected_duration_delta_vs_raw_comparator_proxy_s,
+        "selected_monetary_delta_vs_raw_comparator_proxy": selected_monetary_delta_vs_raw_comparator_proxy,
+        "selected_emissions_delta_vs_raw_comparator_proxy_kg": selected_emissions_delta_vs_raw_comparator_proxy_kg,
         "voi_realized_certificate_lift": (
             _voi_realized_certificate_lift(
                 voi_entries=voi_entries,
@@ -4271,6 +4952,9 @@ def _result_row(
         "route_evidence_ok": str(evidence_validation.get("status") or "unknown") == "ok",
         "route_evidence_status": str(evidence_validation.get("status") or "unknown"),
         "route_evidence_issues": json.dumps(evidence_validation.get("issues", []), sort_keys=True),
+        "route_graph_degraded_reason_code": trace_precheck_reason_code,
+        "route_graph_precheck_gate_action": trace_precheck_gate_action,
+        "route_fallback_observed": route_fallback_observed,
         "failure_reason": "",
         "artifact_run_id": route_response.get("run_id"),
         "manifest_endpoint": route_response.get("manifest_endpoint"),
@@ -4333,6 +5017,7 @@ def _failure_row(
     readiness_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     request_config = request_config or _effective_request_config(args, od, variant_seed=int(args.seed))
+    internal_ors_seed_mode = str(request_config.get("internal_ors_seed_mode") or "").strip() or None
     readiness = dict(readiness_summary or {})
     readiness_route_graph = readiness.get("route_graph", {}) if isinstance(readiness, Mapping) else {}
     ambiguity_prior = _od_ambiguity_prior(od)
@@ -4386,6 +5071,7 @@ def _failure_row(
                     "corpus_group": request_config.get("corpus_group"),
                     "row_override_count": request_config.get("row_override_count"),
                     "row_override_keys": request_config.get("row_override_keys"),
+                    "internal_ors_seed_mode": request_config.get("internal_ors_seed_mode"),
                     "ambiguity_budget_band": request_config.get("ambiguity_budget_band"),
                     "ambiguity_budget_prior": request_config.get("ambiguity_budget_prior"),
                     "ambiguity_schedule_reason": request_config.get("ambiguity_schedule_reason"),
@@ -4486,6 +5172,7 @@ def _failure_row(
             "ors_method": ors.method,
             "ors_provider_mode": ors.provider_mode,
             "ors_baseline_policy": ors.baseline_policy,
+            "internal_ors_seed_mode": internal_ors_seed_mode,
             "ors_asset_manifest_hash": ors.asset_manifest_hash,
             "ors_asset_recorded_at": ors.asset_recorded_at,
             "ors_asset_freshness_status": ors.asset_freshness_status,
@@ -4767,10 +5454,11 @@ def _finalize_cross_variant_metrics(rows: list[dict[str, Any]]) -> list[dict[str
                     "emissions_kg": as_float(row.get("selected_emissions_kg"), float("nan")),
                 }
                 if all(math.isfinite(value) for value in (*legacy_metrics.values(), *current_metrics.values())):
+                    comparison_weights = _weights_tuple_from_row(row)
                     current_score, legacy_score = pairwise_weighted_sum_score(
                         current_metrics,
                         legacy_metrics,
-                        weights=(1.0, 1.0, 1.0),
+                        weights=comparison_weights,
                     )
                     row["weighted_margin_vs_v0"] = round(legacy_score - current_score, 6)
                     row["weighted_win_v0"] = bool(current_score < legacy_score)
@@ -5581,9 +6269,11 @@ def _methods_appendix(args: argparse.Namespace, *, corpus_hash: str, row_count: 
             "Comparator honesty:",
             "- `V0` is not a full-budget legacy solve in this thesis lane; it is a matched-budget legacy comparator whose expensive refinement stage is capped by the same `search_budget` used by the new pipeline variants.",
             "- The thesis runner passes the same upstream ambiguity/support priors to every variant, including `V0`, so `V0` here should be read as an evaluator-informed legacy comparator rather than an uninformed public-API call with no corpus context.",
-            "- The secondary baseline is the self-hosted local openrouteservice engine when `ors_baseline_policy=local_service`; `repo_local` is retained only as an explicit fallback/debug comparator.",
+            "- The secondary baseline policy is recorded explicitly. `local_service` uses the self-hosted local openrouteservice engine, while `repo_local` uses a bounded repo-local comparator policy with signature avoidance, optional widened long-corridor alternatives, and an optional graph micro-probe realization path.",
             "- Corpus ambiguity is treated as an upstream route-graph prior when available. Missing corpus priors are not backfilled unless `--auto-enrich-corpus-ambiguity` is explicitly enabled, so thesis runs do not hide extra route-graph probe cost inside evaluation runtime.",
             "- Ambiguity-adaptive budgeting is deterministic and corpus-prior driven: low-ambiguity rows use smaller REFC/VOI budgets, while high-ambiguity rows keep larger search and certification budgets so the controller is still meaningfully stressed.",
+            "- `raw_comparator_*` row fields, when populated, expose the admitted comparator-backed proxy candidate that most directly explains a selected-lineage or fastest-proxy comparator audit trail.",
+            "- `selected_*_delta_vs_raw_comparator_proxy_*` fields measure refinement/selection drift relative to that admitted comparator proxy objective; they are not baseline deltas and should be read separately from `delta_vs_osrm_*` and `delta_vs_ors_*`.",
             "",
             "Metric definitions:",
             "- Strict dominance compares duration, money, and CO2 with Pareto minimisation.",
@@ -5633,11 +6323,18 @@ def _failed_summary_rows(summary_rows: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _cohort_label(row: dict[str, Any]) -> str:
+    explicit_label = str(row.get("cohort_label") or "").strip().lower()
+    if explicit_label in set(ALL_COHORT_LABELS):
+        return explicit_label
     label = str(row.get("corpus_group") or row.get("corpus_kind") or "").strip().lower()
-    if label in {"representative", "ambiguity"}:
+    if label in set(ALL_COHORT_LABELS):
         return label
     if label == "ambiguous":
         return "ambiguity"
+    if explicit_label == "ambiguous":
+        return "ambiguity"
+    if explicit_label:
+        return explicit_label
     return label or "unknown"
 
 
@@ -5766,12 +6463,145 @@ def _is_hard_case_row(row: dict[str, Any]) -> bool:
     return upstream_strength >= 0.50 and (major_signals + minor_signals) >= 2
 
 
+def _is_collapse_prone_row(row: dict[str, Any]) -> bool:
+    if _bool_or_default(row.get("realized_diversity_collapse"), False):
+        return True
+    return as_float(row.get("frontier_diversity_index"), 1.0) <= 0.20
+
+
+def _has_strong_brittleness_evidence(row: dict[str, Any], provider: str) -> bool:
+    weighted_win = _bool_or_none(row.get(f"weighted_win_{provider}"))
+    dominates = _bool_or_none(row.get(f"dominates_{provider}"))
+    if weighted_win is True or dominates is True:
+        return False
+
+    weighted_margin = as_float(row.get(f"weighted_margin_vs_{provider}"), float("nan"))
+    balanced_gain = as_float(row.get(f"balanced_gain_vs_{provider}_score"), float("nan"))
+    runtime_gap = as_float(row.get(f"runtime_gap_vs_{provider}_ms"), float("nan"))
+    time_preserving_win = _bool_or_none(row.get(f"time_preserving_win_{provider}"))
+    time_preserving_dominance = _bool_or_none(row.get(f"time_preserving_dominance_{provider}"))
+    weighted_win_best_baseline = _bool_or_none(row.get("weighted_win_best_baseline"))
+    best_baseline_provider = str(row.get("best_baseline_provider") or "").strip().lower()
+
+    evidence_count = sum(
+        (
+            weighted_win is not None,
+            dominates is not None,
+            math.isfinite(weighted_margin),
+            math.isfinite(balanced_gain),
+            time_preserving_win is not None,
+            time_preserving_dominance is not None,
+            math.isfinite(runtime_gap),
+            best_baseline_provider == provider and weighted_win_best_baseline is not None,
+        )
+    )
+    if evidence_count < 4:
+        return False
+
+    negative_signal_count = sum(
+        (
+            weighted_win is False,
+            dominates is False,
+            math.isfinite(weighted_margin) and weighted_margin < 0.0,
+            math.isfinite(balanced_gain) and balanced_gain <= 0.0,
+            time_preserving_win is False,
+            time_preserving_dominance is False,
+            best_baseline_provider == provider and weighted_win_best_baseline is False,
+        )
+    )
+    if negative_signal_count < 4:
+        return False
+
+    return math.isfinite(runtime_gap) and runtime_gap >= 0.0
+
+
+def _is_osrm_brittle_row(row: dict[str, Any]) -> bool:
+    return _has_strong_brittleness_evidence(row, "osrm")
+
+
+def _is_ors_brittle_row(row: dict[str, Any]) -> bool:
+    return _has_strong_brittleness_evidence(row, "ors")
+
+
+def _is_refresh_sensitive_row(row: dict[str, Any]) -> bool:
+    if _bool_or_default(row.get("controller_refresh_fallback_activated"), False):
+        return True
+    if _bool_or_default(row.get("controller_empirical_vs_raw_refresh_disagreement"), False):
+        return True
+    return as_float(row.get("controller_top_refresh_gain"), 0.0) > 0.0
+
+
+def _is_time_preserving_conflict_row(row: dict[str, Any]) -> bool:
+    wins = {
+        value
+        for value in (
+            row.get("time_preserving_win_osrm"),
+            row.get("time_preserving_win_ors"),
+            row.get("time_preserving_win_best_baseline"),
+        )
+        if value is not None
+    }
+    dominance = {
+        value
+        for value in (
+            row.get("time_preserving_dominance_osrm"),
+            row.get("time_preserving_dominance_ors"),
+            row.get("time_preserving_dominance_best_baseline"),
+        )
+        if value is not None
+    }
+    return len(wins) > 1 or len(dominance) > 1
+
+
+def _is_low_ambiguity_fast_path_row(row: dict[str, Any]) -> bool:
+    return _bool_or_default(row.get("graph_low_ambiguity_fast_path"), False)
+
+
+def _is_preference_sensitive_row(row: dict[str, Any]) -> bool:
+    return _bool_or_default(row.get("preference_sensitive"), False)
+
+
+def _is_support_fragile_row(row: dict[str, Any]) -> bool:
+    if _bool_or_default(row.get("graph_supported_ambiguity_fast_fallback"), False):
+        return False
+    return as_float(row.get("od_ambiguity_support_ratio"), 1.0) < 0.55
+
+
+def _is_audit_heavy_row(row: dict[str, Any]) -> bool:
+    if _bool_or_default(row.get("audit_heavy"), False):
+        return True
+    evidence_used = as_float(row.get("evidence_budget_used"), 0.0)
+    evidence_budget = as_float(row.get("evidence_budget"), 0.0)
+    return evidence_budget > 0.0 and evidence_used >= 0.75 * evidence_budget
+
+
+def _is_proxy_friendly_row(row: dict[str, Any]) -> bool:
+    if _bool_or_default(row.get("proxy_friendly"), False):
+        return True
+    return as_float(row.get("od_ambiguity_support_ratio"), 0.0) >= 0.75 and _bool_or_default(row.get("graph_low_ambiguity_fast_path"), False)
+
+
 def _cohort_rows(rows: list[dict[str, Any]], cohort_label: str) -> list[dict[str, Any]]:
     if cohort_label == "controller_stress":
-        return [row for row in rows if _is_controller_stress_row(row)]
+        return [row for row in rows if _cohort_label(row) == cohort_label or _is_controller_stress_row(row)]
     if cohort_label == "hard_case":
-        return [row for row in rows if _is_hard_case_row(row)]
-    return [row for row in rows if _cohort_label(row) == cohort_label]
+        return [row for row in rows if _cohort_label(row) == cohort_label or _is_hard_case_row(row)]
+    predicate_map = {
+        "collapse_prone": _is_collapse_prone_row,
+        "osrm_brittle": _is_osrm_brittle_row,
+        "ors_brittle": _is_ors_brittle_row,
+        "refresh_sensitive": _is_refresh_sensitive_row,
+        "time_preserving_conflict": _is_time_preserving_conflict_row,
+        "low_ambiguity_fast_path": _is_low_ambiguity_fast_path_row,
+        "preference_sensitive": _is_preference_sensitive_row,
+        "support_fragile": _is_support_fragile_row,
+        "audit_heavy": _is_audit_heavy_row,
+        "proxy_friendly": _is_proxy_friendly_row,
+    }
+    predicate = predicate_map.get(cohort_label)
+    if predicate is None:
+        return [row for row in rows if _cohort_label(row) == cohort_label]
+    return [row for row in rows if _cohort_label(row) == cohort_label or predicate(row)]
 
 
 def _finite_delta(lhs: float | None, rhs: float | None) -> float | None:
@@ -5837,7 +6667,7 @@ def _cohort_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not batch:
             continue
         total_rows = len(batch)
-        for cohort_label in ("representative", "ambiguity", "hard_case", "controller_stress"):
+        for cohort_label in ALL_COHORT_LABELS:
             cohort_rows = _cohort_rows(batch, cohort_label)
             if not cohort_rows:
                 continue
@@ -5900,16 +6730,33 @@ def _cohort_composition(rows: list[dict[str, Any]]) -> dict[str, Any]:
         batch = [row for row in rows if str(row.get("variant_id") or "") == variant_id]
         if not batch:
             continue
-        cohort_counts = Counter(str(row.get("cohort_label") or "unknown") for row in batch)
+        cohort_counts = {
+            cohort_label: len(_cohort_rows(batch, cohort_label))
+            for cohort_label in ALL_COHORT_LABELS
+        }
         by_variant[variant_id] = {
             "row_count": len(batch),
+            "base_cohort_counts": {
+                label: int(cohort_counts.get(label, 0))
+                for label in BASE_COHORT_LABELS
+            },
+            "derived_cohort_counts": {
+                label: int(cohort_counts.get(label, 0))
+                for label in DERIVED_COHORT_LABELS
+            },
             "cohort_counts": dict(sorted(cohort_counts.items())),
+            "cohort_shares": {
+                label: round(int(count) / len(batch), 6)
+                for label, count in sorted(cohort_counts.items())
+            },
             "unique_od_ids": sorted({str(row.get("od_id") or "") for row in batch if str(row.get("od_id") or "").strip()}),
         }
-    return {
+    payload = {
         "total_row_count": len(rows),
         "by_variant": by_variant,
     }
+    payload.update(_cohort_scaffolding_payload())
+    return payload
 
 
 def _rate_text(value: float | None, denominator: int) -> str:
@@ -6238,8 +7085,9 @@ def _thesis_report(
     lines.append("- `V0` is a matched-budget legacy comparator: its expensive refinement is capped by the configured legacy baseline policy rather than being allowed to refine every candidate.")
     lines.append("- In this thesis lane, `V0` also receives the same upstream ambiguity/support priors carried by the corpus rows, so the comparison is between evaluator-informed variants rather than between informed A/B/C requests and an uninformed legacy request.")
     lines.append(f"- The configured V0 baseline refinement policy for this run is `{legacy_refinement_policy}`.")
-    lines.append("- The secondary baseline is the self-hosted local openrouteservice engine when `ors_baseline_policy=local_service`; thesis evaluation fails closed if the backend resolves to any other provider mode.")
-    lines.append("- This thesis lane does not require a paid ORS API key and does not silently downgrade to repo-local heuristic artifacts when `local_service` is requested.")
+    lines.append("- The configured secondary baseline policy is recorded in row provenance. `local_service` expects the self-hosted ORS engine, while `repo_local` records a bounded comparator realization path rather than a paid external API call.")
+    lines.append("- Thesis output now carries `raw_comparator_*` row fields in `thesis_results.csv`, `thesis_results.json`, and `results.json`. When populated, those fields describe the admitted comparator-backed proxy candidate rather than the final selected route.")
+    lines.append("- `selected_duration_delta_vs_raw_comparator_proxy_s`, `selected_monetary_delta_vs_raw_comparator_proxy`, and `selected_emissions_delta_vs_raw_comparator_proxy_kg` should be read as re-realization drift relative to the comparator proxy objective, not as OSRM/ORS baseline comparisons.")
     lines.append("- `baseline_identity_verified_rate` reports how often the self-hosted baseline identity was actually provenance-verified in the recorded rows; missing provenance is surfaced as a metric gap rather than treated as a hidden success.")
     lines.append("- `best_baseline` denotes the stronger of the self-hosted OSRM and self-hosted ORS comparators under the same fixed selector weights used for that row.")
     lines.append("- Supplemental diversity rescue is disclosed separately. If a selected winner comes from a supplemental comparator-engine seed, the report surfaces that rate explicitly instead of hiding it inside headline win counts.")
@@ -6687,8 +7535,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             corpus_source_path=corpus_source_path,
             run_id=run_id,
         )
-        artifact_dir_for_run(run_id)
-        preflight_path = artifact_dir_for_run(run_id) / "repo_asset_preflight.json"
+        selected_variant_specs = _selected_variant_specs(args)
+        selected_variant_ids = [spec.variant_id for spec in selected_variant_specs]
+        artifact_dir = artifact_dir_for_run(run_id)
+        preflight_path = artifact_dir / "repo_asset_preflight.json"
         if should_run_preflight:
             preflight_summary = run_preflight(output_path=preflight_path)
             if not bool(preflight_summary.get("required_ok")):
@@ -6725,14 +7575,14 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 if not bool(((baseline_smoke_summary.get(name) or {}) if isinstance(baseline_smoke_summary.get(name), dict) else {}).get("ok"))
             ]
             raise RuntimeError(f"baseline_smoke_failed:{','.join(failed_codes)}")
-        snapshot_path = Path(args.ors_snapshot_path) if args.ors_snapshot_path else artifact_dir_for_run(run_id) / "ors_snapshot.json"
+        snapshot_path = Path(args.ors_snapshot_path) if args.ors_snapshot_path else artifact_dir / "ors_snapshot.json"
         snapshot_bundle = _load_snapshot(snapshot_path) if effective_snapshot_mode in {"record", "replay"} else None
         rows: list[dict[str, Any]] = []
         baseline_cache: dict[str, tuple[BaselineResult, BaselineResult]] = {}
         cache_reset_count = 0
         for od_index, od in enumerate(corpus_rows):
             od_rows: list[dict[str, Any]] = []
-            od_variant_specs = _variant_specs_for_od(args, od_index=od_index)
+            od_variant_specs = selected_variant_specs
             base_request_config = _effective_request_config(args, od, variant_seed=int(args.seed))
             baseline_payload = _baseline_payload(args, od, request_config=base_request_config, variant_seed=int(args.seed))
             baseline_cache_key = _digest({"od_id": od.get("od_id"), "payload": baseline_payload, "ors_policy": str(args.ors_baseline_policy), "snapshot_mode": effective_snapshot_mode})
@@ -6808,7 +7658,10 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                             cache_reset_count += 1
                         response, route_ms = _post_json(
                             active_client,
-                            _absolute_url(args.backend_url, "/route"),
+                            _route_compute_url(
+                                args.backend_url,
+                                request_config=variant_request_config,
+                            ),
                             _variant_payload(
                                 args,
                                 od,
@@ -6890,11 +7743,21 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             row["warmup_amortized_ms"] = warmup_amortized_ms
         summary_rows = _summary_rows(rows)
         cohort_summary_rows = _cohort_summary_rows(rows)
+        proof_complete_row_count = sum(
+            1
+            for row in rows
+            if isinstance(row, Mapping) and _proof_complete_route_evidence_row(row)
+        )
+        evaluation_rerun_success_rate = (
+            proof_complete_row_count / len(rows)
+            if rows
+            else 0.0
+        )
         run_validity_metrics = _run_validity_metrics(
             rows,
             preflight_summary=preflight_summary,
             readiness_summary=readiness_summary,
-            evaluation_rerun_success_rate=1.0,
+            evaluation_rerun_success_rate=evaluation_rerun_success_rate,
         )
         _apply_run_level_summary_metrics(
             summary_rows,
@@ -6905,6 +7768,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             run_validity_metrics=run_validity_metrics,
         )
         cohort_composition = _cohort_composition(rows)
+        metric_family_scaffolding = _metric_family_scaffolding_payload()
         metrics_payload = {
             "run_id": run_id,
             "corpus_hash": corpus_hash,
@@ -6912,6 +7776,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "summary_rows": summary_rows,
             "summary_by_cohort_rows": cohort_summary_rows,
             "cohort_composition": cohort_composition,
+            "metric_family_scaffolding": metric_family_scaffolding,
             "run_validity": run_validity_metrics,
             "baseline_smoke": baseline_smoke_summary,
             "startup_and_warmup": {
@@ -6945,6 +7810,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "hard_case_transfer_vs_variant": [{"variant_id": row["variant_id"], "broad_hard_case_certificate_selectivity_rate": row["broad_hard_case_certificate_selectivity_rate"], "broad_hard_case_evidence_first_engagement_rate": row["broad_hard_case_evidence_first_engagement_rate"], "broad_hard_case_productive_voi_action_rate": row["broad_hard_case_productive_voi_action_rate"], "broad_hard_case_refc_signal_presence_rate": row["broad_hard_case_refc_signal_presence_rate"]} for row in summary_rows],
             "run_validity": run_validity_metrics,
             "cohort_composition": cohort_composition,
+            "metric_family_scaffolding": metric_family_scaffolding,
             "baseline_smoke": baseline_smoke_summary,
             "startup_and_warmup": {
                 "backend_ready_wait_ms": readiness_summary.get("wait_elapsed_ms"),
@@ -6973,7 +7839,8 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "mean_hard_case_prior": _mean_numeric(corpus_rows, "hard_case_prior"),
             },
         )
-        write_json_artifact(run_id, "cohort_composition.json", cohort_composition)
+        cohort_scaffolding = _cohort_scaffolding_payload()
+        cohort_composition_path = write_json_artifact(run_id, "cohort_composition.json", cohort_composition)
         if snapshot_bundle is not None:
             snapshot_bundle["manifest_hash"] = _digest(snapshot_bundle.get("routes", {}))
             snapshot_path = write_json_artifact(run_id, "ors_snapshot.json", snapshot_bundle)
@@ -6982,24 +7849,45 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         summary_csv = write_csv_artifact(run_id, "thesis_summary.csv", fieldnames=SUMMARY_FIELDS, rows=summary_rows)
         write_json_artifact(run_id, "thesis_summary.json", {"summary_rows": summary_rows})
         cohort_summary_csv = write_csv_artifact(run_id, "thesis_summary_by_cohort.csv", fieldnames=COHORT_SUMMARY_FIELDS, rows=cohort_summary_rows)
-        write_json_artifact(
+        cohort_summary_json = write_json_artifact(
             run_id,
             "thesis_summary_by_cohort.json",
-            {
-                "summary_rows": cohort_summary_rows,
-                "cohort_definitions": {
-                    "representative": "Rows whose corpus_group is representative.",
-                    "ambiguity": "Rows whose corpus_group is ambiguity.",
-                    "hard_case": "Rows classified by stronger upstream ambiguity priors together with realized difficulty or controller-stress signals.",
-                },
-            },
+            _cohort_summary_artifact_payload(cohort_summary_rows),
+        )
+        evaluation_honesty_summary = _evaluation_honesty_summary(
+            readiness_summary=readiness_summary if isinstance(readiness_summary, Mapping) else None,
+            rows=rows,
+        )
+        (
+            backend_lease_snapshot_path,
+            backend_lease_snapshot_payload,
+        ) = _snapshot_lease_manifest(
+            run_id,
+            source_path=getattr(args, "backend_lease_manifest_path", None),
+            artifact_name="backend_lease_snapshot.json",
+        )
+        (
+            evaluator_lease_snapshot_path,
+            evaluator_lease_snapshot_payload,
+        ) = _snapshot_lease_manifest(
+            run_id,
+            source_path=getattr(args, "evaluator_lease_manifest_path", None),
+            artifact_name="evaluator_lease_snapshot.json",
+        )
+        execution_provenance = _execution_provenance_payload(
+            in_process_backend=bool(args.in_process_backend),
+            backend_lease_snapshot_path=backend_lease_snapshot_path,
+            backend_lease_snapshot_payload=backend_lease_snapshot_payload,
+            evaluator_lease_snapshot_path=evaluator_lease_snapshot_path,
+            evaluator_lease_snapshot_payload=evaluator_lease_snapshot_payload,
         )
         write_json_artifact(
             run_id,
             "metadata.json",
             {
                 "run_id": run_id,
-                "variant_count": len(VARIANTS),
+                "variant_count": len(selected_variant_ids),
+                "selected_variants": selected_variant_ids,
                 "row_count": len(rows),
                 "failure_count": sum(1 for row in rows if row.get("failure_reason")),
                 "corpus_hash": corpus_hash,
@@ -7008,11 +7896,15 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "repo_asset_preflight_required_ok": bool(preflight_summary.get("required_ok")),
                 "repo_asset_preflight_path": str(preflight_path),
                 "backend_ready_summary": readiness_summary,
+                **evaluation_honesty_summary,
                 "run_validity": run_validity_metrics,
                 "baseline_smoke_summary": baseline_smoke_summary,
                 "strict_proxy_ors_allowed": bool(args.allow_proxy_ors),
                 "strict_evidence_fallbacks_allowed": bool(args.allow_evidence_fallbacks),
+                "execution_provenance": execution_provenance,
                 "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
+                "metric_family_scaffolding": metric_family_scaffolding,
                 "cache_mode": cache_mode,
                 "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
                 "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
@@ -7023,7 +7915,14 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         write_json_artifact(
             run_id,
             "results.json",
-            {"rows": rows, "summary_rows": summary_rows, "summary_by_cohort_rows": cohort_summary_rows},
+            {
+                "rows": rows,
+                "summary_rows": summary_rows,
+                "summary_by_cohort_rows": cohort_summary_rows,
+                "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
+                "metric_family_scaffolding": metric_family_scaffolding,
+            },
         )
         thesis_metrics_path = write_json_artifact(run_id, "thesis_metrics.json", metrics_payload)
         thesis_plots_path = write_json_artifact(run_id, "thesis_plots.json", plots_payload)
@@ -7034,6 +7933,8 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             {
                 "run_id": run_id,
                 "created_at": _now(),
+                "variant_count": len(selected_variant_ids),
+                "selected_variants": selected_variant_ids,
                 "backend_url": args.backend_url,
                 "osrm_base_url": settings.osrm_base_url,
                 "corpus_hash": corpus_hash,
@@ -7048,11 +7949,15 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                 "repo_asset_preflight_path": str(preflight_path),
                 "repo_asset_preflight_required_ok": bool(preflight_summary.get("required_ok")),
                 "backend_ready_summary": readiness_summary,
+                **evaluation_honesty_summary,
                 "run_validity": run_validity_metrics,
                 "baseline_smoke_path": str(baseline_smoke_path),
                 "baseline_smoke_summary": baseline_smoke_summary,
                 "strict_evidence_policy": STRICT_EVIDENCE_POLICY,
+                "execution_provenance": execution_provenance,
                 "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
+                "metric_family_scaffolding": metric_family_scaffolding,
                 "cache_mode": cache_mode,
                 "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
                 "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
@@ -7071,16 +7976,41 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
                         "corpus_source_format": corpus_source_format,
                         "corpus_source_exists": corpus_source_exists,
                         "backend_url": args.backend_url,
+                        "selected_variants": selected_variant_ids,
                         "evaluation_suite": evaluation_suite,
+                        "cohort_scaffolding": cohort_scaffolding,
+                        "metric_family_scaffolding": metric_family_scaffolding,
                         "cache_mode": cache_mode,
                         "cache_reset_scope": "variant" if cache_mode == "cold" else "none",
                         "cache_reset_policy": cold_cache_scope if cache_mode == "cold" else "none",
                         "cache_reset_count": cache_reset_count,
-                    }
+                    },
                 },
-                "execution": {"pair_count": len(corpus_rows), "variant_count": len(VARIANTS), "duration_ms": _mean_numeric(rows, "runtime_ms")},
+                "execution": {
+                    "pair_count": len(corpus_rows),
+                    "variant_count": len(selected_variant_ids),
+                    "duration_ms": _mean_numeric(rows, "runtime_ms"),
+                    "provenance": execution_provenance,
+                },
             },
         )
+        extra_json_paths = {
+            "thesis_metrics.json": Path(thesis_metrics_path),
+            "thesis_plots.json": Path(thesis_plots_path),
+            "metadata.json": artifact_dir / "metadata.json",
+            "results.json": artifact_dir / "results.json",
+            "thesis_results.json": artifact_dir / "thesis_results.json",
+            "thesis_summary.json": artifact_dir / "thesis_summary.json",
+            "thesis_summary_by_cohort.json": Path(cohort_summary_json),
+            "od_corpus.json": artifact_dir / "od_corpus.json",
+            "od_corpus_summary.json": artifact_dir / "od_corpus_summary.json",
+            "cohort_composition.json": Path(cohort_composition_path),
+            "baseline_smoke_summary.json": Path(baseline_smoke_path),
+        }
+        if backend_lease_snapshot_path is not None:
+            extra_json_paths["backend_lease_snapshot.json"] = backend_lease_snapshot_path
+        if evaluator_lease_snapshot_path is not None:
+            extra_json_paths["evaluator_lease_snapshot.json"] = evaluator_lease_snapshot_path
         output_validation = _validate_written_output_artifacts(
             results_csv=Path(results_csv),
             summary_csv=Path(summary_csv),
@@ -7088,23 +8018,11 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             thesis_report_path=None,
             evaluation_manifest_path=Path(evaluation_manifest_path),
             manifest_path=Path(manifest_path),
-            extra_json_paths={
-                "thesis_metrics.json": Path(thesis_metrics_path),
-                "thesis_plots.json": Path(thesis_plots_path),
-                "metadata.json": artifact_dir_for_run(run_id) / "metadata.json",
-                "results.json": artifact_dir_for_run(run_id) / "results.json",
-                "thesis_results.json": artifact_dir_for_run(run_id) / "thesis_results.json",
-                "thesis_summary.json": artifact_dir_for_run(run_id) / "thesis_summary.json",
-                "thesis_summary_by_cohort.json": artifact_dir_for_run(run_id) / "thesis_summary_by_cohort.json",
-                "od_corpus.json": artifact_dir_for_run(run_id) / "od_corpus.json",
-                "od_corpus_summary.json": artifact_dir_for_run(run_id) / "od_corpus_summary.json",
-                "cohort_composition.json": artifact_dir_for_run(run_id) / "cohort_composition.json",
-                "baseline_smoke_summary.json": Path(baseline_smoke_path),
-            },
+            extra_json_paths=extra_json_paths,
             extra_text_paths={},
             optional_paths={
                 "ors_snapshot.json": Path(snapshot_path) if snapshot_bundle is not None else None,
-                "od_corpus.csv": artifact_dir_for_run(run_id) / "od_corpus.csv",
+                "od_corpus.csv": artifact_dir / "od_corpus.csv",
                 "thesis_summary_by_cohort.csv": Path(cohort_summary_csv),
             },
         )
@@ -7130,9 +8048,15 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
         output_validation["validated_artifact_count"] = int(output_validation.get("validated_artifact_count", 0)) + 1
         return {
             "run_id": run_id,
+            "variant_count": len(selected_variant_ids),
+            "selected_variants": selected_variant_ids,
             "rows": rows,
             "summary_rows": summary_rows,
             "summary_by_cohort_rows": cohort_summary_rows,
+            "summary_by_cohort_json": str(cohort_summary_json),
+            "cohort_composition_path": str(cohort_composition_path),
+            "cohort_scaffolding": cohort_scaffolding,
+            "metric_family_scaffolding": metric_family_scaffolding,
             "success_row_count": sum(1 for row in rows if not row.get("failure_reason")),
             "failure_row_count": sum(1 for row in rows if row.get("failure_reason")),
             "failure_breakdown": _failure_breakdown(rows),
@@ -7145,6 +8069,9 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "thesis_report": str(thesis_report_path),
             "evaluation_manifest": str(evaluation_manifest_path),
             "manifest_path": str(manifest_path),
+            "execution_provenance": execution_provenance,
+            "backend_lease_snapshot_path": str(backend_lease_snapshot_path) if backend_lease_snapshot_path is not None else None,
+            "evaluator_lease_snapshot_path": str(evaluator_lease_snapshot_path) if evaluator_lease_snapshot_path is not None else None,
             "output_artifact_validation": output_validation,
             "baseline_smoke_summary": baseline_smoke_summary,
             "baseline_smoke_path": str(baseline_smoke_path),
@@ -7156,6 +8083,8 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
             "strict_live_readiness_pass_rate": run_validity_metrics["strict_live_readiness_pass_rate"],
             "evaluation_rerun_success_rate": run_validity_metrics["evaluation_rerun_success_rate"],
             "scenario_profile_unavailable_rate": run_validity_metrics["scenario_profile_unavailable_rate"],
+            "evaluation_suite": evaluation_suite,
+            "metric_family_scaffolding": metric_family_scaffolding,
         }
     finally:
         settings.out_dir = old_out_dir
@@ -7166,6 +8095,7 @@ def run_thesis_evaluation(args: argparse.Namespace, *, client: httpx.Client | No
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.in_process_backend:
+        _apply_in_process_route_graph_env(args)
         from app.main import app
 
         with TestClient(app) as client:
