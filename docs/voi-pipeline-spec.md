@@ -100,6 +100,9 @@ Current fields include:
 - `top_competitor_route_id`
 - `top_value_of_refresh_family`
 - `ambiguity_context`
+- `world_support_summary`
+- `world_fidelity_summary`
+- `certification_state_summary`
 
 ### `VoiStopSummary`
 
@@ -142,10 +145,14 @@ Current thesis-relevant route response fields include:
 
 ### `DecisionPackage`
 
-Current `decision_package` payloads summarize the public thesis decision state without removing the legacy route fields. The top-level summaries include:
+Current `decision_package` payloads summarize the public thesis decision state while preserving explicit compatibility/runtime provenance for legacy execution paths. The top-level summaries include:
 
+- `terminal_kind`
 - `preference_summary`
 - `support_summary`
+- `world_support_summary`
+- `world_fidelity_summary`
+- `certification_state_summary`
 - `certified_set_summary`
 - `abstention_summary`
 - `witness_summary`
@@ -153,9 +160,19 @@ Current `decision_package` payloads summarize the public thesis decision state w
 - `theorem_hook_summary`
 - `lane_manifest`
 
+`terminal_kind` is the explicit public terminal outcome surface. The current runtime uses exactly `certified_singleton`, `certified_set`, and `typed_abstention`.
+
+When `/route` has to execute through the explicit legacy compatibility path, that is surfaced through `pipeline_mode`, provenance, warnings, and `abstention_summary.reason_code=legacy_runtime_selected`, not through a fourth public terminal outcome.
+
 The current runtime assembles this package from the existing route, certification, VOI, and artifact facts already produced during the request. It is a public summary seam, not a second independent decision engine.
 
-`preference_summary` is the current landed preference bridge and remains summary-only selector/runtime metadata rather than a public preference query/update surface.
+`preference_summary` is the current landed preference bridge and remains summary-only selector/runtime metadata rather than a public preference query/update surface. Its `suggested_queries` are advisory and reflect the current selector state, not a public preference API.
+
+`abstention_summary` can carry a typed abstention class and recommended action when the system intentionally stops instead of returning a singleton or certified set.
+
+`world_fidelity_summary.unique_world_count` is the deduplicated world-manifest count, while `world_fidelity_summary.effective_world_count` is the support-aware certification count actually used by REFC. `witness_summary` remains compact; when a winner-side fragility family can be derived from `route_fragility_map.json`, it is surfaced as a `top_fragility_family=...` note while the per-route family scores stay in the fragility artifact.
+
+The frontend inspection workflow consumes this existing contract directly. `RouteCertificationPanel.tsx` renders the route-level terminal/support/controller summary, and `RunInspector.tsx` groups run artifacts by family using only the current `decision_package`, the lane-manifest artifact names when present, and the run-store artifact listing.
 
 ## 5. Stable Artifact Contract
 
@@ -179,6 +196,8 @@ The stable public run-store allowlist includes:
 - witness_routes.jsonl
 - controller_summary.json
 - controller_trace.jsonl
+- voi_controller_trace_summary.json
+- voi_replay_oracle_summary.json
 - theorem_hook_map.json
 - lane_manifest.json
 - route_fragility_map.json
@@ -205,7 +224,11 @@ Focused and broad evaluation runs also emit OD corpus and baseline helper artifa
 
 The public allowlist is intentionally narrow: code should only rely on the named artifact family outputs above, plus signed manifests and provenance, rather than on ad hoc intermediate files.
 
-For the landed route seam, `decision_package.json`, `preference_summary.json`, `support_summary.json`, `support_trace.jsonl`, `support_provenance.json`, `certified_set.json`, and `certified_set_routes.jsonl` are normal public outputs. The abstention, witness, controller, theorem-hook, and lane-manifest artifacts are also public and remain additive contract members when the corresponding summary is populated.
+For the landed route seam, `decision_package.json`, `preference_summary.json`, `support_summary.json`, `support_provenance.json`, `certified_set.json`, `certified_set_routes.jsonl`, and `final_route_trace.json` are the guaranteed browser-visible route artifacts whenever a `decision_package` is published. `support_trace.jsonl` is still part of the public route seam but may be absent depending on the run. The abstention, witness, controller, theorem-hook, and lane-manifest artifacts are also public and remain additive contract members when the corresponding summary is populated.
+
+The frontend groups those route artifacts into route-core, decision-package, support, DCCS/REFC, controller/VOI, witness/fragility, theorem/lane, and evaluation families. That grouping is derived from filenames already present in the allowlist above; it does not require any extra backend response field.
+
+The evaluator payload contract stays explicit across the run outputs above: `evaluation_manifest.json`, `metadata.json`, `results.json`, `thesis_metrics.json`, and `thesis_plots.json` all carry the versioned evaluator scaffolds `thesis_cohort_scaffolding_v2` and `thesis_metric_family_scaffolding_v1`, while the cohort scaffold reflects the evaluator-defined set including `collapse_prone`, `osrm_brittle`, `ors_brittle`, `refresh_sensitive`, `time_preserving_conflict`, `low_ambiguity_fast_path`, `preference_sensitive`, `support_fragile`, `audit_heavy`, and `proxy_friendly`.
 
 The run-store schema registry now has explicit schema-version coverage for both the VOI trace artifacts and the decision-package family, including:
 
@@ -326,8 +349,22 @@ For a fixed request, seed chain, evidence state, and model-asset state, the pipe
 - `C(r)` is the fraction of sampled worlds in which route `r` wins under the fixed selector
 - `r*` is certified only if `C(r*) >= certificate_threshold`
 - uncertified outcomes must remain explicit
+- typed abstentions must remain explicit and must be surfaced through `terminal_kind` plus `abstention_summary`
 - budget exhaustion must remain explicit
 - the controller should stop honestly when no admissible action clears the threshold
+
+## 10. Current VOI Result Anchors
+
+- focused VOI proof: `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/`
+  Variant `C` currently reports `success_rate=1.0`, `mean_certificate=0.861459`, `mean_certificate_margin=0.04596`, `mean_voi_realized_certificate_lift=0.097638`, `mean_voi_action_count=1.3`, `voi_controller_engagement_rate=0.8`, and `mean_runtime_ms=11374.6391`.
+- repaired broad-cold headline bundle: `backend/out/thesis_eval_core120_green_repaired/artifacts/thesis_eval_core120_green_repaired_20260404/`
+  Variant `C` currently reports `mean_certificate=0.855271`, `mean_voi_realized_certificate_lift=0.168752`, `mean_voi_action_count=1.141667`, and `voi_controller_engagement_rate=0.666667`.
+- hot-rerun anchor pair: `backend/out/artifacts/hot_full_20260331_f2_cold/` and `backend/out/artifacts/hot_full_20260331_f2_hot/`
+  Variant `C` keeps `mean_voi_action_count=1.578947` and `voi_controller_engagement_rate=0.842105` while `mean_runtime_ms` drops from `10213.524474` to `2122.009263`.
+
+## 11. Metric Inventory Note
+
+The VOI-heavy evaluator bundles no longer surface only a small controller summary. The current metric inventory lives in `thesis_metrics.json` and `thesis_plots.json`, with the checked-in hard-story anchor currently exposing `328` per-variant summary-row fields, `331` per-cohort fields, and `10` metric-family labels. That is the exhaustive VOI / REFC / DCCS / runtime metric surface to cite when a reader needs every emitted metric, not only the smaller `thesis_summary.csv/json` headline rows.
 
 ## Related Docs
 

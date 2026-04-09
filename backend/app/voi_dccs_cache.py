@@ -21,6 +21,18 @@ class VoiDccsCacheEntry:
 
 
 class VoiDccsCacheStore(ProcessGlobalCacheStore[VoiDccsCacheEntry]):
+    def __init__(self, *, ttl_s: int, max_entries: int, max_estimated_bytes: int) -> None:
+        super().__init__(
+            ttl_s=ttl_s,
+            max_entries=max_entries,
+            max_estimated_bytes=max_estimated_bytes,
+        )
+        self._invalidation_counters: dict[str, int] = {
+            "expired": 0,
+            "schema_mismatch": 0,
+            "manual_clear": 0,
+        }
+
     def get_entry(self, key: str) -> VoiDccsCacheEntry | None:
         with self._lock:
             cache_entry = self._items.get(key)
@@ -29,6 +41,7 @@ class VoiDccsCacheStore(ProcessGlobalCacheStore[VoiDccsCacheEntry]):
                 return None
             if self._is_expired(cache_entry):
                 self._remove_key(key)
+                self._invalidation_counters["expired"] = self._invalidation_counters.get("expired", 0) + 1
                 self._misses += 1
                 return None
             entry = copy.deepcopy(cache_entry.payload)
@@ -37,6 +50,9 @@ class VoiDccsCacheStore(ProcessGlobalCacheStore[VoiDccsCacheEntry]):
                 or entry.entry_kind != VOI_DCCS_CACHE_ENTRY_KIND
             ):
                 self._remove_key(key)
+                self._invalidation_counters["schema_mismatch"] = (
+                    self._invalidation_counters.get("schema_mismatch", 0) + 1
+                )
                 self._misses += 1
                 return None
             self._items.move_to_end(key)
@@ -58,6 +74,22 @@ class VoiDccsCacheStore(ProcessGlobalCacheStore[VoiDccsCacheEntry]):
             VoiDccsCacheEntry(payload=value),
         )
 
+    def clear(self) -> int:
+        cleared = super().clear()
+        if cleared > 0:
+            with self._lock:
+                self._invalidation_counters["manual_clear"] = (
+                    self._invalidation_counters.get("manual_clear", 0) + cleared
+                )
+        return cleared
+
+    def snapshot(self) -> dict[str, Any]:
+        stats = super().snapshot()
+        with self._lock:
+            stats["schema_version"] = VOI_DCCS_CACHE_SCHEMA_VERSION
+            stats["invalidation_counters"] = dict(self._invalidation_counters)
+        return stats
+
 
 VOI_DCCS_CACHE = VoiDccsCacheStore(
     ttl_s=settings.voi_dccs_cache_ttl_s,
@@ -78,7 +110,5 @@ def clear_voi_dccs_cache() -> int:
     return VOI_DCCS_CACHE.clear()
 
 
-def voi_dccs_cache_stats() -> dict[str, int]:
-    stats = VOI_DCCS_CACHE.snapshot()
-    stats["schema_version"] = VOI_DCCS_CACHE_SCHEMA_VERSION
-    return stats
+def voi_dccs_cache_stats() -> dict[str, Any]:
+    return VOI_DCCS_CACHE.snapshot()

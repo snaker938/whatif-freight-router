@@ -651,6 +651,8 @@ def compute_toll_cost(
     # Monetary engine: crossing + distance components from matched segments/tariffs.
     total_crossing_fee = 0.0
     total_distance_fee = 0.0
+    resolved_toll_distance_km = 0.0
+    unresolved_toll_distance_km = 0.0
     matched_asset_ids: list[str] = []
     tariff_rule_ids: list[str] = []
     unresolved_assets: list[str] = []
@@ -667,43 +669,65 @@ def compute_toll_cost(
         )
         if rule is None:
             unresolved_assets.append(seed.segment_id)
+            unresolved_toll_distance_km += max(0.0, overlap_km)
             continue
         crossing_fee = rule.crossing_fee_gbp
         distance_fee_per_km = rule.distance_fee_gbp_per_km
         tariff_rule_ids.append(rule.rule_id)
         matched_asset_ids.append(seed.segment_id)
+        resolved_toll_distance_km += max(0.0, overlap_km)
         total_crossing_fee += max(0.0, crossing_fee)
         total_distance_fee += max(0.0, distance_fee_per_km) * max(0.0, overlap_km)
 
-    if not matched_seeds and contains_toll and classified_toll_distance_km > 0.0:
-        explicit_rate = max(0.0, float(fallback_toll_cost_per_km))
-        if explicit_rate > 0.0:
-            fallback_cost = max(0.0, explicit_rate * max(0.0, toll_distance_km))
-            class_signal = (
-                min(1.0, classified_toll_distance_km / max(distance_km, 1e-6))
-                if distance_km > 0
-                else 0.0
-            )
-            confidence = max(0.35, min(0.80, 0.45 + (0.30 * class_signal)))
-            return TollComputation(
-                contains_toll=True,
-                toll_distance_km=round(toll_distance_km, 6),
-                toll_cost_gbp=round(fallback_cost, 6),
-                confidence=round(confidence, 6),
-                source="class_fallback_rate",
-                details={
-                    "segments_matched": 0,
-                    "classified_steps": classified_step_count,
-                    "minute_uk": minute,
-                    "fallback_policy_used": True,
-                    "pricing_unresolved": False,
-                    "tariff_rule_ids": "explicit_user_rate",
-                    "matched_asset_ids": "",
-                    "unresolved_asset_ids": "",
-                    "explicit_user_rate_gbp_per_km": round(explicit_rate, 6),
-                    "tariff_catalog_size": len(tariffs.rules),
-                },
-            )
+    explicit_rate = max(0.0, float(fallback_toll_cost_per_km))
+    fallback_distance_km = max(
+        0.0,
+        max(unresolved_toll_distance_km, toll_distance_km - resolved_toll_distance_km),
+    )
+
+    if explicit_rate > 0.0 and contains_toll and ((not matched_seeds) or unresolved_assets):
+        fallback_cost = (
+            max(0.0, total_crossing_fee + total_distance_fee)
+            + (explicit_rate * max(0.0, fallback_distance_km))
+        )
+        class_signal = (
+            min(1.0, classified_toll_distance_km / max(distance_km, 1e-6))
+            if distance_km > 0
+            else 0.0
+        )
+        seed_signal = (
+            min(1.0, seeded_toll_distance_km / max(distance_km, 1e-6))
+            if distance_km > 0
+            else 0.0
+        )
+        confidence = (
+            max(0.30, min(0.76, 0.40 + (0.18 * class_signal) + (0.14 * seed_signal)))
+            if unresolved_assets
+            else max(0.35, min(0.80, 0.45 + (0.30 * class_signal)))
+        )
+        source = "explicit_user_rate"
+        merged_tariff_ids = [*tariff_rule_ids, "explicit_user_rate"]
+        return TollComputation(
+            contains_toll=True,
+            toll_distance_km=round(toll_distance_km, 6),
+            toll_cost_gbp=round(fallback_cost, 6),
+            confidence=round(confidence, 6),
+            source=source,
+            details={
+                "segments_matched": len(matched_seeds),
+                "classified_steps": classified_step_count,
+                "minute_uk": minute,
+                "pricing_policy_used": "explicit_user_rate",
+                "pricing_unresolved": False,
+                "tariff_rule_ids": "|".join(merged_tariff_ids),
+                "matched_asset_ids": "|".join(matched_asset_ids),
+                "unresolved_asset_ids": "|".join(unresolved_assets),
+                "priced_distance_km": round(max(0.0, fallback_distance_km), 6),
+                "explicit_user_rate_gbp_per_km": round(explicit_rate, 6),
+                "tariff_catalog_size": len(tariffs.rules),
+            },
+        )
+    if not matched_seeds and contains_toll:
         return TollComputation(
             contains_toll=True,
             toll_distance_km=round(toll_distance_km, 6),

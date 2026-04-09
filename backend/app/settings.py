@@ -528,6 +528,10 @@ class Settings(BaseSettings):
         default="tri_source",
         alias="ROUTE_PIPELINE_DEFAULT_MODE",
     )
+    route_pipeline_waypoint_fallback_mode: str = Field(
+        default="legacy",
+        alias="ROUTE_PIPELINE_WAYPOINT_FALLBACK_MODE",
+    )
     route_pipeline_request_override_enabled: bool = Field(
         default=True,
         alias="ROUTE_PIPELINE_REQUEST_OVERRIDE_ENABLED",
@@ -624,6 +628,16 @@ class Settings(BaseSettings):
         ge=0.0,
         alias="ROUTE_DCCS_PFLIP_DETOUR_WEIGHT",
     )
+    route_dccs_challenger_selected_overlap_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        alias="ROUTE_DCCS_CHALLENGER_SELECTED_OVERLAP_WEIGHT",
+    )
+    route_dccs_challenger_corridor_reuse_penalty: float = Field(
+        default=0.5,
+        ge=0.0,
+        alias="ROUTE_DCCS_CHALLENGER_CORRIDOR_REUSE_PENALTY",
+    )
     route_refc_evidence_families: str = Field(
         default="scenario,toll,terrain,fuel,carbon,weather,stochastic",
         alias="ROUTE_REFC_EVIDENCE_FAMILIES",
@@ -678,7 +692,7 @@ class Settings(BaseSettings):
         alias="ORS_DIRECTIONS_PROFILE_HGV",
     )
     route_selection_math_profile: str = Field(
-        default="modified_vikor_distance",
+        default="modified_hybrid",
         alias="ROUTE_SELECTION_MATH_PROFILE",
     )
     route_selection_modified_regret_weight: float = Field(
@@ -827,6 +841,10 @@ class Settings(BaseSettings):
         default=True,
         alias="ROUTE_GRAPH_FAST_STARTUP_ENABLED",
     )
+    route_graph_evaluation_fast_startup_allowed: bool = Field(
+        default=False,
+        alias="ROUTE_GRAPH_EVALUATION_FAST_STARTUP_ALLOWED",
+    )
     route_graph_fast_startup_long_corridor_bypass_km: float = Field(
         default=120.0,
         ge=0.0,
@@ -874,6 +892,10 @@ class Settings(BaseSettings):
     route_graph_compact_bundle_path: str = Field(
         default="",
         alias="ROUTE_GRAPH_COMPACT_BUNDLE_PATH",
+    )
+    route_graph_materialize_edge_index: bool = Field(
+        default=True,
+        alias="ROUTE_GRAPH_MATERIALIZE_EDGE_INDEX",
     )
     route_graph_k_paths: int = Field(default=24, ge=1, le=128, alias="ROUTE_GRAPH_K_PATHS")
     route_graph_max_hops: int = Field(default=220, ge=8, le=2000, alias="ROUTE_GRAPH_MAX_HOPS")
@@ -1064,6 +1086,18 @@ class Settings(BaseSettings):
         ge=1,
         le=4,
         alias="ROUTE_GRAPH_VIA_LANDMARKS_PER_PATH",
+    )
+    route_graph_promising_refine_via_landmarks: int = Field(
+        default=5,
+        ge=2,
+        le=8,
+        alias="ROUTE_GRAPH_PROMISING_REFINE_VIA_LANDMARKS",
+    )
+    route_graph_promising_refine_alternative_count: int = Field(
+        default=3,
+        ge=2,
+        le=6,
+        alias="ROUTE_GRAPH_PROMISING_REFINE_ALTERNATIVE_COUNT",
     )
     route_graph_scenario_jaccard_max: float = Field(
         default=0.90,
@@ -1311,10 +1345,10 @@ class Settings(BaseSettings):
         self.live_route_compute_require_all_expected = True
         self.route_graph_enabled = True
         self.route_graph_strict_required = True
-        # Strict runtime must wait for the full graph, otherwise request-time
-        # candidate generation can fail with routing_graph_deferred_load even
-        # though readiness has already reported success.
-        self.route_graph_fast_startup_enabled = False
+        # Strict runtime must wait for the full graph unless evaluation lanes
+        # explicitly opt into the existing deferred-load route-graph path.
+        if not bool(self.route_graph_evaluation_fast_startup_allowed):
+            self.route_graph_fast_startup_enabled = False
         self.departure_require_empirical_profiles = True
         self.departure_allow_synthetic_profiles = False
         self.stochastic_require_empirical_calibration = policy == "strict_external"
@@ -1366,7 +1400,7 @@ class Settings(BaseSettings):
         if rescue_mode not in {"reduced", "full"}:
             rescue_mode = "reduced"
         self.route_graph_state_space_rescue_mode = rescue_mode
-        math_profile = str(self.route_selection_math_profile or "modified_vikor_distance").strip().lower()
+        math_profile = str(self.route_selection_math_profile or "modified_hybrid").strip().lower()
         if math_profile not in {
             "academic_reference",
             "academic_tchebycheff",
@@ -1375,12 +1409,16 @@ class Settings(BaseSettings):
             "modified_distance_aware",
             "modified_vikor_distance",
         }:
-            math_profile = "modified_vikor_distance"
+            math_profile = "modified_hybrid"
         self.route_selection_math_profile = math_profile
         pipeline_mode = str(self.route_pipeline_default_mode or "tri_source").strip().lower()
         if pipeline_mode not in {"legacy", "dccs", "dccs_refc", "voi", "tri_source"}:
             pipeline_mode = "tri_source"
         self.route_pipeline_default_mode = pipeline_mode
+        waypoint_fallback_mode = str(self.route_pipeline_waypoint_fallback_mode or "legacy").strip().lower()
+        if waypoint_fallback_mode != "legacy":
+            waypoint_fallback_mode = "legacy"
+        self.route_pipeline_waypoint_fallback_mode = waypoint_fallback_mode
         baseline_policy = str(self.route_dccs_default_baseline_policy or "first_n").strip().lower()
         if baseline_policy not in {"first_n", "random_n", "corridor_uniform"}:
             baseline_policy = "first_n"

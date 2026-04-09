@@ -61,12 +61,13 @@ The stable public artifact allowlist is defined in `backend/app/run_store.py`.
 
 ### DCCS / Frontier Outputs
 
-- dccs_candidates.jsonl
-- dccs_summary.json
-- refined_routes.jsonl
-- strict_frontier.jsonl
+- `dccs_summary.json`
+- `dccs_candidates.jsonl`
+- `strict_frontier.jsonl`
+- `dccs_summary.json` carries `control_state`; the candidate rows in `dccs_candidates.jsonl` / `strict_frontier.jsonl` carry `safe_elimination_reason`, `dominance_margin`, `dominating_candidate_ids`, `dominated_candidate_ids`, `search_deficiency_score`, `hidden_challenger_score`, `anti_collapse_quota`, and `long_corridor_search_completeness`
+- `refined_routes.jsonl` remains the downstream refinement output
 
-### Decision / Controller / Support Outputs
+### DecisionPackage-Derived Route Outputs
 
 - decision_package.json
 - preference_summary.json
@@ -78,12 +79,22 @@ The stable public artifact allowlist is defined in `backend/app/run_store.py`.
 - abstention_summary.json
 - witness_summary.json
 - witness_routes.jsonl
+
+### Controller / Trace / Replay Outputs
+
 - controller_summary.json
 - controller_trace.jsonl
+- voi_action_trace.json
+- voi_controller_state.jsonl
+- voi_action_scores.csv
+- voi_stop_certificate.json
+- voi_controller_trace_summary.json
+- voi_replay_oracle_summary.json
 - theorem_hook_map.json
 - lane_manifest.json
+- final_route_trace.json
 
-### REFC / VOI Outputs
+### Certification / Fragility Outputs
 
 - winner_summary.json
 - certificate_summary.json
@@ -92,11 +103,6 @@ The stable public artifact allowlist is defined in `backend/app/run_store.py`.
 - value_of_refresh.json
 - sampled_world_manifest.json
 - evidence_snapshot_manifest.json
-- voi_action_trace.json
-- voi_controller_state.jsonl
-- voi_action_scores.csv
-- voi_stop_certificate.json
-- final_route_trace.json
 
 ### Evaluation / Reporting Outputs
 
@@ -115,9 +121,20 @@ The stable public artifact allowlist is defined in `backend/app/run_store.py`.
 - thesis_report.md
 - evaluation_manifest.json
 
-The run-store schema registry now covers the decision/controller/support family above and the additive VOI JSON artifacts `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`. Dict-backed JSON artifacts in those families carry `schema_version` when written. JSONL artifacts remain line-oriented payloads, but their artifact names are still version-tracked in the same registry.
+The thesis-suite outputs are now scaffolded with `thesis_cohort_scaffolding_v2` and
+`thesis_metric_family_scaffolding_v1`. The cohort scaffold names the explicit labels
+`collapse_prone`, `osrm_brittle`, `ors_brittle`, `refresh_sensitive`, `time_preserving_conflict`,
+`low_ambiguity_fast_path`, `preference_sensitive`, `support_fragile`, `audit_heavy`, and `proxy_friendly`.
+`metric_family_scaffolding` is carried in `evaluation_manifest.json`, `thesis_metrics.json`,
+`thesis_plots.json`, `results.json`, and `metadata.json`.
+Within that payload, `preference` is `metadata_wired` at `cohort_metadata_only`, and
+`multi_fidelity_support` is `partially_wired` at `shared_summary_metrics`.
+The current checked-in hard-story anchor writes `328` per-variant summary fields and `331` per-cohort summary fields into `thesis_metrics.json`; use that file as the complete metric inventory rather than treating `thesis_summary.csv/json` as exhaustive.
+Summary `metadata.json` and `evaluation_manifest.json` also carry `route_graph_readiness_class`, `route_graph_full_hydration_observed`, `degraded_evaluation_observed`, `degraded_reason_codes_observed`, `precheck_gate_actions_observed`, `route_fallback_observed`, and `strict_full_search_proof_eligible`.
 
-Signed manifests and route responses remain the public discovery layer for these files: `manifest_endpoint` and `artifacts_endpoint` identify the run, while `decision_package` on `POST /route` is the response-level mirror of `decision_package.json`.
+The run-store schema registry now covers the DecisionPackage-derived route bundle, the certification/fragility artifacts, and the controller/trace family above. `final_route_trace.json` sits in the same versioned trace family as the route-trace anchor that can point to emitted DecisionPackage-derived and controller siblings. Dict-backed JSON artifacts in those families carry `schema_version` when written. Line-oriented JSONL artifacts such as `support_trace.jsonl`, `certified_set_routes.jsonl`, `witness_routes.jsonl`, and `controller_trace.jsonl` do not embed a top-level `schema_version` field, but their artifact names are still version-tracked in the same registry.
+
+Signed manifests and route responses remain the public discovery layer for these files: `manifest_endpoint` and `artifacts_endpoint` identify the run, while `decision_package` on `POST /route` is the response-level mirror of `decision_package.json` and carries `terminal_kind` as exactly `certified_singleton`, `certified_set`, or `typed_abstention`, together with the live preference, support, and certification summaries. `final_route_trace.json` is a sibling route-trace artifact that can expose `artifact_pointers` for emitted DecisionPackage-derived and controller files such as `decision_package.json`, `preference_summary.json`, `support_summary.json`, `certified_set.json`, `abstention_summary.json`, `witness_summary.json`, `witness_routes.jsonl`, `controller_summary.json`, `controller_trace.jsonl`, `voi_controller_trace_summary.json`, `voi_replay_oracle_summary.json`, `theorem_hook_map.json`, and `lane_manifest.json` when those files are present. Interpret `route_graph_readiness_class="fast_startup_metadata_ready"` or `degraded_evaluation_observed=true` in evaluator summaries as degraded-evaluation evidence, not as full-hydration strict-search proof.
 
 ## Retrieval Flow
 

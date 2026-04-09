@@ -4,12 +4,12 @@
     "https://assets.publishing.service.gov.uk/media/69b81ff2b84f01b2be53a2e2/weekly_road_fuel_prices_160326.csv",
     "https://assets.publishing.service.gov.uk/media/68a3326b32d2c63f869343a3/weekly_road_fuel_prices_2003_to_2017.csv"
   ],
-  "as_of": "2026-03-23T00:00:00Z",
-  "as_of_utc": "2026-03-23T00:00:00Z",
-  "generated_at_utc": "2026-03-30T00:20:10Z",
+  "as_of": "2026-03-30T00:00:00Z",
+  "as_of_utc": "2026-03-30T00:00:00Z",
+  "generated_at_utc": "2026-04-06T01:50:03Z",
   "prices_gbp_per_l": {
-    "diesel": 1.6688,
-    "petrol": 1.4416,
+    "diesel": 1.7652,
+    "petrol": 1.4878,
     "lng": 1.015
   },
   "grid_price_gbp_per_kwh": 0.248,
@@ -10720,6 +10720,15 @@
       "prices_gbp_per_l": {
         "diesel": 1.6688,
         "petrol": 1.4416,
+        "lng": 1.015
+      },
+      "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-03-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.7652,
+        "petrol": 1.4878,
         "lng": 1.015
       },
       "grid_price_gbp_per_kwh": 0.248

@@ -50,6 +50,8 @@ class PreferenceState:
     elicited_constraints: tuple[ElicitedConstraint, ...] = ()
     compatible_set: CompatibleSet = field(default_factory=_empty_compatible_set)
     irrelevant_axes: tuple[ObjectiveName, ...] = ()
+    certified_only_required: bool = False
+    vetoed_targets: tuple[str, ...] = ()
     selected_route_id: str | None = None
     selected_certificate: float | None = None
     stop_reason: str | None = None
@@ -63,10 +65,18 @@ class PreferenceState:
         return bool(self.compatible_set.certified_route_ids)
 
     def wants_certified_only(self) -> bool:
+        if self.certified_only_required:
+            return True
         return any(
             constraint.kind == "route_veto" and constraint.target in {"uncertified", "certified_only"}
             for constraint in self.elicited_constraints
         )
+
+    def has_time_guard(self) -> bool:
+        return self.time_guard.is_active()
+
+    def route_veto_targets(self) -> tuple[str, ...]:
+        return self.vetoed_targets
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -424,6 +434,9 @@ def build_preference_summary(
     optimization_mode: str,
     risk_aversion: float,
     use_tolls: bool,
+    certified_only_required: bool,
+    vetoed_targets: Sequence[str],
+    time_guard_active: bool,
     compatible_set: CompatibleSet,
     irrelevant_axes: Sequence[ObjectiveName],
     selected_route_id: str | None,
@@ -437,6 +450,9 @@ def build_preference_summary(
         "optimization_mode": optimization_mode,
         "risk_aversion": risk_aversion,
         "use_tolls": use_tolls,
+        "certified_only_required": certified_only_required,
+        "time_guard_active": time_guard_active,
+        "vetoed_targets": list(vetoed_targets),
         "selected_route_id": selected_route_id,
         "selected_certificate": selected_certificate,
         "compatible_route_ids": list(compatible_set.route_ids),
@@ -510,6 +526,14 @@ def build_preference_state(
         for route in frontier
     )
     all_constraints = _dedupe_constraints((*_request_constraints(request_mapping), *elicited_constraints))
+    vetoed_targets = tuple(
+        dict.fromkeys(
+            _as_text(constraint.target).lower()
+            for constraint in all_constraints
+            if constraint.kind == "route_veto" and _as_text(constraint.target)
+        )
+    )
+    certified_only_required = any(target in {"uncertified", "certified_only"} for target in vetoed_targets)
     request_guard = _time_guard_from_request(request_mapping)
     elicited_guards = tuple(_constraint_to_time_guard(constraint) for constraint in all_constraints)
     effective_time_guard = _merge_time_guards(request_guard, *elicited_guards)
@@ -542,6 +566,9 @@ def build_preference_state(
         optimization_mode=optimization_mode,
         risk_aversion=risk_aversion,
         use_tolls=_as_bool(cost_toggles.get("use_tolls"), True),
+        certified_only_required=certified_only_required,
+        vetoed_targets=vetoed_targets,
+        time_guard_active=effective_time_guard.is_active(),
         compatible_set=compatible_set,
         irrelevant_axes=irrelevant_axes,
         selected_route_id=selected_route_id,
@@ -568,6 +595,8 @@ def build_preference_state(
         elicited_constraints=all_constraints,
         compatible_set=compatible_set,
         irrelevant_axes=irrelevant_axes,
+        certified_only_required=certified_only_required,
+        vetoed_targets=vetoed_targets,
         selected_route_id=selected_route_id,
         selected_certificate=selected_certificate,
         stop_reason=stop_reason,

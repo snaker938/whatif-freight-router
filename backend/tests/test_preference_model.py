@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.abstention import AbstentionRecord
 from app.preference_queries import PreferenceQuery, suggest_preference_queries
 from app.preference_state import build_preference_state
 from app.preference_update import PreferenceUpdate, apply_preference_update, apply_query_answer
@@ -59,20 +60,27 @@ def test_preference_state_respects_toll_toggle_and_time_guard() -> None:
     }
     frontier = [
         _route("tolled_fast", duration_s=3200.0, money=110.0, co2=70.0, toll_cost=18.0),
-        _route("free_ok", duration_s=3550.0, money=115.0, co2=68.0),
+        _route("free_ok", duration_s=3550.0, money=115.0, co2=68.0, certified=True, certificate=0.92),
         _route("free_slow", duration_s=4300.0, money=100.0, co2=62.0),
     ]
 
     state = build_preference_state(
         request,
         frontier,
-        elicited_constraints=(ElicitedConstraint.time_guard(TimeGuard(max_duration_s=3700.0)),),
+        elicited_constraints=(
+            ElicitedConstraint.veto("uncertified", source="user"),
+            ElicitedConstraint.time_guard(TimeGuard(max_duration_s=3700.0)),
+        ),
     )
 
     assert state.compatible_set.route_ids == ("free_ok",)
     assert state.top_route_id() == "free_ok"
-    assert state.compatible_set.blocked_reasons["tolled_fast"] == ("toggle_use_tolls",)
+    assert "toggle_use_tolls" in state.compatible_set.blocked_reasons["tolled_fast"]
+    assert "veto_uncertified" in state.compatible_set.blocked_reasons["tolled_fast"]
     assert "time_guard:max_duration_s" in state.compatible_set.blocked_reasons["free_slow"]
+    assert state.has_time_guard() is True
+    assert state.vetoed_targets == ("uncertified",)
+    assert state.certified_only_required is True
 
 
 def test_preference_state_detects_irrelevant_axes() -> None:
@@ -102,6 +110,31 @@ def test_query_suggestions_include_certified_focus_and_tradeoff() -> None:
     assert "objective_tradeoff" in query_kinds
 
 
+def test_certified_only_preference_prioritizes_certified_focus_query() -> None:
+    request = {
+        "weights": {"time": 0.8, "money": 0.1, "co2": 0.1},
+        "certificate_threshold": 0.8,
+    }
+    frontier = [
+        _route("route_a", duration_s=3400.0, money=120.0, co2=80.0, certified=False, certificate=0.4),
+        _route("route_b", duration_s=3600.0, money=105.0, co2=78.0, certified=False, certificate=0.55),
+    ]
+
+    state = build_preference_state(
+        request,
+        frontier,
+        elicited_constraints=(ElicitedConstraint.veto("uncertified", source="user"),),
+        stop_reason="budget_exhausted",
+    )
+    queries = suggest_preference_queries(state, limit=3)
+
+    assert queries
+    assert queries[0].kind == "certified_focus"
+    assert queries[0].metadata["certified_only_required"] is True
+    assert queries[0].metadata["vetoed_targets"] == ["uncertified"]
+    assert set(queries[0].route_ids) == {"route_a", "route_b"}
+
+
 def test_certified_focus_answer_can_trigger_typed_abstention_hint() -> None:
     request = {
         "weights": {"time": 0.8, "money": 0.1, "co2": 0.1},
@@ -125,7 +158,33 @@ def test_certified_focus_answer_can_trigger_typed_abstention_hint() -> None:
 
     assert updated.wants_certified_only() is True
     assert updated.compatible_set.route_ids == ()
+    assert updated.certified_only_required is True
     assert "typed_abstention_recommended" in {hint.code for hint in updated.stop_hints}
+
+
+def test_preference_state_derives_actionable_typed_abstention_record() -> None:
+    request = {
+        "weights": {"time": 0.8, "money": 0.1, "co2": 0.1},
+        "certificate_threshold": 0.8,
+    }
+    frontier = [
+        _route("route_a", duration_s=3400.0, money=120.0, co2=80.0, certified=False, certificate=0.4),
+        _route("route_b", duration_s=3600.0, money=105.0, co2=78.0, certified=False, certificate=0.55),
+    ]
+
+    state = build_preference_state(
+        request,
+        frontier,
+        elicited_constraints=(ElicitedConstraint.veto("uncertified", source="user"),),
+        stop_reason="budget_exhausted",
+    )
+    abstention = AbstentionRecord.from_preference_state(state)
+
+    assert abstention.reason_code == "typed_abstention_recommended"
+    assert abstention.trigger_metric == "certified_route_count"
+    assert abstention.recommended_action == "expand_worlds"
+    assert abstention.severity == "high"
+    assert abstention.observed_value == 0.0
 
 
 def test_preference_update_can_shift_dominant_objective() -> None:

@@ -10,6 +10,8 @@ import app.replay_oracle as replay_oracle_module
 import app.voi_controller as voi_module
 from app.decision_critical import DCCSConfig, select_candidates
 from app.evidence_certification import compute_certificate, compute_fragility_maps, sample_world_manifest
+from app.models import DecisionLaneManifest, DecisionPackage, DecisionTheoremHookRecord, DecisionTheoremHookSummary
+from app.run_store import schema_version_for_artifact
 from app.voi_controller import (
     VOIActionHooks,
     VOIConfig,
@@ -1721,6 +1723,69 @@ def test_cached_direct_fallback_single_frontier_shortcut_zero_signal_row_prefers
     )
 
     assert [action.kind for action in filtered] == ["stop"]
+
+
+def test_cached_direct_fallback_support_backed_richer_structure_keeps_refine_action() -> None:
+    state = VOIControllerState(
+        iteration_index=0,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.2, 10.1, 10.1)},
+        ],
+        certificate={"route_a": 0.84, "route_b": 0.81},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=3,
+        remaining_evidence_budget=2,
+        ambiguity_context={
+            "selected_candidate_source_stage": "direct_k_raw_fallback",
+            "selected_final_route_source_stage": "osrm_refined",
+            "graph_k_raw_cache_hit": True,
+            "graph_low_ambiguity_fast_path": False,
+            "graph_supported_ambiguity_fast_fallback": True,
+            "supplemental_challenger_activated": False,
+            "od_candidate_path_count": 4,
+            "od_corridor_family_count": 3,
+        },
+        certificate_margin=0.08,
+        near_tie_mass=0.02,
+        top_refresh_gain=0.02,
+        top_fragility_mass=0.02,
+        competitor_pressure=0.08,
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="cohort",
+        q_score=0.09,
+        predicted_delta_certificate=0.0,
+        predicted_delta_margin=0.05,
+        predicted_delta_frontier=0.04,
+        metadata={
+            "normalized_objective_gap": 0.04,
+            "normalized_mechanism_gap": 0.11,
+            "normalized_overlap_reduction": 0.20,
+        },
+    )
+    refresh = voi_module.VOIAction(
+        action_id="refresh_top1_vor:test",
+        kind="refresh_top1_vor",
+        target="fuel",
+        q_score=0.11,
+        predicted_delta_certificate=0.02,
+        predicted_delta_margin=0.0,
+        predicted_delta_frontier=0.0,
+    )
+    stop = voi_module.VOIAction(action_id="stop", kind="stop", target="stop", q_score=0.0)
+
+    filtered = voi_module._suppress_cached_direct_fallback_search_churn(
+        [refine, refresh, stop],
+        state=state,
+        current_certificate=0.84,
+        config=VOIConfig(certificate_threshold=0.80),
+    )
+
+    assert [action.kind for action in filtered] == ["refine_top1_dccs", "refresh_top1_vor", "stop"]
 
 
 def test_cached_direct_fallback_single_frontier_shortcut_without_explicit_cache_hit_prefers_stop() -> None:
@@ -12221,6 +12286,55 @@ def test_replay_oracle_action_value_estimate_tracks_tri_source_terms() -> None:
     assert estimate.metadata["structured_refresh_signal"] is True
 
 
+def test_replay_oracle_summary_aggregates_trace_rows_and_serializes() -> None:
+    action = voi_module.VOIAction(
+        action_id="refresh:fuel",
+        kind="refresh_top1_vor",
+        target="fuel",
+        cost_evidence=2,
+        predicted_delta_certificate=0.16,
+        predicted_delta_margin=0.08,
+        predicted_delta_frontier=0.02,
+        q_score=0.19,
+        metadata={"structured_refresh_signal": True},
+        reason="refresh_evidence_family",
+    )
+    record = voi_module.build_action_replay_record(
+        action,
+        config=VOIConfig(lambda_certificate=0.50, lambda_margin=0.30, lambda_frontier=0.20),
+        trace_entry={
+            "realized_certificate_before": 0.41,
+            "realized_certificate_after": 0.54,
+            "realized_certificate_delta": 0.13,
+            "realized_frontier_gain": 1.0,
+            "realized_selected_route_changed": True,
+            "realized_selected_score_delta": 0.07,
+            "realized_productive": True,
+            "trace_metadata": {"trace_source": "main.voi", "iteration": 2},
+            "replay_metadata": {"replay_token": "replay-3"},
+            "oracle_metadata": {"oracle_run_id": "oracle-7"},
+        },
+        trace_metadata={"lane": "controller"},
+    )
+
+    summary = replay_oracle_module.replay_oracle_summary_from_trace_rows(
+        [{"chosen_action_value_record": record.as_dict()}],
+        trace_source="voi_controller.run_controller",
+        low_ambiguity_fast_path=True,
+    )
+
+    assert summary.record_count == 1
+    assert summary.best_action_id == "refresh:fuel"
+    assert summary.best_action_kind == "refresh_top1_vor"
+    assert summary.low_ambiguity_fast_path is True
+    assert summary.predicted_total_value == pytest.approx(record.estimate.total_predicted_value)
+    assert summary.realized_total_certificate_delta == pytest.approx(0.13)
+    payload = summary.as_dict()
+    assert payload["trace_source"] == "voi_controller.run_controller"
+    assert payload["trace_metadata"] == {}
+    assert payload["oracle_metadata"] == {}
+
+
 def test_controller_build_action_replay_record_merges_predicted_and_realized_values() -> None:
     cfg = VOIConfig(lambda_certificate=0.50, lambda_margin=0.30, lambda_frontier=0.20)
     action = voi_module.VOIAction(
@@ -12270,6 +12384,33 @@ def test_controller_build_action_replay_record_merges_predicted_and_realized_val
     assert payload["oracle_metadata"]["oracle_run_id"] == "oracle-7"
 
 
+def test_action_trace_metadata_marks_low_ambiguity_fast_path() -> None:
+    state = _support_rich_zero_signal_bridge_state()
+    state = replace(
+        state,
+        ambiguity_context={
+            **state.ambiguity_context,
+            "graph_low_ambiguity_fast_path": True,
+        },
+        search_completeness_score=0.96,
+        search_completeness_gap=0.02,
+        support_richness=0.83,
+        near_tie_mass=0.0,
+        pending_challenger_mass=0.0,
+        best_pending_flip_probability=0.0,
+    )
+
+    metadata = voi_module.build_action_trace_metadata(
+        state=state,
+        current_certificate=0.91,
+        action_menu=[],
+        chosen_action=None,
+        best_rejected_action=None,
+    )
+
+    assert metadata["low_ambiguity_fast_path"] is True
+
+
 def test_run_controller_trace_carries_action_value_records_for_replay() -> None:
     dccs = _dccs_result()
     fragility = _fragility_result()
@@ -12306,8 +12447,76 @@ def test_run_controller_trace_carries_action_value_records_for_replay() -> None:
     state_value_record = stop_certificate.state_trace[0]["chosen_action_value_record"]
 
     assert trace_entry["trace_metadata"]["trace_source"] == "voi_controller.run_controller"
+    assert trace_entry["trace_metadata"]["low_ambiguity_fast_path"] in {True, False}
     assert trace_entry["trace_metadata"]["action_menu_count"] == len(trace_entry["feasible_actions"])
     assert value_record["estimate"]["action_id"] == trace_entry["chosen_action"]["action_id"]
     assert value_record["realization"] is None
     assert len(trace_entry["action_menu_value_estimates"]) == len(trace_entry["feasible_actions"])
     assert state_value_record["estimate"]["action_id"] == value_record["estimate"]["action_id"]
+    assert stop_certificate.replay_oracle_summary is not None
+    assert stop_certificate.replay_oracle_summary["record_count"] == len(stop_certificate.action_trace)
+    assert stop_certificate.replay_oracle_summary["trace_source"] == "voi_controller.run_controller"
+    assert stop_certificate.ambiguity_summary["low_ambiguity_fast_path"] in {True, False}
+    stop_payload = stop_certificate.as_dict()
+    assert stop_payload["replay_oracle_summary"]["record_count"] == len(stop_certificate.action_trace)
+
+
+def test_run_store_schema_versions_cover_controller_replay_surfaces() -> None:
+    assert schema_version_for_artifact("voi_controller_trace_summary.json") == "0.1.0"
+    assert schema_version_for_artifact("voi_replay_oracle_summary.json") == "0.1.0"
+
+
+def test_voi_decision_package_theorem_hook_summary_maps_controller_artifacts() -> None:
+    artifact_names = [
+        "voi_action_trace.json",
+        "voi_controller_trace_summary.json",
+        "voi_replay_oracle_summary.json",
+        "voi_stop_certificate.json",
+        "controller_trace.jsonl",
+        "theorem_hook_map.json",
+        "lane_manifest.json",
+    ]
+    package = DecisionPackage(
+        selected_route_id="route_a",
+        theorem_hook_summary=DecisionTheoremHookSummary(
+            hooks=[
+                DecisionTheoremHookRecord(
+                    hook_id="voi_action_trace",
+                    artifact_name="voi_action_trace.json",
+                    status="present",
+                ),
+                DecisionTheoremHookRecord(
+                    hook_id="voi_controller_trace_summary",
+                    artifact_name="voi_controller_trace_summary.json",
+                    status="present",
+                ),
+                DecisionTheoremHookRecord(
+                    hook_id="voi_replay_oracle_summary",
+                    artifact_name="voi_replay_oracle_summary.json",
+                    status="present",
+                ),
+                DecisionTheoremHookRecord(
+                    hook_id="voi_stop_certificate",
+                    artifact_name="voi_stop_certificate.json",
+                    status="present",
+                ),
+            ]
+        ),
+        lane_manifest=DecisionLaneManifest(
+            lane_id="focused_voi_proof",
+            artifact_names=artifact_names,
+        ),
+    )
+
+    payload = package.model_dump(mode="json")
+    hooks_by_id = {
+        row["hook_id"]: row
+        for row in payload["theorem_hook_summary"]["hooks"]
+    }
+
+    assert hooks_by_id["voi_action_trace"]["artifact_name"] == "voi_action_trace.json"
+    assert hooks_by_id["voi_controller_trace_summary"]["artifact_name"] == "voi_controller_trace_summary.json"
+    assert hooks_by_id["voi_replay_oracle_summary"]["artifact_name"] == "voi_replay_oracle_summary.json"
+    assert hooks_by_id["voi_stop_certificate"]["artifact_name"] == "voi_stop_certificate.json"
+    assert {row["artifact_name"] for row in hooks_by_id.values()} <= set(payload["lane_manifest"]["artifact_names"])
+    assert "theorem_hook_map.json" in payload["lane_manifest"]["artifact_names"]

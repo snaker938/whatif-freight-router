@@ -1,6 +1,6 @@
 # Backend APIs and Tooling
 
-Last Updated: 2026-04-03
+Last Updated: 2026-04-09
 Applies To: `backend/app/main.py`, `backend/app/models.py`, `backend/app/run_store.py`, `backend/app/settings.py`
 
 This page is the authored summary of the current backend API and stable run-store contract.
@@ -11,6 +11,7 @@ This page is the authored summary of the current backend API and stable run-stor
 - route-producing failures are reason-coded and normalized with `normalize_reason_code` in `backend/app/model_data_errors.py`
 - streaming and non-streaming route flows use aligned reason-code semantics
 - self-hosted OSRM and self-hosted ORS remain the approved comparator engines
+- Next.js proxy paths such as `/api/pareto/stream` are frontend surfaces, not backend endpoints; document them with the frontend pages, not the backend inventory
 
 ## Endpoint Inventory
 
@@ -40,7 +41,6 @@ This page is the authored summary of the current backend API and stable run-stor
 - `POST /route/baseline/ors`
 - `POST /pareto`
 - `POST /pareto/stream`
-- `POST /api/pareto/stream`
 - `POST /departure/optimize`
 - `POST /duty/chain`
 - `POST /scenario/compare`
@@ -165,9 +165,21 @@ Route-producing requests may also carry:
 - `selected_certificate`
 - `voi_stop_summary`
 
+`decision_package` includes these public summary surfaces:
+
+- `terminal_kind`
+- `preference_summary.suggested_queries`
+- `world_support_summary`
+- `world_fidelity_summary`
+- `certification_state_summary`
+- `abstention_summary.abstention_type`
+- `abstention_summary.recommended_action`
+
 `decision_package` is optional at the response-contract level, but the current route runtime wires it from the same decision/support/controller bundle that is also persisted as `decision_package.json`.
 
-When `pipeline_mode` is omitted on `POST /route`, the public default remains `tri_source`. Single-leg `tri_source` requests currently execute through the internal `voi` runtime path while preserving `pipeline_mode="tri_source"` on the public response and persisted route artifacts; requests with waypoints still fall back to `legacy`. Within that package, `decision_package.preference_summary` is summary-only selector/runtime metadata, not a public preference query/update API.
+When `pipeline_mode` is omitted on `POST /route`, the public default remains `tri_source`. Single-leg `tri_source` requests currently execute through the internal `voi` runtime path while preserving `pipeline_mode="tri_source"` on the public response and persisted route artifacts; requests with waypoints still fall back to the explicit legacy compatibility path.
+
+Within that package, `decision_package` is the public decision summary mirror. Its public `terminal_kind` values are exactly `certified_singleton`, `certified_set`, and `typed_abstention`. Waypoint compatibility fallback is represented through `pipeline_mode`, provenance, warnings, and `abstention_summary.reason_code=legacy_runtime_selected`, not through a fourth terminal outcome. The package also carries the landed summary objects for preference, support, world support, world fidelity, certification state, certified-set membership, abstention, witness, controller, theorem-hook, and lane-manifest state. `decision_package.preference_summary` remains summary-only selector/runtime metadata and includes suggested preference queries, not a public preference query/update API.
 
 Returned `RouteOption` objects may include richer fields such as:
 
@@ -266,6 +278,8 @@ The stable public run-store allowlist comes from `ARTIFACT_FILES` in `backend/ap
 - witness_routes.jsonl
 - controller_summary.json
 - controller_trace.jsonl
+- voi_controller_trace_summary.json
+- voi_replay_oracle_summary.json
 - theorem_hook_map.json
 - lane_manifest.json
 
@@ -301,7 +315,30 @@ The stable public run-store allowlist comes from `ARTIFACT_FILES` in `backend/ap
 - thesis_report.md
 - evaluation_manifest.json
 
-The run-store schema registry now covers the decision/controller/support family above plus the additive VOI JSON surfaces `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`. Dict-backed JSON artifacts receive inline `schema_version` values when written. JSONL artifacts remain line-oriented files, but their artifact names are still tracked in the same registry so public artifact contracts can evolve additively without renaming files.
+Summary `metadata.json` and `evaluation_manifest.json` also carry the evaluator honesty fields `route_graph_readiness_class`, `route_graph_full_hydration_observed`, `degraded_evaluation_observed`, `degraded_reason_codes_observed`, `precheck_gate_actions_observed`, `route_fallback_observed`, and `strict_full_search_proof_eligible`.
+
+`thesis_metrics.json` and `thesis_plots.json` are the exhaustive metric carriers for evaluator runs; `thesis_summary.csv/json` remain the smaller headline tables. The current checked-in hard-story metric anchor at `backend/out/thesis_campaigns/hard_mixed24_corr12p5_t4_inproc_r4/tranche_001/artifacts/hard_mixed24_corr12p5_t4_inproc_r4_t001/thesis_metrics.json` exposes `328` per-variant fields in each `summary_rows` entry, `331` per-cohort fields in each `summary_by_cohort_rows` entry, `4` `run_validity` fields, `3` startup/warmup fields, and `10` metric-family labels in `metric_family_scaffolding`. When a reader needs every emitted metric, cite those files rather than treating `thesis_summary.csv/json` as exhaustive.
+
+The run-store schema registry now covers the decision/controller/support family above plus the additive VOI JSON surfaces `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`. Dict-backed JSON artifacts receive inline `schema_version` values when written. JSONL artifacts remain line-oriented files, but their artifact names are still tracked in the same registry so public artifact contracts can evolve additively without renaming files. Interpret `route_graph_readiness_class="fast_startup_metadata_ready"` or `degraded_evaluation_observed=true` in those evaluator summaries as degraded-evaluation evidence rather than full-hydration strict-search proof.
+
+## Frontend Proxy Boundary
+
+The backend run-store allowlist above is broader than the current frontend proxy allowlist used by Run Inspector.
+
+The frontend proxy surface also exposes:
+
+- `POST /api/pareto/stream`
+
+Frontend proxy-backed detached preview/download currently includes:
+
+- `results.json`, `results.csv`, `metadata.json`, `routes.geojson`, `results_summary.csv`
+- `dccs_candidates.jsonl`, `dccs_summary.json`, `refined_routes.jsonl`, `strict_frontier.jsonl`
+- `winner_summary.json`, `certificate_summary.json`, `route_fragility_map.json`, `competitor_fragility_breakdown.json`
+- `value_of_refresh.json`, `sampled_world_manifest.json`, `voi_action_trace.json`, `voi_action_scores.csv`, `voi_stop_certificate.json`, `final_route_trace.json`
+- `od_corpus.csv`, `od_corpus_summary.json`, `ors_snapshot.json`
+- `thesis_results.csv`, `thesis_summary.csv`, `methods_appendix.md`, `thesis_report.md`
+
+The richer decision/support/controller/theorem summaries in the frontend are currently sourced from the active route response’s `decision_package`, not from arbitrary detached proxy downloads. That includes `decision_package.json`, `preference_summary.json`, `support_summary.json`, `support_provenance.json`, `certified_set.json`, `abstention_summary.json`, `witness_summary.json`, `controller_summary.json`, `voi_controller_trace_summary.json`, `voi_replay_oracle_summary.json`, `theorem_hook_map.json`, `lane_manifest.json`, and `evaluation_manifest.json`.
 
 Manifests are signed and written to:
 

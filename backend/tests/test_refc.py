@@ -14,11 +14,19 @@ from app.confidence_sequences import WinnerConfidenceState, winner_confidence_se
 from app.decision_region import DecisionRegionState
 from app.flip_radius import FlipRadiusState
 from app.models import (
+    DecisionCertificationStateSummary,
+    DecisionFidelitySummary,
+    DecisionLaneManifest,
+    DecisionPackage,
+    DecisionTheoremHookRecord,
+    DecisionTheoremHookSummary,
+    DecisionWorldSupportSummary,
     EvidenceProvenance,
     EvidenceSourceRecord,
     GeoJSONLineString,
     RouteMetrics,
     RouteOption,
+    RouteCertificationSummary,
     ScenarioSummary,
     TerrainSummaryPayload,
 )
@@ -3021,7 +3029,12 @@ def test_certification_state_builds_consistent_witness() -> None:
     )
     witness = CertificateWitness.from_state(
         state,
-        fragility={"top_refresh_family": "weather"},
+        fragility={
+            "route_fragility_map": {
+                "route_a": {"weather": 0.41, "scenario": 0.19},
+                "route_b": {"weather": 0.77, "scenario": 0.11},
+            }
+        },
     )
 
     assert state.decision_region.certified
@@ -3030,3 +3043,219 @@ def test_certification_state_builds_consistent_witness() -> None:
     assert witness.best_challenger_id == state.decision_region.best_challenger_id
     assert witness.top_fragility_family == "weather"
     assert witness.recommended_action == "hold"
+
+
+def test_decision_fidelity_summary_distinguishes_unique_and_effective_world_counts() -> None:
+    state = CertificationState.from_refc_outputs(
+        certificate={"route_a": 0.88, "route_b": 0.61},
+        threshold=0.7,
+        world_manifest={
+            "manifest_hash": "manifest-distinct-world-counts",
+            "selected_route_id": "route_a",
+            "active_families": ["scenario", "weather"],
+            "world_count": 64,
+            "unique_world_count": 47,
+            "requested_world_count": 64,
+            "effective_world_count": 39,
+            "world_count_policy": "targeted_stress",
+            "stress_world_fraction": 0.25,
+            "worlds": [
+                {
+                    "world_id": "w0",
+                    "world_kind": "sampled",
+                    "target_route_id": "route_a",
+                    "states": {"scenario": "nominal", "weather": "nominal"},
+                }
+            ],
+        },
+        fragility={"controller_ranking_basis": "refc"},
+        evidence_snapshot_manifest={
+            "manifest_hash": "snapshot-distinct-world-counts",
+            "family_snapshots": {
+                "scenario": [
+                    {
+                        "source": "live_scenario",
+                        "signature": "live",
+                        "confidence": 0.98,
+                        "coverage_ratio": 1.0,
+                        "fallback_used": False,
+                    }
+                ],
+                "weather": [
+                    {
+                        "source": "live_weather",
+                        "signature": "live",
+                        "confidence": 0.95,
+                        "coverage_ratio": 0.92,
+                        "fallback_used": False,
+                    }
+                ],
+            },
+        },
+    )
+
+    summary = main_module._decision_fidelity_summary_from_state(state)
+
+    assert summary is not None
+    assert summary.unique_world_count == 47
+    assert summary.effective_world_count == 39
+    assert summary.unique_world_count != summary.effective_world_count
+
+
+def test_decision_package_serializes_support_fidelity_and_certification_state_subobjects() -> None:
+    support_summary = DecisionWorldSupportSummary(
+        support_strength=0.87,
+        source_support_strength=0.81,
+        ambiguity_support_ratio=0.74,
+        source_entropy=0.68,
+        source_count=3,
+        source_mix_count=2,
+        family_density=0.52,
+        margin_pressure=0.44,
+        provenance_coverage=0.93,
+        live_family_count=2,
+        snapshot_family_count=1,
+        model_family_count=0,
+        proxy_penalty=0.11,
+        audit_correction=0.89,
+        recommended_fidelity="probabilistic_audit",
+        support_sufficient=True,
+        notes=["proxy_penalty", "partial_freshness"],
+    )
+    fidelity_summary = DecisionFidelitySummary(
+        world_bundle_id="bundle-1",
+        audit_bundle_id="bundle-1:audit",
+        multi_fidelity_mode="probabilistic",
+        policy="targeted_stress",
+        world_count=128,
+        unique_world_count=96,
+        requested_world_count=160,
+        effective_world_count=112,
+        route_ids=["route_a", "route_b"],
+        active_families=["scenario", "weather"],
+        world_kind_weights={"sampled": 0.75, "stress": 0.25},
+        family_state_weights={"scenario": {"nominal": 0.6, "proxy": 0.1}},
+        targeted_route_fraction=0.5,
+        stress_world_fraction=0.25,
+        proxy_world_fraction=0.1,
+        refreshed_world_fraction=0.2,
+        world_reuse_rate=0.33,
+        audited_families=["scenario", "weather"],
+        proxy_family_count=1,
+        audited_world_fraction=0.18,
+        correction_scale=0.89,
+        correction_penalty=0.11,
+        recommended_policy="audit_first",
+        manifest_hash="manifest-1",
+        notes=["proxy_family_present"],
+    )
+    certification_summary = DecisionCertificationStateSummary(
+        winner_id="route_a",
+        threshold=0.7,
+        certificate_map={"route_a": 0.86, "route_b": 0.54},
+        certificate_value=0.86,
+        certified=True,
+        certification_basis="threshold_and_pairwise",
+        world_bundle_id="bundle-1",
+        audit_bundle_id="bundle-1:audit",
+        support_strength=0.87,
+        winner_confidence={"route_id": "route_a", "lower_bound": 0.78, "upper_bound": 0.92},
+        pairwise_gap_states={
+            "route_b": {
+                "winner_id": "route_a",
+                "challenger_id": "route_b",
+                "lower_gap": 0.14,
+                "upper_gap": 0.26,
+            }
+        },
+        flip_radius={"winner_id": "route_a", "proxy_adjusted_radius": 0.14, "fragile": False},
+        decision_region={"status": "certified", "reason_codes": []},
+        certified_set={"certified_route_ids": ["route_a"], "safe": True},
+        abstained=False,
+        manifest_hash="manifest-1",
+    )
+    package = DecisionPackage(
+        selected_route_id="route_a",
+        world_support_summary=support_summary,
+        world_fidelity_summary=fidelity_summary,
+        certification_state_summary=certification_summary,
+    )
+
+    dumped = package.model_dump(mode="json")
+
+    assert dumped["world_support_summary"]["recommended_fidelity"] == "probabilistic_audit"
+    assert dumped["world_support_summary"]["support_sufficient"] is True
+    assert dumped["world_fidelity_summary"]["proxy_world_fraction"] == pytest.approx(0.1, rel=0.0, abs=1e-6)
+    assert dumped["world_fidelity_summary"]["audit_bundle_id"] == "bundle-1:audit"
+    assert dumped["certification_state_summary"]["certificate_map"]["route_a"] == pytest.approx(0.86, rel=0.0, abs=1e-6)
+    assert dumped["certification_state_summary"]["decision_region"]["status"] == "certified"
+    assert dumped["certification_state_summary"]["certified_set"]["safe"] is True
+
+
+def test_route_certification_summary_defaults_new_state_fields_to_none() -> None:
+    summary = RouteCertificationSummary(
+        route_id="route_a",
+        certificate=0.86,
+        certified=True,
+        threshold=0.7,
+    )
+
+    assert summary.world_support_summary is None
+    assert summary.world_fidelity_summary is None
+    assert summary.certification_state_summary is None
+    assert summary.model_dump(mode="json")["world_support_summary"] is None
+
+
+def test_refc_decision_package_theorem_hook_summary_maps_certification_artifacts() -> None:
+    artifact_names = [
+        "winner_summary.json",
+        "certificate_summary.json",
+        "strict_frontier.jsonl",
+        "sampled_world_manifest.json",
+        "theorem_hook_map.json",
+        "lane_manifest.json",
+    ]
+    package = DecisionPackage(
+        selected_route_id="route_a",
+        theorem_hook_summary=DecisionTheoremHookSummary(
+            hooks=[
+                DecisionTheoremHookRecord(
+                    hook_id="winner_summary",
+                    artifact_name="winner_summary.json",
+                    status="present",
+                ),
+                DecisionTheoremHookRecord(
+                    hook_id="certificate_summary",
+                    artifact_name="certificate_summary.json",
+                    status="present",
+                ),
+                DecisionTheoremHookRecord(
+                    hook_id="strict_frontier",
+                    artifact_name="strict_frontier.jsonl",
+                    status="present",
+                ),
+                DecisionTheoremHookRecord(
+                    hook_id="sampled_world_manifest",
+                    artifact_name="sampled_world_manifest.json",
+                    status="present",
+                ),
+            ]
+        ),
+        lane_manifest=DecisionLaneManifest(
+            lane_id="focused_refc_proof",
+            artifact_names=artifact_names,
+        ),
+    )
+
+    payload = package.model_dump(mode="json")
+    hooks_by_id = {
+        row["hook_id"]: row
+        for row in payload["theorem_hook_summary"]["hooks"]
+    }
+
+    assert hooks_by_id["winner_summary"]["artifact_name"] == "winner_summary.json"
+    assert hooks_by_id["certificate_summary"]["artifact_name"] == "certificate_summary.json"
+    assert hooks_by_id["strict_frontier"]["artifact_name"] == "strict_frontier.jsonl"
+    assert hooks_by_id["sampled_world_manifest"]["artifact_name"] == "sampled_world_manifest.json"
+    assert {row["artifact_name"] for row in hooks_by_id.values()} <= set(payload["lane_manifest"]["artifact_names"])
+    assert "theorem_hook_map.json" in payload["lane_manifest"]["artifact_names"]

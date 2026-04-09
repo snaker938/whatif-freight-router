@@ -3,7 +3,12 @@ param(
 )
 
 $backendRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$pidFile = Join-Path $backendRoot "out\backend_server.pid"
+$outDir = Join-Path $backendRoot "out"
+$primaryPidFile = Join-Path $outDir ("backend_server_{0}.pid" -f $Port)
+$pidFiles = @($primaryPidFile)
+if ($Port -eq 8000) {
+    $pidFiles += Join-Path $outDir "backend_server.pid"
+}
 
 function Get-ProcessInfoById {
     param(
@@ -71,7 +76,10 @@ function Get-BackendListenerProcess {
 
 function Get-BackendProcesses {
     $rows = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^python(3)?\.exe$' -and $_.CommandLine -match 'uvicorn\s+app\.main:app' }
+        Where-Object {
+            ($_.Name -match '^python(3)?\.exe$' -and $_.CommandLine -match 'uvicorn\s+app\.main:app') -or
+            ($_.Name -match '^powershell(\.exe)?$|^pwsh(\.exe)?$' -and $_.CommandLine -match 'run_with_job_memory_limit\.ps1' -and $_.CommandLine -match 'uvicorn' -and $_.CommandLine -match 'app\.main:app')
+        }
     if ($null -eq $rows) {
         return @()
     }
@@ -93,7 +101,28 @@ function Test-IsBackendProcess {
         return $false
     }
     $commandLine = [string]$ProcessInfo.CommandLine
-    return $commandLine.Contains("uvicorn") -and $commandLine.Contains("app.main:app")
+    return (
+        $commandLine.Contains("uvicorn") -and $commandLine.Contains("app.main:app")
+    ) -or (
+        $commandLine.Contains("run_with_job_memory_limit.ps1") -and
+        $commandLine.Contains("uvicorn") -and
+        $commandLine.Contains("app.main:app")
+    )
+}
+
+function Test-BackendProcessMatchesPort {
+    param(
+        [object]$ProcessInfo,
+        [int]$TargetPort
+    )
+
+    if (-not (Test-IsBackendProcess -ProcessInfo $ProcessInfo)) {
+        return $false
+    }
+
+    $commandLine = [string]$ProcessInfo.CommandLine
+    $escapedPort = [regex]::Escape([string]$TargetPort)
+    return [regex]::IsMatch($commandLine, "--port(?:'|`"|,|\s)+$escapedPort\b")
 }
 
 function Wait-BackendPortClear {
@@ -115,13 +144,15 @@ function Wait-BackendPortClear {
 
 $stopped = $false
 
-if (Test-Path $pidFile) {
-    $serverPid = Get-Content $pidFile | Select-Object -First 1
-    if ($serverPid) {
-        $serverInfo = Get-ProcessInfoById -ProcessId ([int]$serverPid)
-        if (Test-IsBackendProcess -ProcessInfo $serverInfo) {
-            Stop-BackendProcess -ProcessId ([int]$serverPid)
-            $stopped = $true
+foreach ($pidFile in $pidFiles) {
+    if (Test-Path $pidFile) {
+        $serverPid = Get-Content $pidFile | Select-Object -First 1
+        if ($serverPid) {
+            $serverInfo = Get-ProcessInfoById -ProcessId ([int]$serverPid)
+            if (Test-BackendProcessMatchesPort -ProcessInfo $serverInfo -TargetPort $Port) {
+                Stop-BackendProcess -ProcessId ([int]$serverPid)
+                $stopped = $true
+            }
         }
     }
 }
@@ -132,17 +163,14 @@ if (($null -ne $listenerProcess) -and (Test-IsBackendProcess -ProcessInfo $liste
     $stopped = $true
 }
 
-foreach ($backendProcess in (Get-BackendProcesses)) {
-    Stop-BackendProcess -ProcessId ([int]$backendProcess.ProcessId)
-    $stopped = $true
-}
-
 if ($stopped) {
     [void](Wait-BackendPortClear -TargetPort $Port -TimeoutSeconds 15)
 }
 
-if (Test-Path $pidFile) {
-    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+foreach ($pidFile in $pidFiles) {
+    if (Test-Path $pidFile) {
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if ($stopped) {

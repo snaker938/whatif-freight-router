@@ -16,10 +16,17 @@ from .signatures import build_signature_metadata
 MANIFEST_SCHEMA_SURFACE = "manifest"
 SCENARIO_MANIFEST_SCHEMA_SURFACE = "scenario_manifest"
 DECISION_PACKAGE_SCHEMA_VERSION = "0.1.0"
+RUN_ARTIFACT_SCHEMA_VERSION = "1.0.0"
 
 SCHEMA_VERSIONS: dict[str, str] = {
     MANIFEST_SCHEMA_SURFACE: "1.0.0",
     SCENARIO_MANIFEST_SCHEMA_SURFACE: "1.0.0",
+    "dccs_candidates": DECISION_PACKAGE_SCHEMA_VERSION,
+    "dccs_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "refined_routes": DECISION_PACKAGE_SCHEMA_VERSION,
+    "strict_frontier": DECISION_PACKAGE_SCHEMA_VERSION,
+    "winner_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "certificate_summary": DECISION_PACKAGE_SCHEMA_VERSION,
     "decision_package": DECISION_PACKAGE_SCHEMA_VERSION,
     "preference_summary": DECISION_PACKAGE_SCHEMA_VERSION,
     "support_summary": DECISION_PACKAGE_SCHEMA_VERSION,
@@ -32,14 +39,35 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "witness_routes": DECISION_PACKAGE_SCHEMA_VERSION,
     "controller_summary": DECISION_PACKAGE_SCHEMA_VERSION,
     "controller_trace": DECISION_PACKAGE_SCHEMA_VERSION,
+    "route_fragility_map": DECISION_PACKAGE_SCHEMA_VERSION,
+    "competitor_fragility_breakdown": DECISION_PACKAGE_SCHEMA_VERSION,
+    "value_of_refresh": DECISION_PACKAGE_SCHEMA_VERSION,
+    "sampled_world_manifest": DECISION_PACKAGE_SCHEMA_VERSION,
+    "evidence_snapshot_manifest": DECISION_PACKAGE_SCHEMA_VERSION,
+    "voi_controller_trace_summary": DECISION_PACKAGE_SCHEMA_VERSION,
+    "voi_replay_oracle_summary": DECISION_PACKAGE_SCHEMA_VERSION,
     "voi_action_trace": DECISION_PACKAGE_SCHEMA_VERSION,
+    "voi_controller_state": DECISION_PACKAGE_SCHEMA_VERSION,
     "voi_stop_certificate": DECISION_PACKAGE_SCHEMA_VERSION,
     "final_route_trace": DECISION_PACKAGE_SCHEMA_VERSION,
     "theorem_hook_map": DECISION_PACKAGE_SCHEMA_VERSION,
     "lane_manifest": DECISION_PACKAGE_SCHEMA_VERSION,
+    "thesis_metrics": DECISION_PACKAGE_SCHEMA_VERSION,
+    "thesis_plots": DECISION_PACKAGE_SCHEMA_VERSION,
+    "evaluation_manifest": DECISION_PACKAGE_SCHEMA_VERSION,
+    "run_results": RUN_ARTIFACT_SCHEMA_VERSION,
+    "run_metadata": RUN_ARTIFACT_SCHEMA_VERSION,
 }
 
 ARTIFACT_SCHEMA_VERSIONS: dict[str, str] = {
+    "results.json": SCHEMA_VERSIONS["run_results"],
+    "metadata.json": SCHEMA_VERSIONS["run_metadata"],
+    "dccs_candidates.jsonl": SCHEMA_VERSIONS["dccs_candidates"],
+    "dccs_summary.json": SCHEMA_VERSIONS["dccs_summary"],
+    "refined_routes.jsonl": SCHEMA_VERSIONS["refined_routes"],
+    "strict_frontier.jsonl": SCHEMA_VERSIONS["strict_frontier"],
+    "winner_summary.json": SCHEMA_VERSIONS["winner_summary"],
+    "certificate_summary.json": SCHEMA_VERSIONS["certificate_summary"],
     "decision_package.json": SCHEMA_VERSIONS["decision_package"],
     "preference_summary.json": SCHEMA_VERSIONS["preference_summary"],
     "support_summary.json": SCHEMA_VERSIONS["support_summary"],
@@ -52,11 +80,22 @@ ARTIFACT_SCHEMA_VERSIONS: dict[str, str] = {
     "witness_routes.jsonl": SCHEMA_VERSIONS["witness_routes"],
     "controller_summary.json": SCHEMA_VERSIONS["controller_summary"],
     "controller_trace.jsonl": SCHEMA_VERSIONS["controller_trace"],
+    "route_fragility_map.json": SCHEMA_VERSIONS["route_fragility_map"],
+    "competitor_fragility_breakdown.json": SCHEMA_VERSIONS["competitor_fragility_breakdown"],
+    "value_of_refresh.json": SCHEMA_VERSIONS["value_of_refresh"],
+    "sampled_world_manifest.json": SCHEMA_VERSIONS["sampled_world_manifest"],
+    "evidence_snapshot_manifest.json": SCHEMA_VERSIONS["evidence_snapshot_manifest"],
+    "voi_controller_trace_summary.json": SCHEMA_VERSIONS["voi_controller_trace_summary"],
+    "voi_replay_oracle_summary.json": SCHEMA_VERSIONS["voi_replay_oracle_summary"],
     "voi_action_trace.json": SCHEMA_VERSIONS["voi_action_trace"],
+    "voi_controller_state.jsonl": SCHEMA_VERSIONS["voi_controller_state"],
     "voi_stop_certificate.json": SCHEMA_VERSIONS["voi_stop_certificate"],
     "final_route_trace.json": SCHEMA_VERSIONS["final_route_trace"],
     "theorem_hook_map.json": SCHEMA_VERSIONS["theorem_hook_map"],
     "lane_manifest.json": SCHEMA_VERSIONS["lane_manifest"],
+    "thesis_metrics.json": SCHEMA_VERSIONS["thesis_metrics"],
+    "thesis_plots.json": SCHEMA_VERSIONS["thesis_plots"],
+    "evaluation_manifest.json": SCHEMA_VERSIONS["evaluation_manifest"],
 }
 
 
@@ -92,6 +131,61 @@ def versioned_json_payload(
     if resolved is not None:
         enriched.setdefault("schema_version", resolved)
     return enriched
+
+
+def _artifact_payload_with_provenance(
+    run_id: str,
+    *,
+    artifact_name: str,
+    artifact_kind: str,
+    payload: dict[str, Any],
+    created_at_utc: str,
+    writer: str,
+    row_index: int | None = None,
+) -> dict[str, Any]:
+    enriched = versioned_json_payload(payload, artifact_name=artifact_name)
+    provenance = dict(enriched.get("provenance", {})) if isinstance(enriched.get("provenance"), dict) else {}
+    cache_honesty = (
+        dict(provenance.get("cache_honesty", {}))
+        if isinstance(provenance.get("cache_honesty"), dict)
+        else {}
+    )
+    cache_honesty.setdefault("mode", "unspecified")
+    cache_honesty.setdefault("cache_reused", None)
+    cache_honesty.setdefault("reuse_count", None)
+    cache_honesty.setdefault("cold_source_run_id", None)
+    cache_honesty.setdefault("invalidation_reason", None)
+
+    provenance.setdefault("artifact_family", "run_artifact")
+    provenance.setdefault("artifact_name", artifact_name)
+    provenance.setdefault("artifact_kind", artifact_kind)
+    provenance.setdefault("run_id", run_id)
+    provenance.setdefault("created_at_utc", created_at_utc)
+    provenance.setdefault("writer", writer)
+    if row_index is not None:
+        provenance.setdefault("row_index", row_index)
+    provenance["cache_honesty"] = cache_honesty
+
+    enriched["provenance"] = provenance
+    return enriched
+
+
+def _run_artifact_payload(
+    run_id: str,
+    *,
+    artifact_name: str,
+    artifact_kind: str,
+    payload: dict[str, Any],
+    created_at_utc: str,
+) -> dict[str, Any]:
+    return _artifact_payload_with_provenance(
+        run_id,
+        artifact_name=artifact_name,
+        artifact_kind=artifact_kind,
+        payload=payload,
+        created_at_utc=created_at_utc,
+        writer="write_run_artifacts",
+    )
 
 
 def _write_signed_manifest(
@@ -169,6 +263,8 @@ ARTIFACT_FILES: tuple[str, ...] = (
     "value_of_refresh.json",
     "sampled_world_manifest.json",
     "evidence_snapshot_manifest.json",
+    "voi_controller_trace_summary.json",
+    "voi_replay_oracle_summary.json",
     "voi_action_trace.json",
     "voi_controller_state.jsonl",
     "voi_action_scores.csv",
@@ -278,7 +374,20 @@ def write_json_artifact(run_id: str, artifact_name: str, payload: dict[str, Any]
 
 def write_jsonl_artifact(run_id: str, artifact_name: str, rows: list[dict[str, Any]]) -> Path:
     path = artifact_path_for_name(run_id, artifact_name)
-    _write_jsonl(path, rows)
+    created_at_utc = datetime.now(UTC).isoformat()
+    normalized_rows = [
+        _artifact_payload_with_provenance(
+            run_id,
+            artifact_name=artifact_name,
+            artifact_kind="jsonl_row",
+            payload=row,
+            created_at_utc=created_at_utc,
+            writer="write_jsonl_artifact",
+            row_index=index,
+        )
+        for index, row in enumerate(rows)
+    ]
+    _write_jsonl(path, normalized_rows)
     return path
 
 
@@ -312,13 +421,32 @@ def write_run_artifacts(
     csv_rows: list[dict[str, Any]],
 ) -> dict[str, Path]:
     out_dir = artifact_dir_for_run(run_id)
+    created_at_utc = datetime.now(UTC).isoformat()
 
     results_path = out_dir / "results.json"
     metadata_path = out_dir / "metadata.json"
     csv_path = out_dir / "results.csv"
 
-    _write_json(results_path, results_payload)
-    _write_json(metadata_path, metadata_payload)
+    _write_json(
+        results_path,
+        _run_artifact_payload(
+            run_id,
+            artifact_name="results.json",
+            artifact_kind="results_payload",
+            payload=results_payload,
+            created_at_utc=created_at_utc,
+        ),
+    )
+    _write_json(
+        metadata_path,
+        _run_artifact_payload(
+            run_id,
+            artifact_name="metadata.json",
+            artifact_kind="metadata_payload",
+            payload=metadata_payload,
+            created_at_utc=created_at_utc,
+        ),
+    )
     _write_csv(csv_path, csv_rows)
 
     return {

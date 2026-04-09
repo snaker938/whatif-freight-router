@@ -1553,6 +1553,37 @@ def _selected_corpus_summary(
     }
 
 
+def _select_disjoint_dual_rows(
+    pool_rows: Sequence[Mapping[str, Any]],
+    *,
+    representative_count: int,
+    ambiguous_count: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    accepted_rows = [dict(row) for row in pool_rows]
+    ambiguous_rows = _select_rows_for_corpus(
+        accepted_rows,
+        count=min(max(0, int(ambiguous_count)), len(accepted_rows)),
+        corpus_kind="ambiguous",
+    )
+    ambiguous_ids = {
+        str(row.get("od_id") or "").strip()
+        for row in ambiguous_rows
+        if str(row.get("od_id") or "").strip()
+    }
+    representative_pool = [
+        dict(row)
+        for row in accepted_rows
+        if str(row.get("od_id") or "").strip() not in ambiguous_ids
+    ]
+    representative_rows = _select_rows_for_corpus(
+        representative_pool,
+        count=min(max(0, int(representative_count)), len(representative_pool)),
+        corpus_kind="representative",
+    )
+    broad_rows = [dict(row) for row in representative_rows] + [dict(row) for row in ambiguous_rows]
+    return representative_rows, ambiguous_rows, broad_rows
+
+
 def build_dual_od_corpora(
     *,
     seed: int,
@@ -1567,7 +1598,10 @@ def build_dual_od_corpora(
 ) -> dict[str, Any]:
     rep_target = max(1, int(representative_count))
     amb_target = max(1, int(ambiguous_count))
-    pool_target = max(rep_target + amb_target, max(rep_target, amb_target) * 2)
+    pool_target = max(
+        rep_target + amb_target + max(rep_target, amb_target),
+        max(rep_target, amb_target) * 2,
+    )
     pool_summary = build_od_corpus(
         seed=seed,
         pair_count=pool_target,
@@ -1579,18 +1613,24 @@ def build_dual_od_corpora(
         probe_max_paths=max(2, int(probe_max_paths)),
     )
     accepted_rows = [dict(row) for row in pool_summary.get("rows", [])]
-    representative_rows = _select_rows_for_corpus(
+    representative_rows, ambiguous_rows, broad_rows = _select_disjoint_dual_rows(
         accepted_rows,
-        count=min(rep_target, len(accepted_rows)),
-        corpus_kind="representative",
-    )
-    ambiguous_rows = _select_rows_for_corpus(
-        accepted_rows,
-        count=min(amb_target, len(accepted_rows)),
-        corpus_kind="ambiguous",
+        representative_count=rep_target,
+        ambiguous_count=amb_target,
     )
     representative_rows = _bootstrap_selected_rows(representative_rows)
     ambiguous_rows = _bootstrap_selected_rows(ambiguous_rows)
+    broad_rows = [dict(row) for row in representative_rows] + [dict(row) for row in ambiguous_rows]
+    representative_ids = {
+        str(row.get("od_id") or "").strip()
+        for row in representative_rows
+        if str(row.get("od_id") or "").strip()
+    }
+    ambiguous_ids = {
+        str(row.get("od_id") or "").strip()
+        for row in ambiguous_rows
+        if str(row.get("od_id") or "").strip()
+    }
     return {
         "schema_version": "2.0.0",
         "created_at_utc": _utc_now_iso(),
@@ -1608,6 +1648,20 @@ def build_dual_od_corpora(
             corpus_kind="ambiguous",
             selection_policy="bin_stratified_high_ambiguity_descending",
         ),
+        "broad": {
+            **_selected_corpus_summary(
+                pool_summary=pool_summary,
+                rows=broad_rows,
+                corpus_kind="broad",
+                selection_policy="disjoint_merge_of_high_ambiguity_then_representative",
+            ),
+            "component_counts": {
+                "representative": len(representative_rows),
+                "ambiguous": len(ambiguous_rows),
+            },
+            "component_overlap_count": len(representative_ids & ambiguous_ids),
+            "distinct_od_id_count": len(representative_ids | ambiguous_ids),
+        },
     }
 
 
@@ -1630,6 +1684,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ambiguous-output-csv", default=None)
     parser.add_argument("--ambiguous-output-json", default=None)
     parser.add_argument("--ambiguous-summary-json", default=None)
+    parser.add_argument("--broad-output-csv", default=None)
+    parser.add_argument("--broad-output-json", default=None)
+    parser.add_argument("--broad-summary-json", default=None)
     parser.add_argument(
         "--acceptance-mode",
         choices=("feasibility_only", "graph_candidates"),
@@ -1665,6 +1722,11 @@ def _default_dual_output_paths(out_dir: Path) -> dict[str, tuple[Path, Path, Pat
             out_dir / "uk_od_corpus_ambiguous.json",
             out_dir / "uk_od_corpus_ambiguous.summary.json",
         ),
+        "broad": (
+            out_dir / "uk_od_corpus_thesis_broad_generated.csv",
+            out_dir / "uk_od_corpus_thesis_broad_generated.json",
+            out_dir / "uk_od_corpus_thesis_broad_generated.summary.json",
+        ),
     }
 
 
@@ -1686,6 +1748,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         ambiguous_csv = Path(args.ambiguous_output_csv).resolve() if args.ambiguous_output_csv else dual_defaults["ambiguous"][0]
         ambiguous_json = Path(args.ambiguous_output_json).resolve() if args.ambiguous_output_json else dual_defaults["ambiguous"][1]
         ambiguous_summary = Path(args.ambiguous_summary_json).resolve() if args.ambiguous_summary_json else dual_defaults["ambiguous"][2]
+        broad_csv = Path(args.broad_output_csv).resolve() if args.broad_output_csv else dual_defaults["broad"][0]
+        broad_json = Path(args.broad_output_json).resolve() if args.broad_output_json else dual_defaults["broad"][1]
+        broad_summary = Path(args.broad_summary_json).resolve() if args.broad_summary_json else dual_defaults["broad"][2]
 
         bundle = build_dual_od_corpora(
             seed=args.seed,
@@ -1701,6 +1766,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise RuntimeError("Representative corpus builder did not reach the requested pair-count.")
             if len(bundle["ambiguous"]["rows"]) < max(1, int(args.ambiguous_pair_count)):
                 raise RuntimeError("Ambiguous corpus builder did not reach the requested pair-count.")
+            if len(bundle["broad"]["rows"]) < (max(1, int(args.pair_count)) + max(1, int(args.ambiguous_pair_count))):
+                raise RuntimeError("Broad corpus builder did not reach the requested combined pair-count.")
 
         for path in (
             representative_csv,
@@ -1709,6 +1776,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             ambiguous_csv,
             ambiguous_json,
             ambiguous_summary,
+            broad_csv,
+            broad_json,
+            broad_summary,
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
         _write_csv(representative_csv, bundle["representative"]["rows"])
@@ -1717,6 +1787,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_csv(ambiguous_csv, bundle["ambiguous"]["rows"])
         ambiguous_json.write_text(json.dumps(bundle["ambiguous"]["rows"], indent=2), encoding="utf-8")
         ambiguous_summary.write_text(json.dumps(bundle["ambiguous"], indent=2), encoding="utf-8")
+        _write_csv(broad_csv, bundle["broad"]["rows"])
+        broad_json.write_text(json.dumps(bundle["broad"]["rows"], indent=2), encoding="utf-8")
+        broad_summary.write_text(json.dumps(bundle["broad"], indent=2), encoding="utf-8")
         print(
             json.dumps(
                 {
@@ -1724,6 +1797,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "representative_summary_json": str(representative_summary),
                     "ambiguous_csv": str(ambiguous_csv),
                     "ambiguous_summary_json": str(ambiguous_summary),
+                    "broad_csv": str(broad_csv),
+                    "broad_summary_json": str(broad_summary),
                     "source_pool_hash": bundle["source_pool"]["corpus_hash"],
                 },
                 indent=2,

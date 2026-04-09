@@ -346,13 +346,45 @@ def test_route_defaults_to_tri_source_and_returns_decision_package(
     assert data["pipeline_mode"] == "tri_source"
     assert data["selected"]["id"] == selected.id
     assert data["decision_package"]["pipeline_mode"] == "tri_source"
+    assert data["decision_package"]["terminal_kind"] in {"certified_singleton", "certified_set"}
     assert data["decision_package"]["selected_route_id"] == selected.id
+    assert data["decision_package"]["preference_summary"]["selected_route_id"] == selected.id
+    assert data["decision_package"]["preference_summary"]["certified_only_required"] is False
+    assert isinstance(data["decision_package"]["preference_summary"]["suggested_queries"], list)
     assert data["decision_package"]["support_summary"]["observed_source_count"] == 3
+    assert data["decision_package"]["world_support_summary"] is not None
+    assert data["decision_package"]["world_fidelity_summary"] is not None
+    assert data["decision_package"]["certification_state_summary"] is not None
+    assert data["decision_package"]["world_support_summary"]["support_sufficient"] is True
+    assert data["decision_package"]["world_fidelity_summary"]["world_count"] >= 0
+    assert data["decision_package"]["certification_state_summary"]["winner_id"] == selected.id
     assert data["decision_package"]["certified_set_summary"]["selected_route_id"] == selected.id
     artifact_path = tmp_path / "artifacts" / data["run_id"] / "decision_package.json"
     assert artifact_path.exists()
     artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert artifact_payload["pipeline_mode"] == "tri_source"
+    assert artifact_payload["terminal_kind"] in {"certified_singleton", "certified_set"}
+    assert artifact_payload["world_support_summary"] is not None
+    assert artifact_payload["world_fidelity_summary"] is not None
+    assert artifact_payload["certification_state_summary"] is not None
+    final_trace_path = tmp_path / "artifacts" / data["run_id"] / "final_route_trace.json"
+    assert final_trace_path.exists()
+    final_trace_payload = json.loads(final_trace_path.read_text(encoding="utf-8"))
+    assert final_trace_payload["artifact_pointers"]["decision_package"] == "decision_package.json"
+    assert (
+        final_trace_payload["artifact_pointers"]["voi_controller_trace_summary"]
+        == "voi_controller_trace_summary.json"
+    )
+    controller_trace_summary_path = tmp_path / "artifacts" / data["run_id"] / "voi_controller_trace_summary.json"
+    assert controller_trace_summary_path.exists()
+    controller_trace_summary = json.loads(controller_trace_summary_path.read_text(encoding="utf-8"))
+    assert controller_trace_summary["pipeline_mode"] == "tri_source"
+    assert controller_trace_summary["controller_mode"] == "tri_source_controller"
+    if "voi_replay_oracle_summary" in final_trace_payload["artifact_pointers"]:
+        assert (
+            final_trace_payload["artifact_pointers"]["voi_replay_oracle_summary"]
+            == "voi_replay_oracle_summary.json"
+        )
 
 
 def test_route_waypoints_fall_back_from_tri_source_to_legacy_with_manifest_warning(
@@ -430,7 +462,9 @@ def test_route_waypoints_fall_back_from_tri_source_to_legacy_with_manifest_warni
     data = resp.json()
     assert data["pipeline_mode"] == "legacy"
     assert data["decision_package"]["pipeline_mode"] == "legacy"
+    assert data["decision_package"]["terminal_kind"] == "typed_abstention"
     assert data["decision_package"]["abstention_summary"]["reason_code"] == "legacy_runtime_selected"
+    assert data["decision_package"]["abstention_summary"]["abstention_type"] == "typed_abstention_recommended"
     manifest_path = tmp_path / "manifests" / f"{data['run_id']}.json"
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert any("tri_source" in warning and "legacy" in warning for warning in manifest_payload["warnings"])

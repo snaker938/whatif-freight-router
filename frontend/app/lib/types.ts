@@ -219,6 +219,73 @@ export type EvidenceProvenance = {
   families: EvidenceSourceRecord[];
 };
 
+export type DecisionWorldSupportSummary = {
+  support_strength?: number | null;
+  source_support_strength?: number | null;
+  ambiguity_support_ratio?: number | null;
+  source_entropy?: number | null;
+  source_count: number;
+  source_mix_count: number;
+  family_density?: number | null;
+  margin_pressure?: number | null;
+  provenance_coverage?: number | null;
+  live_family_count: number;
+  snapshot_family_count: number;
+  model_family_count: number;
+  proxy_penalty?: number | null;
+  audit_correction?: number | null;
+  recommended_fidelity: string;
+  support_sufficient: boolean;
+  notes: string[];
+};
+
+export type DecisionFidelitySummary = {
+  world_bundle_id?: string | null;
+  audit_bundle_id?: string | null;
+  multi_fidelity_mode: string;
+  policy: string;
+  world_count: number;
+  unique_world_count: number;
+  requested_world_count: number;
+  effective_world_count: number;
+  route_ids: string[];
+  active_families: string[];
+  world_kind_weights: Record<string, number>;
+  family_state_weights: Record<string, Record<string, number>>;
+  targeted_route_fraction?: number | null;
+  stress_world_fraction?: number | null;
+  proxy_world_fraction?: number | null;
+  refreshed_world_fraction?: number | null;
+  world_reuse_rate?: number | null;
+  audited_families: string[];
+  proxy_family_count: number;
+  audited_world_fraction?: number | null;
+  correction_scale?: number | null;
+  correction_penalty?: number | null;
+  recommended_policy: string;
+  manifest_hash?: string | null;
+  notes: string[];
+};
+
+export type DecisionCertificationStateSummary = {
+  winner_id?: string | null;
+  threshold?: number | null;
+  certificate_map: Record<string, number>;
+  certificate_value?: number | null;
+  certified: boolean;
+  certification_basis: string;
+  world_bundle_id?: string | null;
+  audit_bundle_id?: string | null;
+  support_strength?: number | null;
+  winner_confidence: Record<string, string | number | boolean | null>;
+  pairwise_gap_states: Record<string, Record<string, string | number | boolean | null>>;
+  flip_radius?: Record<string, string | number | boolean | null> | null;
+  decision_region: Record<string, string | number | boolean | null>;
+  certified_set: Record<string, string | number | boolean | null>;
+  abstained: boolean;
+  manifest_hash?: string | null;
+};
+
 export type RouteCertificationSummary = {
   route_id: string;
   certificate: number;
@@ -229,6 +296,9 @@ export type RouteCertificationSummary = {
   top_competitor_route_id?: string | null;
   top_value_of_refresh_family?: string | null;
   ambiguity_context?: Record<string, string | number | boolean | null> | null;
+  world_support_summary?: DecisionWorldSupportSummary | null;
+  world_fidelity_summary?: DecisionFidelitySummary | null;
+  certification_state_summary?: DecisionCertificationStateSummary | null;
 };
 
 export type VoiStopSummary = {
@@ -252,7 +322,28 @@ export type DecisionPreferenceSummary = {
   selector_policy: string;
   selective: boolean;
   tie_break_order: string[];
+  certified_only_required: boolean;
+  time_guard_active: boolean;
+  vetoed_targets: string[];
+  compatible_route_ids: string[];
+  certified_route_ids: string[];
+  selected_route_id?: string | null;
+  selected_certificate?: number | null;
+  stop_reason?: string | null;
+  stop_hint_codes: string[];
+  suggested_queries: PreferenceQuerySummary[];
   notes: string[];
+};
+
+export type PreferenceQuerySummary = {
+  key: string;
+  kind: string;
+  prompt: string;
+  rationale: string;
+  target?: string | null;
+  options: string[];
+  route_ids: string[];
+  metadata: Record<string, string | number | boolean | null>;
 };
 
 export type DecisionSupportSourceRecord = {
@@ -298,6 +389,8 @@ export type DecisionAbstentionSummary = {
   message?: string | null;
   blocking_sources: string[];
   retryable: boolean;
+  abstention_type?: string | null;
+  recommended_action?: string | null;
 };
 
 export type DecisionWitnessSummary = {
@@ -343,9 +436,13 @@ export type DecisionPackage = {
   schema_version: string;
   package_kind: 'decision_package';
   pipeline_mode: PipelineMode;
+  terminal_kind: 'certified_singleton' | 'certified_set' | 'typed_abstention';
   selected_route_id?: string | null;
   preference_summary: DecisionPreferenceSummary;
   support_summary: DecisionSupportSummary;
+  world_support_summary?: DecisionWorldSupportSummary | null;
+  world_fidelity_summary?: DecisionFidelitySummary | null;
+  certification_state_summary?: DecisionCertificationStateSummary | null;
   certified_set_summary: CertifiedSetSummary;
   abstention_summary?: DecisionAbstentionSummary | null;
   witness_summary?: DecisionWitnessSummary | null;
@@ -982,6 +1079,457 @@ export type RunArtifactsListResponse = {
   }>;
   provenance_endpoint: string;
 };
+
+export type FrontendArtifactExpectation = 'guaranteed' | 'conditional' | 'observed';
+
+export type FrontendArtifactGroupId =
+  | 'route-core'
+  | 'decision-package'
+  | 'support'
+  | 'dccs-refc'
+  | 'controller-voi'
+  | 'witness-refc'
+  | 'theorem-lane'
+  | 'evaluation'
+  | 'other';
+
+export type FrontendArtifactInspectionItem = {
+  name: string;
+  label: string;
+  groupId: FrontendArtifactGroupId;
+  description: string;
+  expectation: FrontendArtifactExpectation;
+  present: boolean;
+  listed: boolean;
+  endpoint?: string | null;
+  sizeBytes?: number | null;
+};
+
+export type FrontendArtifactInspectionGroup = {
+  id: FrontendArtifactGroupId;
+  label: string;
+  description: string;
+  items: FrontendArtifactInspectionItem[];
+  presentCount: number;
+  listedCount: number;
+  missingExpectedCount: number;
+};
+
+type FrontendArtifactGroupMeta = {
+  label: string;
+  description: string;
+};
+
+type FrontendArtifactCatalogEntry = {
+  groupId: FrontendArtifactGroupId;
+  label: string;
+  description: string;
+};
+
+const FRONTEND_ARTIFACT_GROUP_META: Record<FrontendArtifactGroupId, FrontendArtifactGroupMeta> = {
+  'route-core': {
+    label: 'Route Core',
+    description: 'Primary route-level handoff files for the selected run.',
+  },
+  'decision-package': {
+    label: 'Decision Package',
+    description: 'Decision, preference, and certified-set summaries mirrored in the browser.',
+  },
+  support: {
+    label: 'Support',
+    description: 'Support, provenance, and support-trace files for support-aware decisions.',
+  },
+  'dccs-refc': {
+    label: 'DCCS / REFC',
+    description: 'Candidate-screening and certification artifacts that explain the frontier.',
+  },
+  'controller-voi': {
+    label: 'Controller / VOI',
+    description: 'Controller traces, replay summaries, and value-of-information artifacts.',
+  },
+  'witness-refc': {
+    label: 'Witness / Fragility',
+    description: 'Witness, fragility, and sampled-world artifacts for certification inspection.',
+  },
+  'theorem-lane': {
+    label: 'Theorem / Lane',
+    description: 'Theorem-hook and lane-manifest files that map proofs to artifacts.',
+  },
+  evaluation: {
+    label: 'Evaluation',
+    description: 'Evaluator outputs, cohort summaries, and report-generation artifacts.',
+  },
+  other: {
+    label: 'Other',
+    description: 'Artifacts not yet mapped into a frontend inspection family.',
+  },
+};
+
+const FRONTEND_ARTIFACT_GROUP_ORDER: FrontendArtifactGroupId[] = [
+  'route-core',
+  'decision-package',
+  'support',
+  'dccs-refc',
+  'controller-voi',
+  'witness-refc',
+  'theorem-lane',
+  'evaluation',
+  'other',
+];
+
+const FRONTEND_ARTIFACT_CATALOG: Record<string, FrontendArtifactCatalogEntry> = {
+  'decision_package.json': {
+    groupId: 'route-core',
+    label: 'Decision package',
+    description: 'Top-level decision mirror for the route response.',
+  },
+  'final_route_trace.json': {
+    groupId: 'route-core',
+    label: 'Final route trace',
+    description: 'Final route trace with artifact pointers and runtime summaries.',
+  },
+  'winner_summary.json': {
+    groupId: 'route-core',
+    label: 'Winner summary',
+    description: 'Selected-route summary emitted by the certification runtime.',
+  },
+  'certificate_summary.json': {
+    groupId: 'route-core',
+    label: 'Certificate summary',
+    description: 'Certificate summary for the selected route and winner basis.',
+  },
+  'strict_frontier.jsonl': {
+    groupId: 'route-core',
+    label: 'Strict frontier',
+    description: 'Frontier rows that back the selected route and certified-set view.',
+  },
+  'preference_summary.json': {
+    groupId: 'decision-package',
+    label: 'Preference summary',
+    description: 'Preference-state summary and query suggestions.',
+  },
+  'certified_set.json': {
+    groupId: 'decision-package',
+    label: 'Certified set summary',
+    description: 'Certified-set state, basis, and selected-route linkage.',
+  },
+  'certified_set_routes.jsonl': {
+    groupId: 'decision-package',
+    label: 'Certified set routes',
+    description: 'Per-route rows for frontier and certified-set membership.',
+  },
+  'abstention_summary.json': {
+    groupId: 'decision-package',
+    label: 'Abstention summary',
+    description: 'Typed abstention record when the runtime intentionally abstains.',
+  },
+  'support_summary.json': {
+    groupId: 'support',
+    label: 'Support summary',
+    description: 'Support summary for the public decision package.',
+  },
+  'support_provenance.json': {
+    groupId: 'support',
+    label: 'Support provenance',
+    description: 'Selected-route provenance and active evidence-family metadata.',
+  },
+  'support_trace.jsonl': {
+    groupId: 'support',
+    label: 'Support trace',
+    description: 'Per-source support-trace rows for support-aware inspection.',
+  },
+  'dccs_summary.json': {
+    groupId: 'dccs-refc',
+    label: 'DCCS summary',
+    description: 'Candidate-screening control summary.',
+  },
+  'dccs_candidates.jsonl': {
+    groupId: 'dccs-refc',
+    label: 'DCCS candidates',
+    description: 'Candidate-ledger rows for DCCS inspection.',
+  },
+  'refined_routes.jsonl': {
+    groupId: 'dccs-refc',
+    label: 'Refined routes',
+    description: 'Refined route rows downstream of DCCS.',
+  },
+  'route_fragility_map.json': {
+    groupId: 'dccs-refc',
+    label: 'Route fragility map',
+    description: 'Per-route fragility attribution emitted by certification.',
+  },
+  'competitor_fragility_breakdown.json': {
+    groupId: 'dccs-refc',
+    label: 'Competitor fragility breakdown',
+    description: 'Competitor-specific fragility attribution for the selected route.',
+  },
+  'sampled_world_manifest.json': {
+    groupId: 'witness-refc',
+    label: 'Sampled world manifest',
+    description: 'Manifest for the sampled worlds used in certification.',
+  },
+  'evidence_snapshot_manifest.json': {
+    groupId: 'witness-refc',
+    label: 'Evidence snapshot manifest',
+    description: 'Evidence snapshot manifest used to build the certification state.',
+  },
+  'witness_summary.json': {
+    groupId: 'witness-refc',
+    label: 'Witness summary',
+    description: 'Witness summary for support-aware certification inspection.',
+  },
+  'witness_routes.jsonl': {
+    groupId: 'witness-refc',
+    label: 'Witness routes',
+    description: 'Per-route witness and challenger rows.',
+  },
+  'controller_summary.json': {
+    groupId: 'controller-voi',
+    label: 'Controller summary',
+    description: 'High-level controller status and budget usage.',
+  },
+  'controller_trace.jsonl': {
+    groupId: 'controller-voi',
+    label: 'Controller trace',
+    description: 'Controller-trace rows emitted when detailed controller state is available.',
+  },
+  'voi_controller_trace_summary.json': {
+    groupId: 'controller-voi',
+    label: 'VOI controller trace summary',
+    description: 'Controller trace summary for the current route run.',
+  },
+  'voi_replay_oracle_summary.json': {
+    groupId: 'controller-voi',
+    label: 'VOI replay-oracle summary',
+    description: 'Predicted-versus-realized value summary derived from the action trace.',
+  },
+  'voi_action_trace.json': {
+    groupId: 'controller-voi',
+    label: 'VOI action trace',
+    description: 'Action-level controller trace for the run.',
+  },
+  'voi_controller_state.jsonl': {
+    groupId: 'controller-voi',
+    label: 'VOI controller state',
+    description: 'Controller-state rows emitted across VOI iterations.',
+  },
+  'voi_action_scores.csv': {
+    groupId: 'controller-voi',
+    label: 'VOI action scores',
+    description: 'Per-action score exports for the VOI menu.',
+  },
+  'voi_stop_certificate.json': {
+    groupId: 'controller-voi',
+    label: 'VOI stop certificate',
+    description: 'Stop-certificate payload for the controller decision.',
+  },
+  'value_of_refresh.json': {
+    groupId: 'controller-voi',
+    label: 'Value of refresh',
+    description: 'Value-of-refresh summary used by the controller.',
+  },
+  'theorem_hook_map.json': {
+    groupId: 'theorem-lane',
+    label: 'Theorem hook map',
+    description: 'Theorem-to-artifact mapping hooks for the run.',
+  },
+  'lane_manifest.json': {
+    groupId: 'theorem-lane',
+    label: 'Lane manifest',
+    description: 'Lane metadata and artifact manifest for the current run.',
+  },
+  'evaluation_manifest.json': {
+    groupId: 'evaluation',
+    label: 'Evaluation manifest',
+    description: 'Evaluator run manifest for proof and report composition.',
+  },
+  'thesis_metrics.json': {
+    groupId: 'evaluation',
+    label: 'Thesis metrics',
+    description: 'Metric-family output from evaluator runs.',
+  },
+  'thesis_plots.json': {
+    groupId: 'evaluation',
+    label: 'Thesis plots',
+    description: 'Serialized plot payloads for evaluator reporting.',
+  },
+  'thesis_summary.json': {
+    groupId: 'evaluation',
+    label: 'Thesis summary (JSON)',
+    description: 'JSON summary for the composed evaluator output.',
+  },
+  'thesis_summary.csv': {
+    groupId: 'evaluation',
+    label: 'Thesis summary (CSV)',
+    description: 'CSV summary for the composed evaluator output.',
+  },
+  'thesis_summary_by_cohort.json': {
+    groupId: 'evaluation',
+    label: 'Cohort summary (JSON)',
+    description: 'Per-cohort evaluator summary in JSON form.',
+  },
+  'thesis_summary_by_cohort.csv': {
+    groupId: 'evaluation',
+    label: 'Cohort summary (CSV)',
+    description: 'Per-cohort evaluator summary in CSV form.',
+  },
+  'cohort_composition.json': {
+    groupId: 'evaluation',
+    label: 'Cohort composition',
+    description: 'Cohort membership summary for evaluator runs.',
+  },
+  'methods_appendix.md': {
+    groupId: 'evaluation',
+    label: 'Methods appendix',
+    description: 'Generated methods appendix for evaluator reporting.',
+  },
+  'thesis_report.md': {
+    groupId: 'evaluation',
+    label: 'Thesis report',
+    description: 'Generated thesis report artifact.',
+  },
+};
+
+function assignArtifactExpectation(
+  index: Record<string, FrontendArtifactExpectation>,
+  name: string,
+  expectation: FrontendArtifactExpectation,
+): void {
+  const current = index[name];
+  if (current === 'guaranteed' || current === expectation) return;
+  if (!current || expectation === 'guaranteed') {
+    index[name] = expectation;
+  }
+}
+
+export function expectedArtifactNamesForDecisionPackage(
+  decisionPackage?: DecisionPackage | null,
+): Record<string, FrontendArtifactExpectation> {
+  const expected: Record<string, FrontendArtifactExpectation> = {};
+  if (!decisionPackage) return expected;
+
+  assignArtifactExpectation(expected, 'decision_package.json', 'guaranteed');
+  assignArtifactExpectation(expected, 'final_route_trace.json', 'guaranteed');
+  assignArtifactExpectation(expected, 'preference_summary.json', 'guaranteed');
+  assignArtifactExpectation(expected, 'support_summary.json', 'guaranteed');
+  assignArtifactExpectation(expected, 'support_provenance.json', 'guaranteed');
+  assignArtifactExpectation(expected, 'certified_set.json', 'guaranteed');
+  assignArtifactExpectation(expected, 'certified_set_routes.jsonl', 'guaranteed');
+
+  assignArtifactExpectation(expected, 'winner_summary.json', 'conditional');
+  assignArtifactExpectation(expected, 'certificate_summary.json', 'conditional');
+  assignArtifactExpectation(expected, 'strict_frontier.jsonl', 'conditional');
+  assignArtifactExpectation(expected, 'support_trace.jsonl', 'conditional');
+
+  if (decisionPackage.abstention_summary) {
+    assignArtifactExpectation(expected, 'abstention_summary.json', 'conditional');
+  }
+  if (decisionPackage.witness_summary) {
+    assignArtifactExpectation(expected, 'witness_summary.json', 'conditional');
+    assignArtifactExpectation(expected, 'witness_routes.jsonl', 'conditional');
+    assignArtifactExpectation(expected, 'sampled_world_manifest.json', 'conditional');
+    assignArtifactExpectation(expected, 'evidence_snapshot_manifest.json', 'conditional');
+  }
+  if (decisionPackage.controller_summary) {
+    assignArtifactExpectation(expected, 'controller_summary.json', 'conditional');
+    assignArtifactExpectation(expected, 'controller_trace.jsonl', 'conditional');
+    assignArtifactExpectation(expected, 'voi_controller_trace_summary.json', 'conditional');
+    assignArtifactExpectation(expected, 'voi_action_trace.json', 'conditional');
+    assignArtifactExpectation(expected, 'voi_controller_state.jsonl', 'conditional');
+    assignArtifactExpectation(expected, 'voi_action_scores.csv', 'conditional');
+    assignArtifactExpectation(expected, 'voi_stop_certificate.json', 'conditional');
+    assignArtifactExpectation(expected, 'value_of_refresh.json', 'conditional');
+  }
+  if (decisionPackage.controller_summary?.action_count) {
+    assignArtifactExpectation(expected, 'voi_replay_oracle_summary.json', 'conditional');
+  }
+  if (decisionPackage.theorem_hook_summary?.hooks.length) {
+    assignArtifactExpectation(expected, 'theorem_hook_map.json', 'conditional');
+  }
+  if (decisionPackage.lane_manifest) {
+    assignArtifactExpectation(expected, 'lane_manifest.json', 'conditional');
+  }
+
+  return expected;
+}
+
+type BuildFrontendArtifactInspectionGroupsParams = {
+  decisionPackage?: DecisionPackage | null;
+  listedArtifactNames?: string[] | null;
+  artifacts?: RunArtifactsListResponse | null;
+};
+
+export function buildFrontendArtifactInspectionGroups({
+  decisionPackage,
+  listedArtifactNames,
+  artifacts,
+}: BuildFrontendArtifactInspectionGroupsParams): FrontendArtifactInspectionGroup[] {
+  const expectedIndex = expectedArtifactNamesForDecisionPackage(decisionPackage);
+  const listedNames = new Set((listedArtifactNames ?? []).filter(Boolean));
+  const presentIndex = new Map<
+    string,
+    {
+      endpoint: string;
+      sizeBytes: number;
+    }
+  >();
+
+  for (const artifact of artifacts?.artifacts ?? []) {
+    presentIndex.set(artifact.name, {
+      endpoint: artifact.endpoint,
+      sizeBytes: artifact.size_bytes,
+    });
+  }
+
+  const allNames = new Set<string>([
+    ...Object.keys(expectedIndex),
+    ...Array.from(listedNames),
+    ...Array.from(presentIndex.keys()),
+  ]);
+  if (!allNames.size) return [];
+
+  const grouped = new Map<FrontendArtifactGroupId, FrontendArtifactInspectionItem[]>();
+  for (const name of Array.from(allNames).sort()) {
+    const catalogEntry = FRONTEND_ARTIFACT_CATALOG[name];
+    const groupId = catalogEntry?.groupId ?? 'other';
+    const present = presentIndex.get(name);
+    const listed = listedNames.has(name);
+    const expectation = expectedIndex[name] ?? (present ? 'observed' : 'conditional');
+    const item: FrontendArtifactInspectionItem = {
+      name,
+      label: catalogEntry?.label ?? name,
+      groupId,
+      description: catalogEntry?.description ?? 'Artifact exposed by the run store.',
+      expectation,
+      present: Boolean(present),
+      listed,
+      endpoint: present?.endpoint ?? null,
+      sizeBytes: present?.sizeBytes ?? null,
+    };
+    const groupItems = grouped.get(groupId) ?? [];
+    groupItems.push(item);
+    grouped.set(groupId, groupItems);
+  }
+
+  return FRONTEND_ARTIFACT_GROUP_ORDER.flatMap((groupId) => {
+    const items = grouped.get(groupId);
+    if (!items?.length) return [];
+    const meta = FRONTEND_ARTIFACT_GROUP_META[groupId];
+    return [
+      {
+        id: groupId,
+        label: meta.label,
+        description: meta.description,
+        items,
+        presentCount: items.filter((item) => item.present).length,
+        listedCount: items.filter((item) => item.listed).length,
+        missingExpectedCount: items.filter(
+          (item) => !item.present && (item.expectation === 'guaranteed' || item.expectation === 'conditional'),
+        ).length,
+      },
+    ];
+  });
+}
 
 export type StrictErrorDetail = {
   reason_code?: StrictReasonCode;

@@ -1,12 +1,12 @@
 {
-  "as_of": "2026-03-23T00:00:00Z",
-  "as_of_utc": "2026-03-23T00:00:00Z",
-  "refreshed_at_utc": "2026-03-30T00:20:29Z",
+  "as_of": "2026-03-30T00:00:00Z",
+  "as_of_utc": "2026-03-30T00:00:00Z",
+  "refreshed_at_utc": "2026-04-06T01:50:15Z",
   "source": "public_fuel_history_uk",
   "provider_contract_version": "fuel-live-v1",
   "prices_gbp_per_l": {
-    "diesel": 1.6688,
-    "petrol": 1.4416,
+    "diesel": 1.7652,
+    "petrol": 1.4878,
     "lng": 1.015
   },
   "grid_price_gbp_per_kwh": 0.248,
@@ -10720,6 +10720,15 @@
         "lng": 1.015
       },
       "grid_price_gbp_per_kwh": 0.248
+    },
+    {
+      "as_of": "2026-03-30",
+      "prices_gbp_per_l": {
+        "diesel": 1.7652,
+        "petrol": 1.4878,
+        "lng": 1.015
+      },
+      "grid_price_gbp_per_kwh": 0.248
     }
   ],
   "regional_multipliers": {
@@ -10732,6 +10741,6 @@
     "south_england": 1.01
   },
   "signature_algorithm": "sha256",
-  "signature": "6092b11ca3f7d0f5dca63a58a0ead83499e98c3cd7bb8aa411cb781b7c70f382",
+  "signature": "633070c2d4c53be8d4eab4235e1105c076849f6333e4e8b230c6b639df9aa5ed",
   "signed": true
 }

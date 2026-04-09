@@ -174,6 +174,58 @@ def test_thesis_lane_script_writes_report_and_summary(tmp_path: Path, monkeypatc
     )
 
 
+def test_thesis_lane_script_preserves_non_broad_evaluation_suite_metadata(tmp_path: Path, monkeypatch) -> None:
+    report_md = tmp_path / "thesis_lane_report.md"
+    report_json = tmp_path / "thesis_lane_report.json"
+    corpus_csv = tmp_path / "preference_proof.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon,distance_bin,seed\n"
+        "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
+        encoding="utf-8",
+    )
+    artifacts = _seed_lane_artifacts(tmp_path)
+
+    monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
+    monkeypatch.setattr(
+        thesis_lane.thesis_eval,
+        "run_thesis_evaluation",
+        lambda args: _evaluation_payload(
+            artifacts,
+            evaluation_suite={
+                "role": "preference_proof",
+                "family": "evaluation",
+                "scope": "focused",
+                "focus": "preference",
+                "source": "explicit_arg",
+            },
+        ),
+    )
+
+    exit_code = thesis_lane.main(
+        [
+            "--report-md",
+            str(report_md),
+            "--report-json",
+            str(report_json),
+            "--corpus-csv",
+            str(corpus_csv),
+        ]
+    )
+
+    assert exit_code == 0
+    report_text = report_md.read_text(encoding="utf-8")
+    assert "Evaluation suite role: `preference_proof`" in report_text
+    assert "Evaluation suite family: `evaluation`" in report_text
+    payload = json.loads(report_json.read_text(encoding="utf-8"))
+    assert payload["evaluation"]["evaluation_suite"] == {
+        "role": "preference_proof",
+        "family": "evaluation",
+        "scope": "focused",
+        "focus": "preference",
+        "source": "explicit_arg",
+    }
+
+
 def test_thesis_lane_script_separates_successful_and_failed_variants(tmp_path: Path, monkeypatch) -> None:
     report_md = tmp_path / "thesis_lane_report.md"
     report_json = tmp_path / "thesis_lane_report.json"
@@ -475,6 +527,105 @@ def test_thesis_lane_script_can_manage_local_backend_lifecycle(tmp_path: Path, m
     artifacts = _seed_lane_artifacts(tmp_path)
 
     calls: list[list[str]] = []
+    captured: dict[str, object] = {}
+    staged_asset = tmp_path / "staged_subset.json"
+    staged_asset.write_text("{}", encoding="utf-8")
+    staged_asset_meta = staged_asset.with_suffix(".meta.json")
+    staged_asset_meta.write_text("{}", encoding="utf-8")
+    fake_asset_plan = {
+        "mode": "staged_subset_asset",
+        "asset_path": str(staged_asset),
+        "subset_report_path": str(staged_asset_meta),
+        "route_graph_min_nodes": 15,
+        "route_graph_min_adjacency": 11,
+        "env_overrides": {
+            "ROUTE_GRAPH_ASSET_PATH": str(staged_asset.resolve()),
+            "ROUTE_GRAPH_MIN_NODES": "15",
+            "ROUTE_GRAPH_MIN_ADJACENCY": "11",
+        },
+    }
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        calls.append(list(command))
+        script_name = Path(command[5]).name
+        if script_name == "stop_backend_logged.ps1":
+            return CompletedProcess(command, 0, stdout="stopped\n", stderr="")
+        captured["start_env"] = dict(kwargs.get("env") or {})
+        return CompletedProcess(command, 0, stdout="12345\n", stderr="")
+
+    def _fake_eval(args):
+        captured["backend_lease_manifest_path"] = args.backend_lease_manifest_path
+        return _evaluation_payload(artifacts)
+
+    monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
+    monkeypatch.setattr(thesis_lane.subprocess, "run", _fake_run)
+    monkeypatch.setattr(thesis_lane.thesis_eval, "run_thesis_evaluation", _fake_eval)
+    monkeypatch.setattr(thesis_lane, "_managed_backend_route_graph_asset_plan", lambda eval_args: dict(fake_asset_plan))
+    monkeypatch.setattr(
+        thesis_lane.thesis_campaign,
+        "_route_graph_asset_plan_env_overrides",
+        lambda plan: dict(plan.get("env_overrides") or {}),
+    )
+
+    exit_code = thesis_lane.main(
+        [
+            "--report-md",
+            str(report_md),
+            "--report-json",
+            str(report_json),
+            "--corpus-csv",
+            str(corpus_csv),
+            "--manage-local-backend",
+            "--backend-memory-limit-mb",
+            "1536",
+            "--backend-start-script",
+            str(start_script),
+            "--backend-stop-script",
+            str(stop_script),
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(calls) == 3
+    assert Path(calls[0][5]).name == "stop_backend_logged.ps1"
+    assert Path(calls[1][5]).name == "start_backend_logged.ps1"
+    assert Path(calls[2][5]).name == "stop_backend_logged.ps1"
+    start_command = calls[1]
+    assert start_command[start_command.index("-MemoryLimitMB") + 1] == "1536"
+    assert "-LeaseManifestPath" in start_command
+    manifest_arg_index = start_command.index("-LeaseManifestPath") + 1
+    manifest_path = Path(start_command[manifest_arg_index])
+    assert manifest_path == (thesis_lane.ROOT / "out" / "backend_lease_manifest.json").resolve()
+    assert start_command[start_command.index("-LeaseTopology") + 1] == "split_process"
+    assert Path(str(captured["backend_lease_manifest_path"])) == (thesis_lane.ROOT / "out" / "backend_lease_manifest.json").resolve()
+    assert captured["start_env"]["ROUTE_GRAPH_ASSET_PATH"] == str(staged_asset.resolve())
+    assert captured["start_env"]["ROUTE_GRAPH_MIN_NODES"] == "15"
+    assert captured["start_env"]["ROUTE_GRAPH_MIN_ADJACENCY"] == "11"
+    payload = json.loads(report_json.read_text(encoding="utf-8"))
+    assert payload["backend_lifecycle"]["managed"] is True
+    assert payload["backend_lifecycle"]["start_before_run"]["stdout"] == "12345"
+    assert payload["backend_lifecycle"]["route_graph_asset_plan"] == fake_asset_plan
+
+
+def test_thesis_lane_script_threads_explicit_backend_lease_manifest_path_to_managed_backend_and_evaluator(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_md = tmp_path / "thesis_lane_report.md"
+    report_json = tmp_path / "thesis_lane_report.json"
+    corpus_csv = tmp_path / "corpus.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon,distance_bin,seed\n"
+        "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
+        encoding="utf-8",
+    )
+    start_script = tmp_path / "start_backend_logged.ps1"
+    stop_script = tmp_path / "stop_backend_logged.ps1"
+    start_script.write_text("Write-Output 12345\n", encoding="utf-8")
+    stop_script.write_text("Write-Output stopped\n", encoding="utf-8")
+    artifacts = _seed_lane_artifacts(tmp_path)
+
+    calls: list[list[str]] = []
+    captured: dict[str, object] = {}
 
     def _fake_run(command, **kwargs):  # noqa: ANN001
         calls.append(list(command))
@@ -483,12 +634,120 @@ def test_thesis_lane_script_can_manage_local_backend_lifecycle(tmp_path: Path, m
             return CompletedProcess(command, 0, stdout="stopped\n", stderr="")
         return CompletedProcess(command, 0, stdout="12345\n", stderr="")
 
+    def _fake_eval(args):
+        captured["backend_lease_manifest_path"] = args.backend_lease_manifest_path
+        return _evaluation_payload(artifacts)
+
+    monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
+    monkeypatch.setattr(thesis_lane.subprocess, "run", _fake_run)
+    monkeypatch.setattr(thesis_lane.thesis_eval, "run_thesis_evaluation", _fake_eval)
+    monkeypatch.setattr(
+        thesis_lane,
+        "_managed_backend_route_graph_asset_plan",
+        lambda eval_args: {
+            "mode": "staged_subset_asset",
+            "asset_path": str((tmp_path / "subset.json").resolve()),
+            "route_graph_min_nodes": 7,
+            "route_graph_min_adjacency": 5,
+        },
+    )
+    monkeypatch.setattr(
+        thesis_lane.thesis_campaign,
+        "_route_graph_asset_plan_env_overrides",
+        lambda plan: {
+            "ROUTE_GRAPH_ASSET_PATH": str(plan["asset_path"]),
+            "ROUTE_GRAPH_MIN_NODES": str(plan["route_graph_min_nodes"]),
+            "ROUTE_GRAPH_MIN_ADJACENCY": str(plan["route_graph_min_adjacency"]),
+        },
+    )
+
+    explicit_manifest = Path("backend/out/custom/backend_lease_manifest.json")
+    exit_code = thesis_lane.main(
+        [
+            "--report-md",
+            str(report_md),
+            "--report-json",
+            str(report_json),
+            "--corpus-csv",
+            str(corpus_csv),
+            "--manage-local-backend",
+            "--backend-memory-limit-mb",
+            "2048",
+            "--backend-start-script",
+            str(start_script),
+            "--backend-stop-script",
+            str(stop_script),
+            "--evaluation-args",
+            "--backend-lease-manifest-path",
+            str(explicit_manifest),
+        ]
+    )
+
+    assert exit_code == 0
+    start_command = calls[1]
+    assert start_command[start_command.index("-MemoryLimitMB") + 1] == "2048"
+    manifest_arg_index = start_command.index("-LeaseManifestPath") + 1
+    assert Path(start_command[manifest_arg_index]) == (thesis_lane.ROOT / explicit_manifest).resolve()
+    assert Path(str(captured["backend_lease_manifest_path"])) == (thesis_lane.ROOT / explicit_manifest).resolve()
+
+
+def test_thesis_lane_script_persists_staged_route_graph_asset_plan_when_managed_backend_startup_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_md = tmp_path / "thesis_lane_report.md"
+    report_json = tmp_path / "thesis_lane_report.json"
+    corpus_csv = tmp_path / "corpus.csv"
+    corpus_csv.write_text(
+        "od_id,origin_lat,origin_lon,destination_lat,destination_lon,distance_bin,seed\n"
+        "od-1,52.0,-1.5,51.5,-1.2,30-100 km,7\n",
+        encoding="utf-8",
+    )
+    start_script = tmp_path / "start_backend_logged.ps1"
+    stop_script = tmp_path / "stop_backend_logged.ps1"
+    start_script.write_text("Write-Output failed\n", encoding="utf-8")
+    stop_script.write_text("Write-Output stopped\n", encoding="utf-8")
+    staged_asset = tmp_path / "staged_subset.json"
+    staged_asset.write_text("{}", encoding="utf-8")
+    staged_asset_meta = staged_asset.with_suffix(".meta.json")
+    staged_asset_meta.write_text("{}", encoding="utf-8")
+    fake_asset_plan = {
+        "mode": "staged_subset_asset",
+        "asset_path": str(staged_asset),
+        "subset_report_path": str(staged_asset_meta),
+        "route_graph_min_nodes": 15,
+        "route_graph_min_adjacency": 11,
+        "env_overrides": {
+            "ROUTE_GRAPH_ASSET_PATH": str(staged_asset.resolve()),
+            "ROUTE_GRAPH_MIN_NODES": "15",
+            "ROUTE_GRAPH_MIN_ADJACENCY": "11",
+        },
+    }
+
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        script_name = Path(command[5]).name
+        if script_name == "stop_backend_logged.ps1":
+            return CompletedProcess(command, 0, stdout="stopped\n", stderr="")
+        captured["start_env"] = dict(kwargs.get("env") or {})
+        return CompletedProcess(command, 9, stdout="start failed\n", stderr="out of memory\n")
+
     monkeypatch.setattr(thesis_lane.pytest, "main", lambda args: 0)
     monkeypatch.setattr(thesis_lane.subprocess, "run", _fake_run)
     monkeypatch.setattr(
+        thesis_lane,
+        "_managed_backend_route_graph_asset_plan",
+        lambda eval_args: dict(fake_asset_plan),
+    )
+    monkeypatch.setattr(
+        thesis_lane.thesis_campaign,
+        "_route_graph_asset_plan_env_overrides",
+        lambda plan: dict(plan.get("env_overrides") or {}),
+    )
+    monkeypatch.setattr(
         thesis_lane.thesis_eval,
         "run_thesis_evaluation",
-        lambda args: _evaluation_payload(artifacts),
+        lambda args: pytest.fail("evaluation should not run when managed backend startup fails"),
     )
 
     exit_code = thesis_lane.main(
@@ -507,14 +766,16 @@ def test_thesis_lane_script_can_manage_local_backend_lifecycle(tmp_path: Path, m
         ]
     )
 
-    assert exit_code == 0
-    assert len(calls) == 3
-    assert Path(calls[0][5]).name == "stop_backend_logged.ps1"
-    assert Path(calls[1][5]).name == "start_backend_logged.ps1"
-    assert Path(calls[2][5]).name == "stop_backend_logged.ps1"
+    assert exit_code == 1
+    start_env = dict(captured["start_env"])
+    assert start_env["ROUTE_GRAPH_ASSET_PATH"] == fake_asset_plan["env_overrides"]["ROUTE_GRAPH_ASSET_PATH"]
+    assert start_env["ROUTE_GRAPH_MIN_NODES"] == fake_asset_plan["env_overrides"]["ROUTE_GRAPH_MIN_NODES"]
+    assert start_env["ROUTE_GRAPH_MIN_ADJACENCY"] == fake_asset_plan["env_overrides"]["ROUTE_GRAPH_MIN_ADJACENCY"]
     payload = json.loads(report_json.read_text(encoding="utf-8"))
-    assert payload["backend_lifecycle"]["managed"] is True
-    assert payload["backend_lifecycle"]["start_before_run"]["stdout"] == "12345"
+    assert payload["backend_lifecycle"]["route_graph_asset_plan"] == fake_asset_plan
+    assert "backend_lifecycle_failed:start_backend_logged.ps1:returncode=9" in payload["backend_lifecycle"]["startup_error"]
+    assert payload["evaluation"]["error"] == "RuntimeError"
+    assert "out of memory" in payload["evaluation"]["message"]
 
 
 def test_thesis_lane_defaults_to_checked_in_broad_corpus(tmp_path: Path, monkeypatch) -> None:

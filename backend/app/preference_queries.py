@@ -59,6 +59,18 @@ def _dedupe_queries(queries: list[PreferenceQuery], limit: int) -> tuple[Prefere
     return tuple(ordered.values())
 
 
+def _query_priority(query: PreferenceQuery) -> tuple[int, str]:
+    if query.kind == "certified_focus":
+        return (0, query.key)
+    if query.kind == "route_veto":
+        return (1, query.key)
+    if query.kind == "time_guard":
+        return (2, query.key)
+    if query.kind == "optimization_mode":
+        return (3, query.key)
+    return (4, query.key)
+
+
 def preference_stop_hints(state: PreferenceState) -> tuple[PreferenceStopHint, ...]:
     return state.stop_hints
 
@@ -71,10 +83,20 @@ def suggest_preference_queries(state: PreferenceState, *, limit: int = 3) -> tup
     top_routes = _top_routes(state, limit=2)
     top_route = top_routes[0] if top_routes else None
     runner_up = top_routes[1] if len(top_routes) > 1 else None
+    certified_only_required = state.wants_certified_only()
 
     uncertified_leader = top_route is not None and not top_route.certified
     no_certified_compatible = bool(state.compatible_set.route_ids) and not state.compatible_set.certified_route_ids
-    if uncertified_leader or no_certified_compatible:
+    if certified_only_required or uncertified_leader or no_certified_compatible:
+        certified_focus_route_ids = (
+            state.compatible_set.certified_route_ids[:3]
+            if state.compatible_set.certified_route_ids
+            else (
+                state.compatible_set.ranked_route_ids[:3]
+                if state.compatible_set.ranked_route_ids
+                else tuple(route.route_id for route in top_routes[:3])
+            )
+        )
         queries.append(
             PreferenceQuery(
                 key="certified_focus",
@@ -82,10 +104,13 @@ def suggest_preference_queries(state: PreferenceState, *, limit: int = 3) -> tup
                 prompt="Should routing require a certified route and abstain if no compatible route is certified?",
                 rationale="The current preference leader is uncertified or the compatible set has no certified option.",
                 options=("prefer_certified", "allow_uncertified"),
-                route_ids=state.compatible_set.ranked_route_ids[:3],
+                route_ids=certified_focus_route_ids,
                 metadata={
                     "certificate_threshold": state.certificate_threshold,
+                    "certified_only_required": certified_only_required,
                     "compatible_certified_route_ids": list(state.compatible_set.certified_route_ids),
+                    "vetoed_targets": list(state.route_veto_targets()),
+                    "time_guard_active": state.has_time_guard(),
                 },
             )
         )
@@ -164,7 +189,8 @@ def suggest_preference_queries(state: PreferenceState, *, limit: int = 3) -> tup
                 )
             )
 
-    return _dedupe_queries(queries, limit)
+    ordered = sorted(queries, key=_query_priority)
+    return _dedupe_queries(ordered, limit)
 
 
 def suggest_preference_query(state: PreferenceState) -> PreferenceQuery | None:
@@ -174,6 +200,8 @@ def suggest_preference_query(state: PreferenceState) -> PreferenceQuery | None:
 
 def constraint_for_query_answer(query: PreferenceQuery, answer: Any) -> ElicitedConstraint | None:
     answer_text = (_as_text(answer) or "").lower()
+    if query.kind == "certified_focus" and answer_text in {"yes", "true", "prefer_certified", "certified_only"}:
+        return ElicitedConstraint.veto("uncertified", source="query_answer")
     if query.kind == "route_veto" and answer_text in {"yes", "veto", "veto_tolls", "avoid"} and query.target:
         return ElicitedConstraint.veto(query.target, source="query_answer")
     return None

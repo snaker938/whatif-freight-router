@@ -30,6 +30,10 @@ def test_voi_dccs_cache_deep_copies_payload() -> None:
     assert entry is not None
     assert entry.schema_version == VOI_DCCS_CACHE_SCHEMA_VERSION
     assert entry.entry_kind == "dccs_selection"
+    stats = cache.snapshot()
+    assert stats["schema_version"] == VOI_DCCS_CACHE_SCHEMA_VERSION
+    assert stats["invalidation_counters"]["expired"] == 0
+    assert stats["invalidation_counters"]["schema_mismatch"] == 0
 
 
 def test_voi_dccs_cache_expires_and_tracks_stats(monkeypatch) -> None:
@@ -44,8 +48,10 @@ def test_voi_dccs_cache_expires_and_tracks_stats(monkeypatch) -> None:
     assert cache.get("selection") is None
 
     stats = cache.snapshot()
+    assert stats["schema_version"] == VOI_DCCS_CACHE_SCHEMA_VERSION
     assert stats["hits"] == 1
     assert stats["misses"] >= 1
+    assert stats["invalidation_counters"]["expired"] >= 1
 
 
 def test_voi_dccs_cache_evicts_by_byte_budget() -> None:
@@ -75,3 +81,15 @@ def test_voi_dccs_cache_invalidates_stale_schema_entry() -> None:
     stats = cache.snapshot()
     assert stats["size"] == 0
     assert stats["misses"] >= 1
+    assert stats["schema_version"] == VOI_DCCS_CACHE_SCHEMA_VERSION
+    assert stats["invalidation_counters"]["schema_mismatch"] >= 1
+
+
+def test_voi_dccs_cache_clear_tracks_manual_invalidation() -> None:
+    cache = VoiDccsCacheStore(ttl_s=60, max_entries=8, max_estimated_bytes=1_000_000)
+
+    assert cache.set("selection", _selection_payload(4.0)) is True
+    assert cache.clear() == 1
+
+    stats = cache.snapshot()
+    assert stats["invalidation_counters"]["manual_clear"] >= 1

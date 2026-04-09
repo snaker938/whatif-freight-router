@@ -55,6 +55,12 @@ class CandidateEnvelope:
     stretch_bounds: CandidateEnvelopeBounds
     confidence_floor: float
     confidence_mean: float
+    dominance_margin: float = 0.0
+    safe_elimination_reason: str | None = None
+    search_deficiency_score: float = 0.0
+    hidden_challenger_score: float = 0.0
+    anti_collapse_quota: float = 0.0
+    long_corridor_search_completeness: float = 1.0
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -99,6 +105,12 @@ def build_candidate_envelope(
     predicted_refine_cost: float,
     overlap: float,
     stretch: float,
+    dominance_margin: float = 0.0,
+    safe_elimination_reason: str | None = None,
+    search_deficiency_score: float = 0.0,
+    hidden_challenger_score: float = 0.0,
+    anti_collapse_quota: float = 0.0,
+    long_corridor_search_completeness: float = 1.0,
     objective_names: Sequence[str] = DEFAULT_OBJECTIVE_NAMES,
 ) -> CandidateEnvelope:
     confidences = _confidence_by_objective(proxy_confidence, objective_names=objective_names)
@@ -145,4 +157,14 @@ def build_candidate_envelope(
         ),
         confidence_floor=float(confidence_floor),
         confidence_mean=float(confidence_mean),
+        dominance_margin=float(dominance_margin),
+        safe_elimination_reason=(
+            str(safe_elimination_reason).strip() or None
+            if safe_elimination_reason is not None
+            else None
+        ),
+        search_deficiency_score=max(0.0, float(search_deficiency_score)),
+        hidden_challenger_score=max(0.0, float(hidden_challenger_score)),
+        anti_collapse_quota=max(0.0, min(1.0, float(anti_collapse_quota))),
+        long_corridor_search_completeness=max(0.0, min(1.0, float(long_corridor_search_completeness))),
     )

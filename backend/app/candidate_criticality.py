@@ -44,6 +44,12 @@ class CandidateCriticalityEstimate:
     time_preservation_bonus: float
     confidence_mean: float
     predicted_refine_cost: float
+    dominance_margin: float = 0.0
+    safe_elimination_reason: str | None = None
+    search_deficiency_score: float = 0.0
+    hidden_challenger_score: float = 0.0
+    anti_collapse_pressure: float = 0.0
+    long_corridor_search_completeness: float = 1.0
     observed_refine_cost: float | None = None
     refine_cost_error: float | None = None
 
@@ -60,6 +66,12 @@ def build_candidate_criticality_estimate(
     stretch: float,
     time_preservation_bonus: float,
     predicted_refine_cost: float,
+    dominance_margin: float = 0.0,
+    safe_elimination_reason: str | None = None,
+    search_deficiency_score: float = 0.0,
+    hidden_challenger_score: float = 0.0,
+    anti_collapse_pressure: float = 0.0,
+    long_corridor_search_completeness: float = 1.0,
     proxy_confidence: Mapping[str, float] | None = None,
     candidate_envelope: CandidateEnvelope | None = None,
     observed_refine_cost: float | None = None,
@@ -67,6 +79,34 @@ def build_candidate_criticality_estimate(
 ) -> CandidateCriticalityEstimate:
     novelty_signal = max(0.0, 1.0 - float(overlap))
     stretch_penalty = max(0.0, float(stretch) - 1.0)
+    dominance_signal = max(0.0, min(1.0, float(dominance_margin) / 0.12))
+    time_competitiveness = max(
+        0.0,
+        min(
+            1.0,
+            (0.70 * max(0.0, float(time_preservation_bonus)))
+            + (0.30 * dominance_signal),
+        ),
+    )
+    slow_tradeoff_penalty = max(
+        0.0,
+        min(
+            1.0,
+            max(0.0, (0.60 - time_competitiveness) / 0.60)
+            * (0.45 + (0.55 * max(0.0, 1.0 - dominance_signal))),
+        ),
+    )
+    long_corridor_gap = max(0.0, min(1.0, 1.0 - float(long_corridor_search_completeness)))
+    challenger_pressure = max(
+        0.0,
+        min(
+            1.0,
+            (0.34 * max(0.0, float(hidden_challenger_score)))
+            + (0.28 * max(0.0, float(search_deficiency_score)))
+            + (0.22 * max(0.0, float(anti_collapse_pressure)))
+            + (0.16 * long_corridor_gap),
+        ),
+    )
     confidence_mean = _confidence_mean(
         proxy_confidence,
         candidate_envelope=candidate_envelope,
@@ -78,12 +118,18 @@ def build_candidate_criticality_estimate(
         + (0.35 * novelty_signal)
         + (0.45 * max(0.0, float(time_preservation_bonus)))
         + (0.20 * confidence_mean)
+        + (0.20 * time_competitiveness)
+        + (0.35 * dominance_signal)
+        + (0.25 * challenger_pressure)
     )
-    penalty = 1.0 + max(0.0, float(predicted_refine_cost)) + stretch_penalty
+    penalty = 1.0 + max(0.0, float(predicted_refine_cost)) + stretch_penalty + (0.55 * slow_tradeoff_penalty)
     value_density = benefit / max(1e-9, penalty)
     criticality_score = 1.0 - math.exp(-value_density)
     decision_critical = (
-        float(objective_gap) > 1e-9 or float(flip_probability) >= 0.5
+        float(objective_gap) > 1e-9
+        or float(flip_probability) >= 0.5
+        or dominance_signal >= 0.30
+        or challenger_pressure >= 0.45
     )
     return CandidateCriticalityEstimate(
         schema_version=CANDIDATE_CRITICALITY_SCHEMA_VERSION,
@@ -101,6 +147,16 @@ def build_candidate_criticality_estimate(
         time_preservation_bonus=float(max(0.0, time_preservation_bonus)),
         confidence_mean=float(confidence_mean),
         predicted_refine_cost=float(max(0.0, predicted_refine_cost)),
+        dominance_margin=float(max(0.0, dominance_margin)),
+        safe_elimination_reason=(
+            str(safe_elimination_reason).strip() or None
+            if safe_elimination_reason is not None
+            else None
+        ),
+        search_deficiency_score=float(max(0.0, search_deficiency_score)),
+        hidden_challenger_score=float(max(0.0, hidden_challenger_score)),
+        anti_collapse_pressure=float(max(0.0, min(1.0, anti_collapse_pressure))),
+        long_corridor_search_completeness=float(max(0.0, min(1.0, long_corridor_search_completeness))),
         observed_refine_cost=None if observed_refine_cost is None else float(observed_refine_cost),
         refine_cost_error=None if refine_cost_error is None else float(refine_cost_error),
     )

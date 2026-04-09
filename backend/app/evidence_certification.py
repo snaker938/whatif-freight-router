@@ -543,6 +543,7 @@ def _normalised_ambiguity_context(raw: Mapping[str, Any] | None) -> dict[str, An
         or normalized["od_ambiguity_family_density"] >= 0.28
         or normalized["od_ambiguity_margin_pressure"] >= 0.25
     )
+    normalized["support_rich_structural_support"] = support_rich_structural_support
     normalized["is_supported_ambiguity_case"] = bool(
         not normalized["is_hard_case"]
         and support_strength >= 0.45
@@ -564,6 +565,14 @@ def _normalised_ambiguity_context(raw: Mapping[str, Any] | None) -> dict[str, An
     )
     normalized["context_strength"] = projected_context_strength
     return normalized
+
+
+def selector_time_preserving_frontier_guard_active(ambiguity_context: Mapping[str, Any] | None) -> bool:
+    context = _normalised_ambiguity_context(ambiguity_context)
+    return bool(
+        context.get("support_rich_structural_support")
+        and (context.get("is_hard_case") or context.get("is_supported_ambiguity_case"))
+    )
 
 
 def refc_requires_full_stress_worlds(ambiguity_context: Mapping[str, Any] | None) -> bool:

@@ -61,6 +61,16 @@ def _dedupe_constraints(constraints: Sequence[ElicitedConstraint]) -> tuple[Elic
     return tuple(ordered.values())
 
 
+def _veto_removal_keys(target: str | None) -> tuple[str, ...]:
+    if not target:
+        return ()
+    normalized = target.strip().lower()
+    keys = {f"veto_{normalized}"}
+    if normalized in {"uncertified", "certified_only"}:
+        keys.update({"veto_uncertified", "veto_certified_only"})
+    return tuple(sorted(keys))
+
+
 def apply_preference_update(state: PreferenceState, update: PreferenceUpdate) -> PreferenceState:
     request_context = dict(state.request_context)
     cost_toggles = dict(request_context.get("cost_toggles") or {})
@@ -86,7 +96,7 @@ def apply_preference_update(state: PreferenceState, update: PreferenceUpdate) ->
     if update.require_certified is True:
         constraints.append(ElicitedConstraint.veto("uncertified", source="preference_update"))
     elif update.require_certified is False:
-        remove_keys.add("veto_uncertified")
+        remove_keys.update({"veto_uncertified", "veto_certified_only"})
 
     if update.time_guard is not None:
         if update.time_guard.is_active():
@@ -160,7 +170,7 @@ def apply_query_answer(state: PreferenceState, query: PreferenceQuery, answer: A
             return apply_preference_update(state, PreferenceUpdate(route_veto_ids=(query.target or "",)))
         return apply_preference_update(
             state,
-            PreferenceUpdate(remove_constraint_keys=(f"veto_{query.target}",) if query.target else ()),
+            PreferenceUpdate(remove_constraint_keys=_veto_removal_keys(query.target)),
         )
 
     if query.kind == "time_guard":

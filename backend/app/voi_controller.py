@@ -11,8 +11,10 @@ from .evidence_certification import FragilityResult
 from .replay_oracle import (
     ActionReplayRecord,
     ActionValueEstimate,
+    ReplayOracleSummary,
     build_action_replay_record as _build_replay_action_record,
     build_action_value_estimate as _build_replay_action_value_estimate,
+    replay_oracle_summary_from_trace_rows,
 )
 
 # VOI-AD2R uses a deterministic myopic value-per-cost controller. The design is
@@ -814,6 +816,7 @@ class VOIStopCertificate:
     state_trace: list[dict[str, Any]]
     best_rejected_action: dict[str, Any] | None
     ambiguity_summary: dict[str, Any]
+    replay_oracle_summary: dict[str, Any] | None = None
     iteration_count: int = 0
     controller_state: dict[str, Any] | None = None
 
@@ -4529,6 +4532,37 @@ def _selected_route_uses_cached_direct_fallback(state: "VOIControllerState") -> 
     return any(_has_direct_fallback_source_marker(marker) for marker in source_markers)
 
 
+def _support_backed_fallback_is_structurally_thin(state: "VOIControllerState") -> bool:
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    if not bool(ambiguity_context.get("graph_supported_ambiguity_fast_fallback")):
+        return False
+
+    candidate_path_count = int(max(0.0, _as_float(ambiguity_context.get("od_candidate_path_count"), 0.0)))
+    corridor_family_count = int(max(0.0, _as_float(ambiguity_context.get("od_corridor_family_count"), 0.0)))
+    single_frontier_shortcut = "single_frontier_shortcut" in str(
+        ambiguity_context.get("refc_world_count_policy") or ""
+    )
+    low_diversity_counts = bool(
+        candidate_path_count > 0
+        and candidate_path_count <= 2
+        and corridor_family_count > 0
+        and corridor_family_count <= 2
+    )
+    low_diversity_single_frontier = bool(
+        len(state.frontier) <= 1
+        and (
+            (candidate_path_count > 0 and candidate_path_count <= 2)
+            or (corridor_family_count > 0 and corridor_family_count <= 2)
+            or (
+                not bool(ambiguity_context.get("supplemental_challenger_activated", False))
+                and _clamp01(state.corridor_family_recall) >= 0.65
+                and _clamp01(state.frontier_recall_at_budget) >= 0.65
+            )
+        )
+    )
+    return bool(single_frontier_shortcut or low_diversity_counts or low_diversity_single_frontier)
+
+
 def _suppress_cached_direct_fallback_search_churn(
     actions: Sequence[VOIAction],
     *,
@@ -4551,9 +4585,9 @@ def _suppress_cached_direct_fallback_search_churn(
     predicted_frontier = max(0.0, _as_float(best_search_action.predicted_delta_frontier))
     threshold = _as_float(config.certificate_threshold)
     ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
-    fast_path_shortcut = bool(
+    search_churn_shortcut = bool(
         ambiguity_context.get("graph_low_ambiguity_fast_path")
-        or ambiguity_context.get("graph_supported_ambiguity_fast_fallback")
+        or _support_backed_fallback_is_structurally_thin(state)
     )
     remove_search_only = [
         action
@@ -4563,7 +4597,7 @@ def _suppress_cached_direct_fallback_search_churn(
 
     if (
         current_certificate >= threshold
-        and fast_path_shortcut
+        and search_churn_shortcut
         and len(state.frontier) <= 2
         and max(0.0, _as_float(best_search_action.predicted_delta_certificate)) <= 1e-9
     ):
@@ -5402,6 +5436,96 @@ def action_scoring_primitives(
     }
 
 
+def _low_ambiguity_fast_path(
+    state: VOIControllerState,
+    *,
+    current_certificate: float | None = None,
+) -> bool:
+    context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
+    explicit_fast_path = bool(
+        context.get("graph_low_ambiguity_fast_path")
+        or context.get("low_ambiguity_fast_path")
+        or context.get("controller_low_ambiguity_fast_path")
+    )
+    if explicit_fast_path:
+        return True
+    certificate = _clamp01(current_certificate if current_certificate is not None else _certificate_value_from_map(state.certificate, state.winner_id))
+    return bool(
+        certificate >= 0.82
+        and _clamp01(state.search_completeness_score) >= 0.90
+        and _clamp01(state.search_completeness_gap) <= 0.10
+        and _clamp01(state.support_richness) >= 0.65
+        and _clamp01(state.near_tie_mass) <= 0.08
+        and _clamp01(state.pending_challenger_mass) <= 0.12
+        and _clamp01(state.best_pending_flip_probability) <= 0.18
+    )
+
+
+def build_controller_replay_summary(
+    stop_certificate: VOIStopCertificate,
+    *,
+    trace_source: str = "voi_controller.run_controller",
+) -> ReplayOracleSummary:
+    replay_summary = replay_oracle_summary_from_trace_rows(
+        stop_certificate.action_trace,
+        trace_source=trace_source,
+        low_ambiguity_fast_path=bool(stop_certificate.ambiguity_summary.get("low_ambiguity_fast_path", False)),
+        trace_metadata={
+            "stop_reason": stop_certificate.stop_reason,
+            "final_route_id": stop_certificate.final_winner_route_id,
+            "final_certificate_value": stop_certificate.certificate_value,
+            "search_budget_used": stop_certificate.search_budget_used,
+            "evidence_budget_used": stop_certificate.evidence_budget_used,
+            "iteration_count": stop_certificate.iteration_count,
+        },
+        replay_metadata={
+            "stop_reason": stop_certificate.stop_reason,
+            "certified": stop_certificate.certified,
+        },
+        oracle_metadata={
+            "final_strict_frontier_size": stop_certificate.final_strict_frontier_size,
+        },
+    )
+    return replay_summary
+
+
+def _build_stop_certificate(
+    *,
+    state: VOIControllerState,
+    fragility: FragilityResult,
+    cfg: VOIConfig,
+    current_certificate: float,
+    certified: bool,
+    stop_reason: str,
+    best_rejected_action: dict[str, Any] | None,
+) -> VOIStopCertificate:
+    stop_certificate = VOIStopCertificate(
+        final_winner_route_id=state.winner_id,
+        final_winner_objective_vector=_winner_objective_vector(state),
+        final_strict_frontier_size=len(state.frontier),
+        certificate_value=current_certificate,
+        certified=certified,
+        search_budget_used=cfg.search_budget - state.remaining_search_budget,
+        search_budget_remaining=state.remaining_search_budget,
+        evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
+        evidence_budget_remaining=state.remaining_evidence_budget,
+        stop_reason=stop_reason,
+        action_trace=list(state.action_trace),
+        state_trace=list(state.state_trace),
+        best_rejected_action=best_rejected_action,
+        ambiguity_summary={
+            **_ambiguity_summary(fragility, state.winner_id),
+            "low_ambiguity_fast_path": bool(_low_ambiguity_fast_path(state, current_certificate=current_certificate)),
+        },
+        iteration_count=state.iteration_index,
+        controller_state=state.as_dict(),
+    )
+    return replace(
+        stop_certificate,
+        replay_oracle_summary=build_controller_replay_summary(stop_certificate).as_dict(),
+    )
+
+
 def build_action_trace_metadata(
     *,
     state: VOIControllerState,
@@ -5434,6 +5558,7 @@ def build_action_trace_metadata(
         "best_rejected_action_kind": str(rejected_payload.get("kind", "")).strip(),
         "credible_search_uncertainty": bool(state.credible_search_uncertainty),
         "credible_evidence_uncertainty": bool(state.credible_evidence_uncertainty),
+        "low_ambiguity_fast_path": bool(_low_ambiguity_fast_path(state, current_certificate=current_certificate)),
     }
 
 
@@ -6921,93 +7046,57 @@ def run_controller(
             )
             and not credible_evidence
         ):
-            return VOIStopCertificate(
-                final_winner_route_id=state.winner_id,
-                final_winner_objective_vector=_winner_objective_vector(state),
-                final_strict_frontier_size=len(state.frontier),
-                certificate_value=current_certificate,
+            return _build_stop_certificate(
+                state=state,
+                fragility=fragility,
+                cfg=cfg,
+                current_certificate=current_certificate,
                 certified=True,
-                search_budget_used=cfg.search_budget - state.remaining_search_budget,
-                search_budget_remaining=state.remaining_search_budget,
-                evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
-                evidence_budget_remaining=state.remaining_evidence_budget,
                 stop_reason="certified",
-                action_trace=list(state.action_trace),
-                state_trace=list(state.state_trace),
                 best_rejected_action=best_rejected_action,
-                ambiguity_summary=_ambiguity_summary(fragility, state.winner_id),
-                iteration_count=state.iteration_index,
-                controller_state=state.as_dict(),
             )
         if state.remaining_search_budget <= 0 and state.remaining_evidence_budget <= 0:
-            return VOIStopCertificate(
-                final_winner_route_id=state.winner_id,
-                final_winner_objective_vector=_winner_objective_vector(state),
-                final_strict_frontier_size=len(state.frontier),
-                certificate_value=current_certificate,
+            return _build_stop_certificate(
+                state=state,
+                fragility=fragility,
+                cfg=cfg,
+                current_certificate=current_certificate,
                 certified=False,
-                search_budget_used=cfg.search_budget - state.remaining_search_budget,
-                search_budget_remaining=state.remaining_search_budget,
-                evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
-                evidence_budget_remaining=state.remaining_evidence_budget,
                 stop_reason="budget_exhausted",
-                action_trace=list(state.action_trace),
-                state_trace=list(state.state_trace),
                 best_rejected_action=best_rejected_action,
-                ambiguity_summary=_ambiguity_summary(fragility, state.winner_id),
-                iteration_count=state.iteration_index,
-                controller_state=state.as_dict(),
             )
 
         actions = build_action_menu(state, dccs=dccs, fragility=fragility, config=cfg)
         feasible_actions = [action for action in actions if action.kind != "stop"]
         if not feasible_actions:
-            return VOIStopCertificate(
-                final_winner_route_id=state.winner_id,
-                final_winner_objective_vector=_winner_objective_vector(state),
-                final_strict_frontier_size=len(state.frontier),
-                certificate_value=current_certificate,
+            return _build_stop_certificate(
+                state=state,
+                fragility=fragility,
+                cfg=cfg,
+                current_certificate=current_certificate,
                 certified=False,
-                search_budget_used=cfg.search_budget - state.remaining_search_budget,
-                search_budget_remaining=state.remaining_search_budget,
-                evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
-                evidence_budget_remaining=state.remaining_evidence_budget,
                 stop_reason=(
                     "search_incomplete_no_action_worth_it"
                     if state.search_completeness_score < cfg.search_completeness_threshold
                     else "no_action_worth_it"
                 ),
-                action_trace=list(state.action_trace),
-                state_trace=list(state.state_trace),
                 best_rejected_action=best_rejected_action,
-                ambiguity_summary=_ambiguity_summary(fragility, state.winner_id),
-                iteration_count=state.iteration_index,
-                controller_state=state.as_dict(),
             )
         top_action = feasible_actions[0]
         if top_action.q_score < cfg.stop_threshold:
             best_rejected_action = top_action.as_dict()
-            return VOIStopCertificate(
-                final_winner_route_id=state.winner_id,
-                final_winner_objective_vector=_winner_objective_vector(state),
-                final_strict_frontier_size=len(state.frontier),
-                certificate_value=current_certificate,
+            return _build_stop_certificate(
+                state=state,
+                fragility=fragility,
+                cfg=cfg,
+                current_certificate=current_certificate,
                 certified=False,
-                search_budget_used=cfg.search_budget - state.remaining_search_budget,
-                search_budget_remaining=state.remaining_search_budget,
-                evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
-                evidence_budget_remaining=state.remaining_evidence_budget,
                 stop_reason=(
                     "search_incomplete_no_action_worth_it"
                     if state.search_completeness_score < cfg.search_completeness_threshold
                     else "no_action_worth_it"
                 ),
-                action_trace=list(state.action_trace),
-                state_trace=list(state.state_trace),
                 best_rejected_action=best_rejected_action,
-                ambiguity_summary=_ambiguity_summary(fragility, state.winner_id),
-                iteration_count=state.iteration_index,
-                controller_state=state.as_dict(),
             )
         if hooks is None and top_action.kind != "stop":
             failed_best_rejected = feasible_actions[1].as_dict() if len(feasible_actions) > 1 else None
@@ -7037,23 +7126,19 @@ def run_controller(
                 best_rejected_action=failed_best_rejected,
                 config=cfg,
             )
-            return VOIStopCertificate(
-                final_winner_route_id=state.winner_id,
-                final_winner_objective_vector=_winner_objective_vector(state),
-                final_strict_frontier_size=len(state.frontier),
-                certificate_value=current_certificate,
-                certified=False,
-                search_budget_used=cfg.search_budget - state.remaining_search_budget,
-                search_budget_remaining=state.remaining_search_budget,
-                evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
-                evidence_budget_remaining=state.remaining_evidence_budget,
-                stop_reason="error_missing_action_hooks",
+            state = replace(
+                state,
                 action_trace=[*state.action_trace, failure_trace_entry],
                 state_trace=[*state.state_trace, failure_state_snapshot],
+            )
+            return _build_stop_certificate(
+                state=state,
+                fragility=fragility,
+                cfg=cfg,
+                current_certificate=current_certificate,
+                certified=False,
+                stop_reason="error_missing_action_hooks",
                 best_rejected_action=failed_best_rejected,
-                ambiguity_summary=_ambiguity_summary(fragility, state.winner_id),
-                iteration_count=state.iteration_index,
-                controller_state=state.as_dict(),
             )
 
         best_rejected_action = feasible_actions[1].as_dict() if len(feasible_actions) > 1 else None
@@ -7116,21 +7201,12 @@ def run_controller(
         stop_reason = "budget_exhausted"
     else:
         stop_reason = "iteration_cap_reached"
-    return VOIStopCertificate(
-        final_winner_route_id=state.winner_id,
-        final_winner_objective_vector=_winner_objective_vector(state),
-        final_strict_frontier_size=len(state.frontier),
-        certificate_value=current_certificate,
+    return _build_stop_certificate(
+        state=state,
+        fragility=fragility,
+        cfg=cfg,
+        current_certificate=current_certificate,
         certified=current_certificate >= cfg.certificate_threshold,
-        search_budget_used=cfg.search_budget - state.remaining_search_budget,
-        search_budget_remaining=state.remaining_search_budget,
-        evidence_budget_used=cfg.evidence_budget - state.remaining_evidence_budget,
-        evidence_budget_remaining=state.remaining_evidence_budget,
         stop_reason=stop_reason,
-        action_trace=list(state.action_trace),
-        state_trace=list(state.state_trace),
         best_rejected_action=best_rejected_action,
-        ambiguity_summary=_ambiguity_summary(fragility, state.winner_id),
-        iteration_count=state.iteration_index,
-        controller_state=state.as_dict(),
     )

@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from app import route_cache
 from app.main import app, osrm_client
 from app.departure_profile import DepartureMultiplier
-from app.models import CostToggles
+from app.models import CostToggles, DecisionPackage, GeoJSONLineString, RouteMetrics, RouteOption, ScenarioSummary
 from app.routing_graph import GraphCandidateDiagnostics
 from app.scenario import ScenarioMode, ScenarioPolicy, ScenarioRouteContext
 from app.settings import settings
@@ -66,6 +66,44 @@ def _payload(*, carbon_price: float = 0.0) -> dict[str, Any]:
             "toll_cost_per_km": 0.0,
         },
     }
+
+
+def _route_option_from_raw_route(
+    raw_route: dict[str, Any],
+    *,
+    route_id: str,
+    scenario_mode: ScenarioMode,
+) -> RouteOption:
+    coords = [
+        (float(point[0]), float(point[1]))
+        for point in raw_route["geometry"]["coordinates"]
+    ]
+    coords = main_module._downsample_coords(coords)
+    distance_km = float(raw_route["distance"]) / 1000.0
+    duration_s = float(raw_route["duration"])
+    avg_speed_kmh = distance_km / max(duration_s / 3600.0, 1e-9)
+    return RouteOption(
+        id=route_id,
+        geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+        metrics=RouteMetrics(
+            distance_km=distance_km,
+            duration_s=duration_s,
+            monetary_cost=distance_km * 2.0,
+            emissions_kg=distance_km * 0.8,
+            avg_speed_kmh=avg_speed_kmh,
+        ),
+        scenario_summary=ScenarioSummary(
+            mode=scenario_mode,
+            duration_multiplier=1.0,
+            incident_rate_multiplier=1.0,
+            incident_delay_multiplier=1.0,
+            fuel_consumption_multiplier=1.0,
+            emissions_multiplier=1.0,
+            stochastic_sigma_multiplier=1.0,
+            source="pytest",
+            version="pytest",
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -255,7 +293,103 @@ def _runtime_stubs(monkeypatch: pytest.MonkeyPatch):
     calibration_loader.load_scenario_profiles.cache_clear()
 
 
-def test_route_cache_hits_and_keying() -> None:
+@pytest.fixture
+def _bounded_tri_source_cache_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["pipeline_mode"] == "tri_source"
+        req = kwargs["req"]
+        osrm = kwargs["osrm"]
+        raw_routes: list[dict[str, Any]] = []
+
+        for idx in range(9):
+            via = [(52.2 + (idx * 0.01), -1.1 + (idx * 0.01))]
+            cache_key = main_module._graph_refine_route_cache_key(
+                origin=req.origin,
+                destination=req.destination,
+                alternatives=False,
+                via=via,
+                vehicle_type=req.vehicle_type,
+                scenario_mode=req.scenario_mode,
+                cost_toggles=req.cost_toggles,
+                terrain_profile=req.terrain_profile,
+                departure_time_utc=req.departure_time_utc,
+                scenario_cache_token=None,
+            )
+            cached = route_cache.get_cached_routes(cache_key)
+            if cached is not None:
+                candidate_routes = cached[0]
+            else:
+                candidate_routes = await osrm.fetch_routes(
+                    origin=req.origin,
+                    destination=req.destination,
+                    alternatives=False,
+                    via=via,
+                )
+                route_cache.set_cached_routes(
+                    cache_key,
+                    (
+                        candidate_routes,
+                        [],
+                        1,
+                        {
+                            "label": f"graph_family:route_{idx}",
+                            "cache_kind": "graph_refine",
+                        },
+                    ),
+                )
+            raw_routes.append(dict(candidate_routes[0]))
+
+        options = [
+            _route_option_from_raw_route(
+                raw_route,
+                route_id=f"route_{idx}",
+                scenario_mode=req.scenario_mode,
+            )
+            for idx, raw_route in enumerate(raw_routes, start=1)
+        ]
+        selected = options[0]
+        return {
+            "selected": selected,
+            "candidates": options,
+            "warnings": [],
+            "candidate_fetches": len(raw_routes),
+            "terrain_diag": main_module.TerrainDiagnostics(),
+            "candidate_diag": main_module.CandidateDiagnostics(
+                raw_count=len(raw_routes),
+                deduped_count=len(options),
+                candidate_budget=len(options),
+            ),
+            "selected_certificate": None,
+            "voi_stop_summary": None,
+            "extra_json_artifacts": {},
+            "extra_jsonl_artifacts": {},
+            "extra_csv_artifacts": {},
+            "extra_text_artifacts": {},
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_build_route_decision_package",
+        lambda **kwargs: DecisionPackage(selected_route_id=kwargs["selected"].id),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_write_route_run_bundle",
+        lambda **_kwargs: {
+            "run_id": "pytest-route-cache",
+            "manifest_endpoint": "/runs/pytest-route-cache/manifest",
+            "artifacts_endpoint": "/runs/pytest-route-cache/artifacts",
+            "provenance_endpoint": "/runs/pytest-route-cache/provenance",
+        },
+    )
+
+
+def test_route_cache_hits_and_keying(_bounded_tri_source_cache_runtime: None) -> None:
     osrm = CountingOSRM()
     app.dependency_overrides[osrm_client] = lambda: osrm
     route_cache.clear_route_cache()
@@ -284,7 +418,16 @@ def test_route_cache_hits_and_keying() -> None:
             assert stats["hits"] >= 1
             assert stats["misses"] >= 2
             assert stats["size"] >= 1
+            assert stats["schema_version"] == route_cache.ROUTE_CACHE_SCHEMA_VERSION
+            assert stats["checkpoint_operations"] == 0
+            assert stats["restore_operations"] == 0
+            assert stats["invalidation_counters"]["expired"] == 0
+            assert stats["invalidation_counters"]["manual_clear"] >= 0
             assert "hot_rerun_route_cache_checkpoint" in stats_payload
+            checkpoint_stats = stats_payload["hot_rerun_route_cache_checkpoint"]
+            assert checkpoint_stats["schema_version"] == route_cache.ROUTE_CACHE_SCHEMA_VERSION
+            assert checkpoint_stats["checkpoint_operations"] == 0
+            assert checkpoint_stats["restore_operations"] == 0
             assert "certification_cache" in stats_payload
     finally:
         app.dependency_overrides.clear()
@@ -366,6 +509,17 @@ def test_route_cache_checkpoint_restore_round_trip() -> None:
         cached = route_cache.get_cached_routes("checkpoint-key")
         assert cached is not None
         assert cached[0][0]["route_id"] == "route-1"
+        active_stats = route_cache.route_cache_stats()
+        checkpoint_stats = route_cache.route_cache_checkpoint_stats()
+        assert active_stats["schema_version"] == route_cache.ROUTE_CACHE_SCHEMA_VERSION
+        assert active_stats["checkpoint_operations"] >= 1
+        assert active_stats["checkpointed_entries"] >= 1
+        assert active_stats["restore_operations"] >= 1
+        assert active_stats["restored_entries"] >= 1
+        assert checkpoint_stats["checkpoint_operations"] >= 1
+        assert checkpoint_stats["checkpointed_entries"] >= 1
+        assert checkpoint_stats["restore_operations"] >= 1
+        assert checkpoint_stats["restored_entries"] >= 1
     finally:
         route_cache.clear_route_cache()
         route_cache.clear_route_cache_checkpoint()
@@ -466,7 +620,7 @@ def test_scenario_policy_cache_is_keyed_by_exact_context(monkeypatch: pytest.Mon
     assert cache[(ScenarioMode.PARTIAL_SHARING.value, weekday.context_key)] is weekday_policy
 
 
-def test_route_cache_ttl_expiry_causes_recompute() -> None:
+def test_route_cache_ttl_expiry_causes_recompute(_bounded_tri_source_cache_runtime: None) -> None:
     osrm = CountingOSRM()
     app.dependency_overrides[osrm_client] = lambda: osrm
     route_cache.clear_route_cache()
@@ -484,6 +638,8 @@ def test_route_cache_ttl_expiry_causes_recompute() -> None:
             second = client.post("/route", json=_payload(carbon_price=0.0))
             assert second.status_code == 200
             assert osrm.calls == first_fetch_count * 2
+            stats = route_cache.route_cache_stats()
+            assert stats["invalidation_counters"]["expired"] >= 1
     finally:
         route_cache.ROUTE_CACHE._ttl_s = old_ttl
         app.dependency_overrides.clear()

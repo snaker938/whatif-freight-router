@@ -728,16 +728,16 @@ def test_route_defaults_to_tri_source_public_mode_and_emits_decision_package(
                     },
                 },
                 "voi_action_trace.json": {
-                    "pipeline_mode": "voi",
+                    "pipeline_mode": "tri_source",
                     "selected_route_id": "tri_route_1",
                     "actions": [{"kind": "stop", "action_id": "stop", "q_score": 0.0}],
                 },
                 "voi_stop_certificate.json": {
-                    "pipeline_mode": "voi",
+                    "pipeline_mode": "tri_source",
                     "final_winner_route_id": "tri_route_1",
                     "certificate_value": 0.91,
                 },
-                "final_route_trace.json": {"pipeline_mode": "voi", "artifact_pointers": {}},
+                "final_route_trace.json": {"pipeline_mode": "tri_source", "artifact_pointers": {}},
             },
             "extra_jsonl_artifacts": {
                 "strict_frontier.jsonl": [
@@ -751,7 +751,7 @@ def test_route_defaults_to_tri_source_public_mode_and_emits_decision_package(
                         "emissions_kg": 141.8,
                     }
                 ],
-                "voi_controller_state.jsonl": [{"iteration_index": 0, "pipeline_mode": "voi"}],
+                "voi_controller_state.jsonl": [{"iteration_index": 0, "pipeline_mode": "tri_source"}],
             },
             "extra_csv_artifacts": {},
         }
@@ -765,7 +765,7 @@ def test_route_defaults_to_tri_source_public_mode_and_emits_decision_package(
     resp = client.post("/route", json=_pareto_payload())
     assert resp.status_code == 200
     data = resp.json()
-    assert captured["pipeline_mode"] == "voi"
+    assert captured["pipeline_mode"] == "tri_source"
     assert data["pipeline_mode"] == "tri_source"
     assert data["decision_package"]["pipeline_mode"] == "tri_source"
 

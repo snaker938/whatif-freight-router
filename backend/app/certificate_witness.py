@@ -7,6 +7,48 @@ from .abstention import AbstentionRecord
 from .certification_models import CertificationState
 
 
+def _coerce_route_fragility_map(
+    fragility: Mapping[str, Any] | None,
+) -> dict[str, dict[str, float]]:
+    if not isinstance(fragility, Mapping):
+        return {}
+    raw_route_map = fragility.get("route_fragility_map")
+    candidate_route_map = raw_route_map if isinstance(raw_route_map, Mapping) else fragility
+    route_fragility_map: dict[str, dict[str, float]] = {}
+    for route_id, family_scores in candidate_route_map.items():
+        if not isinstance(route_id, str) or not isinstance(family_scores, Mapping):
+            continue
+        numeric_scores: dict[str, float] = {}
+        for family, score in family_scores.items():
+            try:
+                numeric_scores[str(family)] = float(score)
+            except (TypeError, ValueError):
+                continue
+        if numeric_scores:
+            route_fragility_map[route_id] = numeric_scores
+    return route_fragility_map
+
+
+def _derive_top_fragility_family(
+    winner_id: str,
+    fragility: Mapping[str, Any] | None,
+) -> str | None:
+    if not isinstance(fragility, Mapping):
+        return None
+    if fragility.get("top_refresh_family") is not None:
+        return str(fragility.get("top_refresh_family"))
+    route_fragility_map = _coerce_route_fragility_map(fragility)
+    winner_scores = route_fragility_map.get(winner_id)
+    if winner_scores is None and len(route_fragility_map) == 1:
+        winner_scores = next(iter(route_fragility_map.values()))
+    if not winner_scores:
+        return None
+    return min(
+        winner_scores.items(),
+        key=lambda item: (-float(item[1]), str(item[0])),
+    )[0]
+
+
 @dataclass(frozen=True)
 class CertificateWitness:
     witness_id: str
@@ -48,9 +90,7 @@ class CertificateWitness:
         abstention: AbstentionRecord | None = None,
     ) -> "CertificateWitness":
         fragility_payload = dict(fragility) if isinstance(fragility, Mapping) else {}
-        top_fragility_family = None
-        if fragility_payload.get("top_refresh_family") is not None:
-            top_fragility_family = str(fragility_payload.get("top_refresh_family"))
+        top_fragility_family = _derive_top_fragility_family(state.winner_id, fragility_payload)
         recommended_action = abstention.recommended_action if abstention is not None else (
             "hold" if state.certified else "review"
         )
