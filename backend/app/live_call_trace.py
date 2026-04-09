@@ -25,6 +25,10 @@ class _TraceRecord:
     endpoint: str
     status: str = "running"
     error_reason: str | None = None
+    support_flag: bool | None = None
+    support_status: str | None = None
+    fidelity_class: str | None = None
+    terminal_type: str | None = None
     finished_at_utc: str | None = None
     finished_monotonic_s: float | None = None
     expected_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -108,6 +112,52 @@ def _canonical_source_family(source_key: str) -> str:
     if lowered.startswith("terrain_live_tile:"):
         return "terrain_live_tile"
     return key
+
+
+def _normalize_trace_token(value: Any | None, *, default: str = "unknown") -> str:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return default
+    text = text.lower()
+    for token in (" ", "-", "/", ":", "."):
+        text = text.replace(token, "_")
+    while "__" in text:
+        text = text.replace("__", "_")
+    return text.strip("_") or default
+
+
+def _normalize_trace_flag(value: Any | None) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "y", "supported"}:
+        return True
+    if text in {"0", "false", "no", "n", "unsupported"}:
+        return False
+    return None
+
+
+def _update_trace_metadata_locked(
+    record: _TraceRecord,
+    *,
+    support_flag: bool | None = None,
+    support_status: str | None = None,
+    fidelity_class: str | None = None,
+    terminal_type: str | None = None,
+) -> None:
+    normalized_flag = _normalize_trace_flag(support_flag)
+    if normalized_flag is not None:
+        record.support_flag = normalized_flag
+    if support_status is not None:
+        record.support_status = _normalize_trace_token(support_status)
+    if fidelity_class is not None:
+        record.fidelity_class = _normalize_trace_token(fidelity_class)
+    if terminal_type is not None:
+        record.terminal_type = _normalize_trace_token(terminal_type)
 
 
 def _normalize_expected_call(payload: dict[str, Any]) -> dict[str, Any]:
@@ -273,6 +323,10 @@ def _build_summary(record: _TraceRecord) -> dict[str, Any]:
         "failed_calls": failed_calls,
         "cache_hit_calls": cache_hit_calls,
         "stale_cache_calls": stale_cache_calls,
+        "support_flag": record.support_flag,
+        "support_status": record.support_status,
+        "fidelity_class": record.fidelity_class,
+        "terminal_type": record.terminal_type,
         "expected_total": expected_total,
         "expected_satisfied": expected_satisfied,
         "expected_ok_count": expected_ok_count,
@@ -299,6 +353,10 @@ def _snapshot_with_rollup_locked(record: _TraceRecord) -> dict[str, Any]:
         "failed_calls": sum(1 for row in entries if not bool(row.get("success"))),
         "cache_hit_calls": sum(1 for row in entries if bool(row.get("cache_hit"))),
         "stale_cache_calls": sum(1 for row in entries if bool(row.get("stale_cache_used"))),
+        "support_flag": record.support_flag,
+        "support_status": record.support_status,
+        "fidelity_class": record.fidelity_class,
+        "terminal_type": record.terminal_type,
         "expected_total": len(expected_rollup),
         "expected_satisfied": sum(1 for row in expected_rollup if bool(row.get("satisfied"))),
         "expected_ok_count": sum(1 for row in expected_rollup if str(row.get("status")) == "ok"),
@@ -313,6 +371,10 @@ def _snapshot_with_rollup_locked(record: _TraceRecord) -> dict[str, Any]:
         "endpoint": record.endpoint,
         "status": record.status,
         "error_reason": record.error_reason,
+        "support_flag": record.support_flag,
+        "support_status": record.support_status,
+        "fidelity_class": record.fidelity_class,
+        "terminal_type": record.terminal_type,
         "started_at_utc": record.started_at_utc,
         "finished_at_utc": record.finished_at_utc,
         "expected_calls": list(record.expected_calls),
@@ -329,6 +391,10 @@ def start_trace(
     *,
     endpoint: str,
     expected_calls: list[dict[str, Any]] | None = None,
+    support_flag: bool | None = None,
+    support_status: str | None = None,
+    fidelity_class: str | None = None,
+    terminal_type: str | None = None,
 ) -> contextvars.Token[str | None]:
     token = _TRACE_REQUEST_ID.set(request_id)
     if not _enabled():
@@ -349,6 +415,13 @@ def start_trace(
             endpoint=str(endpoint).strip() or "unknown",
             expected_calls=normalized_expected,
         )
+        _update_trace_metadata_locked(
+            _TRACE_STORE[request_id],
+            support_flag=support_flag,
+            support_status=support_status,
+            fidelity_class=fidelity_class,
+            terminal_type=terminal_type,
+        )
         try:
             _TRACE_ORDER.remove(request_id)
         except ValueError:
@@ -365,6 +438,32 @@ def reset_trace(token: contextvars.Token[str | None] | None) -> None:
         _TRACE_REQUEST_ID.reset(token)
     except Exception:
         pass
+
+
+def record_trace_metadata(
+    *,
+    support_flag: bool | None = None,
+    support_status: str | None = None,
+    fidelity_class: str | None = None,
+    terminal_type: str | None = None,
+    request_id: str | None = None,
+) -> None:
+    if not _enabled():
+        return
+    rid = str(request_id or current_trace_request_id() or "").strip()
+    if not rid:
+        return
+    with _TRACE_LOCK:
+        record = _TRACE_STORE.get(rid)
+        if record is None:
+            return
+        _update_trace_metadata_locked(
+            record,
+            support_flag=support_flag,
+            support_status=support_status,
+            fidelity_class=fidelity_class,
+            terminal_type=terminal_type,
+        )
 
 
 def record_expected_call(
@@ -487,6 +586,10 @@ def record_call(
     response_body_content_type: str | None = None,
     response_body_bytes: int | None = None,
     extra: dict[str, Any] | None = None,
+    support_flag: bool | None = None,
+    support_status: str | None = None,
+    fidelity_class: str | None = None,
+    terminal_type: str | None = None,
     request_id: str | None = None,
 ) -> None:
     if not _enabled():
@@ -540,6 +643,17 @@ def record_call(
         record = _TRACE_STORE.get(rid)
         if record is None:
             return
+        _update_trace_metadata_locked(
+            record,
+            support_flag=support_flag,
+            support_status=support_status,
+            fidelity_class=fidelity_class,
+            terminal_type=terminal_type,
+        )
+        entry["support_flag"] = record.support_flag
+        entry["support_status"] = record.support_status
+        entry["fidelity_class"] = record.fidelity_class
+        entry["terminal_type"] = record.terminal_type
         max_calls = max(1, int(settings.dev_route_debug_max_calls_per_request))
         if len(record.entries) >= max_calls:
             record.dropped_entries += 1
@@ -569,6 +683,10 @@ def record_call(
         retry_deadline_exceeded=entry["retry_deadline_exceeded"],
         duration_ms=entry["duration_ms"],
         headers=entry["headers"],
+        support_flag=entry["support_flag"],
+        support_status=entry["support_status"],
+        fidelity_class=entry["fidelity_class"],
+        terminal_type=entry["terminal_type"],
         extra=entry["extra"],
     )
 
@@ -579,6 +697,10 @@ def finish_trace(
     status: str,
     endpoint: str | None = None,
     error_reason: str | None = None,
+    support_flag: bool | None = None,
+    support_status: str | None = None,
+    fidelity_class: str | None = None,
+    terminal_type: str | None = None,
 ) -> dict[str, Any] | None:
     if not _enabled():
         return None
@@ -594,6 +716,13 @@ def finish_trace(
         if endpoint:
             record.endpoint = str(endpoint).strip() or record.endpoint
         record.error_reason = str(error_reason).strip() if error_reason else None
+        _update_trace_metadata_locked(
+            record,
+            support_flag=support_flag,
+            support_status=support_status,
+            fidelity_class=fidelity_class,
+            terminal_type=terminal_type,
+        )
         record.finished_at_utc = _now_utc_iso()
         record.finished_monotonic_s = time.monotonic()
         snapshot = _snapshot_with_rollup_locked(record)
@@ -605,6 +734,10 @@ def finish_trace(
         endpoint=snapshot.get("endpoint") if isinstance(snapshot, dict) else endpoint,
         status=snapshot.get("status") if isinstance(snapshot, dict) else status,
         error_reason=snapshot.get("error_reason") if isinstance(snapshot, dict) else error_reason,
+        support_flag=snapshot.get("support_flag") if isinstance(snapshot, dict) else support_flag,
+        support_status=snapshot.get("support_status") if isinstance(snapshot, dict) else support_status,
+        fidelity_class=snapshot.get("fidelity_class") if isinstance(snapshot, dict) else fidelity_class,
+        terminal_type=snapshot.get("terminal_type") if isinstance(snapshot, dict) else terminal_type,
         total_calls=summary.get("total_calls", 0),
         requested_calls=summary.get("requested_calls", 0),
         successful_calls=summary.get("successful_calls", 0),

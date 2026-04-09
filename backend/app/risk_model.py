@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+import json
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 from .calibration_loader import load_risk_normalization_reference
+from .certification_models import AuditWorldBundle, ProbabilisticWorldBundle, WorldSupportState
 
 
 def normalized_objective_components(
@@ -148,3 +153,125 @@ def robust_objective(
         penalty = (tail_excess * tail_excess) / scale
         return float(mean_value) + (risk * penalty)
     return float(mean_value) + (risk * tail_excess)
+
+
+@dataclass(frozen=True)
+class RiskSummary:
+    mean_value: float = 0.0
+    cvar_value: float | None = None
+    robust_score: float = 0.0
+    normalized_duration_component: float = 0.0
+    normalized_monetary_component: float = 0.0
+    normalized_emissions_component: float = 0.0
+    utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    risk_aversion: float = 1.0
+    risk_family: str = "cvar_excess"
+    risk_theta: float = 1.0
+    support_state: WorldSupportState | None = None
+    probabilistic_world_bundle: ProbabilisticWorldBundle | None = None
+    audit_world_bundle: AuditWorldBundle | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.as_dict(), indent=2, sort_keys=True, default=str)
+
+
+@dataclass(frozen=True)
+class FragilitySummary:
+    route_id: str | None = None
+    deterministic_local_flip_radius: float = 0.0
+    probabilistic_flip_radius: float = 0.0
+    challenger_specific_radii: dict[str, float] = field(default_factory=dict)
+    evidence_family_radii: dict[str, float] = field(default_factory=dict)
+    dominant_fragility_family: str | None = None
+    support_flag: bool = True
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.as_dict(), indent=2, sort_keys=True, default=str)
+
+
+def build_risk_summary(
+    *,
+    duration_s: float,
+    monetary_cost: float,
+    emissions_kg: float,
+    distance_km: float | None,
+    utility_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    risk_aversion: float = 1.0,
+    risk_family: str | None = None,
+    risk_theta: float | None = None,
+    cvar_value: float | None = None,
+    support_state: WorldSupportState | None = None,
+    probabilistic_world_bundle: ProbabilisticWorldBundle | None = None,
+    audit_world_bundle: AuditWorldBundle | None = None,
+    provenance: Mapping[str, Any] | None = None,
+) -> RiskSummary:
+    normalized_duration_component, normalized_monetary_component, normalized_emissions_component = (
+        normalized_objective_components(
+            duration_s=duration_s,
+            monetary_cost=monetary_cost,
+            emissions_kg=emissions_kg,
+            distance_km=distance_km,
+        )
+    )
+    weighted_utility = normalized_weighted_utility(
+        duration_s=duration_s,
+        monetary_cost=monetary_cost,
+        emissions_kg=emissions_kg,
+        distance_km=distance_km,
+        utility_weights=utility_weights,
+    )
+    resolved_family = str(risk_family or settings.risk_family)
+    resolved_theta = float(risk_theta if risk_theta is not None else settings.risk_family_theta)
+    return RiskSummary(
+        mean_value=weighted_utility,
+        cvar_value=cvar_value,
+        robust_score=robust_objective(
+            mean_value=weighted_utility,
+            cvar_value=cvar_value,
+            risk_aversion=risk_aversion,
+            risk_family=resolved_family,
+            risk_theta=resolved_theta,
+        ),
+        normalized_duration_component=normalized_duration_component,
+        normalized_monetary_component=normalized_monetary_component,
+        normalized_emissions_component=normalized_emissions_component,
+        utility_weights=utility_weights,
+        risk_aversion=float(risk_aversion),
+        risk_family=resolved_family,
+        risk_theta=resolved_theta,
+        support_state=support_state,
+        probabilistic_world_bundle=probabilistic_world_bundle,
+        audit_world_bundle=audit_world_bundle,
+        provenance=dict(provenance or {}),
+    )
+
+
+def build_fragility_summary(
+    *,
+    route_id: str | None = None,
+    deterministic_local_flip_radius: float = 0.0,
+    probabilistic_flip_radius: float = 0.0,
+    challenger_specific_radii: Mapping[str, float] | None = None,
+    evidence_family_radii: Mapping[str, float] | None = None,
+    dominant_fragility_family: str | None = None,
+    support_flag: bool = True,
+    provenance: Mapping[str, Any] | None = None,
+) -> FragilitySummary:
+    return FragilitySummary(
+        route_id=route_id,
+        deterministic_local_flip_radius=float(deterministic_local_flip_radius),
+        probabilistic_flip_radius=float(probabilistic_flip_radius),
+        challenger_specific_radii={str(key): float(value) for key, value in dict(challenger_specific_radii or {}).items()},
+        evidence_family_radii={str(key): float(value) for key, value in dict(evidence_family_radii or {}).items()},
+        dominant_fragility_family=dominant_fragility_family,
+        support_flag=bool(support_flag),
+        provenance=dict(provenance or {}),
+    )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,14 @@ def summary_path() -> Path:
 
 def dashboard_csv_path() -> Path:
     return _oracle_quality_dir() / "dashboard.csv"
+
+
+def replay_oracle_summary_path() -> Path:
+    return _oracle_quality_dir() / "replay_oracle_summary.json"
+
+
+def replay_oracle_dashboard_csv_path() -> Path:
+    return _oracle_quality_dir() / "replay_oracle_dashboard.csv"
 
 
 def append_check_record(record: dict[str, Any]) -> Path:
@@ -68,6 +77,39 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _metadata_source(record: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(record.get("replay_oracle_summary"), dict):
+        return dict(record["replay_oracle_summary"])
+    return record
+
+
+def _normalize_bool_token(value: Any | None) -> str:
+    if value is None:
+        return "unknown"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "supported"}:
+        return "true"
+    if text in {"0", "false", "no", "n", "unsupported"}:
+        return "false"
+    return "unknown"
+
+
+def _normalize_token(value: Any | None, *, default: str = "unknown") -> str:
+    text = str(value).strip().lower() if value is not None else ""
+    return text or default
+
+
+def _mode_count(records: list[dict[str, Any]], field_name: str) -> dict[str, int]:
+    counter = Counter()
+    for record in records:
+        source = _metadata_source(record)
+        token = _normalize_token(source.get(field_name))
+        counter[token] += 1
+    return dict(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
 
 
 def compute_dashboard_payload(
@@ -129,6 +171,81 @@ def compute_dashboard_payload(
     }
 
 
+def compute_replay_oracle_payload(
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sources: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        source = str(record.get("source", "")).strip()
+        if not source:
+            continue
+        sources.setdefault(source, []).append(record)
+
+    source_rows: list[dict[str, Any]] = []
+    for source, items in sources.items():
+        replay_rows = [_metadata_source(item) for item in items]
+        replay_regrets = [
+            _to_float(item.get("replay_regret"))
+            for item in replay_rows
+            if _to_float(item.get("replay_regret")) is not None
+        ]
+        predicted_certificate_lifts = [
+            _to_float(item.get("predicted_certificate_lift"))
+            for item in replay_rows
+            if _to_float(item.get("predicted_certificate_lift")) is not None
+        ]
+        realized_certificate_lifts = [
+            _to_float(item.get("realized_certificate_lift"))
+            for item in replay_rows
+            if _to_float(item.get("realized_certificate_lift")) is not None
+        ]
+        predicted_gap_lifts = [
+            _to_float(item.get("predicted_gap_lift"))
+            for item in replay_rows
+            if _to_float(item.get("predicted_gap_lift")) is not None
+        ]
+        realized_gap_lifts = [
+            _to_float(item.get("realized_gap_lift"))
+            for item in replay_rows
+            if _to_float(item.get("realized_gap_lift")) is not None
+        ]
+        support_true = sum(1 for item in replay_rows if _normalize_bool_token(item.get("support_flag")) == "true")
+        support_false = sum(1 for item in replay_rows if _normalize_bool_token(item.get("support_flag")) == "false")
+        source_rows.append(
+            {
+                "source": source,
+                "row_count": len(items),
+                "support_true_count": support_true,
+                "support_false_count": support_false,
+                "support_unknown_count": len(items) - support_true - support_false,
+                "terminal_type_counts": _mode_count(items, "terminal_type"),
+                "fidelity_class_counts": _mode_count(items, "fidelity_class"),
+                "support_status_counts": _mode_count(items, "support_status"),
+                "mean_replay_regret": round(sum(replay_regrets) / len(replay_regrets), 6) if replay_regrets else None,
+                "mean_predicted_certificate_lift": round(sum(predicted_certificate_lifts) / len(predicted_certificate_lifts), 6)
+                if predicted_certificate_lifts
+                else None,
+                "mean_realized_certificate_lift": round(sum(realized_certificate_lifts) / len(realized_certificate_lifts), 6)
+                if realized_certificate_lifts
+                else None,
+                "mean_predicted_gap_lift": round(sum(predicted_gap_lifts) / len(predicted_gap_lifts), 6)
+                if predicted_gap_lifts
+                else None,
+                "mean_realized_gap_lift": round(sum(realized_gap_lifts) / len(realized_gap_lifts), 6)
+                if realized_gap_lifts
+                else None,
+            }
+        )
+
+    source_rows.sort(key=_source_sort_key)
+    return {
+        "total_records": len(records),
+        "source_count": len(source_rows),
+        "sources": source_rows,
+        "updated_at_utc": _utc_now_iso(),
+    }
+
+
 def write_summary_artifacts(payload: dict[str, Any]) -> tuple[Path, Path]:
     summary = summary_path()
     summary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -149,4 +266,30 @@ def write_summary_artifacts(payload: dict[str, Any]) -> tuple[Path, Path]:
         writer.writeheader()
         for source in payload.get("sources", []):
             writer.writerow({key: source.get(key) for key in fieldnames})
+    return summary, csv_path
+
+
+def write_replay_oracle_artifacts(payload: dict[str, Any]) -> tuple[Path, Path]:
+    summary = replay_oracle_summary_path()
+    summary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    csv_path = replay_oracle_dashboard_csv_path()
+    with csv_path.open("w", encoding="utf-8", newline="") as f:
+        fieldnames = [
+            "source",
+            "row_count",
+            "support_true_count",
+            "support_false_count",
+            "support_unknown_count",
+            "mean_replay_regret",
+            "mean_predicted_certificate_lift",
+            "mean_realized_certificate_lift",
+            "mean_predicted_gap_lift",
+            "mean_realized_gap_lift",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for source in payload.get("sources", []):
+            row = {key: source.get(key) for key in fieldnames}
+            writer.writerow(row)
     return summary, csv_path

@@ -39,32 +39,47 @@ URLs:
 - Backend readiness: `http://localhost:8000/health/ready`
 - OSRM: `http://localhost:5000`
 
+For the full current environment matrix, use `.env.example` and the operational notes in [`docs/run-and-operations.md`](docs/run-and-operations.md).
+
+The current codebase includes an explicit thesis-facing DCCS/REFC/VOI backend path. In the verified default configuration, supported requests resolve through `dccs_refc` as the primary runtime path, while `legacy` remains available as the baseline-only path for ablation, replay, or historical comparison. Terminal outcomes are typed as certified singleton, certified set, or typed abstention.
+
 ### Route compute timeout/fallback knobs
 
 The frontend compute flow now runs bounded fallback attempts with degraded alternatives (`12 -> 6 -> 3` by default).
 Configure in `.env` / `.env.example`:
 
-- `COMPUTE_ATTEMPT_TIMEOUT_MS` (server route-handler timeout override; default `420000`)
-- `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (server route-handler fallback timeout override; default `180000`)
-- `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS` (browser fallback; default `420000`)
-- `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (browser fallback; default `180000`)
+- `COMPUTE_ATTEMPT_TIMEOUT_MS` (server route-handler timeout override; default `1200000`)
+- `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (server route-handler fallback timeout override; default `900000`)
+- `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS` (browser fallback; default `1200000`)
+- `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS` (browser fallback; default `900000`)
 - `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS` (default `12,6,3`)
-- backend attempt ceiling: `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S` (default `420`)
+- backend attempt ceiling: `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S` (default `1200`)
+- backend single-attempt ceiling: `ROUTE_COMPUTE_SINGLE_ATTEMPT_TIMEOUT_S` (default `900`)
 - bounded OD context probe: `ROUTE_CONTEXT_PROBE_TIMEOUT_MS` (default `2500`)
 - bounded OD context probe path budget: `ROUTE_CONTEXT_PROBE_MAX_PATHS` (default `2`)
+- live runtime strictness: `LIVE_RUNTIME_DATA_ENABLED` and `STRICT_LIVE_DATA_REQUIRED` (both `true`)
 - strict scenario-source resiliency:
   - `LIVE_SCENARIO_COEFFICIENT_URL` (default tracks `main` scenario artifact)
   - `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES` (default `4320`)
-  - `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT` (default `true`)
-  - `LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT` (default `3`)
-  - `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT` (default `0.75`)
+  - `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT` (default `false`)
+  - `LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT` (default `4`)
+  - `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT` (default `1.0`)
+  - `LIVE_SCENARIO_REQUIRE_URL_IN_STRICT` (default `true`)
+  - `LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK` (default `false`)
 - graph warmup on backend startup: `ROUTE_GRAPH_WARMUP_ON_STARTUP` (default `1`)
 - strict warmup fail-fast gate: `ROUTE_GRAPH_WARMUP_FAILFAST` (default `1`)
 - graph warmup timeout: `ROUTE_GRAPH_WARMUP_TIMEOUT_S` (default `1200`)
+- graph fast-start gate: `ROUTE_GRAPH_FAST_STARTUP_ENABLED` (default `true`)
 - graph status check timeout: `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS` (default `1000`)
+- OD feasibility timeout: `ROUTE_GRAPH_OD_FEASIBILITY_TIMEOUT_MS` (default `30000`)
+- graph binary cache: `ROUTE_GRAPH_BINARY_CACHE_ENABLED` (default `true`)
+- graph search rescue timeout: `ROUTE_GRAPH_SEARCH_RESCUE_TIMEOUT_MS` (default `150000`)
 - strict giant-component floor (nodes): `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES` (default `50000`)
 - strict giant-component floor (ratio): `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO` (default `0.20`)
 - strict OD nearest-node max distance (m): `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M` (default `10000`)
+- graph state budget (max): `ROUTE_GRAPH_MAX_STATE_BUDGET` (default `1200000`)
+- graph state-space rescue: `ROUTE_GRAPH_STATE_SPACE_RESCUE_ENABLED` (default `true`)
+- graph A* heuristic: `ROUTE_GRAPH_A_STAR_HEURISTIC_ENABLED` (default `true`)
 - strict terrain fail-closed gate: `TERRAIN_DEM_FAIL_CLOSED_UK` (default `true`)
 - strict terrain minimum DEM coverage: `TERRAIN_DEM_COVERAGE_MIN_UK` (default `0.96`)
 - dev live-call tracing knobs (development only, sensitive when enabled):
@@ -83,6 +98,31 @@ The frontend compute button is readiness-gated and remains disabled until strict
 Before triggering compute, confirm `GET /health/ready` is reachable and reports `strict_route_ready=true` and `strict_live.ok=true`.
 Route Compute Diagnostics overlay now includes per-attempt live API call tracing (expected sources, observed URL calls, request/success/cache/retry status, headers, and extra diagnostics). Backend dev trace endpoint: `GET /debug/live-calls/{request_id}`.
 Repeated same-tile terrain route-cache hits are deduplicated in trace rows per request; use trace summary/terrain diagnostics for total cache-hit volume.
+
+## Latest Local Validation
+
+The most recent local strict-live preflight is `backend/out/model_assets/preflight_live_runtime.json`:
+
+- `checked_at_utc`: `2026-04-04T15:48:39Z`
+- `required_ok`: `true`
+- `required_failure_count`: `0`
+- `scenario_profiles`: `scenario_profiles_uk_v2_live` with `contexts=384`
+- `scenario_live_context` coverage: `webtris=1.0`, `traffic_england=1.0`, `dft=1.0`, `open_meteo=1.0`, `overall=1.0`
+- `fuel_snapshot`: `as_of=2026-03-23T00:00:00Z`, `signature_prefix=6092b11ca3f7`
+- `toll_tariffs`: `rule_count=220`
+- `toll_topology`: `segment_count=28`
+- `stochastic_regimes`: `regime_count=18`
+- `departure_profiles`: `region_count=11`
+- `bank_holidays`: `count=134`
+- `carbon_policy`: `price_per_kg=0.101`, `scope_adjusted_emissions=1.121`
+- `osrm_engine_smoke`: `distance_m=189471.0`, `duration_s=8794.2`
+- `ors_engine_smoke`: `distance_m=203868.1`, `duration_s=12280.8`, `engine_version=9.7.1`, `graph_date=2026-03-22T16:39:30Z`
+
+Recent local comparison outputs in `backend/out/` are:
+
+- `backend/out/compare_r12_vs_r15_combo_summary.json`: `variant_count=4`, retained success rows `2`, regressed rows `london_newcastle|C` and `london_newcastle|V0`
+- `backend/out/focused_one_od_r4_vs_cap1600_diff.summary.json`: `variant_count=4`, all variants `A/B/C/V0` still show `success_rate=1.0` and `route_evidence_ok_rate=1.0` in the after-state
+- `backend/out/corpus_ambiguity_refresh_summary.json`: `row_count=19`, `mean_ambiguity_index=0.239727`, `max_ambiguity_index=0.420932`, `mean_engine_disagreement_prior=0.413061`, `mean_hard_case_prior=0.419982`, `mean_od_ambiguity_confidence=0.899552`
 
 
 ## Stopping the dev workflow
@@ -172,10 +212,10 @@ Use this for full containerized verification. Do not run this at the same time a
   - run from `backend/`:
   - `uv run python scripts/check_eta_concept_drift.py --input-csv .\eta_observations.csv --mae-threshold-s 120 --mape-threshold-pct 10`
 
-- `backend/scripts/generate_run_report.py`
-  - regenerate `report.pdf` from manifest/results/metadata for a run
+- `backend/scripts/compose_thesis_suite_report.py`
+  - regenerate the thesis suite artifacts from completed evaluation runs
   - run from `backend/`:
-  - `uv run python scripts/generate_run_report.py --run-id <run_id> --out-dir out`
+  - `uv run python scripts/compose_thesis_suite_report.py --run-id <run_id> --out-dir out`
 
 - `backend/scripts/publish_live_artifacts_uk.py`
   - publishes strict JSON live artifacts into tracked `backend/assets/uk/` paths

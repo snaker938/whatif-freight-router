@@ -3,8 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .abstention import AbstentionRecord
+from .certified_set import CertifiedSetState
+from .certificate_witness import CertificateWitness
+from .confidence_sequences import WinnerConfidenceState
+from .decision_region import DecisionRegionState
+from .flip_radius import FlipRadiusState
+from .pairwise_gap_model import PairwiseGapState
+from .preference_state import PreferenceState
 from .scenario import ScenarioMode
 from .vehicles import VehicleProfile
 
@@ -340,6 +348,38 @@ class EvidenceProvenance(BaseModel):
     families: list[EvidenceSourceRecord] = Field(default_factory=list)
 
 
+class DecisionPackage(BaseModel):
+    """Compatibility wrapper that exposes the certification-native decision shape."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    terminal_type: Literal["certified_singleton", "certified_set", "typed_abstention"] = (
+        "certified_singleton"
+    )
+    recommended_route: "RouteOption | None" = None
+    certified_set: list["RouteOption"] = Field(default_factory=list)
+    abstention: AbstentionRecord | None = None
+    frontier_summary: dict[str, Any] = Field(default_factory=dict)
+    certificate_summary: dict[str, Any] | RouteCertificationSummary | None = None
+    stability_summary: dict[str, Any] = Field(default_factory=dict)
+    winner_confidence_state: WinnerConfidenceState | dict[str, Any] | None = None
+    pairwise_gap_states: list[PairwiseGapState | dict[str, Any]] = Field(default_factory=list)
+    flip_radius_state: FlipRadiusState | dict[str, Any] | None = None
+    decision_region_state: DecisionRegionState | dict[str, Any] | None = None
+    certificate_witness: CertificateWitness | dict[str, Any] | None = None
+    preference_summary: dict[str, Any] = Field(default_factory=dict)
+    preference_state: PreferenceState = Field(default_factory=PreferenceState)
+    preference_query_trace: dict[str, Any] = Field(default_factory=dict)
+    support_summary: dict[str, Any] = Field(default_factory=dict)
+    world_support_summary: dict[str, Any] = Field(default_factory=dict)
+    abstention_summary: dict[str, Any] = Field(default_factory=dict)
+    certified_set_summary: dict[str, Any] = Field(default_factory=dict)
+    action_trace_summary: dict[str, Any] = Field(default_factory=dict)
+    witness_summary: dict[str, Any] = Field(default_factory=dict)
+    artifact_pointers: dict[str, str] = Field(default_factory=dict)
+    selected_certificate_basis: str | None = None
+
+
 class RouteCertificationSummary(BaseModel):
     route_id: str
     certificate: float = Field(ge=0.0, le=1.0)
@@ -393,7 +433,37 @@ class RouteOption(BaseModel):
     certification: RouteCertificationSummary | None = None
 
 
-class RouteResponse(BaseModel):
+def _build_certified_set_summary(
+    *,
+    selected: RouteOption,
+    candidates: list[RouteOption],
+    certified_set: list[RouteOption],
+    selected_certificate: RouteCertificationSummary | None,
+    support_summary: dict[str, Any],
+) -> dict[str, Any]:
+    member_route_ids = [route.id for route in certified_set]
+    excluded_route_ids = [route.id for route in candidates if route.id not in member_route_ids]
+    support_flag = bool(support_summary.get("support_flag")) if support_summary else False
+    witness = {
+        "route_id": selected.id,
+        "active_challenger_ids": excluded_route_ids[:1],
+        "support_flag": support_flag,
+    }
+    return CertifiedSetState(
+        member_route_ids=member_route_ids,
+        excluded_route_ids=excluded_route_ids,
+        exclusion_basis=["certificate_threshold", "frontier_selection"],
+        certified=bool(
+            selected_certificate is not None and selected_certificate.certified and bool(member_route_ids)
+        ),
+        threshold=float(selected_certificate.threshold) if selected_certificate is not None else 0.0,
+        support_flag=support_flag,
+        set_size=len(member_route_ids),
+        witness=witness,
+    ).as_dict()
+
+
+class RouteResponse(DecisionPackage):
     selected: RouteOption
     candidates: list[RouteOption]
     run_id: str | None = None
@@ -403,6 +473,102 @@ class RouteResponse(BaseModel):
     provenance_endpoint: str | None = None
     selected_certificate: RouteCertificationSummary | None = None
     voi_stop_summary: VoiStopSummary | None = None
+
+    @model_validator(mode="after")
+    def _sync_decision_package(self) -> "RouteResponse":
+        if self.recommended_route is None:
+            object.__setattr__(self, "recommended_route", self.selected)
+        if self.abstention is None and not self.certified_set:
+            object.__setattr__(self, "certified_set", [self.selected])
+        elif self.abstention is not None and self.certified_set:
+            object.__setattr__(self, "certified_set", [])
+        if self.selected_certificate is not None and self.certificate_summary is None:
+            object.__setattr__(self, "certificate_summary", self.selected_certificate)
+        if self.abstention is not None:
+            object.__setattr__(self, "terminal_type", "typed_abstention")
+        elif len(self.certified_set) > 1:
+            object.__setattr__(self, "terminal_type", "certified_set")
+        else:
+            object.__setattr__(self, "terminal_type", "certified_singleton")
+        if not self.support_summary:
+            object.__setattr__(self, "support_summary", {
+                "supported": self.selected_certificate is None or bool(self.selected_certificate.certified),
+                "active_families": list(self.selected_certificate.active_families)
+                if self.selected_certificate is not None
+                else [],
+            })
+        if not self.frontier_summary:
+            object.__setattr__(self, "frontier_summary", {
+                "candidate_count": len(self.candidates),
+                "selected_route_id": self.selected.id,
+            })
+        if not self.stability_summary and self.selected_certificate is not None:
+            object.__setattr__(self, "stability_summary", {
+                "certificate": self.selected_certificate.certificate,
+                "threshold": self.selected_certificate.threshold,
+            })
+        if not self.preference_summary:
+            object.__setattr__(self, "preference_summary", {
+                "weights": {"time": 1.0, "money": 0.0, "co2": 0.0},
+            })
+        if not self.abstention_summary:
+            object.__setattr__(self, "abstention_summary", {"reason_code": None, "message": None})
+        if self.abstention is not None or not self.certified_set_summary:
+            object.__setattr__(
+                self,
+                "certified_set_summary",
+                _build_certified_set_summary(
+                    selected=self.selected,
+                    candidates=self.candidates,
+                    certified_set=list(self.certified_set),
+                    selected_certificate=self.selected_certificate,
+                    support_summary=self.support_summary,
+                ),
+            )
+        if not self.action_trace_summary:
+            object.__setattr__(self, "action_trace_summary", {
+                "pipeline_mode": self.pipeline_mode,
+                "selected_candidate_count": len(self.candidates),
+            })
+        if not self.witness_summary:
+            object.__setattr__(self, "witness_summary", {
+                "route_id": self.selected.id,
+                "selected_certificate_basis": self.selected_certificate_basis,
+            })
+        if not self.artifact_pointers:
+            object.__setattr__(self, "artifact_pointers", {
+                "manifest_endpoint": self.manifest_endpoint or "",
+                "artifacts_endpoint": self.artifacts_endpoint or "",
+                "provenance_endpoint": self.provenance_endpoint or "",
+            })
+        if self.selected_certificate_basis is None and self.selected_certificate is not None:
+            object.__setattr__(self, "selected_certificate_basis", "selected_certificate")
+        if not self.preference_query_trace:
+            object.__setattr__(
+                self,
+                "preference_query_trace",
+                {
+                    "schema_version": "preference-query-trace-v1",
+                    "selected_route_id": self.selected.id,
+                    "selected_certificate_basis": self.selected_certificate_basis
+                    or ("selected_certificate" if self.selected_certificate is not None else "empirical"),
+                    "terminal_type": self.preference_state.terminal_type,
+                    "query_count": int(self.preference_state.query_count),
+                    "query_history": [
+                        query.model_dump(mode="json") for query in self.preference_state.query_history
+                    ],
+                    "shrinkage_trace": [
+                        trace.model_dump(mode="json") for trace in self.preference_state.shrinkage_trace
+                    ],
+                    "compatible_set_summary": self.preference_state.compatible_set_summary.model_dump(mode="json"),
+                    "derived_invariants": dict(self.preference_state.derived_invariants),
+                    "provenance": {
+                        "selected_route_id": self.selected.id,
+                        "pipeline_mode": self.pipeline_mode,
+                    },
+                },
+            )
+        return self
 
 
 class RouteBaselineResponse(BaseModel):

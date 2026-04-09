@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import uuid
+import csv
 from datetime import UTC, datetime
 from pathlib import Path
+from collections import Counter
 
 from .models import ExperimentBundle, ExperimentBundleInput, ScenarioCompareRequest
 from .settings import settings
@@ -23,6 +25,14 @@ def _bundle_path(experiment_id: str) -> Path:
     return _experiments_dir() / f"{experiment_id}.json"
 
 
+def _inventory_path() -> Path:
+    return _experiments_dir() / "inventory.json"
+
+
+def _inventory_csv_path() -> Path:
+    return _experiments_dir() / "inventory.csv"
+
+
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 
@@ -32,6 +42,86 @@ def _clean_name(name: str) -> str:
     if not cleaned:
         raise ValueError("experiment name cannot be empty")
     return cleaned
+
+
+def _normalize_token(value: str | None, *, default: str = "unknown") -> str:
+    text = str(value).strip().lower() if value is not None else ""
+    return text or default
+
+
+def compute_experiment_inventory_payload(experiments: list[ExperimentBundle]) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    scenario_modes = Counter()
+    optimization_modes = Counter()
+    terrain_profiles = Counter()
+    pareto_methods = Counter()
+    vehicle_types = Counter()
+
+    for item in experiments:
+        scenario_mode = _normalize_token(item.request.scenario_mode.value if item.request.scenario_mode is not None else None)
+        optimization_mode = _normalize_token(item.request.optimization_mode)
+        terrain_profile = _normalize_token(item.request.terrain_profile)
+        pareto_method = _normalize_token(item.request.pareto_method)
+        vehicle_type = _normalize_token(item.request.vehicle_type)
+        scenario_modes[scenario_mode] += 1
+        optimization_modes[optimization_mode] += 1
+        terrain_profiles[terrain_profile] += 1
+        pareto_methods[pareto_method] += 1
+        vehicle_types[vehicle_type] += 1
+        rows.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "scenario_mode": scenario_mode,
+                "vehicle_type": vehicle_type,
+                "optimization_mode": optimization_mode,
+                "terrain_profile": terrain_profile,
+                "pareto_method": pareto_method,
+                "max_alternatives": item.request.max_alternatives,
+                "risk_aversion": item.request.risk_aversion,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
+        )
+
+    rows.sort(key=lambda item: (str(item["updated_at"]), str(item["id"])), reverse=True)
+    return {
+        "total_experiments": len(experiments),
+        "scenario_mode_counts": dict(sorted(scenario_modes.items())),
+        "optimization_mode_counts": dict(sorted(optimization_modes.items())),
+        "terrain_profile_counts": dict(sorted(terrain_profiles.items())),
+        "pareto_method_counts": dict(sorted(pareto_methods.items())),
+        "vehicle_type_counts": dict(sorted(vehicle_types.items())),
+        "rows": rows,
+        "updated_at": _utc_now_iso(),
+    }
+
+
+def write_experiment_inventory_artifacts(payload: dict[str, object]) -> tuple[Path, Path]:
+    summary = _inventory_path()
+    summary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    csv_path = _inventory_csv_path()
+    fieldnames = [
+        "id",
+        "name",
+        "scenario_mode",
+        "vehicle_type",
+        "optimization_mode",
+        "terrain_profile",
+        "pareto_method",
+        "max_alternatives",
+        "risk_aversion",
+        "created_at",
+        "updated_at",
+    ]
+    with csv_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in payload.get("rows", []):
+            if isinstance(row, dict):
+                writer.writerow({key: row.get(key) for key in fieldnames})
+    return summary, csv_path
 
 
 def _load_index_ids() -> list[str]:

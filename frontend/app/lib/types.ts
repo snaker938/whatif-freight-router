@@ -284,7 +284,45 @@ export type RouteResponse = {
   provenance_endpoint?: string | null;
   selected_certificate?: RouteCertificationSummary | null;
   voi_stop_summary?: VoiStopSummary | null;
+  artifact_pointers?: Record<string, string | null> | null;
+  preference_state?: Record<string, unknown> | null;
+  preference_query_trace?: Record<string, unknown> | null;
+  action_trace_summary?: Record<string, unknown> | null;
+  witness_summary?: Record<string, unknown> | null;
+  world_support_summary?: Record<string, unknown> | null;
 };
+
+export type DecisionPackage = {
+  selected?: RouteOption | null;
+  recommended_route?: RouteOption | null;
+  certified_set?: RouteOption[] | null;
+  candidates?: RouteOption[] | null;
+  frontier_summary?: Record<string, unknown> | null;
+  certificate_summary?: RouteCertificationSummary | null;
+  stability_summary?: Record<string, unknown> | null;
+  preference_summary?: Record<string, unknown> | null;
+  support_summary?: Record<string, unknown> | null;
+  abstention_summary?: Record<string, unknown> | null;
+  action_trace_summary?: Record<string, unknown> | null;
+  witness_summary?: Record<string, unknown> | null;
+  artifact_pointers?: Record<string, string | null> | null;
+  run_id?: string | null;
+  pipeline_mode?: PipelineMode;
+  manifest_endpoint?: string | null;
+  artifacts_endpoint?: string | null;
+  provenance_endpoint?: string | null;
+  selected_certificate?: RouteCertificationSummary | null;
+  voi_stop_summary?: VoiStopSummary | null;
+  preference_state?: Record<string, unknown> | null;
+  preference_query_trace?: Record<string, unknown> | null;
+  world_support_summary?: Record<string, unknown> | null;
+};
+
+export type DecisionPackageResponse = {
+  decision_package: DecisionPackage;
+};
+
+export type RouteResponsePayload = RouteResponse | DecisionPackage | DecisionPackageResponse;
 
 export type RouteBaselineResponse = {
   baseline: RouteOption;

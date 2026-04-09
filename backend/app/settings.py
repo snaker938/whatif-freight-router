@@ -525,7 +525,7 @@ class Settings(BaseSettings):
         alias="ROUTE_BASELINE_DISTANCE_MULTIPLIER",
     )
     route_pipeline_default_mode: str = Field(
-        default="legacy",
+        default="dccs_refc",
         alias="ROUTE_PIPELINE_DEFAULT_MODE",
     )
     route_pipeline_request_override_enabled: bool = Field(

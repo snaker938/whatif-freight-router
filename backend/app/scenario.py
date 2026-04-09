@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, is_dataclass, replace
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from datetime import UTC, datetime
 from enum import Enum
+from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field
 
+from .certification_models import AuditWorldBundle, ProbabilisticWorldBundle, WorldSupportState
 from .model_data_errors import ModelDataError
 
 try:
@@ -73,6 +75,90 @@ class ScenarioPolicy(BaseModel):
     scenario_edge_scaling_version: str = "v3_live_transform"
     mode_observation_source: str | None = None
     mode_projection_ratio: float | None = None
+
+
+@dataclass(frozen=True)
+class ScenarioPolicySurface:
+    mode: str
+    version: str
+    source: str
+    calibration_basis: str = "empirical"
+    context_key: str = "uk_default|mixed|rigid_hgv|weekday|clear"
+    as_of_utc: str | None = None
+    live_source_set: dict[str, str] = field(default_factory=dict)
+    live_as_of_utc: str | None = None
+    live_coverage: dict[str, float] = field(default_factory=dict)
+    live_traffic_pressure: float = 1.0
+    live_incident_pressure: float = 1.0
+    live_weather_pressure: float = 1.0
+    scenario_edge_scaling_version: str = "v3_live_transform"
+    mode_observation_source: str | None = None
+    mode_projection_ratio: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.as_dict(), indent=2, sort_keys=True, default=str)
+
+
+@dataclass(frozen=True)
+class ScenarioSupportSummary:
+    policy_surface: ScenarioPolicySurface
+    support_state: WorldSupportState | None = None
+    probabilistic_world_bundle: ProbabilisticWorldBundle | None = None
+    audit_world_bundle: AuditWorldBundle | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.as_dict(), indent=2, sort_keys=True, default=str)
+
+
+def build_scenario_policy_surface(
+    policy: ScenarioPolicy,
+    *,
+    mode: ScenarioMode | str,
+    context: ScenarioRouteContext | None = None,
+) -> ScenarioPolicySurface:
+    return ScenarioPolicySurface(
+        mode=str(mode.value if isinstance(mode, ScenarioMode) else mode),
+        version=str(policy.version),
+        source=str(policy.source),
+        calibration_basis=str(policy.calibration_basis),
+        context_key=str(context.context_key if context is not None else policy.context_key),
+        as_of_utc=policy.as_of_utc,
+        live_source_set=dict(policy.live_source_set),
+        live_as_of_utc=policy.live_as_of_utc,
+        live_coverage=dict(policy.live_coverage),
+        live_traffic_pressure=float(policy.live_traffic_pressure),
+        live_incident_pressure=float(policy.live_incident_pressure),
+        live_weather_pressure=float(policy.live_weather_pressure),
+        scenario_edge_scaling_version=str(policy.scenario_edge_scaling_version),
+        mode_observation_source=policy.mode_observation_source,
+        mode_projection_ratio=policy.mode_projection_ratio,
+    )
+
+
+def build_scenario_support_summary(
+    policy: ScenarioPolicy,
+    *,
+    mode: ScenarioMode | str,
+    context: ScenarioRouteContext | None = None,
+    support_state: WorldSupportState | None = None,
+    probabilistic_world_bundle: ProbabilisticWorldBundle | None = None,
+    audit_world_bundle: AuditWorldBundle | None = None,
+    provenance: Mapping[str, Any] | None = None,
+) -> ScenarioSupportSummary:
+    return ScenarioSupportSummary(
+        policy_surface=build_scenario_policy_surface(policy, mode=mode, context=context),
+        support_state=support_state,
+        probabilistic_world_bundle=probabilistic_world_bundle,
+        audit_world_bundle=audit_world_bundle,
+        provenance=dict(provenance or {}),
+    )
 
 
 def _clamp(value: float, low: float, high: float) -> float:

@@ -2143,6 +2143,26 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
     assert payload["successful_variants"] == ["V0", "A", "B", "C"]
     assert payload["failed_variants"] == []
     assert len(payload["rows"]) == 4
+    refc_run_id = runs["dccs_refc"]["run_id"]
+    refc_row = next(row for row in payload["rows"] if row["variant_id"] == "B")
+    assert refc_row["pipeline_mode"] == "dccs_refc"
+    assert refc_row["artifact_complete"] is True
+    assert refc_row["artifact_status"] == "ok"
+    assert refc_row["artifact_run_id"] == refc_run_id
+    assert refc_row["manifest_endpoint"] == f"/runs/{refc_run_id}/manifest"
+    assert refc_row["artifacts_endpoint"] == f"/runs/{refc_run_id}/artifacts"
+    assert {
+        "metadata.json",
+        "strict_frontier.jsonl",
+        "final_route_trace.json",
+        "dccs_summary.json",
+        "dccs_candidates.jsonl",
+        "certificate_summary.json",
+        "route_fragility_map.json",
+        "competitor_fragility_breakdown.json",
+        "value_of_refresh.json",
+        "sampled_world_manifest.json",
+    }.issubset(set(bundles[refc_run_id]))
     voi_row = next(row for row in payload["rows"] if row["variant_id"] == "C")
     assert voi_row["pipeline_mode"] == "voi"
     assert voi_row["corpus_kind"] == "ambiguous"

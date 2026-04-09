@@ -1,9 +1,17 @@
 # Model Assets and Data Sources
 
-Last Updated: 2026-02-23  
+Last Updated: 2026-04-09
 Applies To: `backend/assets/uk/*`, `backend/out/model_assets/*`, live-source settings in `backend/app/settings.py`
 
 This page tracks where backend model inputs come from, where compiled artifacts are written, and which strict gates protect route-producing APIs.
+
+## Current Evidence Snapshot
+
+- `backend/out/model_assets/manifest.json` now reports `version=model-v2-uk`, `source_policy=repo_local_fresh`, `generated_at_utc=2026-03-21T13:09:12.262992Z`, and 19 tracked assets.
+- `backend/out/model_assets/preflight_live_runtime.json` passes with `required_ok=true`, `required_failure_count=0`, `strict_live_data_required=true`, `live_runtime_data_enabled=true`, `scenario_contexts=384`, `coverage.overall=1.0`, `toll_rule_count=220`, `toll_topology_segments=28`, `stochastic_regime_count=18`, `departure_region_count=11`, and `bank_holiday_count=134`.
+- `backend/out/model_assets/routing_graph_coverage_report.json` passes coverage with `16,782,614` nodes, `17,271,476` edges, `worst_fixture_nearest_node_m=2545.053`, `graph_size_mb=4123.27`, and the UK bounding box `lat 49.75..61.1`, `lon -8.75..2.25`.
+- The current compiled fuel surface is `uk_fuel_surface_v1` with axes `vehicle_class=4`, `load_factor=4`, `speed_kmh=5`, `grade_pct=5`, and `ambient_temp_c=5`.
+- The current toll-confidence calibration is `uk-toll-confidence-v2-empirical`, with logit coefficients `intercept=0.074138`, `class_signal=0.07386`, `segment_signal=0.107248`, and reliability bins calibrated to `0.1`, `0.3`, `0.5455`, `0.7`, and `0.9`.
 
 ## Asset Locations
 
@@ -26,6 +34,7 @@ Generated files in `backend/out/` are runtime artifacts and should not be treate
 - Build script: `backend/scripts/build_routing_graph_uk.py`
 - Aggregated build entry: `backend/scripts/build_model_assets.py`
 - Runtime gate signals: `routing_graph_unavailable`, `model_asset_unavailable`
+- Current validation snapshot: the coverage report passes for the full UK graph and the worst fixture is still within 2.55 km of a graph node, so the graph is large but still fixture-covering.
 
 ### Toll Topology and Tariffs
 
@@ -37,6 +46,7 @@ Generated files in `backend/out/` are runtime artifacts and should not be treate
   - `LIVE_TOLL_TOPOLOGY_URL`
   - `LIVE_TOLL_TARIFFS_URL`
 - Runtime gate signals: `toll_topology_unavailable`, `toll_tariff_unavailable`, `toll_tariff_unresolved`
+- Current calibration snapshot: `backend/assets/uk/toll_confidence_calibration_uk.json` is versioned `uk-toll-confidence-v2-empirical` and is copied into `backend/out/model_assets/` as part of the manifest.
 
 ### Departure Profiles
 
@@ -54,6 +64,7 @@ Generated files in `backend/out/` are runtime artifacts and should not be treate
   - per-regime `transform_family: quantile_mapping_v1`
   - per-regime `shock_quantile_mapping` keys for `traffic`, `incident`, `weather`, `price`, `eco`
 - Runtime gate signal: `stochastic_calibration_unavailable`
+- Current compiled snapshot: the empirical calibration yields 18 regimes, 2,832 posterior context keys, 12 hour-slot coverage, 9 corridor coverage, holdout coverage 1.0, PIT mean 0.5149096244101729, CRPS mean 0.47377558811984366, and duration MAPE 0.14058663646867195.
 
 ### Scenario Profile + Live Context
 
@@ -69,6 +80,7 @@ Generated files in `backend/out/` are runtime artifacts and should not be treate
   - DfT raw counts (`LIVE_SCENARIO_DFT_COUNTS_URL`)
   - Open-Meteo (`LIVE_SCENARIO_OPEN_METEO_FORECAST_URL`, `LIVE_SCENARIO_OPEN_METEO_ARCHIVE_URL`)
 - Runtime gate signals: `scenario_profile_unavailable`, `scenario_profile_invalid`
+- Current compiled snapshot: `scenario_profiles_uk_v2_live` contains 384 contextual profiles, uses `temporal_forward_plus_corridor_block`, and reports a 192-context holdout slice with 6 hour slots and 16 corridors covered. The holdout metrics currently show `mode_separation_mean=0.169764`, `duration_mape=0.0`, `monetary_mape=0.0`, `emissions_mape=0.0`, `full_identity_share=0.291667`, `projection_dominant_context_share=0.5`, `observed_mode_context_share=0.5`, and `observed_mode_row_share=0.5`.
 
 ### Terrain DEM
 
@@ -92,6 +104,7 @@ Generated files in `backend/out/` are runtime artifacts and should not be treate
   - `fuel_price_source_unavailable`
   - `carbon_policy_unavailable`
   - `carbon_intensity_unavailable`
+- Current raw provenance: fuel history now contains 1,190 rows from two public CSV sources, and the preflight runtime snapshot records fuel as-of `2026-03-23T00:00:00Z` plus `price_per_kg=0.101` and `scope_adjusted_emissions=1.121`.
 
 ### Vehicle Profiles
 

@@ -11,7 +11,8 @@ The pipeline supports four modes:
 * `dccs_refc`: DCCS plus strict-frontier certification.
 * `voi`: full thesis pipeline, including DCCS, REFC, and the VOI-AD2R controller.
 
-The effective mode is carried on route requests through `RouteRequest.pipeline_mode`, `ParetoRequest.pipeline_mode`, and the batch request variants. The runtime should resolve an explicit request override against the deployment default.
+The effective mode is carried on route requests through `RouteRequest.pipeline_mode`, `ParetoRequest.pipeline_mode`, and the batch request variants. The runtime resolves an explicit request override against the deployment default, and the thesis modes are selected explicitly rather than being the unconditional user-facing default.
+In thesis-suite runs, those modes are mapped as `V0 -> legacy`, `A -> dccs`, `B -> dccs_refc`, and `C -> voi`.
 
 ## 2. Candidate Lifecycle
 
@@ -44,6 +45,8 @@ The lifecycle is:
 * `record_refine_outcome(...)`
 
 Each candidate record carries the auditable triage fields needed for thesis analysis: graph path, proxy objectives, mechanism descriptor, confidence, overlap, stretch, objective gap, mechanism gap, predicted refine cost, flip probability, score terms, selected/skipped decision, and observed refine cost once refinement completes.
+The current DCCS record contract also includes candidate-envelope bounds, envelope provenance or source, support mass or support status, known dominance metadata, and explicit safe-elimination provenance fields such as `safe_eliminated`, `necessary_dominated`, `dominated_by_route_id`, `dominance_margin`, and `safe_elimination_reason`.
+Those fields support an auditable candidate-level selection workflow; they are not being presented here as theorem-level guarantees.
 
 ### REFC
 
@@ -81,39 +84,63 @@ The controller uses a fixed auditable action set: refine top-1 DCCS candidate, r
 
 ## 4. Artifact Contract
 
-Artifacts are stored per run under the existing run store conventions. The thesis pipeline adds the following names:
+Artifacts are stored per run under the existing run store conventions. The current evaluator treats `strict_frontier.jsonl` as the strict frontier artifact and validates `voi_controller_state.jsonl` alongside the other VOI traces.
 
-* `dccs_candidates.jsonl`
-* `dccs_summary.json`
-* `refined_routes.jsonl`
-* `strict_frontier.jsonl`
-* `winner_summary.json`
-* `certificate_summary.json`
-* `route_fragility_map.json`
-* `competitor_fragility_breakdown.json`
-* `value_of_refresh.json`
-* `sampled_world_manifest.json`
-* `voi_action_trace.json`
-* `voi_action_scores.csv`
-* `voi_stop_certificate.json`
-* `final_route_trace.json`
-* `od_corpus.csv`
-* `od_corpus_summary.json`
-* `ors_snapshot.json`
-* `thesis_results.csv`
-* `thesis_summary.csv`
-* `methods_appendix.md`
-* `thesis_report.md`
+The current checked thesis example bundle is:
+
+`backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001`
+
+Within that bundle, the route-level artifact set includes:
+
+* metadata.json
+* dccs_candidates.jsonl
+* dccs_summary.json
+* strict_frontier.jsonl
+* final_route_trace.json
+* certificate_summary.json
+* route_fragility_map.json
+* competitor_fragility_breakdown.json
+* value_of_refresh.json
+* sampled_world_manifest.json
+* voi_controller_state.jsonl
+* voi_action_trace.json
+* voi_stop_certificate.json
+
+When the controller runs in refinement mode, the evaluator also accepts before/after snapshot artifacts:
+
+* initial_certificate_summary.json
+* initial_route_fragility_map.json
+* initial_competitor_fragility_breakdown.json
+* initial_value_of_refresh.json
+* initial_sampled_world_manifest.json
+
+The thesis-suite evaluation outputs in the same checked bundle include:
+
+* thesis_results.csv
+* thesis_results.json
+* thesis_summary.csv
+* thesis_summary.json
+* thesis_summary_by_cohort.csv
+* thesis_summary_by_cohort.json
+* od_corpus.csv
+* od_corpus.json
+* od_corpus_summary.json
+* cohort_composition.json
+* thesis_plots.json
+* methods_appendix.md
+* thesis_report.md
+* evaluation_manifest.json
 
 Recommended schemas:
 
-* `dccs_candidates.jsonl`: one record per candidate, with candidate id, graph path, objective proxy, gaps, overlap, stretch, predicted refine cost, flip probability, decision, and observed refine-cost fields when available.
-* `dccs_summary.json`: mode, search budget, transition reason, candidate counts, selected/skipped counts, DC-yield, challenger hit rate, and frontier gain per refinement.
-* `certificate_summary.json`: winner route id, certificate map, threshold, certified flag, selected route id, selector config, and world manifest summary.
-* `sampled_world_manifest.json`: seed, world count, active families, state catalog, and the exact sampled worlds.
-* `voi_action_trace.json`: per-iteration feasible actions, chosen action, scores, budgets remaining, and stop diagnostics.
-* `voi_stop_certificate.json`: final winner id, objective vector, frontier size, certificate value, certified flag, budgets used/remaining, stop reason, best rejected action, and ambiguity summary.
-* `final_route_trace.json`: end-to-end route trace, including stage timings, DCCS decisions, REFC certificate summary, VOI action trace, and artifact pointers.
+* dccs_candidates.jsonl: one record per candidate, with candidate id, graph path, objective proxy, gaps, overlap, stretch, predicted refine cost, flip probability, decision, and observed refine-cost fields when available.
+* dccs_summary.json: mode, search budget, transition reason, candidate counts, selected/skipped counts, DC-yield, challenger hit rate, and frontier gain per refinement.
+* certificate_summary.json: winner route id, certificate map, threshold, certified flag, selected route id, selector config, and world manifest summary.
+* sampled_world_manifest.json: seed, world count, active families, state catalog, and the exact sampled worlds.
+* voi_action_trace.json: per-iteration feasible actions, chosen action, scores, budgets remaining, and stop diagnostics.
+* voi_controller_state.jsonl: per-iteration controller state snapshots, including the selected action, scores, and budget bookkeeping.
+* voi_stop_certificate.json: final winner id, objective vector, frontier size, certificate value, certified flag, budgets used/remaining, stop reason, best rejected action, and ambiguity summary.
+* final_route_trace.json: end-to-end route trace, including stage timings, DCCS decisions, REFC certificate summary, VOI action trace, and artifact pointers.
 
 The route response models expose `run_id`, `pipeline_mode`, artifact endpoints, `selected_certificate`, and `voi_stop_summary` so a request can be tied back to the run store.
 
@@ -187,3 +214,9 @@ Each route run should be able to produce a compact thesis bundle:
 * final route trace linking all of the above
 
 That bundle is the citable unit for thesis figures, ablations, and replay checks.
+
+## Related Docs
+
+- [Documentation Index](DOCS_INDEX.md)
+- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
+- [Model Assets and Data Sources](model-assets-and-data-sources.md)

@@ -1,14 +1,15 @@
 # Documentation Index
 
-Last Updated: 2026-03-06  
+Last Updated: 2026-04-09
 Applies To: `backend/` + `frontend/` (strict v2 runtime)
 
-This is the source-of-truth index for all project documentation.  
+This is the source-of-truth index for all project documentation.
 Start here, then follow topic links.
 
 ## Getting Started
 
 - [Run and Operations Guide](run-and-operations.md)
+- [Reviewer Quickstart](reviewer_quickstart.md)
 - [API Cookbook](api-cookbook.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
@@ -37,6 +38,7 @@ Start here, then follow topic links.
 ## Routing and Modeling
 
 - [Synthetic Incidents and Weather](synthetic-incidents-weather.md)
+- [VOI Thesis Pipeline Spec](voi-pipeline-spec.md)
 - [Sample Manifest and Outputs](sample-manifest.md)
 - [CO2e Validation Notes](co2e-validation.md)
 - [Dissertation Math Overview](dissertation-math-overview.md)
@@ -52,6 +54,15 @@ Start here, then follow topic links.
 - [ETA Concept Drift Checks](eta-concept-drift.md)
 
 ## Docs Maintenance
+
+- [Redesign Implementation Tracker](redesign-implementation-tracker.md)
+- [Reviewer Quickstart](reviewer_quickstart.md)
+
+- Review tracker and publication gaps:
+
+```powershell
+Get-Content docs/redesign-implementation-tracker.md
+```
 
 - Validate docs consistency and backend endpoint parity:
 
@@ -71,7 +82,7 @@ python scripts/check_docs.py --check-endpoints
 - Strict live runtime preflight (before startup or deploy checks):
 
 ```powershell
-uv run --project backend python backend/scripts/preflight_live_runtime.py
+uv run --directory backend python scripts/preflight_live_runtime.py
 ```
 
 ## Viewing and Running Docs

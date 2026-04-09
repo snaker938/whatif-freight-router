@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import random
 
-from app.models import GeoJSONLineString, RouteMetrics, RouteOption
+from app.abstention import build_abstention_record
+from app.models import GeoJSONLineString, RouteCertificationSummary, RouteMetrics, RouteOption, RouteResponse
 from app.objectives_selection import normalise_weights, pick_best_by_weighted_sum
 from app.pareto import dominates, pareto_filter
 from app.provenance_store import provenance_event, write_provenance
@@ -23,6 +24,43 @@ def _make_option(option_id: str, *, duration_s: float, money: float, co2: float)
             emissions_kg=co2,
             avg_speed_kmh=40.0,
         ),
+    )
+
+
+def _make_route_response(
+    *,
+    selected: RouteOption,
+    candidates: list[RouteOption],
+    selected_certificate: RouteCertificationSummary | None,
+    abstention=None,
+    certified_set: list[RouteOption] | None = None,
+    world_support_summary: dict[str, object] | None = None,
+) -> RouteResponse:
+    return RouteResponse(
+        selected=selected,
+        candidates=candidates,
+        selected_certificate=selected_certificate,
+        abstention=abstention,
+        certified_set=[] if certified_set is None else certified_set,
+        run_id="run-property-invariant",
+        manifest_endpoint="/runs/run-property-invariant/manifest",
+        artifacts_endpoint="/runs/run-property-invariant/artifacts",
+        provenance_endpoint="/runs/run-property-invariant/provenance",
+        world_support_summary=
+            world_support_summary
+            or {
+                "schema_version": "world-support-summary-v1",
+                "selected_route_id": selected.id,
+                "selected_certificate_basis": "selected_certificate",
+                "support_flag": bool(selected_certificate.certified) if selected_certificate is not None else True,
+                "support_state": {
+                    "support_flag": bool(selected_certificate.certified) if selected_certificate is not None else True,
+                    "support_bin": (
+                        "supported" if (selected_certificate is None or bool(selected_certificate.certified)) else "unsupported"
+                    ),
+                    "calibration_bin": "empirical",
+                },
+            },
     )
 
 
@@ -146,3 +184,94 @@ def test_provenance_event_order_is_preserved(tmp_path, monkeypatch) -> None:
         "pareto_selected",
         "artifacts_written",
     ]
+
+
+def test_route_response_terminal_consistency_and_artifact_pointer_invariants() -> None:
+    rng = random.Random(20260409)
+
+    for idx in range(24):
+        selected = _make_option(
+            f"route_{idx}",
+            duration_s=rng.uniform(90.0, 190.0),
+            money=rng.uniform(10.0, 45.0),
+            co2=rng.uniform(2.0, 14.0),
+        )
+        challenger = _make_option(
+            f"route_{idx}_alt",
+            duration_s=rng.uniform(90.0, 190.0),
+            money=rng.uniform(10.0, 45.0),
+            co2=rng.uniform(2.0, 14.0),
+        )
+        selected_certificate = RouteCertificationSummary(
+            route_id=selected.id,
+            certificate=0.9 if idx % 3 == 0 else 0.74,
+            certified=idx % 3 == 0,
+            threshold=0.8,
+            active_families=["scenario", "toll"] if idx % 4 else [],
+            top_fragility_families=[],
+        )
+        mode = idx % 3
+
+        if mode == 0:
+            response = _make_route_response(
+                selected=selected,
+                candidates=[selected, challenger],
+                selected_certificate=selected_certificate,
+            )
+            assert response.terminal_type == "certified_singleton"
+            assert [route.id for route in response.certified_set] == [selected.id]
+            assert response.recommended_route is selected
+            assert response.support_summary["supported"] is True
+            assert response.world_support_summary["schema_version"] == "world-support-summary-v1"
+            assert response.world_support_summary["selected_route_id"] == selected.id
+            assert response.world_support_summary["selected_certificate_basis"] == "selected_certificate"
+        elif mode == 1:
+            response = _make_route_response(
+                selected=selected,
+                candidates=[selected, challenger],
+                selected_certificate=selected_certificate,
+                certified_set=[selected, challenger],
+            )
+            assert response.terminal_type == "certified_set"
+            assert [route.id for route in response.certified_set] == [selected.id, challenger.id]
+            assert response.certified_set_summary["member_route_ids"] == [selected.id, challenger.id]
+            assert response.certified_set_summary["excluded_route_ids"] == []
+            assert response.world_support_summary["schema_version"] == "world-support-summary-v1"
+            assert response.world_support_summary["selected_route_id"] == selected.id
+            assert response.world_support_summary["selected_certificate_basis"] == "selected_certificate"
+        else:
+            abstention = build_abstention_record(
+                stop_reason="search_incomplete_no_action_worth_it",
+                support_flag=False,
+                support_reason="out_of_support_world_model",
+                credible_search_uncertainty=True,
+                active_families=[],
+                top_fragility_families=[],
+                detail={"case": idx},
+            )
+            response = _make_route_response(
+                selected=selected,
+                candidates=[selected, challenger],
+                selected_certificate=selected_certificate,
+                abstention=abstention,
+                certified_set=[selected, challenger],
+            )
+            assert response.terminal_type == "typed_abstention"
+            assert response.certified_set == []
+            assert response.abstention is not None
+            assert response.abstention.reason_code == "uncertified_due_to_out_of_support_world_model"
+            assert response.certified_set_summary["member_route_ids"] == []
+            assert response.certified_set_summary["excluded_route_ids"] == [selected.id, challenger.id]
+            assert response.world_support_summary["schema_version"] == "world-support-summary-v1"
+            assert response.world_support_summary["selected_route_id"] == selected.id
+            assert response.world_support_summary["selected_certificate_basis"] == "selected_certificate"
+            assert response.world_support_summary["support_flag"] is False
+
+        assert response.artifact_pointers == {
+            "manifest_endpoint": "/runs/run-property-invariant/manifest",
+            "artifacts_endpoint": "/runs/run-property-invariant/artifacts",
+            "provenance_endpoint": "/runs/run-property-invariant/provenance",
+        }
+        assert response.frontier_summary["candidate_count"] == 2
+        assert response.frontier_summary["selected_route_id"] == selected.id
+        assert response.certified_set_summary["witness"]["route_id"] == selected.id

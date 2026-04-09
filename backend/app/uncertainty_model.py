@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import random
 import statistics
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .calibration_loader import StochasticRegime, load_stochastic_regimes, load_uk_bank_holidays
+from .certification_models import AuditWorldBundle, ProbabilisticWorldBundle, WorldSupportState
 from .model_data_errors import ModelDataError
 from .risk_model import cvar, normalized_weighted_utility, quantile, robust_objective
 from .settings import settings
@@ -284,6 +287,58 @@ class UncertaintySummary:
             "factor_clip_rate": self.factor_clip_rate,
         }
         return {key: round(float(value), 6) for key, value in payload.items()}
+
+
+@dataclass(frozen=True)
+class WorldBundleSummary:
+    regime_id: str | None = None
+    copula_id: str | None = None
+    calibration_version: str | None = None
+    as_of_utc: str | None = None
+    support_state: WorldSupportState | None = None
+    probabilistic_world_bundle: ProbabilisticWorldBundle | None = None
+    audit_world_bundle: AuditWorldBundle | None = None
+    uncertainty_summary: UncertaintySummary | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.as_dict(), indent=2, sort_keys=True, default=str)
+
+
+def build_world_bundle_summary(
+    *,
+    manifest: Mapping[str, Any] | None = None,
+    uncertainty_summary: UncertaintySummary | None = None,
+    regime_id: str | None = None,
+    copula_id: str | None = None,
+    calibration_version: str | None = None,
+    as_of_utc: str | None = None,
+    support_state: WorldSupportState | None = None,
+    audit_world_bundle: AuditWorldBundle | None = None,
+    provenance: Mapping[str, Any] | None = None,
+) -> WorldBundleSummary:
+    payload = dict(manifest or {})
+    probabilistic_world_bundle = (
+        ProbabilisticWorldBundle.from_manifest(payload) if payload else None
+    )
+    resolved_support_state = support_state
+    support_payload = payload.get("support_state")
+    if resolved_support_state is None and isinstance(support_payload, Mapping):
+        resolved_support_state = WorldSupportState(**dict(support_payload))
+    return WorldBundleSummary(
+        regime_id=str(regime_id) if regime_id is not None else None,
+        copula_id=str(copula_id) if copula_id is not None else None,
+        calibration_version=str(calibration_version) if calibration_version is not None else None,
+        as_of_utc=str(as_of_utc) if as_of_utc is not None else None,
+        support_state=resolved_support_state,
+        probabilistic_world_bundle=probabilistic_world_bundle,
+        audit_world_bundle=audit_world_bundle,
+        uncertainty_summary=uncertainty_summary,
+        provenance=dict(provenance or payload.get("provenance", {})),
+    )
 
 
 def _bounded(value: float, *, low: float, high: float) -> float:

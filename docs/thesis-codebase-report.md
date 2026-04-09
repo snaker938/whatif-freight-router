@@ -1,6 +1,6 @@
 # Thesis-Grade Codebase Report: whatif-freight-router
 
-Date: March 6, 2026
+Date: April 9, 2026
 
 Repository basis: current local working tree at `c:\Users\jmend\Documents\GitHub\whatif-freight-router`
 
@@ -11,6 +11,8 @@ Evidence policy: repo-local evidence only.
 This project is a UK-focused freight-routing decision system built as a hybrid of four things: a prepared OSRM road-routing engine, a Python/FastAPI modeling backend, a Next.js single-page frontend, and a calibrated data/model asset layer that injects time-of-day, terrain, toll, fuel, carbon, uncertainty, and live scenario pressure into route selection. In plain language, the project does not only ask "what is the shortest road path?" It asks "which of the feasible UK freight routes is the better operational decision once cost, delay risk, terrain, tolls, weather, live pressure, carbon, and user preferences are added?"
 
 The main engineering character of the repository is strictness. The backend is intentionally fail-closed for many subsystems: graph readiness, scenario data, terrain coverage, toll topology/tariffs, departure profiles, stochastic regimes, fuel and carbon feeds, and several signature/provenance checks. This means the software would rather stop with an explicit reason code than silently invent a result from stale or unsupported data. That design choice is one of the strongest thesis themes in the repo.
+
+The third defining trait in the current codebase is that the thesis pipeline is explicit in code and available through named modes rather than only implicit in scripts or notes. The repository carries named pipeline modes (`legacy`, `dccs`, `dccs_refc`, `voi`), deterministic candidate triage, frontier certification, and a VOI-style controller, along with the artifact and UI surfaces needed to inspect those stages after a run.
 
 The second defining trait is that the project is not a pure academic implementation. It uses academically recognizable methods such as weighted-sum selection, augmented Tchebycheff scalarisation, VIKOR compromise ranking, Pareto dominance, epsilon-constraint filtering, A* heuristics, Yen-style K-shortest paths, quantiles, and CVaR. But those methods are adapted into transparent engineering blends that better fit freight-routing product needs. The code itself explicitly says the modified profiles are not claimed as novel theory.
 
@@ -40,26 +42,52 @@ If the goal is dissertation writing, the most useful reading order is:
 
 The repository currently contains:
 
-- 962 tracked files.
-- 844 tracked files under `backend`, mostly because raw toll evidence and toll fixtures are intentionally stored in-repo.
-- 72 tracked files under `frontend`.
-- 24 tracked files under `docs`.
-- 33 tracked backend data/build/benchmark scripts under `backend/scripts`.
-- 39 backend runtime modules under `backend/app`.
-- 71 tracked backend test files.
-- 25 current frontend API proxy route files in the working tree.
-- 22 current frontend component files in the working tree.
+- 1022 tracked files total.
+- 895 tracked files under `backend`, mostly because raw toll evidence and toll fixtures are intentionally stored in-repo.
+- 77 tracked files under `frontend`.
+- 26 tracked files under `docs`.
+- 42 tracked backend data/build/benchmark scripts under `backend/scripts`.
+- 48 backend runtime modules under `backend/app`.
+- 428 tracked backend test files.
+- 68 tracked files under `frontend/app`.
+- 27 tracked frontend API proxy route files.
+- 24 tracked frontend component files.
+- 14 tracked frontend library files under `frontend/app/lib`.
+- 18 tracked UK asset files under `backend/assets/uk`.
+- 342 tracked UK raw evidence files under `backend/data/raw/uk`.
 
-The current workspace also contains important locally present, currently untracked additions that affect the active codebase view in the IDE. The most important are:
+The current workspace also contains tracked additions that affect the active codebase view in the IDE. The most important are:
 
 - `frontend/app/api/route/baseline/route.ts`
 - `frontend/app/api/route/baseline/ors/route.ts`
+- `frontend/app/components/RouteCertificationPanel.tsx`
 - `frontend/app/components/RouteBaselineComparison.tsx`
 - `frontend/app/lib/baselineComparison.ts`
+- `backend/app/decision_critical.py`
+- `backend/app/evidence_certification.py`
+- `backend/app/voi_controller.py`
+- `backend/scripts/run_thesis_evaluation.py`
+- `backend/scripts/run_thesis_lane.py`
+- `backend/scripts/build_od_corpus_uk.py`
+- `backend/scripts/enrich_od_corpus_with_ambiguity.py`
 - `backend/tests/test_route_baseline_api.py`
+- `backend/tests/test_dccs.py`
+- `backend/tests/test_refc.py`
+- `backend/tests/test_voi_controller.py`
 - `backend/tests/test_pareto_backfill.py`
 
-Because the user asked for the entire codebase, this report describes both the tracked repository and those active local additions when they materially affect behavior.
+Because the user asked for the entire codebase, this report describes both the tracked repository and those active codebase additions when they materially affect behavior.
+
+Other late-stage tracked files that now materially affect the thesis-facing route path include:
+
+- `backend/app/decision_critical.py`, `backend/app/evidence_certification.py`, and `backend/app/voi_controller.py`, which add the DCCS, REFC, and VOI-AD2R layers
+- `backend/app/routing_ors.py`, which turns the local ORS engine into a first-class, identity-checked baseline source rather than an external black box
+- `backend/app/_process_cache.py`, `backend/app/certification_cache.py`, `backend/app/k_raw_cache.py`, `backend/app/route_option_cache.py`, `backend/app/route_state_cache.py`, and `backend/app/voi_dccs_cache.py`, which add replayable, measurable reuse layers to the route pipeline
+- `backend/scripts/build_od_corpus_uk.py` and `backend/scripts/enrich_od_corpus_with_ambiguity.py`, which create and enrich the thesis OD corpus with ambiguity priors before evaluation
+- `backend/scripts/evaluation_metrics.py`, `backend/scripts/run_thesis_evaluation.py`, and `backend/scripts/run_thesis_lane.py`, which define how thesis metrics are computed and how the end-to-end thesis lane is run
+- `backend/scripts/benchmark_route_graph_warmup.py` and `backend/scripts/run_hot_rerun_benchmark.py`, which turn warmup cost and cache-reuse claims into explicit measurable artifacts
+- `docs/voi-pipeline-spec.md`, which documents the DCCS/REFC/VOI thesis pipeline in contract form and therefore needs to be absorbed into this master report
+- `backend/tests/test_dccs.py`, `backend/tests/test_refc.py`, `backend/tests/test_voi_controller.py`, `backend/tests/test_thesis_evaluation_runner.py`, `backend/tests/test_thesis_lane_script.py`, `backend/tests/test_routing_ors.py`, and the newer cache tests, which lock the thesis pipeline and evaluation surfaces rather than only the original route API
 
 ### Evidence hierarchy used in this report
 
@@ -126,6 +154,7 @@ A user can:
 - run experiments and save scenario-comparison bundles
 - inspect live-source diagnostics and strict readiness state
 - view a baseline comparison against plain OSRM and ORS-style reference routing
+- inspect route-certification summaries, active evidence families, and VOI stop reasons when the thesis pipeline is enabled
 - inspect artifact manifests, provenance, signatures, and quality dashboards
 - define custom vehicles in addition to built-in profiles
 
@@ -237,6 +266,83 @@ Generated/runtime directories present locally:
 
 The `.gitignore` deliberately excludes most of `backend/out` and heavy OSRM cache data, but those outputs are still valid local evidence for this report.
 
+## Codebase Construction And Evolution Narrative
+
+### How the current codebase was assembled
+
+The current repository was not built as one single algorithm dropped into a web app. The file structure shows a layered construction order:
+
+1. stand up a dependable road-routing substrate with OSRM and a UK-only graph asset
+2. add a strict FastAPI route-construction backend that converts geometry into rich freight options
+3. build calibrated UK asset families for departure, scenario, stochastic, toll, fuel, carbon, and terrain logic
+4. add a Next.js workbench that can expose those controls and diagnostics without hiding them
+5. add artifact, signature, provenance, and experiment surfaces so runs become citable evidence
+6. add the later DCCS, REFC, and VOI thesis pipeline on top of the existing route-production path rather than replacing the earlier system
+
+That order matters. It explains why the repository contains both simpler reference helpers and later, richer thesis-facing modules. It also explains why many scripts exist: the codebase was created as a pipeline of build, calibration, publication, runtime, and evaluation steps.
+
+### Raw evidence to runtime asset chain
+
+The build path encoded by the repo is:
+
+1. collect or fetch raw UK evidence into `backend/data/raw/uk`
+2. compile those raw inputs into strict runtime assets under `backend/out/model_assets`
+3. publish selected compiled assets back into tracked runtime targets under `backend/assets/uk`
+4. gate backend startup through strict preflight before route-producing endpoints are considered ready
+
+The scripts make this sequence explicit:
+
+- raw collectors such as `collect_dft_raw_counts_uk.py`, `collect_fuel_history_raw_uk.py`, `collect_carbon_intensity_raw_uk.py`, `collect_stochastic_residuals_raw_uk.py`, and `collect_toll_truth_raw_uk.py` create inspectable evidence families instead of hiding collection inside runtime calls
+- fetch/build shapers such as `fetch_scenario_live_uk.py`, `fetch_fuel_history_uk.py`, `fetch_carbon_intensity_uk.py`, `fetch_stochastic_residuals_uk.py`, and `fetch_toll_truth_uk.py` turn raw evidence into asset-ready forms
+- asset builders such as `build_routing_graph_uk.py`, `build_departure_profiles_uk.py`, `build_scenario_profiles_uk.py`, `build_stochastic_calibration_uk.py`, `build_pricing_tables_uk.py`, and `build_terrain_tiles_uk.py` compile those sources into runtime artifacts
+- `build_model_assets.py` acts as the umbrella orchestrator for the model-asset bundle
+- `publish_live_artifacts_uk.py` is the promotion step that copies generated artifacts into the tracked strict-runtime files actually referenced by settings and preflight
+- `preflight_live_runtime.py` is the operational gate that tests whether those assets are fresh and structurally valid enough to support fail-closed routing
+
+The manifest evidence currently present locally confirms that this is not just a conceptual chain. `backend/out/model_assets/manifest.json` fixes the model bundle at `model-v2-uk`, `backend/out/model_assets/refresh_manifest.json` hashes the raw inputs that fed that build, and `backend/out/model_assets/live_publish_summary.json` records the handoff from generated outputs into tracked runtime assets.
+
+### How OD corpora and ambiguity priors are created
+
+The thesis workflow is now a second pipeline layered on top of the route runtime.
+
+`backend/scripts/build_od_corpus_uk.py` samples or assembles UK OD cases, bins them by distance and corridor shape, probes graph feasibility, and records candidate-generation side signals such as path count, objective spread, corridor-family count, and engine disagreement pressure. `backend/scripts/enrich_od_corpus_with_ambiguity.py` then turns those raw probes plus historical bootstrap evidence into normalized ambiguity priors, support ratios, source entropy measures, budget priors, and hard-case indicators.
+
+That means the later thesis evaluator is not inventing ambiguity labels after the fact. The corpus itself is constructed with explicit upstream ambiguity evidence. This is a major part of how the codebase was created: not only were route models built, but a corpus-generation and corpus-enrichment workflow was added so evaluation cases would stress the right parts of the system.
+
+### How the thesis pipeline extended the original router
+
+The earlier route engine already had:
+
+- graph-led candidate generation
+- OSRM refinement
+- cost, terrain, toll, fuel, carbon, and uncertainty modeling
+- Pareto filtering and scalar selection
+- manifests, provenance, and signatures
+
+The later thesis-facing extension adds three extra decision layers:
+
+- DCCS in `backend/app/decision_critical.py`, which triages raw candidates before expensive refinement
+- REFC in `backend/app/evidence_certification.py`, which certifies strict-frontier winners across bounded sampled worlds and computes fragility/value-of-refresh summaries
+- VOI-AD2R in `backend/app/voi_controller.py`, which chooses whether to refine more, refresh evidence, resample uncertainty, or stop
+
+In the current code, DCCS is best understood as a candidate-level triage stage rather than a theorem statement: each record can carry lower/upper envelope bounds, envelope provenance, support status, dominance metadata, criticality score terms, and explicit safe-elimination provenance fields such as `safe_eliminated`, `necessary_dominated`, `dominated_by_route_id`, `dominance_margin`, and `safe_elimination_reason`.
+
+This layered construction explains why the repository still contains simpler reference selectors, baseline endpoints, and classic Pareto logic. The thesis work was added on top of a functioning enriched router, not in place of it.
+
+### Why the newer cache and reporting layers appeared
+
+Once DCCS, REFC, and VOI were added, the repo gained new runtime reuse layers because repeated thesis evaluation makes intermediate reuse measurable and valuable. The newer cache modules split reuse by stage instead of keeping one monolithic route cache:
+
+- `k_raw_cache.py` caches raw graph candidate sets
+- `route_option_cache.py` caches expensive route-option construction, including a core/full split
+- `route_state_cache.py` caches downstream state needed for replay or resumed decision stages
+- `certification_cache.py` caches REFC results
+- `voi_dccs_cache.py` caches VOI/DCCS cross-stage material
+- `_process_cache.py` supplies a size-aware in-process cache primitive used by multiple higher-level stores
+
+The reporting layers grew for the same reason. Once thesis evaluation became central, the repo needed not just `results.json` but also `dccs_candidates.jsonl`, `strict_frontier.jsonl`, `certificate_summary.json`, `route_fragility_map.json`, `value_of_refresh.json`, `voi_action_trace.json`, `voi_stop_certificate.json`, `thesis_summary.json`, `methods_appendix.md`, and `thesis_report.md`. The checked bundle names are local evidence of the current artifact contract; this report is not claiming that older `dccs_summary.json` bundles were regenerated under a newer schema.
+In other words, the codebase evolved from "serve a route" to "serve a route and preserve enough evidence to defend why that route was chosen."
+
 ## Frontend Capability Chapter
 
 ### Plain-English view
@@ -255,6 +361,7 @@ The root page is `frontend/app/page.tsx`. It orchestrates:
 - departure optimization
 - duty-chain planning
 - experiments CRUD and comparison
+- route certification and VOI stop summaries
 - tutorial steps
 - diagnostics and developer tools
 - oracle-quality dashboard rendering
@@ -316,6 +423,20 @@ The comparison layer computes:
 - "Epic score" based on balanced ETA, cost, and CO2 improvement
 - qualitative tier labels: `Epic`, `Strong`, `Positive`, `Limited gain`
 
+The newer reporting doc and component code show that the panel now also exposes:
+
+- smart compute elapsed time
+- baseline fetch elapsed time
+- smart candidate count
+- live-source coverage
+- live calls observed
+
+and that it can present three baseline styles:
+
+- OSRM baseline
+- OpenRouteService baseline, including the local-service path
+- academic reference selection
+
 This is a presentation layer over backend comparison outputs, not a separate optimization engine. The important thesis point is that the project is explicitly set up to defend its route choice against simpler baselines.
 
 ### Other frontend workflows
@@ -334,6 +455,44 @@ Other user-facing components include:
 - `OracleQualityDashboard.tsx`: source quality and freshness summaries
 - `TutorialOverlay.tsx`: guided walkthrough
 - devtools panels for batch runs, custom vehicles, ops diagnostics, run inspection, and signature verification
+
+The devtool surface is also more operationally concrete than the earlier report stated:
+
+- `CustomVehicleManager.tsx` keeps the create/edit payload as raw JSON, so advanced users can tune terrain parameters, aliases, and freight-class mappings directly
+- `BatchRunner.tsx` supports both JSON OD-pair input and CSV-plus-options import paths instead of only one batch form
+- the current built-in batch defaults exposed in docs target `rigid_hgv`, `no_sharing`, and `max_alternatives: 8`
+- `RunInspector.tsx` is now the main in-app reporting surface for thesis, DCCS, REFC, and VOI bundles rather than only a generic download panel
+
+### Reporting, tutorial, and operator-assistance surfaces
+
+The frontend has grown well beyond "request a route and draw a line." The current docs and code show three extra frontend responsibilities that the thesis report needs to make explicit.
+
+First, tutorial mode is now a real workflow layer. The guided overlay has four operational states, `blocked`, `chooser`, `running`, and `completed`; it is desktop-gated; it stores progress locally; and it can resume an unfinished walkthrough. The tutorial step catalog can prefill canonical route, duty-chain, and experiment examples, which means the tutorial is tied to real repo workflows instead of being generic decoration.
+
+Second, the frontend is now a reporting instrument. The run inspector and related panels surface:
+
+- manifests and scenario manifests
+- provenance and signatures
+- route and thesis artifacts
+- DCCS candidate ledgers
+- strict frontier files
+- certificate and fragility summaries
+- value-of-refresh outputs
+- VOI action traces and stop certificates
+- thesis results, thesis summaries, methods appendices, and thesis reports
+
+Third, the UI has become an operator-assistance layer rather than a simple presentation layer. `ScenarioComparison.tsx` now exposes missing-metric reason details, `SegmentBreakdown.tsx` can copy the visible table as CSV, `OracleQualityDashboard.tsx` exposes per-source freshness/schema/signature/latency summaries plus CSV export, and the compute diagnostics overlay captures stage timing, retry/fallback behavior, graph diagnostics, live-call traces, slowest calls, and an optional AI diagnostic bundle. These features matter for a thesis because they show the frontend was built to explain and audit computation, not merely to trigger it.
+
+### In-app artifact retrieval scope
+
+The newer reporting docs make clear that the Next.js proxy layer intentionally allowlists the backend artifact/report surface rather than exposing arbitrary file paths. The currently documented in-app retrieval set includes:
+
+- `manifest`, `scenario-manifest`, `provenance`, `signature`, and `scenario-signature`
+- standard run files such as `results.json`, `results.csv`, `metadata.json`, `routes.geojson`, and `results_summary.csv`
+- thesis-pipeline files such as `dccs_candidates.jsonl`, `dccs_summary.json`, `refined_routes.jsonl`, `strict_frontier.jsonl`, `winner_summary.json`, `certificate_summary.json`, `route_fragility_map.json`, `competitor_fragility_breakdown.json`, `value_of_refresh.json`, `sampled_world_manifest.json`, `voi_action_trace.json`, `voi_action_scores.csv`, `voi_stop_certificate.json`, and `final_route_trace.json`
+- evaluation/report files such as `od_corpus.csv`, `od_corpus_summary.json`, `thesis_results.csv`, `thesis_summary.csv`, `methods_appendix.md`, and `thesis_report.md`
+
+That allowlist is an important architectural clue. It shows the frontend is coupled to a curated evidence contract, not to ad hoc backend file browsing.
 
 ### Frontend API proxy pattern
 
@@ -408,6 +567,7 @@ Supporting endpoints include:
 - readiness and health
 - vehicle profile CRUD
 - cache stats and cache clear
+- hot-rerun cache restore
 - metrics
 - experiments CRUD
 - oracle quality checks/dashboard
@@ -415,6 +575,30 @@ Supporting endpoints include:
 - debug live-call traces
 
 The full endpoint appendix appears later in this report.
+
+The current backend docs make the cache and diagnostics surface more concrete than the older report did. The active supporting endpoints now notably include:
+
+- `GET /metrics`
+- `GET /cache/stats`
+- `DELETE /cache`
+- `POST /cache/hot-rerun/restore`
+- `GET /debug/live-calls/{request_id}`
+
+Those are not peripheral admin extras. They are part of how the repo proves cache reuse, strict-live readiness, and evaluation replay behavior.
+
+The current API docs also make two observability surfaces more explicit than the older report did:
+
+- `GET /metrics` reports totals such as `total_requests`, `total_errors`, and per-endpoint duration summaries
+- `GET /cache/stats` distinguishes `route_cache`, `hot_rerun_route_cache_checkpoint`, `certification_cache`, `k_raw_cache`, `route_option_cache`, `route_state_cache`, and `voi_dccs_cache`
+
+The route and Pareto responses themselves now expose richer thesis diagnostics than the earlier report explicitly listed, including:
+
+- `candidate_diagnostics`
+- route `counts`
+- route `budgets`
+- `route_option_cache_runtime`
+
+Those details matter because they let a reader see not only what answer came back, but how much of the staged thesis pipeline was actually exercised.
 
 ### Lifespan behavior and graph warmup
 
@@ -434,6 +618,8 @@ The warmup is not cosmetic. The graph coverage report in `backend/out/model_asse
 - UK bounding box coverage
 
 That is large enough that warmup policy materially affects system behavior.
+
+One current implementation detail worth making explicit is that strict full-graph runtime is opinionated. In `backend/app/settings.py`, enabling the strict full-runtime policy forces `route_graph_fast_startup_enabled=false`, requires the full graph rather than a deferred or compact shortcut load, and deliberately ignores the legacy compact-graph environment overrides `ROUTE_GRAPH_STREAMING_MAX_NODES`, `ROUTE_GRAPH_STREAMING_MAX_EDGES`, `ROUTE_GRAPH_COMPACT_LOAD_ENABLED`, and `ROUTE_GRAPH_COMPACT_BACKBONE_SHARE` if they are present. The same strict policy also tightens or relaxes hybrid live-scenario requirements depending on policy tier: outside `strict_external`, strict mode still permits partial hybrid scenario refresh with a minimum of `3` sources and `0.75` overall coverage, whereas `strict_external` requires `4` sources and `1.0` coverage. That is important because it shows the repo is not merely exposing knobs; it is also curating which knobs are allowed to matter under thesis-grade runtime conditions.
 
 ## Routing Mechanics Chapter
 
@@ -498,6 +684,51 @@ Relevant controls from `.env.example` include:
 
 In non-jargon terms, the system intentionally spends more search effort than it finally shows, then compresses those raw candidates into a more diverse decision set.
 
+### Thesis pipeline modes and candidate-set lifecycle
+
+The newer thesis pipeline spec introduces a four-mode view of the route lifecycle:
+
+- `legacy`
+- `dccs`
+- `dccs_refc`
+- `voi`
+
+Those are request-level `pipeline_mode` values, and in the thesis bundles they are mapped as:
+
+- `V0 -> legacy`
+- `A -> dccs`
+- `B -> dccs_refc`
+- `C -> voi`
+
+In the verified default runtime configuration, supported requests resolve through `dccs_refc` as the primary thesis-facing path, while `legacy` remains available as the baseline-only path for ablation, replay, or historical comparison. Terminal outcomes in that path are typed as certified singleton, certified set, or typed abstention.
+
+The pipeline spec also makes the named route sets explicit:
+
+- `K_raw`: raw graph candidates after graph-led exploration and prefiltering
+- `R`: refined routes after provider refinement
+- `F`: the strict frontier extracted from `R`
+- `r*`: the currently selected winner
+
+In other words, the later thesis code no longer treats the route pipeline as a single opaque step. It treats route generation as a sequence of auditable sets that can each be persisted and cited.
+
+### DCCS, REFC, and VOI-AD2R layers
+
+The most important architectural change since the earlier report draft is that candidate generation now feeds three extra decision layers.
+
+`backend/app/decision_critical.py` adds DCCS. It builds deterministic candidate ledgers, stable candidate IDs, objective proxies, mechanism descriptors, confidence maps, overlap/stretches, flip probabilities, and auditable refine-cost estimates from fixed in-repo coefficients. In plain English, it decides which candidates are worth spending refinement budget on before the backend commits to expensive route building.
+
+`backend/app/evidence_certification.py` adds REFC. It works on the strict frontier `F`, activates evidence families such as scenario, toll, terrain, fuel, carbon, weather, and stochastic state, samples bounded replayable worlds, computes winner-frequency certificates, and then derives fragility maps and value-of-refresh summaries. In plain English, it asks whether the apparent winner still looks like a winner once evidence uncertainty is stressed in a controlled, repeatable way.
+
+`backend/app/voi_controller.py` adds VOI-AD2R. It keeps a deterministic controller state, scores a fixed menu of actions, and can:
+
+- refine the top-1 DCCS candidate
+- refine a small top-k DCCS set
+- refresh the highest-value evidence family
+- increase stochastic samples around a near tie
+- stop with an explicit certificate/status summary
+
+The important thesis point is that these layers extend the route engine after candidate generation rather than replacing graph search, OSRM refinement, or Pareto logic.
+
 ### Long-corridor rescue logic
 
 Several settings show explicit concern for long trips:
@@ -533,6 +764,19 @@ This is not only about speed. It is about bounded failure. Instead of hanging in
 
 This supports repeated route exploration in the frontend and exposes cache diagnostics through `/cache/stats`.
 
+### Additional cache layers used by the thesis pipeline
+
+The active codebase now uses several narrower caches in addition to the top-level route cache:
+
+- `k_raw_cache.py` stores raw graph candidate sets before refinement
+- `route_option_cache.py` stores expensive route-option builds and separates a core cache key from a full-detail cache key
+- `route_state_cache.py` stores downstream route-state bundles that can be reused after earlier stages finish
+- `certification_cache.py` stores REFC certificate outputs
+- `voi_dccs_cache.py` stores VOI/DCCS intermediate material
+- `_process_cache.py` provides a reusable TTL/max-entry/max-estimated-bytes cache primitive with deep-copy semantics and size estimation
+
+This matters for understanding the current codebase because several modern metrics and diagnostics now talk about cache-hit rates at multiple stages rather than only at the final route level.
+
 ### OSRM client behavior
 
 `backend/app/routing_osrm.py` wraps OSRM with:
@@ -544,6 +788,18 @@ This supports repeated route exploration in the frontend and exposes cache diagn
 - bounded retry logic
 
 The wrapper also compensates for practical issues such as alternative parameter compatibility and docker/host addressing hints. This is another example of the project being engineering-focused rather than purely theoretical.
+
+### ORS client and manifest behavior
+
+`backend/app/routing_ors.py` is now a distinct runtime module rather than a thin external reference. It:
+
+- wraps local ORS route calls with normalized error handling
+- records a local runtime manifest for the ORS engine
+- hashes graph listings and build-info state
+- reads the compose image and local graph files
+- checks whether the ORS graph identity is still aligned with the expected source PBF and config
+
+This means the ORS baseline is not treated as a mysterious third-party answer. The repo can inspect and report its local ORS graph identity, freshness status, engine image, graph build date, OSM date, file count, and listing digest.
 
 ### Baseline route mechanics
 
@@ -748,6 +1004,21 @@ The scenario profile asset records a weighted L1 similarity design with weights:
 - road-mix distance 0.04
 
 This is how the system decides which empirical context is "similar enough" to apply when an exact identity match is absent.
+
+The current API surface also exposes a more explicit ambiguity-aware context family than the older report stated. Relevant request/response-facing fields now include:
+
+- `od_ambiguity_source_count`
+- `od_ambiguity_source_mix`
+- `od_ambiguity_source_mix_count`
+- `od_ambiguity_source_entropy`
+- `od_ambiguity_support_ratio`
+- `od_ambiguity_prior_strength`
+- `od_candidate_path_count`
+- `od_corridor_family_count`
+- `ambiguity_budget_prior`
+- `ambiguity_budget_band`
+
+These matter because ambiguity-aware budgeting is not only an internal evaluator concept anymore. It is now visible in the request/response and artifact surface.
 
 ## Physics And Cost-Model Chapter
 
@@ -987,18 +1258,22 @@ This frozen set is thesis-significant because it formalizes failure semantics as
 
 ### Preflight evidence currently present locally
 
-`backend/out/model_assets/preflight_live_runtime.json` records a local strict preflight run at `2026-03-05T02:10:00Z` with:
+`backend/out/model_assets/preflight_live_runtime.json` records a local strict preflight run at `2026-04-04T15:48:39Z` with:
 
 - `required_ok: true`
-- zero required failures
-- scenario live context overall coverage 1.0
-- scenario profile contexts: 192
-- toll tariff rule count: 220
-- toll topology segment count: 28
-- stochastic regimes: 18
-- departure profile region count: 11
-- bank holiday count: 134
-- carbon price per kg: 0.101
+- `required_failure_count: 0`
+- scenario profile asset version `scenario_profiles_uk_v2_live`
+- scenario profile contexts recorded by preflight: 384
+- scenario live context as of `2026-04-04T02:39:16Z`, with WebTRIS, Traffic England, DfT, Open-Meteo, and overall coverage all at 1.0
+- fuel snapshot source `repo_local:fuel_prices_uk.json`, as of `2026-03-23T00:00:00Z`, signature prefix `6092b11ca3f7`
+- toll tariff rule count 220 and toll-topology segment count 28
+- stochastic regimes 18 and departure-profile region count 11
+- bank holiday count 134
+- carbon price per kg 0.101 and scope-adjusted emissions factor 1.121
+- OSRM smoke route `189471.0 m / 8794.2 s`
+- ORS smoke route `203868.1 m / 12280.8 s`, engine version `9.7.1`, graph date `2026-03-22T16:39:30Z`, manifest hash prefix `6bbc27f2`, and identity status `graph_identity_verified`
+
+The latest thesis-bundle preflight copied into `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/repo_asset_preflight.json` is newer again at `2026-04-06T09:36:17Z`. It keeps the same strict-readiness picture, but records a later fuel snapshot as of `2026-03-30T00:00:00Z`.
 
 This is a valuable evidence artifact because it shows the strict runtime design was not only coded; it was exercised locally.
 
@@ -1016,6 +1291,12 @@ This is a valuable evidence artifact because it shows the strict runtime design 
 The frontend can fetch this with `/debug/live-calls/{request_id}` and expose it in ops diagnostics.
 
 This is one of the most thesis-worthy operational features in the repo. It turns "the route used live data" from a vague claim into inspectable evidence.
+
+The active operational docs make that trace surface more concrete than the earlier report did:
+
+- traces are grouped per attempt, not only per request
+- rows can expose URL, request/success/cache/retry state, headers, and extra diagnostics
+- the diagnostics panel therefore acts as a live-source ledger rather than a simple success/failure light
 
 ### Freshness and retry behavior
 
@@ -1040,6 +1321,13 @@ Important terrain strictness settings:
 - signed fallback disallowed by default
 - allowed host list restricted to S3
 - tile max age 7 days
+
+Important current runtime behavior from the operational docs is:
+
+- frontend fallback attempts stop immediately on strict business failures (`HTTP 4xx`) instead of continuing to degrade
+- strict-live refresh is hybrid: scenario coefficients refresh every attempt, while expensive DfT/WebTRIS/Traffic/Meteo context feeds remain TTL-cached for fallback reliability
+- `GET /health/ready` now exposes a structured `strict_live` block with `ok`, `status`, `reason_code`, `message`, `as_of_utc`, `age_minutes`, `max_age_minutes`, and `checked_at_utc`
+- when strict-live inputs are stale or missing, readiness can return `recommended_action=refresh_live_sources`
 
 ### Why the repo is designed this way
 
@@ -1110,27 +1398,38 @@ From `backend/assets/uk/scenario_profiles_uk.json`:
 - version: `scenario_profiles_uk_v2_live`
 - source: `free_live_apis+holdout_fit`
 - calibration basis: `empirical_live_fit`
-- context count: 192
+- generated at `2026-03-30T15:20:52Z`
+- as of `2026-03-30T15:07:37Z`
+- calibrated context families in file: 192
+- strict preflight later records 384 live-usable contexts for the same profile family
 - coverage: 1.0
 - split strategy: `temporal_forward_plus_corridor_block`
 - blocked corridor count in holdout metadata: 4
-- observed mode row share: 0.5
+- blocked corridors: `scotland_south`, `south_england`, `uk_default`, `wales_west`
+- source observation rows: 1023
+- observed mode row count: 735
+- holdout mode-separation mean: 0.176535
+- holdout duration MAPE: 0.011509
+- holdout monetary MAPE: 0.010849
+- holdout emissions MAPE: 0.013062
+- observed mode row share: 0.718475
 - projection dominant context share: 0.5
+- full identity share: 0.333333
+- fit window: `2026-02-22T18:45:40Z` to `2026-03-30T15:07:23Z`
+- holdout window: `2026-02-22T18:46:42Z` to `2026-03-30T15:07:37Z`
 
-The transform section shows fitted live-feature weights for:
+The transform section is now concrete rather than heuristic:
 
-- traffic pressure
-- incident pressure
-- weather pressure
-
-and policy adjustment weights for:
-
-- duration multiplier
-- incident rate multiplier
-- incident delay multiplier
-- fuel consumption multiplier
-- emissions multiplier
-- stochastic sigma multiplier
+- traffic pressure bias `-120.833046`, with `flow_index=0.998867` and `speed_inverse=0.001133`
+- incident pressure bias `-12.713737`, with `delay_pressure=0.961823` and `severity_index=0.038177`
+- weather pressure weight `weather_severity_index=1.0`
+- policy-adjustment gain `0.05`
+- duration-multiplier weights `traffic=0.710491`, `incident=0.250055`, `weather=0.039454`
+- incident-rate weights `traffic=0.299388`, `incident=0.461268`, `weather=0.239343`
+- incident-delay weights `traffic=0.342096`, `incident=0.517194`, `weather=0.14071`
+- fuel-consumption weights `traffic=0.695558`, `incident=0.036547`, `weather=0.267895`
+- emissions weights `traffic=0.640549`, `incident=0.062525`, `weather=0.296926`
+- stochastic-sigma weights `traffic=0.334614`, `incident=0.454754`, `weather=0.210632`
 
 ### Sharing modes explained without jargon
 
@@ -1143,16 +1442,19 @@ The three scenario modes are:
 The asset's `mode_effect_scale` gives:
 
 - `no_sharing = 1.0`
-- `partial_sharing = 0.569279`
+- `partial_sharing = 0.544967`
 - `full_sharing = 0.05`
 
-In a representative context from the asset:
+At the profile-summary layer currently stored in the same asset:
 
-- `no_sharing` duration multiplier is 1.474464
-- `partial_sharing` duration multiplier is 1.246721
-- `full_sharing` duration multiplier is 0.98
+- `no_sharing` duration multiplier is `1.474464 / 1.603316 / 1.603316` at `p10 / p50 / p90`
+- `partial_sharing` duration multiplier is `1.246721 / 1.313724 / 1.313724`
+- `full_sharing` duration multiplier is `0.98 / 0.98 / 0.98`
+- `no_sharing` stochastic sigma multiplier is `1.311107 / 1.466484 / 1.466484`
+- `partial_sharing` stochastic sigma multiplier is `1.161775 / 1.242572 / 1.242572`
+- `full_sharing` stochastic sigma multiplier is `0.98 / 0.98 / 0.98`
 
-and similarly for incident rate, incident delay, fuel consumption, emissions, and stochastic sigma.
+The exact multipliers vary by context, but the calibrated directionality is consistent across duration, incident rate, incident delay, fuel consumption, emissions, and stochastic sigma.
 
 So the sharing modes do not merely rename scenarios. They alter multiple downstream multipliers that affect:
 
@@ -1167,12 +1469,37 @@ So the sharing modes do not merely rename scenarios. They alter multiple downstr
 
 From `backend/assets/uk/stochastic_regimes_uk.json`:
 
+- calibration version `v4-uk-residual-fit`
+- copula `gaussian_5x5_uk_v3_calibrated`
 - empirical calibration basis
+- generated at `2026-03-21T13:09:06.883293Z`
+- as of `2026-03-21T13:09:06.883304Z`
 - holdout coverage 1.0
-- PIT mean about 0.5166
-- CRPS about 0.4709
-- duration MAPE about 0.1401
+- PIT mean 0.5149096244101729
+- CRPS 0.47377558811984366
+- duration MAPE 0.14058663646867195
 - holdout rows 50,000
+- covered rows 50,000
+- regime count 18
+- hour-slot coverage 12
+- corridor coverage 9
+- split strategy `temporal_forward_plus_corridor_block`
+
+The raw residual corpus that feeds this asset currently records:
+
+- 50,000 rows written against a 50,000-row target
+- 3 variants per row
+- 96 scenario templates
+- 12,500 DfT rows
+- 6 road buckets, 3 weather profiles, 3 vehicle types, 9 corridors, and 12 local slots
+
+The regime map includes named combinations such as:
+
+- `holiday_offpeak_high`
+- `holiday_offpeak_low`
+- `holiday_offpeak_mid`
+- `holiday_peak_high`
+- `holiday_peak_low`
 
 The asset stores multiple regimes with:
 
@@ -1187,7 +1514,12 @@ This means the uncertainty system is not a single global Gaussian noise knob.
 From `backend/assets/uk/departure_profiles_uk.json`:
 
 - version `uk-v4-contextual-empirical`
+- generated at `2026-03-21T13:09:05.640893Z`
+- as of `2026-03-20T23:38:28Z`
 - empirical calibration basis
+- profile buckets 11
+- envelope buckets 11
+- region keys: `east_midlands`, `east_of_england`, `london_southeast`, `north_east`, `north_west`, `scotland_south`, `south_east`, `south_west`, `wales_west`, `west_midlands`, `yorkshire_humber`
 
 The runtime departure model chooses profile rows by:
 
@@ -1202,17 +1534,24 @@ This is much richer than a single rush-hour multiplier.
 
 From `backend/assets/uk/fuel_prices_uk.json`:
 
-- diesel 1.563 GBP/L
-- petrol 1.51 GBP/L
+- as of `2026-03-23T00:00:00Z`
+- refreshed at `2026-03-30T00:20:29Z`
+- provider contract `fuel-live-v1`
+- diesel 1.6688 GBP/L
+- petrol 1.4416 GBP/L
 - LNG 1.015 GBP/L
 - grid electricity 0.248 GBP/kWh
 
 From `backend/assets/uk/carbon_price_schedule_uk.json`:
 
+- version `uk-carbon-schedule-v2`
+- generated at `2026-03-21T13:09:05Z`
+- as of `2026-02-20T11:57:47Z`
 - central/high/low schedules from 2025 to 2050
 - uncertainty bands
 - WTW/LCA scope factors
 - EV grid-intensity by region and hour
+- 2026 central carbon price 0.101 GBP/kg, with 2026 high 0.11918 GBP/kg and low 0.08282 GBP/kg
 
 ### Risk normalization references
 
@@ -1229,12 +1568,23 @@ often per km and per vehicle class. This is important because robust and utility
 `backend/assets/uk/toll_confidence_calibration_uk.json` is labelled:
 
 - version `uk-toll-confidence-v2-empirical`
+- as of `2026-03-20T23:42:44Z`
+- source `backend\tests\fixtures\toll_classification`
 
 and uses:
 
 - fixture/test-backed empirical source
 - logistic model coefficients
-- reliability bins
+- 5 reliability bins with calibrated targets 0.1, 0.3, 0.5455, 0.7, and 0.9
+
+The current logistic model coefficients are:
+
+- intercept 0.074138
+- class signal 0.07386
+- seed signal 0.0
+- segment signal 0.107248
+- source bonus both 0.0
+- source bonus class 0.0
 
 That is better described as calibrated confidence scoring, not just a heuristic confidence guess.
 
@@ -1260,7 +1610,7 @@ This lets one route engine serve multiple fleet types without pretending they be
 | modified selection weights | regret 0.35, balance 0.10, distance 0.22, ETA-distance 0.18, entropy 0.08, knee 0.12 | shapes which compromise route gets chosen |
 | VIKOR parameter | `v = 0.5` | balances group utility and regret evenly |
 | Tchebycheff epsilon term | `rho = 0.001` | small tie-break toward overall weighted performance |
-| scenario mode effect scale | no sharing 1.0, partial 0.569279, full 0.05 | controls how strongly scenario modes compress penalties |
+| scenario mode effect scale | no sharing 1.0, partial 0.544967, full 0.05 | controls how strongly scenario modes compress penalties |
 | scenario policy gain | 0.05 in asset transform blocks | scales how live pressures move multipliers |
 | scenario context similarity weights | geo 0.34, hour 0.12, day 0.12, weather 0.12, road 0.16, vehicle 0.10, road-mix 0.04 | determines nearest-context matching |
 | strict scenario source threshold | min source count 4, overall coverage 1.0 | decides whether live scenario context is acceptable |
@@ -1268,6 +1618,22 @@ This lets one route engine serve multiple fleet types without pretending they be
 | terrain sample spacing | 180 m default, 320 m long-route | detail versus runtime tradeoff |
 | long-route terrain sample caps | 900 long-route, 1500 general cap | bounds DEM cost |
 | live terrain freshness | 7-day tile max age | controls whether live DEM tiles count as valid |
+
+Additional current defaults worth calling out:
+
+- live route compute prefetch timeout is 300000 ms with concurrency 8, and terrain probing is enabled
+- route compute attempt budgets are 1200 s and 900 s
+- route-context probing is disabled by default, with a 2500 ms timeout, 2-path cap, 15000 state budget, and 320-hop cap
+- graph OD feasibility timeout is 30000 ms and precheck fail-closed is disabled
+- graph state budget is 1200000 with 1600 per hop, 2.5x retry multiplier, and 8000000 retry cap
+- graph search deadlines are 30000 ms initial, 120000 ms retry, and 150000 ms rescue
+- long-corridor bypass is 120 km, the long-corridor threshold is 150 km, and the maximum path count is 4
+- candidate prefilter multipliers are 3 normal and 2 long, while segment caps are 160 normal and 40 long
+- the selection profile remains `modified_vikor_distance` with weights 0.35, 0.10, 0.22, 0.18, 0.08, and 0.12
+- Pareto backfill is enabled with a minimum of 6 alternatives
+- the frontend degrade steps are 12, 6, and 3, and the warmup baseline is 480000 ms
+- terrain long-route threshold is 180 km, with 320 m sampling, 900 long-route samples, 1500 total samples, and 1200 segment-boundary probes
+- strict scenario context still requires 4 sources and 1.0 overall coverage, with observed-mode row share floor 0.20 and projection-dominant context share cap 0.80
 | graph nearest-node threshold | 10,000 m max | coverage-gap fail condition |
 | graph giant-component thresholds | 50,000 nodes and 0.20 ratio | graph integrity quality gate |
 | graph search budgets | max state budget 1,200,000; retry cap 8,000,000 | controls graph search effort and rescue behavior |
@@ -1369,6 +1735,516 @@ The defensible thesis wording is therefore:
 
 It can win generally because plain provider routes optimize a narrower surrogate target, while the smart system optimizes a broader operational target. If a route is slightly longer but avoids tolls, smoother terrain, peak departure pressure, or bad uncertainty tails, it can be better for freight operations even when it is not the absolute shortest geometry.
 
+## Thesis Pipeline Chapter
+
+### Plain-English summary
+
+The current repository no longer stops at "generate a few candidates and pick one." It now carries an explicit thesis-facing decision pipeline with four named modes:
+
+- `legacy`: earlier bounded route-selection flow
+- `dccs`: route generation plus deterministic candidate triage before full refinement
+- `dccs_refc`: DCCS plus strict-frontier evidence certification
+- `voi`: DCCS plus REFC plus a deterministic VOI-style controller
+
+In implementation terms, the current thesis path is:
+
+`preflight and OD feasibility -> K_raw -> DCCS -> refined set R -> strict frontier F -> REFC -> VOI-AD2R stop certificate`
+
+That pipeline is implemented directly in:
+
+- `backend/app/decision_critical.py`
+- `backend/app/evidence_certification.py`
+- `backend/app/voi_controller.py`
+- `backend/app/models.py`
+- `backend/app/run_store.py`
+
+and surfaced in the frontend through:
+
+- `frontend/app/components/RouteCertificationPanel.tsx`
+- `frontend/app/components/devtools/RunInspector.tsx`
+
+The practical importance is that the repo now exposes not only a chosen route but also why it was admitted, how confident the winner looked under bounded stress worlds, which evidence family looked most fragile, and why the controller stopped.
+
+### Request Contract And Default Runtime Budgets
+
+The thesis pipeline is not hidden behind internal flags only. The request models now carry explicit thesis knobs:
+
+- `pipeline_mode`
+- `pipeline_seed`
+- `search_budget`
+- `evidence_budget`
+- `cert_world_count`
+- `certificate_threshold`
+- `tau_stop`
+
+Those fields are present on `RouteRequest`, `BatchParetoRequest`, and `BatchCSVImportRequest`, while the route response now carries:
+
+- `pipeline_mode`
+- `selected_certificate`
+- `voi_stop_summary`
+
+The current default runtime settings in `backend/app/settings.py` are:
+
+- `ROUTE_PIPELINE_DEFAULT_MODE=legacy`
+- `ROUTE_PIPELINE_REQUEST_OVERRIDE_ENABLED=true`
+- `ROUTE_PIPELINE_DEFAULT_SEED=20260320`
+- `ROUTE_PIPELINE_SEARCH_BUDGET=6`
+- `ROUTE_PIPELINE_EVIDENCE_BUDGET=3`
+- `ROUTE_PIPELINE_CERT_WORLD_COUNT=64`
+- `ROUTE_PIPELINE_CERTIFICATE_THRESHOLD=0.70`
+- `ROUTE_PIPELINE_TAU_STOP=0.03`
+- `ROUTE_PIPELINE_SEARCH_COMPLETENESS_THRESHOLD=0.84`
+- `ROUTE_PIPELINE_SEARCH_COMPLETENESS_ACTION_BONUS=0.22`
+- `ROUTE_PIPELINE_WORLD_INCREMENT=32`
+
+The newest checked thesis-focused proof bundles intentionally run tighter, more publication-style settings instead of those broad defaults. Both `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/.../methods_appendix.md` and `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/methods_appendix.md` record:
+
+- matched `search_budget=4`
+- `evidence_budget=2`
+- `cert_world_count=64`
+- `certificate_threshold=0.8`
+- `tau_stop=0.02`
+- `max_alternatives=8`
+- strict evidence policy `no_synthetic_no_proxy_no_fallback`
+- `V0=legacy`, `A=dccs`, `B=dccs_refc`, `C=voi`
+- V0 baseline refinement policy `corridor_uniform`
+- secondary baseline policy `local_service`
+
+So there are two levels of thesis-pipeline tuning in the current repo:
+
+- general runtime defaults in `backend/app/settings.py`
+- stricter, explicitly recorded evaluation settings in the checked thesis bundles
+
+### DCCS: Deterministic Candidate Triage
+
+`backend/app/decision_critical.py` is the DCCS implementation. It defines `DCCSConfig`, `DCCSCandidateRecord`, `DCCSResult`, `build_candidate_record(...)`, `select_candidates(...)`, and `record_refine_outcome(...)`.
+
+This file matters because it captures one of the clearest examples of thesis-specific parameter tuning that is now hard-coded and auditable in the repo instead of being left to an external notebook. The file keeps deterministic per-pipeline refine-cost models in code:
+
+| Pipeline alias | Intercept | `log_len` | `slow_segment_share` | `shape_detour_factor` | `log_len_sq` |
+| --- | --- | --- | --- | --- | --- |
+| `dccs` | `8.316544948883` | `-1.781208564289` | `1.491476411796` | `0.338682866708` | `0.24330902265` |
+| `dccs_refc` | `12.346727119479` | `-3.750638983277` | `1.887340140024` | `0.538186363201` | `0.413602111865` |
+| `voi` | `0.869653438579` | `1.319459457179` | `0.489105359189` | `0.322071159276` | `-0.100386641937` |
+
+The same module also keeps:
+
+- a fixed legacy refine-cost model with coefficients such as `graph_length_km=0.95`, `stretch_excess=10.5`, `urban_share=9.25`, `toll_share=6.0`, `terrain_burden=4.5`, `motorway_deficit=3.1`, and `path_nodes=0.45`
+- per-pipeline label weights for fallback/support-fallback mechanisms under `_REFINE_COST_LABEL_MODEL`
+- explicit stageless legacy shrink factors `_REFINE_COST_UNLABELED_STAGELESS_LEGACY_SCALE` of `0.04` for `dccs_refc` and `0.066` for `voi`
+
+The runtime tuning around DCCS in `backend/app/settings.py` is equally explicit:
+
+- `ROUTE_DCCS_OVERLAP_THRESHOLD=0.82`
+- `ROUTE_DCCS_BOOTSTRAP_COUNT=3`
+- `ROUTE_DCCS_DEFAULT_BASELINE_POLICY=first_n` and then normalized to supported values in settings validation
+- `ROUTE_DCCS_PFLIP_BIAS=-0.15`
+- `ROUTE_DCCS_PFLIP_GAP_WEIGHT=2.1`
+- `ROUTE_DCCS_PFLIP_MECHANISM_WEIGHT=1.2`
+- `ROUTE_DCCS_PFLIP_OVERLAP_WEIGHT=1.4`
+- `ROUTE_DCCS_PFLIP_DETOUR_WEIGHT=0.9`
+- `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_SEED_ENABLED=true`
+- `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_AMBIGUITY=0.38`
+- `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_ENGINE_DISAGREEMENT=0.25`
+- `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_HARD_CASE=0.32`
+- `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_CORRIDOR_COUNT=2`
+- `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MAX_CANDIDATES=4`
+
+In plain language, DCCS is no longer a vague "smart pruning" idea in this repo. It is an auditable triage subsystem with named records, fixed coefficients, explicit overlap rules, and recorded candidate ledgers.
+
+The implementation is also more concrete than the old report implied. `decision_critical.py` normalizes candidate paths from several raw forms, builds stable candidate IDs with SHA-1 hashing, extracts objective vectors from `proxy_objective`, `hat_z`, or route metrics, and carries forward mechanism descriptors, confidence maps, and road-class mixtures in a single candidate record. That means the same candidate can be tracked consistently across raw graph search, DCCS triage, later refinement, and thesis artifacts. The same file also makes the allowed baseline/comparator seeding policies explicit as `first_n`, `random_n`, `uniform_corridor_n`, and `corridor_uniform`, so the repo records not only which candidates were selected, but which fairness/diversification policy was allowed to seed comparison in the first place.
+
+### REFC: Bounded Evidence Certification
+
+`backend/app/evidence_certification.py` implements the REFC layer. The important public dataclasses and functions are:
+
+- `EvidenceProvenance`
+- `WorldSample`
+- `CertificateConfig`
+- `CertificateResult`
+- `FragilityResult`
+- `compute_certificate(...)`
+- `compute_fragility_maps(...)`
+
+The repo records the evidence families explicitly as:
+
+- `scenario`
+- `toll`
+- `terrain`
+- `fuel`
+- `carbon`
+- `weather`
+- `stochastic`
+
+and the state catalog explicitly as:
+
+- `nominal`
+- `mildly_stale`
+- `severely_stale`
+- `low_confidence`
+- `proxy`
+- `refreshed`
+
+This matters because REFC is not an unconstrained Monte Carlo story. The file encodes bounded, replayable stress worlds. The default state effects are hard-coded objective perturbations:
+
+- `mildly_stale = (0.040, 0.030, 0.032)`
+- `severely_stale = (0.140, 0.110, 0.095)`
+- `low_confidence = (0.078, 0.062, 0.056)`
+- `proxy = (0.185, 0.152, 0.132)`
+- `refreshed = (-0.038, -0.030, -0.024)`
+
+and the default family sensitivities are also fixed in code:
+
+- `scenario = (0.82, 0.34, 0.24)`
+- `toll = (0.05, 1.00, 0.12)`
+- `terrain = (0.52, 0.22, 0.78)`
+- `fuel = (0.12, 0.94, 0.30)`
+- `carbon = (0.00, 0.90, 0.78)`
+- `weather = (0.72, 0.18, 0.18)`
+- `stochastic = (0.68, 0.62, 0.52)`
+
+The file then adds a second layer of route-specific structure that is easy to miss if one only reads the summary docs. REFC uses a default objective-bias map that says, for example, time is driven mostly by `scenario=0.35`, `weather=0.25`, `terrain=0.20`, and `stochastic=0.15`; money is driven mostly by `fuel=0.35`, `toll=0.30`, and `carbon=0.20`; and CO2 is driven mostly by `terrain=0.30`, `fuel=0.25`, and `carbon=0.25`. On top of that, it computes route-specific operational overrides from the actual route payload: weather pressure is derived from weather delay plus half incident delay relative to route duration; terrain pressure is derived from ascent plus discounted descent per kilometre; scenario pressure is derived from duration, incident-rate, incident-delay, fuel, and emissions multipliers; stochastic pressure is derived from duration/cost/emissions standard deviations; and toll, fuel, and carbon exposure are derived from segment-cost composition. In plain language, REFC is not just applying a fixed global penalty table. It is using the route's own evidence tensor and operational footprint to decide which evidence family should matter more for that route.
+
+The route-specific override coefficients are themselves explicit in code. Scenario pressure adds `0.32/0.22/0.28` into time/money/CO2 weighting; weather adds `0.52/0.08/0.12`; terrain adds `0.34/0.12/0.52`; toll adds `0.08/0.66/0.00`; fuel adds `0.04/0.56/0.38`; carbon adds `0.00/0.46/0.34`; and stochastic adds `0.32/0.22/0.22`. That matters because the thesis reader can see that the certification stage is still deterministic and inspectable even though it is route-sensitive.
+
+Runtime tuning for REFC is likewise explicit:
+
+- `ROUTE_REFC_EVIDENCE_FAMILIES=scenario,toll,terrain,fuel,carbon,weather,stochastic`
+- `ROUTE_REFC_STATE_CATALOG=nominal,mildly_stale,severely_stale,low_confidence,proxy,refreshed`
+- `ROUTE_REFC_ADAPTIVE_WORLD_COUNT_ENABLED=true`
+- `ROUTE_REFC_LOW_AMBIGUITY_WORLD_CAP=24`
+- `ROUTE_REFC_MEDIUM_AMBIGUITY_WORLD_CAP=48`
+- `ROUTE_REFC_HIGH_AMBIGUITY_WORLD_FLOOR=72`
+
+In thesis terms, REFC is where the codebase turns evidence freshness, confidence, and provenance into a measurable certificate instead of leaving them as informal annotations.
+
+### VOI-AD2R Controller
+
+`backend/app/voi_controller.py` is the largest thesis-specific controller module in the repository. It defines:
+
+- `VOIConfig`
+- `VOIAction`
+- `VOIControllerState`
+- `VOIActionHooks`
+- `VOIStopCertificate`
+- `build_action_menu(...)`
+- `score_action(...)`
+- `run_controller(...)`
+
+The controller is deterministic and myopic rather than learned. Its action menu is deliberately bounded and auditable. The checked docs and code agree on the main admissible action families:
+
+- refine the top DCCS challenger
+- refine a bounded top-k DCCS challenger set
+- refresh the top value-of-refresh evidence family
+- increase stochastic samples for a near-tie set
+- stop explicitly when no action clears the threshold
+
+The controller state tracks quantities such as:
+
+- support richness
+- ambiguity pressure
+- pending challenger mass
+- best pending flip probability
+- search completeness score and gap
+- certificate margin
+- near-tie mass
+- competitor turnover
+- prior support strength
+
+Those state variables are not just labels. The controller computes `support_richness` from an explicit weighted blend of prior strength `0.24`, support strength `0.22`, support ratio `0.18`, source entropy `0.14`, source count `0.08`, source-mix count `0.06`, corridor count `0.04`, and candidate-path count `0.04`. It computes `ambiguity_pressure` from pending flip probability `0.30`, pending challenger mass `0.22`, near-tie mass `0.18`, search-completeness gap `0.14`, frontier-recall deficit `0.10`, and certificate-margin pressure `0.06`. In other words, the VOI controller is not hand-wavy. Its notion of “this row is still worth more work” is a fixed deterministic formula over recorded state.
+
+The stop logic is equally explicit. `VOIStopCertificate` records `stop_reason`, the full `action_trace`, the full `state_trace`, the `best_rejected_action`, and an `ambiguity_summary`. The code can stop because the route is already `certified`, because budgets are exhausted, because no action is worth enough value (`no_action_worth_it` or `search_incomplete_no_action_worth_it`), because the iteration cap is reached, or because an execution path failed without the required hooks (`error_missing_action_hooks`). The file also contains explicit suppression logic for search-tail churn, saturated certified reopen churn, and uncertified weak-search tails, so the controller is guarding against pathological “keep doing work because work is available” behavior rather than only maximizing local q-scores.
+
+That matters because the current thesis story in the codebase is not only "VOI improved something." The repo records exactly what the controller saw, which action it picked, which actions it rejected, and why it stopped.
+
+### Artifact Contract, Cache Layers, And Local ORS Identity
+
+The thesis pipeline emits a much richer artifact family than the earlier route-only flow. The current run store and docs agree on important artifact names such as:
+
+- `dccs_candidates.jsonl`
+- `dccs_summary.json`
+- `strict_frontier.jsonl`
+- `certificate_summary.json`
+- `route_fragility_map.json`
+- `competitor_fragility_breakdown.json`
+- `value_of_refresh.json`
+- `sampled_world_manifest.json`
+- `voi_action_trace.json`
+- `voi_controller_state.jsonl`
+- `voi_stop_certificate.json`
+- `final_route_trace.json`
+- `thesis_results.csv`
+- `thesis_summary.json`
+- `thesis_summary_by_cohort.json`
+- `thesis_metrics.json`
+- `methods_appendix.md`
+- `thesis_report.md`
+- `evaluation_manifest.json`
+
+Those file names are not interchangeable. Their semantics are now clear enough that the report should record them explicitly:
+
+- `dccs_candidates.jsonl` is the raw triage ledger of candidates before full refinement
+- `dccs_summary.json` is the aggregate DCCS selection and budget summary
+- `strict_frontier.jsonl` is the strict Pareto frontier that survived refinement
+- `winner_summary.json` is the selected winner plus runner-up context
+- `certificate_summary.json` is the REFC winner-frequency certificate package
+- `route_fragility_map.json` and `competitor_fragility_breakdown.json` explain which evidence families destabilize the winner and which competitors benefit
+- `value_of_refresh.json` ranks the expected payoff of refreshing each evidence family
+- `sampled_world_manifest.json` records the bounded replayable worlds used by REFC
+- `evidence_snapshot_manifest.json` records the concrete evidence snapshot attached to the run
+- `voi_action_trace.json`, `voi_controller_state.jsonl`, and `voi_action_scores.csv` record what the VOI controller considered, scored, and chose at each step
+- `voi_stop_certificate.json` is the explicit final stop justification
+- `final_route_trace.json` records the final route lineage and selection path
+- `od_corpus.csv`, `od_corpus.json`, `od_corpus_summary.json`, and `od_corpus_rejected.json` record the evaluation input set itself rather than only outcomes
+- `thesis_results.*`, `thesis_summary.*`, `thesis_summary_by_cohort.*`, `thesis_metrics.json`, `thesis_plots.json`, `methods_appendix.md`, and `thesis_report.md` are the derived research-facing outputs rather than the operational run outputs
+
+The ordinary run-manifest and metadata contract is also now clearer than the earlier report suggested. Route manifests written by the run store include `schema_version`, `type`, `request`, `pipeline`, `selected_route_id`, `selected_certificate`, `voi_stop_summary`, `warnings`, `candidate_diagnostics`, and `execution`. The companion `metadata.json` includes `run_id`, `schema_version`, `type`, `request_id`, `pipeline_mode`, `run_seed`, `manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`, `provenance_file`, `artifact_names`, `selected_route_id`, `candidate_count`, `warning_count`, and `duration_ms`. That means a thesis reader can reconstruct not only “what route won,” but also which run identity, seed, and artifact pointers were associated with that decision.
+
+The retrieval flow is likewise part of the codebase contract rather than only a convenience doc example: submit the run, capture `run_id`, fetch `manifest` and `scenario-manifest`, fetch `signature` and `scenario-signature`, then enumerate or download the artifact set via `/runs/{run_id}/artifacts`. This matters because the report should explain how the backend was designed to be audited after the fact, not only how it computes in the moment.
+
+The cache layers behind that pipeline are now also first-class parts of the codebase:
+
+- `backend/app/route_cache.py`: route-result cache, default TTL `3600 s`, max entries `1024`, max estimated bytes `512000000`
+- `backend/app/k_raw_cache.py`: graph candidate cache, default TTL `1800 s`, max entries `1024`
+- `backend/app/certification_cache.py`: certificate/fragility cache, default TTL `1800 s`, max entries `1024`, max estimated bytes `128000000`
+- `backend/app/route_state_cache.py`: route-state cache, default TTL `1200 s`, max entries `192`, max estimated bytes `384000000`
+- `backend/app/route_option_cache.py`: route-option cache, enabled by default, TTL `1800 s`, max entries `256`, max estimated bytes `192000000`
+- `backend/app/voi_dccs_cache.py`: VOI/DCCS replay cache, TTL `1800 s`, max entries `256`, max estimated bytes `96000000`
+- `backend/app/_process_cache.py`: generic deep-size-aware process-global cache store used to support admission and eviction decisions
+
+`_process_cache.py` is worth describing directly because it is a real architectural choice. The generic `ProcessGlobalCacheStore` deep-copies payloads on both insert and read, recursively estimates deep object size across dicts, sequences, dataclasses, `__dict__`, and `__slots__`, enforces TTL expiry, evicts oldest entries in LRU order, and can reject oversize values before admission. That means the repo is not only “using caches”; it is explicitly trying to make cross-stage in-process reuse measurable and memory-bounded.
+
+`route_option_cache.py` is especially informative because it shows how reproducible reuse is keyed. The cache key includes schema version `2`, a route identity derived from a geometry signature or route id, road-class counts, a segment-annotation signature, evidence snapshot hash, evidence provenance, evidence tensor, strict-live settings, vehicle type, scenario mode, cost toggles, terrain profile, stochastic settings, emissions context, weather, incident simulation, departure time, utility weights, risk aversion, optimization mode, Pareto method, epsilon payload, and max alternatives. In plain language, option reuse only occurs when the route geometry and the modelling context are close enough that reuse is honest.
+
+The ORS comparison path is also deeper than a simple proxy call. `backend/app/routing_ors.py` builds a repo-local runtime manifest for the self-hosted ORS engine, checks graph/config/PBF identity, records graph file counts and byte totals, and exposes identity statuses such as `graph_identity_verified`. That makes the ORS baseline part of the evidence chain rather than an opaque third-party call.
+
+The negative ORS identity states are also part of that chain and deserve to be named. The runtime can downgrade to `graph_missing`, `graph_build_info_missing`, `config_missing`, `source_pbf_missing`, `graph_predates_config`, or `graph_predates_source_pbf`. So ORS identity is not a one-bit “working/not working” flag; it is a structured judgement over the compose image, config state, source PBF state, and graph-build metadata together.
+
+### Latest Complete Focused VOI Evaluation Bundle
+
+The newest checked campaign bundle in this repo is the blocked widening campaign under `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`. But the most complete fully successful checked thesis-evaluation artifact set is a different bundle:
+
+- `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi`
+
+That bundle matters because it is the best single place in the local repo for a complete, all-variants, all-success, artifact-rich thesis run. Its `evaluation_manifest.json` records:
+
+- run id `thesis_eval_20260331_r2_focused_voi`
+- created at `2026-04-01T00:09:48.771286+00:00`
+- evaluation suite role `focused_voi_proof`
+- corpus hash `4d1d6210176956bb41959e7dbfd9f00f38d24b52b4cbd66dcd8f6310f2acdbbf`
+- requested OD rows `20`
+- result rows `80`
+- successful rows `80`
+- failure rows `0`
+- validated output artifacts `18`
+- strict evidence policy `no_synthetic_no_proxy_no_fallback`
+- cache mode `cold`
+- cache reset policy `thesis_cold`
+- cache reset scope `variant`
+- cache reset count `80`
+- rerun success rate `1.0`
+
+The same manifest records the cold-start operational facts that shaped the run:
+
+- backend strict ready `true`
+- backend ready wait `284592.65 ms`
+- backend ready compute probe `2504.54 ms`
+- route-graph warmup elapsed `290573.79 ms`
+- route graph nodes `16782614`
+- route graph edges `32920150`
+- route graph largest-component ratio `0.9274120825277874`
+- route graph asset size `4123.27 MB`
+- strict live dependency count `7`
+
+Its baseline smoke summary is also worth preserving because it proves the bundle ran against live self-hosted engines rather than vague placeholders:
+
+- OSRM smoke `943.84 ms`, `189.471 km`, `13533.31 s`
+- ORS smoke `335.31 ms`, `203.868 km`, `18898.8 s`
+- ORS engine image `openrouteservice/openrouteservice:v9.7.1`
+- ORS graph identity status `graph_identity_verified`
+- ORS asset manifest hash `6bbc27f2cff7983598de1ee9fe5272c67b4b3fab6c732dd696d909151261d063`
+
+Variant-level summary rows from `thesis_summary.json` currently record:
+
+| Variant | Mode | Weighted win vs best baseline | Dominance win vs best baseline | Runtime win vs `V0` | Mean runtime ms | Mean algorithm ms | Mean certificate | VOI engagement |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `V0` | `legacy` | `0.95` | `0.55` | `0.0` | `19882.11025` | `19168.68825` | n/a | `0.0` |
+| `A` | `dccs` | `1.0` | `0.7` | `0.25` | `30695.3346` | `29981.9126` | n/a | `0.0` |
+| `B` | `dccs_refc` | `1.0` | `0.7` | `0.75` | `8730.2474` | `8016.8254` | `0.781651` | `0.0` |
+| `C` | `voi` | `1.0` | `0.7` | `0.8` | `11374.6391` | `10661.2171` | `0.861459` | `0.8` |
+
+Additional metrics from that same focused bundle that materially deepen understanding of the current codebase are:
+
+- all four variants have `success_rate=1.0` and `route_evidence_ok_rate=1.0`
+- `B` and `C` both reach `certificate_selectivity_rate=0.6`, while `V0` and `A` expose no certificate because they do not run the full certification layer
+- `C` records `mean_voi_action_count=1.3`, `mean_time_to_certification_ms=515.83`, `mean_search_budget_utilization=0.660833`, and `mean_evidence_budget_utilization=0.3`
+- `C` records `mean_option_build_reuse_rate=0.900238`, option-build cache savings `4167.7475 ms` per row, `mean_k_raw_cache_hit_rate=0.85`, and `mean_refc_cache_hits=0.35`
+- `B` records `mean_option_build_reuse_rate=0.605833`, option-build cache savings `3184.535 ms` per row, and a perfect `mean_k_raw_cache_hit_rate=1.0`
+- `A` improves quality margins but is slower in this focused cold run: `mean_weighted_margin_gain_vs_v0=1.05`, but `runtime_win_rate_v0=0.25`
+- `C` is the only checked local variant in this bundle with heavy controller behavior: `voi_controller_engagement_rate=0.8`
+
+The ambiguity side of that focused bundle is equally important because it shows how the modern thesis codebase is tuned around ambiguity-aware control rather than only static selection:
+
+- `upstream_nonzero_od_ambiguity_rate=1.0`
+- `mean_ambiguity_budget_prior=0.260717`
+- `budget_prior_exceeds_raw_rate=0.25`
+- `mean_od_ambiguity_support_ratio=0.712549`
+- `mean_od_ambiguity_source_support_strength=0.528401`
+- `mean_od_ambiguity_source_entropy=0.816119`
+- `C mean_observed_ambiguity_index=0.287216`
+- `C mean_ambiguity_alignment=0.874695`
+- `C ambiguity_prior_top_k_precision=1.0`
+- `C certificate_availability_gain_vs_v0_rate=1.0`
+
+The cleanest interpretation is:
+
+- `A` improves frontier quality but pays for it heavily in cold-run runtime
+- `B` is the strongest "faster than V0 while adding certification" result in the complete focused bundle
+- `C` adds the richest controller evidence and the highest mean certificate, but its runtime story is mixed because the controller intentionally spends effort on hard rows
+
+That makes the focused VOI bundle the most informative current local artifact for understanding not only what the thesis pipeline can do, but also what it costs and how it is tuned.
+
+### Bundle-level artifact semantics
+
+The focused VOI bundle is not one flat report. It is a layered artifact stack, and the layers mean different things:
+
+- `evaluation_manifest.json` is the bundle-level contract. It ties the run to the corpus source path and hash, suite role, strict-evidence policy, cache reset policy, baseline smoke summary, repo-asset preflight path, backend readiness payload, and readiness timing (`wait_elapsed_ms`, `compute_ms`, and warmup state).
+- `repo_asset_preflight.json` is the frozen readiness proof. In the current focused bundle it records `required_ok=true`, source policy `repo_local_fresh`, scenario live-context coverage `1.0` across WebTRIS, Traffic England, DfT, and Open-Meteo, carbon `price_per_kg=0.101`, OSRM smoke `distance_m=189471.0`, and ORS smoke `distance_m=203868.1` with `identity_status=graph_identity_verified`.
+- `baseline_smoke_summary.json` is intentionally narrower than the thesis summary. It uses a fixed Birmingham-to-London sanity payload under `rigid_hgv` to prove that OSRM and self-hosted ORS were alive and pointed at the expected local graph.
+- `od_corpus_summary.json` is the upstream corpus lens. In the current focused bundle it records `row_count=20`, `mean_ambiguity_index=0.249862`, `mean_od_ambiguity_confidence=0.887073`, `mean_od_ambiguity_source_count=2.65`, `mean_candidate_probe_path_count=6.4`, `mean_candidate_probe_objective_spread=0.175089`, `mean_candidate_probe_engine_disagreement_prior=0.395974`, and `mean_hard_case_prior=0.399096`.
+- `cohort_composition.json` explains which OD rows are being summarized together. In the current focused bundle every variant sees the same `20` OD ids split into `15` ambiguity rows and `5` representative rows, so the cross-variant comparisons are not being driven by changing corpus membership.
+- `thesis_metrics.json` is the densest row-level evidence ledger. Each row carries corpus descriptors, ambiguity priors, effective request config, selected-route outputs, baseline comparisons, stage timings, cache statistics, controller/certificate summaries, artifact status flags, and the `artifact_run_id` that links the row back to a concrete route-compute artifact directory.
+- `thesis_summary.json` is the all-rows aggregate by variant.
+- `thesis_summary_by_cohort.json` keeps the same metric families but splits them by cohort. In the current focused bundle it includes `representative`, `ambiguity`, `hard_case`, and an extra VOI-only `controller_stress` slice for `C`.
+- `thesis_plots.json` is plotting-ready derived data, not the root evidentiary store.
+- `thesis_report.md` is generated narrative output. It is useful for fast reading, but the actual ground truth still lives in `evaluation_manifest.json`, `thesis_metrics.json`, and the per-run artifact directories.
+
+That separation matters because a reader who only opens `thesis_report.md` sees an interpretation, while a reader who walks `evaluation_manifest.json -> thesis_metrics.json -> artifact_run_id` sees the actual execution trace.
+
+### Cohort detail inside the focused bundle
+
+The focused bundle is also more informative than one all-rows aggregate:
+
+- `representative` rows are the non-ambiguity baseline workload. Here `C` is especially cheap: `mean_runtime_ms=5385.9102`, `mean_certificate=0.829784`, `mean_voi_action_count=1.2`, and `voi_controller_engagement_rate=0.6`.
+- `ambiguity` rows are the main stress set. Here `C` rises to `mean_runtime_ms=13370.882067`, `mean_certificate=0.872018`, `mean_voi_action_count=1.333333`, and `voi_controller_engagement_rate=0.866667`, while `B` remains comparatively stable at `mean_runtime_ms=8816.7622` with `mean_certificate=0.838026`.
+- `hard_case` rows are the stronger pressure subset. Here `C` records `mean_runtime_ms=11374.6391`, `mean_certificate=0.861459`, `mean_search_budget_utilization=0.660833`, and `mean_evidence_budget_utilization=0.3`, while `B` records `mean_runtime_ms=8212.239588` and `mean_certificate=0.747852`.
+- `controller_stress` appears only for `C` and is therefore the clearest direct view of VOI intervention. In that slice, `C` records `row_count=16`, `mean_runtime_ms=13059.021`, `mean_certificate=0.855486`, `mean_voi_action_count=1.625`, `voi_controller_engagement_rate=1.0`, `mean_search_budget_utilization=0.663095`, and `mean_evidence_budget_utilization=0.375`.
+
+So the current local thesis evidence is not saying only "VOI sometimes helps." It is saying more specifically that the controller spends extra effort where ambiguity pressure is high, and that the bundle preserves those cohort-conditioned costs and certificates explicitly.
+
+### Worked example: one OD through A, B, and C
+
+The OD row `birmingham_bristol` is a useful worked example because the current focused bundle preserves complete row-level metrics plus concrete route-compute artifact directories for all three thesis variants.
+
+Its upstream corpus description in `thesis_metrics.json` is already detailed before any route solve occurs:
+
+- straight-line distance `124.271124 km`
+- profile `ambiguity_midhaul_c`
+- corpus group `ambiguity`
+- `od_ambiguity_index=0.26`
+- `od_ambiguity_confidence=0.964`
+- source mix `historical_results_bootstrap=8`, `repo_local_geometry_backfill=4`, `routing_graph_probe=1`
+- `od_ambiguity_support_ratio=0.64432`
+- `od_candidate_path_count=4`
+- `od_corridor_family_count=1`
+- `od_engine_disagreement_prior=0.362655`
+- `od_hard_case_prior=0.36199`
+- `ambiguity_budget_band=high`
+
+Its effective request configuration is also more specific than the earlier report implied:
+
+- `certificate_threshold=0.83`
+- `search_budget=6`
+- `evidence_budget=3`
+- `max_alternatives=10`
+- `world_count=88`
+- `tau_stop=0.015`
+- weights `time=1.25`, `money=1.1`, `co2=1.3`
+- stochastic enabled with `samples=72` and seed `1242591181`
+- departure time `2026-03-21T11:00:00+00:00`
+- `row_override_count=16`
+
+In variant `A` (`dccs`), artifact run `eb190360-d1bd-469a-9306-c91d3a488a92` shows deterministic triage as an actual file-level process rather than only an abstract chapter heading:
+
+- `candidate_count_raw=12`
+- `refined_count=6`
+- `frontier_count=3`
+- search budget total `6`, used `6`
+- selected route `route_0`
+- selected candidate source stage `direct_k_raw_fallback`
+- selected final route source stage `osrm_refined`
+- overlap threshold `0.82`
+- candidate fetches `20`
+- leftover challenger logic activates with `8` leftover candidates and spends `2` extra budget on them
+
+Its `dccs_summary.json` also makes the batch logic explicit:
+
+- bootstrap batch: `4` candidates selected from `12`, transition reason `bootstrap_seeding:no_strict_frontier`, mean predicted refine cost `206.81136289507828`
+- challenger batch: `2` candidates selected from `8`, transition reason `challenger_mode:strict_frontier_available`, mean predicted refine cost `518.6432688610191`
+
+The paired `winner_summary.json` then keeps the chosen objective vector visible: `time=8270.89 s`, `money=150.55`, `co2=221.745 kg`.
+
+In variant `B` (`dccs_refc`), artifact run `04d4b18a-8342-4d0a-b8ed-5d729c8eb9da` shows what certification adds:
+
+- selected certificate `0.6929133858267716`
+- certificate threshold `0.83`
+- certified `false`
+- route certificates `route_0=0.6929133858267716`, `route_1=0.30708661417322836`, `route_5=0.0`
+- strict frontier count `3`
+- requested world count `88`
+- effective world count `88`
+- unique world count `127`
+- world-count policy `adaptive_high_ambiguity`
+- hard-case stress-pack count `39`
+- active evidence families `carbon`, `fuel`, `scenario`, `stochastic`, `terrain`, `toll`
+
+Its `value_of_refresh.json` shows how REFC ranks uncertainty families:
+
+- baseline certificate `0.6929133858267716`
+- top refresh family `scenario`
+- top refresh gain `0.33858267716535434`
+- next refresh families `fuel=0.29133858267716534`, `stochastic=0.23622047244094488`, `carbon=0.09448818897637795`, `terrain=0.07086614173228346`, `toll=0.0`
+- fragility stress state `severely_stale`
+- baseline mean runner-up gap `-0.302301`
+- baseline positive-world share `0.692913`
+
+So the REFC layer is not only saying "the route is uncertified." It is also saying why it is uncertified and which evidence family would be most worth refreshing first.
+
+In variant `C` (`voi`), artifact run `80039735-492b-46c8-a82e-ff1673ccf036` shows the controller in action:
+
+- initial selected certificate `0.787574`
+- final certificate `0.81748`
+- certified `false`
+- stop reason `search_incomplete_no_action_worth_it`
+- search budget used `3`, remaining `3`
+- evidence budget used `1`, remaining `2`
+- search completeness score `0.568861`
+- credible search uncertainty `true`
+- credible evidence uncertainty `true`
+
+Its `voi_action_trace.json` is especially revealing because the controller considered exactly three feasible actions at iteration `0`:
+
+- `increase_stochastic_samples` targeting `stochastic` with predicted certificate lift `0.212426`, predicted margin lift `0.16891215`, predicted frontier gain `0.08080220272727273`, and `q_score=0.3131715485258877`
+- `refresh_top1_vor` targeting `fuel` with `q_score=0.0`
+- `stop` with `q_score=0.0`
+
+The controller chose the stochastic-resample action, recorded `sample_increment=32`, flagged `controller_refresh_fallback_activated=true`, recorded `controller_empirical_vs_raw_refresh_disagreement=true`, and after execution measured a real certificate lift of only `0.029906` (`0.787574 -> 0.81748`). Because the new certificate still stayed below the row threshold `0.83`, the run ended with the explicit stop reason `search_incomplete_no_action_worth_it`.
+
+The corresponding `final_route_trace.json` adds the runtime-and-cache side of the same story:
+
+- `scenario_context_ms=22.01`
+- `preflight_ms=972.94`
+- `dccs_ms=11.71`
+- `option_build_ms=26.11`
+- `refc_ms=448.72`
+- `voi_ms=428.58`
+- `route_option_cache_runtime.cache_hits=3` with estimated savings `4532.04 ms`
+- `voi_dccs_runtime.reuse_rate=0.5`
+- route cache misses `3`
+- resource usage `rss_bytes=19388952576`, `vms_bytes=26605264896`
+
+This one OD is enough to show why the modern thesis report needs both code and artifact explanation. A reader can now follow the path from upstream ambiguity prior, to DCCS triage, to REFC certificate, to VOI action choice, to final stop reason, using real files and real numbers rather than general descriptions only.
+
 ## Quality, Testing, And Reproducibility Chapter
 
 ### Quality philosophy
@@ -1402,7 +2278,7 @@ This is a strong sign that the project intentionally tests both relaxed determin
 
 ### Test coverage themes
 
-The 71 tracked test files cover the following major families:
+The backend test surface now includes 92 tracked Python test modules and 428 tracked files under `backend/tests` once fixtures and truth corpora are included. The executable test modules cover the following major families:
 
 - API and streaming behavior
 - cost model and emissions
@@ -1423,6 +2299,18 @@ The 71 tracked test files cover the following major families:
 - tooling scripts
 - vehicle custom profiles
 
+### What the tests are actually defending
+
+The family list above is useful, but it still hides what the suite is trying to protect. The current backend tests are defending at least five different kinds of thesis claim:
+
+- thesis-pipeline correctness: `test_dccs.py`, `test_refc.py`, `test_voi_controller.py`, and `test_voi_dccs_cache.py` check that candidate triage, certification, controller action scoring, and the newer stage-specific cache layer behave deterministically and preserve the expected intermediate state
+- evaluator and lane orchestration: `test_thesis_evaluation_runner.py`, `test_thesis_evaluation_ready_polling.py`, `test_thesis_lane_script.py`, `test_hot_rerun_benchmark.py`, `test_build_od_corpus_uk.py`, `test_enrich_od_corpus_with_ambiguity.py`, and `test_evaluation_metrics.py` protect the corpus-building, rerun, aggregation, and report-generation path that produces the thesis evidence itself
+- strict live/runtime resilience: `test_live_retry_policy.py`, `test_live_call_trace_rollup.py`, `test_live_bank_holidays_strict.py`, `test_rbac_logging_live_sources.py`, and `test_strict_reason_code_contract.py` ensure that the system fails with the right shape, records live-call diagnostics, and does not silently blur relaxed and strict behaviors
+- graph-search and warmup safety: `test_route_graph_reliability_budget_and_rescue.py`, `test_route_graph_precheck_timeout.py`, `test_route_graph_warmup.py`, `test_route_graph_warmup_benchmark.py`, `test_routing_graph_adaptive_hops.py`, `test_routing_graph_loader.py`, and `test_routing_graph_feasibility.py` defend the route-graph runtime that the thesis pipeline now depends on heavily
+- model and physical-surface integrity: the `terrain_*`, `emissions_*`, `toll_*`, `weather_*`, `traffic_*`, `vehicle_*`, and risk/uncertainty tests defend the claim that the project is not only an algorithm shell, but a calibrated operational model
+
+That test structure matters academically because the repository is not only testing final route outputs. It is testing the machinery that creates the evidence, the reason-code contract for failure cases, the persistence layer that stores artifacts, and the calibration-dependent subsystems that make the outputs meaningful.
+
 ### Benchmark and quality scripts
 
 The backend script layer includes:
@@ -1437,11 +2325,15 @@ The backend script layer includes:
 
 Important local quality evidence from docs and scripts:
 
-- warm-cache `/route` and `/pareto` p95 target under 2000 ms
+- `backend/scripts/benchmark_model_v2.py` uses an explicit p95 gate of 2000 ms for its steady-state route-model benchmark
+- the benchmark workload itself is now explicitly documented: fixture corpus `backend/tests/fixtures/uk_routes`, `8` iterations, `rigid_hgv`, `ScenarioMode.NO_SHARING`, `use_tolls=false`, `toll_cost_per_km=0.2`, `carbon_price_per_kg=0.12`, stochastic `enabled=true`, `seed=42`, `sigma=0.08`, `samples=32`, emissions context `diesel/euro6/ambient_temp_c=12`, departure time `2026-02-18T08:30:00Z`, and one flat plus one hilly terrain pass
 - batch Pareto benchmark can run in `inprocess-fake` mode or against live backend
-- model-quality scoring enforces 95-style thresholds across many subsystems
+- model-quality scoring enforces a threshold of 95 across risk aversion, dominance, scenario profile, departure time, stochastic sampling, terrain profile, toll classification, fuel price, carbon price, and toll cost
 - robustness analysis varies seeds
 - sensitivity analysis varies fuel, carbon, and toll assumptions
+- the latest strict preflight (`2026-04-04T15:48:39Z`) passed with zero required failures
+- the latest graph coverage report passed with 16,782,614 nodes and 17,271,476 edges
+- the latest checked thesis lane has `strict_live_readiness_pass_rate=1.0` and `scenario_profile_unavailable_rate=0.0`
 
 ### Reproducibility mechanisms
 
@@ -1453,10 +2345,65 @@ The repo's reproducibility machinery includes:
 - signed payloads using HMAC-SHA256
 - stored artifacts such as `backend/out/artifacts/<run_id>/results.json`, `backend/out/artifacts/<run_id>/results.csv`, `backend/out/artifacts/<run_id>/metadata.json`, `backend/out/artifacts/<run_id>/routes.geojson`, `backend/out/artifacts/<run_id>/results_summary.csv`, and `backend/out/artifacts/<run_id>/report.pdf`
 - reproducibility capsule script `scripts/demo_repro_run.ps1`
+- model manifest `backend/out/model_assets/manifest.json`
+- refresh manifest `backend/out/model_assets/refresh_manifest.json`
+- live publish summary `backend/out/model_assets/live_publish_summary.json`
+- strict preflight summary `backend/out/model_assets/preflight_live_runtime.json`
 
 `backend/app/signatures.py` uses canonical JSON serialization plus HMAC-SHA256. `backend/app/run_store.py` signs manifests. `backend/app/provenance_store.py` writes timestamped event histories.
 
+The current model manifest is version `model-v2-uk`, generated at `2026-03-21T13:09:12.262992Z`, signed as `87270329a4e941f63c991fc3edf23298ecdaad803a74e2ab5388a16db4690d0a`, and lists 19 built assets. The current live publish summary records publication at `2026-03-21T13:09:18Z`, with scenario signature prefix `dbca97d56394` and fuel signature prefix `02ec87074710`.
+
+### Manifest, artifact, provenance, and experiment semantics
+
+Several parts of the codebase become much easier to understand once these four storage concepts are separated explicitly:
+
+- a manifest is the signed top-level description of a run
+- a scenario manifest is the signed top-level description of a scenario-compare run
+- provenance is the timestamped process history that explains what happened during the run
+- artifacts are the concrete output files that contain route, thesis, and report payloads
+
+`backend/app/run_store.py` implements that distinction quite strictly. Its internal `_write_signed_manifest(...)` helper adds `run_id` and `created_at`, then attaches a signature block before writing into `backend/out/manifests` or `backend/out/scenario_manifests`. The same file also standardizes the artifact contract through the `ARTIFACT_FILES` tuple, which currently names 35 artifact slots ranging from `results.json` and `results_summary.csv` to `dccs_candidates.jsonl`, `certificate_summary.json`, `voi_action_trace.json`, `thesis_metrics.json`, `methods_appendix.md`, and `evaluation_manifest.json`. That standardization is academically useful because it makes artifact completeness testable rather than leaving "what a full run should produce" to memory.
+
+The file is also deliberately defensive. Artifact names must satisfy the safe-name regex `^[A-Za-z0-9][A-Za-z0-9._-]*$`, and `list_artifact_paths_for_run(...)` merges the actual on-disk files with the known contract so callers can distinguish "file absent" from "file not part of the standard run surface." This seemingly small detail explains why the report can talk about artifact completeness rates, why the evaluator can declare required artifacts per pipeline mode, and why the April 9 failing benchmark run is interpretable as a contract mismatch rather than a mysterious directory oddity.
+
+`backend/app/provenance_store.py` keeps a different contract. It writes a JSON document containing `run_id`, `created_at`, `event_count`, and an ordered `events` list. That means provenance is not "the result payload duplicated elsewhere." It is a lifecycle ledger. In practice, the newer failure artifacts make use of events such as `input_received`, `candidates_fetched`, `options_built`, `pareto_selected`, and `artifacts_written`. This is why the thesis report should distinguish process records from result records: the repo itself does.
+
+`backend/app/experiment_store.py` adds a fourth layer. Saved experiments are not runs and not manifests. They live in `backend/out/experiments`, maintain a simple `index.json`, assign UUID identifiers, and validate saved payloads through `ScenarioCompareRequest`. In other words, the repository preserves both "what happened in one execution" and "what analytical scenario the user may want to replay later." That separation is one of the quieter reasons the codebase supports dissertation-style repeated studies rather than only interactive ad hoc use.
+The backend-only inventory export now also writes `inventory.json` and `inventory.csv` as a read-only catalog summary.
+
 This is more than "save the output." It is a chain of evidence about how the output was produced.
+
+### Per-run metadata contract
+
+The report also needs to be clearer that every route-compute artifact directory has its own metadata contract, not only the bundle-level manifest.
+
+For example, both `backend/out/artifacts/04d4b18a-8342-4d0a-b8ed-5d729c8eb9da/metadata.json` and `backend/out/artifacts/80039735-492b-46c8-a82e-ff1673ccf036/metadata.json` record:
+
+- `run_id`
+- `schema_version`
+- request `type` (`route_compute`)
+- `request_id`
+- `pipeline_mode`
+- `run_seed`
+- `manifest_endpoint`
+- `artifacts_endpoint`
+- `provenance_endpoint`
+- `provenance_file`
+- `artifact_names`
+- `selected_route_id`
+- `candidate_count`
+- `warning_count`
+- `duration_ms`
+
+That per-run metadata is what makes the row-level `artifact_run_id` in `thesis_metrics.json` genuinely useful. It lets a reader move from an aggregate row in the thesis summary to the exact route-compute directory that created it, then from there to `winner_summary.json`, `certificate_summary.json`, `value_of_refresh.json`, `voi_action_trace.json`, `final_route_trace.json`, and the signed provenance history.
+
+The two example runs above also show why this matters:
+
+- the `B` example run records `pipeline_mode=dccs_refc`, `candidate_count=3`, `warning_count=2`, and `duration_ms=8853.26`
+- the `C` example run records `pipeline_mode=voi`, `candidate_count=1`, `warning_count=2`, and `duration_ms=2086.19`
+
+So even before opening the deeper artifacts, the metadata contract already tells the reader which pipeline mode ran, how many candidates survived to the artifact stage, how long the request took, and where the signed provenance trail lives.
 
 ### Oracle quality dashboard
 
@@ -1465,6 +2412,8 @@ This is more than "save the output." It is a chain of evidence about how the out
 - NDJSON check records
 - a JSON summary
 - dashboard CSV
+- replay-oracle summary JSON (`replay_oracle_summary.json`)
+- replay-oracle dashboard CSV (`replay_oracle_dashboard.csv`)
 
 and aggregates:
 
@@ -1475,7 +2424,166 @@ and aggregates:
 - average latency
 - last observed times
 
-That is a notable operational-quality feature because it lets the system score the reliability of the feeds it depends on.
+Internally, the dashboard groups records by `source`, computes `pass_rate`, `schema_failures`, `signature_failures`, `stale_count`, `avg_latency_ms`, and `last_observed_at_utc`, and writes both `summary.json` and `dashboard.csv` from the same grouped payload. Its default staleness threshold is `900 s`, which is important because the dashboard is not merely a log viewer. It is making an explicit claim about when a source should count as stale for operator interpretation.
+
+That is a notable operational-quality feature because it lets the system score the reliability of the feeds it depends on. As of `2026-04-09`, there is no checked `backend/out/oracle_quality` directory in the repo, so the latest evidence here is the implemented storage and dashboard contract rather than a checked run artifact.
+
+### How the evaluator computes its main metrics
+
+The report now cites many evaluator fields, so it is worth preserving how the code actually computes them. `backend/scripts/evaluation_metrics.py` is the operational definition, not just a convenience helper. Pairwise weighted wins normalize duration, money, and CO2 over just the route/baseline pair being compared, then apply the configured weights. Balanced gain is the mean clipped fractional improvement over the baseline across the same three objectives. Hypervolume is a true three-dimensional dominated-volume computation against a reference baseline, not a visual estimate of “how good the frontier looks.”
+
+The remaining frontier metrics are similarly concrete. The additive epsilon indicator is the smallest additive slack required for the frontier to weakly cover the baseline; baseline coverage is `1.0` only when some frontier member actually dominates the baseline; frontier diversity is derived from normalized Euclidean distances; frontier diversity index is the spread-versus-crowding ratio; and frontier entropy is derived from normalized weighted ranking strengths. This is why the report can make statements about frontier breadth and compromise quality without appealing only to screenshots or intuition.
+
+The ambiguity metrics are also code-defined rather than rhetorical. `ambiguity_alignment` is `1 - |prior - observed|`, clipped into `[0,1]`; `ambiguity_absolute_error` keeps the raw gap; `ambiguity_prior_top_k_precision` checks whether the highest-prior rows actually land among rows whose realized ambiguity clears the configured threshold; and `supported_ambiguity_alignment` multiplies raw alignment by a support weight built from confidence `0.50`, support ratio `0.35`, and source-mix count `0.15`. In thesis terms, that means the ambiguity-aware evaluation story is reproducible from code, not an after-the-fact interpretation layer.
+
+### Latest local thesis campaign evidence
+
+The most concrete end-to-end thesis evidence currently checked locally is the campaign `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`.
+
+Campaign-level facts:
+
+- sequential mode `retain_green_replay_then_widen`
+- updated `2026-04-06T10:37:46.728099+01:00`
+- tranche 1 status `blocked`
+- 5 new OD rows evaluated
+- 4 promoted green OD ids and 1 red OD id (`cardiff_bath`)
+- next widening blocked for `publication_evidence_blocked`
+- proof-grade readiness still false because `strict_full_search_proof_eligible` remained false
+- route-graph subset asset mode `explicit_subset_asset`
+- subset corridor `12.5 km`
+- subset nodes kept `1,515,878`
+- subset edges kept `1,568,264`
+
+The methods appendix paired with this campaign records the current thesis-lane parameters:
+
+- variants `V0=legacy`, `A=dccs`, `B=dccs_refc`, `C=voi`
+- matched search budget `4`
+- evidence budget `2`
+- certificate world count `64`
+- certificate threshold `0.8`
+- stop threshold `0.02`
+- baseline refinement policy `corridor_uniform`
+- secondary baseline policy `local_service`
+- backend readiness timeout `1800.0 s`
+- backend readiness poll `5.0 s`
+- max alternatives `8`
+- strict evidence policy `no_synthetic_no_proxy_no_fallback`
+
+The corresponding thesis summary and metrics artifacts record:
+
+| Variant | Mean runtime ms | Mean algorithm ms | Mean hypervolume | Mean certificate | Key note |
+| --- | --- | --- | --- | --- | --- |
+| `V0` | `9176.741` | `8506.491` | `1954475824.173189` | n/a | matched-budget legacy comparator |
+| `A` | `5315.91825` | `4645.66825` | `2234025023.091551` | n/a | DCCS runtime improvement |
+| `B` | `5787.824` | `5117.574` | `2234025023.091551` | `0.950546` | DCCS + REFC evidence |
+| `C` | `2794.579` | `2124.329` | `2234025023.091551` | `0.8` | fastest VOI lane |
+
+Additional currently checked metrics worth preserving in the report:
+
+- `V0` dominance win rate versus ORS `0.8`, dominance win rate versus OSRM `0.0`, weighted win rate versus best baseline `0.8`, weighted margin versus OSRM `0.995`, weighted margin versus ORS `3.075`, warmup amortized `2064.54 ms`, and global startup overhead `10322.7 ms`
+- `A` weighted-margin gain versus `V0` `1.5225`, balanced-gain delta `0.015621`, duration gain `1227.32 s`, monetary gain `2.47`, emissions gain `-1.4795 kg`, search budget used `3.2`, and DCCS yield `1.0`
+- `B` certificate margin `0.140546`, runner-up gap `0.901093`, fragility entropy `0.820555`, REFC unique world count `121.5`, requested worlds `62.0`, effective worlds `72.0`, world-count efficiency `1.16129`, REFC ms per effective world `13.708819`, refresh-fallback activation rate `1.0`, refresh disagreement rate `1.0`, and certificate-availability gain versus `V0` `0.8`
+- `C` ambiguity alignment `0.823777`, ambiguity absolute error `0.176223`, ambiguity prior top-k precision `0.5`, ambiguity prior realized correlation `-0.9972`, certificate margin `-0.01`, runner-up gap `1.0`, fragility entropy `0.963754`, VOI realized certificate lift `-0.150546`, VOI realized runner-up-gap lift `0.098907`, REFC unique world count `71.0`, REFC stress-world fraction `0.985915`, requested worlds `62.0`, effective worlds `71.0`, world-count efficiency `1.145161`, REFC ms per effective world `0.575317`, search completeness score `0.479499`, search completeness gap `0.360501`, prior support strength `0.453076`, support richness `0.693964`, ambiguity pressure `0.640647`, pending challenger mass `0.692198`, best pending flip probability `0.999515`, frontier recall at budget `0.176005`, refresh-fallback activation rate `1.0`, refresh disagreement rate `1.0`, and broad hard-case certificate selectivity rate `1.0`
+- run validity `scenario_profile_unavailable_rate=0.0`, `strict_live_readiness_pass_rate=1.0`, `evaluation_rerun_success_rate=0.8`
+- baseline smoke `OSRM=140.54 ms / 189.471 km / 13306.17 s`, `ORS=170.91 ms / 203.868 km / 18581.61 s`, with ORS engine image `openrouteservice/openrouteservice:v9.7.1`
+- cohort composition `20` total rows, all in the ambiguity cohort; `A`, `B`, and `C` each have `4/5` hard-case rows and `4/5` time-preserving-conflict rows, while `B` and `C` each have `4/5` refresh-sensitive rows
+- the repo root comparison summary `backend/out/compare_r12_vs_r15_combo_summary.json` records `variant_count=4`, retained success rows `2`, and regressions `london_newcastle|C` plus `london_newcastle|V0`
+- in that same `compare_r12_vs_r15_combo_summary.json` file, retained-success variants are exactly `A` and `B`; `A` worsens slightly in runtime (`mean_runtime_ms 8035.789 -> 8107.134`, `mean_algorithm_runtime_ms 6932.389 -> 7005.964`), `B` improves slightly (`7066.873 -> 6646.856`, `5963.473 -> 5545.686`), while `C` collapses from full success to `success_rate=0.0`, `artifact_complete_rate=0.0`, `route_evidence_ok_rate=0.0`, and `mean_frontier_count=0.0`, and `V0` likewise drops from `success_rate=1.0` to `0.0`
+- the focused single-OD diff summary `backend/out/focused_one_od_r4_vs_cap1600_diff.summary.json` records all `A/B/C/V0` variants still at `success_rate=1.0` and `route_evidence_ok_rate=1.0`
+- in that same focused diff, every variant preserves its qualitative win pattern and frontier size while runtime rises: `A` `mean_runtime_ms 7386.783 -> 8164.949`, `B` `5528.251 -> 7770.604`, `C` `3627.122 -> 4119.505`, and `V0` `8076.416 -> 8794.508`; algorithm-only runtime moves in the same direction for all four variants
+- the ambiguity-refresh summary `backend/out/corpus_ambiguity_refresh_summary.json` records `row_count=19`, `mean_ambiguity_index=0.239727`, `max_ambiguity_index=0.420932`, `mean_engine_disagreement_prior=0.413061`, `mean_hard_case_prior=0.419982`, and `mean_od_ambiguity_confidence=0.899552`
+- that ambiguity-refresh file also records `accepted_count=0`, `bootstrap_prior_count=19`, `nonzero_ambiguity_prior_count=19`, `nonzero_engine_prior_count=19`, `nonzero_hard_case_prior_count=19`, `mean_od_ambiguity_source_count=2.526316`, `mean_od_ambiguity_source_support_strength=0.60263`, plus source-mix totals of `routing_graph_probe=19/59`, `repo_local_geometry_backfill=10/40`, and `historical_results_bootstrap=19/144` across prior-level and OD-level mix ledgers
+
+Additional campaign bundles are also worth preserving because they widen the evidence envelope beyond one “best” campaign:
+
+- `backend/out/thesis_campaigns/hard_mixed24_corr12p5_t4_inproc_r4/.../thesis_summary.json` is a useful hard-case success bundle: all four variants retain `success_rate=1.0` and `route_evidence_ok_rate=1.0`; `B` reaches `mean_certificate=0.934153` with `mean_refc_unique_world_count=121.5`; and `C` is the fastest lane at `2886.40825 ms` with `mean_algorithm_runtime_ms=2163.88075`, `mean_certificate=0.8`, and `mean_ambiguity_alignment=0.901942`
+- `backend/out/thesis_campaigns/longcorr_cardiff_newcastle4_corr12p5_r1/.../thesis_summary.json` is a useful partial-success long-corridor bundle: every variant sits at `success_rate=0.75` and `route_evidence_ok_rate=0.75`, while `C` still reaches `mean_certificate=0.976`, `mean_frontier_hypervolume=639982944.379691`, `mean_ambiguity_alignment=0.870122`, `mean_voi_action_count=1.666667`, and `voi_controller_engagement_rate=0.75`
+- `backend/out/thesis_campaigns/longcorr_cardiff4_corr12p5_r1/.../thesis_summary.json` is an equally important full-failure lane: all variants collapse to `success_rate=0.0` and `route_evidence_ok_rate=0.0`, but the artifact still records `baseline_identity_verified_rate=0.75`, `warmup_amortized_ms=2829.3425`, `mean_global_startup_overhead_ms=11317.37`, and `mean_ambiguity_alignment=0.596127`. That makes it a valuable negative control rather than a useless run
+
+### Fuller focused-VOI thesis bundle evidence
+
+The campaign above is the newest checked thesis-campaign directory, but the most complete local thesis-evaluation evidence set is still the bundle `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi`.
+
+Its `evaluation_manifest.json` records:
+
+- `run_id = thesis_eval_20260331_r2_focused_voi`
+- `created_at = 2026-04-01T00:09:48.771286+00:00`
+- `model_version = thesis-script-v3`
+- `strict_evidence_policy = no_synthetic_no_proxy_no_fallback`
+- `cache_mode = cold`
+- `cache_reset_policy = thesis_cold`
+- `cache_reset_scope = variant`
+- `cache_reset_count = 80`
+- `run_validity.scenario_profile_unavailable_rate = 0.0`
+- `run_validity.strict_live_readiness_pass_rate = 1.0`
+- `run_validity.evaluation_rerun_success_rate = 1.0`
+
+The same manifest also captures the route-runtime readiness context that preceded the evaluation:
+
+- backend ready after `29` readiness polls
+- backend ready compute `2504.54 ms`
+- backend wait elapsed `284592.65 ms`
+- route-graph elapsed `290573.79 ms`
+- graph asset size `4123.27 MB`
+- route graph nodes seen `16,782,614`
+- route graph edges seen `32,920,150`
+- largest component ratio `0.9274120825277874`
+- strict-live dependency count `7`
+
+The focused bundle's cohort and corpus summaries show a broader composition than the narrower April 6 campaign:
+
+- `20` OD rows per variant, therefore `80` total variant-rows
+- each variant contains `15` ambiguity rows and `5` representative rows
+- corpus hash `4d1d6210176956bb41959e7dbfd9f00f38d24b52b4cbd66dcd8f6310f2acdbbf`
+- mean OD ambiguity index `0.249862`
+- mean OD ambiguity confidence `0.887073`
+- mean OD ambiguity source count `2.65`
+- mean candidate-probe path count `6.4`
+- mean candidate-probe objective spread `0.175089`
+- mean engine-disagreement prior `0.395974`
+- mean hard-case prior `0.399096`
+
+The aggregate variant summary is:
+
+| Variant | Mean runtime ms | Mean algorithm ms | Weighted win vs OSRM | Weighted win vs ORS | Weighted win vs `V0` | Mean certificate | Mean frontier count | Key extra signal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `V0` | `19882.11025` | `19168.68825` | `0.85` | `1.0` | `0.0` | n/a | `1.7` | matched-budget legacy comparator |
+| `A` | `30695.3346` | `29981.9126` | `1.0` | `1.0` | `0.4` | n/a | `2.2` | DCCS yield `1.0`, mean search budget used `5.45` |
+| `B` | `8730.2474` | `8016.8254` | `1.0` | `1.0` | `0.35` | `0.781651` | `2.1` | REFC unique worlds `92.95` |
+| `C` | `11374.6391` | `10661.2171` | `1.0` | `1.0` | `0.35` | `0.861459` | `1.65` | VOI actions `1.3`, engagement rate `0.8` |
+
+The focused bundle also sharpens several methodological points that the current thesis report should preserve:
+
+- the methods appendix explicitly states that `V0` is a matched-budget legacy comparator rather than a full-budget uninformed legacy solve
+- the evaluator passes the same upstream ambiguity/support priors to every variant, including `V0`
+- ambiguity-adaptive budgeting is deterministic and corpus-prior driven
+- the secondary baseline is the self-hosted local ORS engine in `local_service` mode, with `repo_local` retained only as an explicit fallback/debug comparator
+
+Its baseline smoke evidence is different from the narrower April 6 campaign and is therefore worth keeping separate:
+
+- OSRM baseline `943.84 ms / 189.471 km / 13533.31 s`
+- ORS baseline `335.31 ms / 203.868 km / 18898.8 s`
+- ORS asset manifest hash `6bbc27f2cff7983598de1ee9fe5272c67b4b3fab6c732dd696d909151261d063`
+- ORS freshness status `graph_identity_verified`
+- ORS engine image `openrouteservice/openrouteservice:v9.7.1`
+
+### Latest standalone benchmark capture
+
+The newest raw benchmark artifact in the repo is `backend/out/benchmarks/batch_pareto_benchmark_20260409T053840Z.json`, timestamped `2026-04-09T06:38:40.348017+01:00`.
+
+It records:
+
+- mode `inprocess-fake`
+- pair count `10`
+- duration `4163932.432 ms`
+- peak memory `7657716472 bytes` (about `7.13 GiB`)
+- error count `10`
+- run id `b7bc7c51-043d-4c64-9e8f-d52a44501f0d`
+- input provenance `vehicle_type=rigid_hgv`, `scenario_mode=no_sharing`, `max_alternatives=3`, `optimization_mode=expected_value`, `pareto_method=dominance`, `use_tolls=true`, `fuel_price_multiplier=1.0`, `carbon_price_per_kg=0.0`, `toll_cost_per_km=0.0`, `terrain_profile=flat`, `stochastic.enabled=false`, `stochastic.samples=25`, `weather.enabled=false`, and emissions context `diesel/euro6/15 C`
+- the provenance trace shows `candidate_count=0`, `option_count=0`, and `pareto_count=0` for every pair index `0` through `9`, all with the same error string `reason_code:no_route_candidates; message:No route candidates could be computed.`
+- the run-level artifact metadata is also worth documenting carefully: the benchmark file points at run id `b7bc7c51-043d-4c64-9e8f-d52a44501f0d`, the run provenance ends with an `artifacts_written` event listing only five on-disk files (`metadata.json`, `results.csv`, `results.json`, `results_summary.csv`, `routes.geojson`), but `backend/out/artifacts/b7bc7c51-043d-4c64-9e8f-d52a44501f0d/metadata.json` still advertises the broader 35-name thesis-style artifact set. That mismatch makes this run doubly important as a debugging/reproducibility datapoint.
+
+This file is important precisely because it is not success evidence. It shows the latest raw batch benchmark capture was a full-error run, so it should be interpreted as a failure artifact and debugging datapoint, not as a passing performance proof.
 
 ### Notebook-free workflow
 
@@ -1670,6 +2778,7 @@ From the local evidence, the main limitations are:
 | `LatLng` | latitude/longitude pair |
 | `Waypoint` | optional via point with label |
 | `Weights` | time/money/CO2 preference vector |
+| `PipelineMode` | named thesis-pipeline selector (`legacy`, `dccs`, `dccs_refc`, `voi`) |
 | `CostToggles` | toll, fuel, and carbon pricing switches |
 | `EpsilonConstraints` | epsilon thresholds for Pareto filtering |
 | `EmissionsContext` | fuel type, Euro class, ambient temperature |
@@ -1687,6 +2796,10 @@ From the local evidence, the main limitations are:
 | `RouteMetrics` | distance, duration, cost, emissions, speed |
 | `TerrainSummaryPayload` | terrain evidence summary embedded in a route |
 | `ScenarioSummary` | applied scenario context and multipliers |
+| `EvidenceSourceRecord` | one evidence-family provenance row carried with a route |
+| `EvidenceProvenance` | active evidence families and their source records |
+| `RouteCertificationSummary` | selected-route certificate, fragility, and refresh summary |
+| `VoiStopSummary` | VOI stop reason plus budget-usage summary |
 | `RouteOption` | a fully modeled route alternative |
 | `RouteResponse` | selected route plus alternative set and metadata |
 | `RouteBaselineResponse` | baseline route plus baseline method metadata |
@@ -1704,13 +2817,16 @@ From the local evidence, the main limitations are:
 `frontend/app/lib/types.ts` mirrors the backend and adds frontend-specific helper types such as:
 
 - `ComputeMode`
+- `PipelineMode`
 - `PinNodeKind`
 - `MapFailureOverlay`
 - `ParetoStream*` event types
 - `LiveCallTraceResponse`
 - `RunManifestSummary`
 - `RunArtifactsListResponse`
+- `RouteCertificationSummary`
 - `StrictErrorDetail`
+- `VoiStopSummary`
 
 This mirror is important because it keeps the frontend honest about what the backend actually returns.
 
@@ -1731,12 +2847,31 @@ This mirror is important because it keeps the frontend honest about what the bac
 | `expected_value` | rank routes by average/central outcomes |
 | `robust` | penalize routes with worse tail-risk behavior |
 
+### Pipeline modes
+
+| Mode | Meaning |
+| --- | --- |
+| `legacy` | bounded earlier route-selection flow without explicit certification |
+| `dccs` | deterministic candidate triage before full refinement |
+| `dccs_refc` | DCCS plus strict-frontier evidence certification |
+| `voi` | DCCS plus REFC plus VOI-style bounded control of extra computation |
+
 ### Pareto methods
 
 | Method | Meaning |
 | --- | --- |
 | `dominance` | keep non-dominated routes |
 | `epsilon_constraint` | keep routes that satisfy epsilon thresholds, then rank/filter |
+
+### Baseline And Comparator Policies
+
+| Policy | Meaning |
+| --- | --- |
+| `first_n` | simplest legacy baseline-admission strategy |
+| `random_n` | bounded random admission over candidate order |
+| `uniform_corridor_n` / `corridor_uniform` | spread admitted legacy refinement work across corridor families |
+| `local_service` | self-hosted ORS comparator mode used by the checked thesis bundles |
+| `repo_local` | bounded repo-local comparator or debug baseline mode |
 
 ### Selection math profiles
 
@@ -1780,13 +2915,17 @@ The `.env.example` file is large. The most useful way to document it is by opera
 | `ROUTE_GRAPH_WARMUP_ON_STARTUP`, `ROUTE_GRAPH_WARMUP_FAILFAST`, `ROUTE_GRAPH_WARMUP_TIMEOUT_S` | graph warmup behavior |
 | `ROUTE_GRAPH_FAST_STARTUP_ENABLED`, `ROUTE_GRAPH_FAST_STARTUP_LONG_CORRIDOR_BYPASS_KM` | startup shortcuts for large graphs/long corridors |
 | `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS`, `ROUTE_GRAPH_OD_FEASIBILITY_TIMEOUT_MS`, `ROUTE_GRAPH_PRECHECK_TIMEOUT_FAIL_CLOSED` | readiness and OD precheck policy |
-| `ROUTE_GRAPH_BINARY_CACHE_ENABLED` | use binary graph cache |
+| `ROUTE_GRAPH_ENABLED`, `ROUTE_GRAPH_STRICT_REQUIRED`, `ROUTE_GRAPH_ASSET_PATH` | turn graph routing on, require it in strict mode, and choose the graph asset path |
+| `ROUTE_GRAPH_BINARY_CACHE_ENABLED`, `ROUTE_GRAPH_BINARY_CACHE_PATH`, `ROUTE_GRAPH_BINARY_CACHE_WARMUP_MAX_BYTES` | use and size the binary graph cache |
+| `ROUTE_GRAPH_COMPACT_BUNDLE_ENABLED`, `ROUTE_GRAPH_COMPACT_BUNDLE_PATH` | control the compact-bundle load path used by the current graph runtime |
 | `ROUTE_GRAPH_MAX_STATE_BUDGET`, `ROUTE_GRAPH_STATE_BUDGET_PER_HOP`, `ROUTE_GRAPH_STATE_BUDGET_RETRY_MULTIPLIER`, `ROUTE_GRAPH_STATE_BUDGET_RETRY_CAP` | search state-space budget |
 | `ROUTE_GRAPH_SEARCH_INITIAL_TIMEOUT_MS`, `ROUTE_GRAPH_SEARCH_RETRY_TIMEOUT_MS`, `ROUTE_GRAPH_SEARCH_RESCUE_TIMEOUT_MS` | search deadlines |
 | `ROUTE_GRAPH_STATE_SPACE_RESCUE_ENABLED`, `ROUTE_GRAPH_STATE_SPACE_RESCUE_MODE` | rescue mode |
 | `ROUTE_GRAPH_LONG_CORRIDOR_THRESHOLD_KM`, `ROUTE_GRAPH_LONG_CORRIDOR_MAX_PATHS`, `ROUTE_GRAPH_SKIP_INITIAL_SEARCH_LONG_CORRIDOR` | long-corridor strategy |
+| `ROUTE_GRAPH_FAST_PATH_MAX_AMBIGUITY`, `ROUTE_GRAPH_SKIP_INITIAL_SEARCH_RELIABILITY_LOW_AMBIGUITY`, `ROUTE_GRAPH_SKIP_RETRY_RESCUE_RELIABILITY_CORRIDOR`, `ROUTE_GRAPH_SKIP_SUPPLEMENTAL_PROBE_LOW_AMBIGUITY` | ambiguity-aware graph fast paths and reliability-based skip rules |
 | `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES`, `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO`, `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M` | graph coverage quality gates |
-| `ROUTE_GRAPH_OD_CANDIDATE_LIMIT`, `ROUTE_GRAPH_OD_CANDIDATE_MAX_RADIUS`, `ROUTE_GRAPH_MAX_HOPS`, `ROUTE_GRAPH_ADAPTIVE_HOPS_ENABLED`, `ROUTE_GRAPH_HOPS_PER_KM`, `ROUTE_GRAPH_HOPS_DETOUR_FACTOR`, `ROUTE_GRAPH_EDGE_LENGTH_ESTIMATE_M`, `ROUTE_GRAPH_HOPS_SAFETY_FACTOR`, `ROUTE_GRAPH_MAX_HOPS_CAP` | path-search breadth control |
+| `ROUTE_GRAPH_OD_CANDIDATE_LIMIT`, `ROUTE_GRAPH_OD_CANDIDATE_MAX_RADIUS`, `ROUTE_GRAPH_MAX_HOPS`, `ROUTE_GRAPH_ADAPTIVE_HOPS_ENABLED`, `ROUTE_GRAPH_HOPS_PER_KM`, `ROUTE_GRAPH_HOPS_DETOUR_FACTOR`, `ROUTE_GRAPH_EDGE_LENGTH_ESTIMATE_M`, `ROUTE_GRAPH_HOPS_SAFETY_FACTOR`, `ROUTE_GRAPH_MAX_HOPS_CAP`, `ROUTE_GRAPH_K_PATHS`, `ROUTE_GRAPH_VIA_LANDMARKS_PER_PATH` | path-search breadth and diversification control |
+| `ROUTE_GRAPH_MAX_DETOUR_RATIO`, `ROUTE_GRAPH_MAX_REPEAT_PER_NODE`, `ROUTE_GRAPH_FIXTURE_MAX_DISTANCE_M`, `ROUTE_GRAPH_MIN_NODES`, `ROUTE_GRAPH_MIN_ADJACENCY`, `ROUTE_GRAPH_SCENARIO_JACCARD_MAX`, `ROUTE_GRAPH_SCENARIO_JACCARD_FLOOR` | detour, repetition, fixture-coverage, minimum graph-shape, and scenario-similarity guardrails |
 | `ROUTE_GRAPH_A_STAR_HEURISTIC_ENABLED`, `ROUTE_GRAPH_HEURISTIC_MAX_SPEED_KPH` | A* heuristic use |
 
 ### Route option and baseline controls
@@ -1814,6 +2953,41 @@ The `.env.example` file is large. The most useful way to document it is by opera
 | `ROUTE_SELECTION_MODIFIED_KNEE_WEIGHT` | knee penalty weight |
 | `ROUTE_SELECTION_TCHEBYCHEFF_RHO` | augmented Tchebycheff epsilon coefficient |
 | `ROUTE_SELECTION_VIKOR_V` | VIKOR compromise factor |
+
+### Thesis Pipeline, Cache, And Local-Service Controls
+
+| Variables | Effect |
+| --- | --- |
+| `ROUTE_PIPELINE_DEFAULT_MODE`, `ROUTE_PIPELINE_REQUEST_OVERRIDE_ENABLED`, `ROUTE_PIPELINE_DEFAULT_SEED` | choose the default thesis pipeline, whether requests may override it, and the deterministic seed basis |
+| `ROUTE_PIPELINE_SEARCH_BUDGET`, `ROUTE_PIPELINE_EVIDENCE_BUDGET`, `ROUTE_PIPELINE_CERT_WORLD_COUNT`, `ROUTE_PIPELINE_CERTIFICATE_THRESHOLD`, `ROUTE_PIPELINE_TAU_STOP`, `ROUTE_PIPELINE_WORLD_INCREMENT` | core DCCS/REFC/VOI budget and stopping configuration |
+| `ROUTE_PIPELINE_SEARCH_COMPLETENESS_THRESHOLD`, `ROUTE_PIPELINE_SEARCH_COMPLETENESS_ACTION_BONUS` | how much incompleteness pressure should bias controller action scoring |
+| `ROUTE_DCCS_OVERLAP_THRESHOLD`, `ROUTE_DCCS_BOOTSTRAP_COUNT`, `ROUTE_DCCS_DEFAULT_BASELINE_POLICY`, `ROUTE_DCCS_PFLIP_BIAS`, `ROUTE_DCCS_PFLIP_GAP_WEIGHT`, `ROUTE_DCCS_PFLIP_MECHANISM_WEIGHT`, `ROUTE_DCCS_PFLIP_OVERLAP_WEIGHT`, `ROUTE_DCCS_PFLIP_DETOUR_WEIGHT` | DCCS triage, overlap, and flip-probability tuning |
+| `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_SEED_ENABLED`, `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_AMBIGUITY`, `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_ENGINE_DISAGREEMENT`, `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_HARD_CASE`, `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MIN_CORRIDOR_COUNT`, `ROUTE_DCCS_PREEMPTIVE_COMPARATOR_MAX_CANDIDATES` | when comparator seeding is allowed into the thesis pipeline |
+| `ROUTE_REFC_EVIDENCE_FAMILIES`, `ROUTE_REFC_STATE_CATALOG`, `ROUTE_REFC_ADAPTIVE_WORLD_COUNT_ENABLED`, `ROUTE_REFC_LOW_AMBIGUITY_WORLD_CAP`, `ROUTE_REFC_MEDIUM_AMBIGUITY_WORLD_CAP`, `ROUTE_REFC_HIGH_AMBIGUITY_WORLD_FLOOR` | REFC evidence-world construction and adaptive world-count policy |
+| `ROUTE_K_RAW_CACHE_TTL_S`, `ROUTE_K_RAW_CACHE_MAX_ENTRIES` | cache raw graph candidate sets |
+| `ROUTE_OPTION_CACHE_ENABLED`, `ROUTE_OPTION_CACHE_TTL_S`, `ROUTE_OPTION_CACHE_MAX_ENTRIES`, `ROUTE_OPTION_CACHE_MAX_ESTIMATED_BYTES` | cache post-refinement route-option builds |
+| `ROUTE_STATE_CACHE_TTL_S`, `ROUTE_STATE_CACHE_MAX_ENTRIES`, `ROUTE_STATE_CACHE_MAX_ESTIMATED_BYTES` | cache routed state snapshots across selection stages |
+| `ROUTE_CERTIFICATION_CACHE_TTL_S`, `ROUTE_CERTIFICATION_CACHE_MAX_ENTRIES`, `ROUTE_CERTIFICATION_CACHE_MAX_ESTIMATED_BYTES` | cache certificate and fragility results |
+| `VOI_DCCS_CACHE_TTL_S`, `VOI_DCCS_CACHE_MAX_ENTRIES`, `VOI_DCCS_CACHE_MAX_ESTIMATED_BYTES` | cache VOI/DCCS intermediate bundles |
+| `ROUTE_CACHE_MAX_ENTRIES`, `ROUTE_CACHE_MAX_ESTIMATED_BYTES` | bound the main route-result cache independently of TTL |
+| `ORS_BASE_URL`, `ORS_HEALTH_PATH`, `ROUTE_ORS_BASELINE_MODE`, `ROUTE_ORS_BASELINE_POLICY` | control the self-hosted ORS baseline service and how it is treated as a comparator |
+| `ROUTE_GRAPH_DIRECT_K_RAW_FALLBACK_INCLUDE_ORS_SEED` | allow or prevent ORS-seeded diversity candidates in direct fallback paths |
+| `ROUTE_CANDIDATE_ALTERNATIVES_MAX`, `ROUTE_CANDIDATE_VIA_BUDGET`, `ROUTE_CANDIDATE_REFINE_MAX_CONCURRENCY` | cap breadth, via diversification, and concurrent refinement work in the thesis pipeline |
+
+### Additional Governance And Provenance Controls
+
+| Variables | Effect |
+| --- | --- |
+| `LIVE_SOURCE_POLICY`, `LIVE_DATA_REQUEST_TIMEOUT_S` | choose repo-local versus stricter external-source posture and cap request-level live-source timeouts |
+| `LIVE_SCENARIO_PROFILE_URL`, `LIVE_SCENARIO_WEBTRIS_SITES_URL`, `LIVE_SCENARIO_WEBTRIS_DAILY_URL`, `LIVE_SCENARIO_TRAFFIC_ENGLAND_URL`, `LIVE_SCENARIO_DFT_COUNTS_URL`, `LIVE_SCENARIO_OPEN_METEO_FORECAST_URL`, `LIVE_SCENARIO_OPEN_METEO_ARCHIVE_URL` | explicit scenario live-source endpoints used to build or refresh contextual scenario inputs |
+| `LIVE_SCENARIO_MAX_AGE_DAYS`, `LIVE_SCENARIO_MAX_AGE_MINUTES`, `LIVE_SCENARIO_DFT_MAX_DISTANCE_KM` | scenario freshness horizon and DfT station-radius limits |
+| `LIVE_DEPARTURE_MAX_AGE_DAYS`, `LIVE_STOCHASTIC_MAX_AGE_DAYS`, `LIVE_CARBON_MAX_AGE_DAYS`, `LIVE_TOLL_TOPOLOGY_MAX_AGE_DAYS`, `LIVE_TOLL_TARIFFS_MAX_AGE_DAYS` | age limits for departure, stochastic, carbon, and toll source families |
+| `DEPARTURE_REQUIRE_EMPIRICAL_PROFILES`, `DEPARTURE_ALLOW_SYNTHETIC_PROFILES`, `STOCHASTIC_REQUIRE_EMPIRICAL_CALIBRATION`, `STOCHASTIC_ALLOW_SYNTHETIC_CALIBRATION`, `TERRAIN_ALLOW_SYNTHETIC_GRID` | explicit bans or allowances for synthetic substitutes |
+| `CARBON_POLICY_SCENARIO`, `CARBON_SCOPE_MODE` | control how carbon policy and emissions scope are interpreted |
+| `TERRAIN_UK_ONLY_SUPPORT`, `TERRAIN_UK_BBOX`, `TERRAIN_DEM_RESOLUTION_M`, `TERRAIN_DEM_TILE_CACHE_MAX_MB`, `TERRAIN_PHYSICS_VERSION`, `LIVE_TERRAIN_REUSE_FRESH_CACHE_ACROSS_ROUTES` | terrain-governance scope, physical versioning, and cross-route tile reuse |
+| `RISK_CVAR_ALPHA`, `RISK_FAMILY`, `RISK_FAMILY_THETA`, `RISK_DOMINANCE_MIN_PROBABILITY`, `RISK_DOMINANCE_PAIR_SAMPLES`, `RISK_OBJECTIVE_SAMPLE_CAP` | robust-routing family choice and risk aggregation settings |
+| `MODEL_ASSET_DIR`, `OUT_DIR`, `MANIFEST_SIGNING_SECRET`, `LOG_LEVEL`, `OSRM_BASE_URL`, `OSRM_PROFILE`, `BATCH_CONCURRENCY` | artifact locations, signing, logging, OSRM connection, and batch execution pressure |
+| `QUALITY_MAX_DROPPED_ROUTES`, `QUALITY_MIN_FIXTURE_ROUTES`, `QUALITY_MIN_UNIQUE_CORRIDORS` | acceptance gates used by scoring and benchmark tooling |
 
 ### Compute timeout and frontend degrade controls
 
@@ -1892,6 +3066,23 @@ The `.env.example` file is large. The most useful way to document it is by opera
 | `baseline_provider_unconfigured` | ORS or other provider not configured |
 | `model_asset_unavailable` | generic asset unavailability catch-all |
 
+### Canonical strict payload semantics
+
+The reason-code table above is only half of the contract. The repository also freezes the payload shapes that carry those codes:
+
+- synchronous strict failures return `422` with a `detail` object containing `reason_code`, `message`, and `warnings`
+- the same `detail` object may additionally carry `stage`, `stage_detail`, `terrain_dem_version`, `terrain_coverage_required`, `terrain_coverage_min_observed`, `candidate_diagnostics`, `retry_after_seconds`, and `retry_hint`
+- strict stream failures use a fatal NDJSON object with `type`, `reason_code`, `message`, and `warnings`, and may additionally include `stage`, `stage_detail`, `stage_elapsed_ms`, `last_error`, `retry_after_seconds`, `retry_hint`, and `candidate_diagnostics`
+- batch strict failures flatten the same information into `reason_code:<code>; message:<message>`, optionally followed by `; warning=<first warning>`
+
+That shape discipline matters academically because it lets route, batch, and stream runs be compared using the same failure vocabulary without pretending they are the same transport mode.
+
+### Reason-code normalization discipline
+
+`backend/app/model_data_errors.py` keeps the reason-code surface intentionally frozen. Only codes in `FROZEN_REASON_CODES` are allowed to survive as canonical output. Unknown internal labels are normalized before emission, with generic non-frozen loader failures collapsing to `model_asset_unavailable`.
+
+That is not a cosmetic implementation detail. It is what prevents one subsystem from inventing ad hoc error labels that would quietly fragment the strict-governance story across the codebase.
+
 ## Appendix H: Artifact Formats And Provenance
 
 | Artifact | Produced by | Role |
@@ -1904,12 +3095,38 @@ The `.env.example` file is large. The most useful way to document it is by opera
 | `backend/out/artifacts/<run_id>/metadata.json` | batch/run artifact writer | run metadata |
 | `backend/out/artifacts/<run_id>/routes.geojson` | batch/run artifact writer | geometry export |
 | `backend/out/artifacts/<run_id>/results_summary.csv` | batch/reporting flow | summarized results |
-| `backend/out/artifacts/<run_id>/report.pdf` | `backend/app/reporting.py` | human-readable report output |
+| `backend/out/artifacts/<run_id>/report.pdf` | `backend/scripts/compose_thesis_suite_report.py` | human-readable thesis/report output |
 | oracle checks NDJSON | `oracle_quality_store.append_check_record` | per-source quality record stream |
 | oracle summary JSON/CSV | `oracle_quality_store.write_summary_artifacts` | dashboard outputs |
+| replay-oracle summary JSON/CSV | `oracle_quality_store.write_replay_oracle_artifacts` | replay-oracle consumer summary outputs |
+| experiment inventory JSON/CSV | `experiment_store.write_experiment_inventory_artifacts` | stored experiment catalog summary outputs |
 | model manifest | `backend/out/model_assets/manifest.json` | built asset list and checksums |
 | preflight summary | `backend/out/model_assets/preflight_live_runtime.json` | strict readiness evidence |
 | live publish summary | `backend/out/model_assets/live_publish_summary.json` | publish-to-runtime handoff evidence |
+
+### Thesis bundle retrieval and validation flow
+
+The artifact table above is more useful when read as a retrieval chain:
+
+- start with the bundle `evaluation_manifest.json`, because it records the corpus source, suite role, strict evidence policy, cache mode, baseline-smoke summary, readiness payloads, and the paths to thesis-level outputs
+- move from `thesis_metrics.json` or `thesis_results.csv` to the per-row `artifact_run_id`
+- open that run's `metadata.json` to recover `pipeline_mode`, `selected_route_id`, `artifact_names`, manifest/provenance endpoints, and timing
+- then inspect pipeline-specific artifacts such as `dccs_summary.json`, `certificate_summary.json`, `value_of_refresh.json`, `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`
+
+This is the practical route from a thesis table row back to the exact execution evidence that produced it.
+
+### Thesis-lane output contract
+
+The main thesis lane adds its own validation layer on top of the general run-store contract. `backend/scripts/run_thesis_lane.py` treats the following as required non-empty outputs:
+
+- `results_csv`
+- `summary_csv`
+- `thesis_report`
+- `methods_appendix`
+- `evaluation_manifest`
+- `manifest_path`
+
+That detail matters because the lane is not satisfied by "some files were written." It is explicitly checking that the summary tables, narrative report, methods appendix, and signed manifest path all exist before declaring the lane successful.
 
 ### Signature format
 
@@ -2009,7 +3226,9 @@ Importance legend used below:
 | `docs/sample-manifest.md` | `supporting` | manifest example and explanation |
 | `docs/strict-errors-reference.md` | `core` | strict reason-code reference |
 | `docs/synthetic-incidents-weather.md` | `supporting` | incident simulation and weather overlay behavior |
+| `docs/thesis-codebase-report.md` | `core` | thesis-grade master synthesis of the full repository |
 | `docs/tutorial-and-reporting.md` | `supporting` | tutorial UX and reporting outputs |
+| `docs/voi-pipeline-spec.md` | `core` | DCCS/REFC/VOI thesis-pipeline contract and artifact expectations |
 | `docs/examples/sample_batch_request.json` | `reference` | batch request example payload |
 | `docs/examples/sample_batch_response.json` | `reference` | batch response example payload |
 | `docs/examples/sample_manifest.json` | `reference` | manifest example payload |
@@ -2026,6 +3245,11 @@ Importance legend used below:
 | `backend/app/fuel_energy_model.py` | `core` | fuel/energy/emissions computation over calibrated surfaces |
 | `backend/app/incident_simulator.py` | `supporting` | seeded synthetic incident generation for experiments |
 | `backend/app/k_shortest.py` | `core` | Yen-style K-shortest path search with budgets |
+| `backend/app/_process_cache.py` | `supporting` | deep-size-aware generic process cache substrate |
+| `backend/app/certification_cache.py` | `supporting` | process cache for certificate and fragility bundles |
+| `backend/app/decision_critical.py` | `core` | deterministic DCCS candidate triage and refine-cost scoring |
+| `backend/app/evidence_certification.py` | `core` | REFC certificate, fragility, and value-of-refresh logic |
+| `backend/app/k_raw_cache.py` | `supporting` | cache for graph-native raw candidate sets |
 | `backend/app/live_call_trace.py` | `core` | request-scoped live-call tracing and rollups |
 | `backend/app/live_data_sources.py` | `core` | bounded retry, caching, host allow-lists, and live feed fetches |
 | `backend/app/logging_utils.py` | `supporting` | structured JSON logging setup |
@@ -2041,10 +3265,13 @@ Importance legend used below:
 | `backend/app/pareto_methods.py` | `core` | epsilon filter, crowding truncation, knee annotation |
 | `backend/app/provenance_store.py` | `supporting` | run provenance event persistence |
 | `backend/app/rbac.py` | `reference` | disabled RBAC shim preserving endpoint signatures |
-| `backend/app/reporting.py` | `supporting` | PDF report generation |
+| `backend/scripts/compose_thesis_suite_report.py` | `supporting` | thesis-suite report composition |
 | `backend/app/risk_model.py` | `core` | quantiles, CVaR, normalized utility, robust objective math |
 | `backend/app/route_cache.py` | `supporting` | in-memory route-result cache with stats |
+| `backend/app/route_option_cache.py` | `supporting` | cache for post-refinement route-option builds |
+| `backend/app/route_state_cache.py` | `supporting` | cache for routed state snapshots across selection stages |
 | `backend/app/routing_graph.py` | `core` | route graph load, warmup, status, and candidate generation |
+| `backend/app/routing_ors.py` | `supporting` | self-hosted ORS baseline calls and runtime-manifest identity checks |
 | `backend/app/routing_osrm.py` | `core` | OSRM client wrapper and retry logic |
 | `backend/app/run_store.py` | `supporting` | manifests and artifact writer paths |
 | `backend/app/scenario.py` | `core` | scenario modes, context keys, and scenario policy application |
@@ -2056,6 +3283,8 @@ Importance legend used below:
 | `backend/app/toll_engine.py` | `core` | toll matching, tariff application, and confidence handling |
 | `backend/app/uncertainty_model.py` | `core` | stochastic regime application and uncertainty summaries |
 | `backend/app/vehicles.py` | `core` | built-in/custom vehicle schema and persistence |
+| `backend/app/voi_controller.py` | `core` | deterministic VOI-AD2R action scoring and stop-certificate logic |
+| `backend/app/voi_dccs_cache.py` | `supporting` | cache for VOI/DCCS intermediate bundles |
 | `backend/app/weather_adapter.py` | `supporting` | weather-to-speed and weather-to-incident transforms |
 
 ### Backend scripts (`backend/scripts`)
@@ -2065,8 +3294,10 @@ Importance legend used below:
 | `backend/scripts/__init__.py` | `reference` | package marker |
 | `backend/scripts/benchmark_batch_pareto.py` | `supporting` | measures batch Pareto runtime and memory |
 | `backend/scripts/benchmark_model_v2.py` | `supporting` | route-option benchmark and p95 gate checker |
+| `backend/scripts/benchmark_route_graph_warmup.py` | `supporting` | graph warmup timing benchmark |
 | `backend/scripts/build_departure_profiles_uk.py` | `supporting` | builds contextual departure profiles |
 | `backend/scripts/build_model_assets.py` | `core` | compiles full model asset set and manifest |
+| `backend/scripts/build_od_corpus_uk.py` | `supporting` | builds thesis/evaluation OD corpora with cheap prior features |
 | `backend/scripts/build_pricing_tables_uk.py` | `supporting` | toll pricing table builder |
 | `backend/scripts/build_routing_graph_uk.py` | `core` | builds routing graph asset |
 | `backend/scripts/build_scenario_profiles_uk.py` | `core` | builds scenario policy profiles from evidence |
@@ -2079,6 +3310,8 @@ Importance legend used below:
 | `backend/scripts/collect_scenario_mode_outcomes_proxy_uk.py` | `supporting` | collect proxy outcomes for scenario modes |
 | `backend/scripts/collect_stochastic_residuals_raw_uk.py` | `supporting` | build raw residual corpus |
 | `backend/scripts/collect_toll_truth_raw_uk.py` | `supporting` | collect raw toll truth corpus |
+| `backend/scripts/enrich_od_corpus_with_ambiguity.py` | `supporting` | enrich OD corpora with ambiguity and support priors |
+| `backend/scripts/evaluation_metrics.py` | `supporting` | reusable thesis-evaluation metric definitions |
 | `backend/scripts/extract_osm_tolls_uk.py` | `supporting` | extract toll assets from OSM |
 | `backend/scripts/fetch_carbon_intensity_uk.py` | `supporting` | build asset-ready carbon intensity data |
 | `backend/scripts/fetch_dft_counts_uk.py` | `supporting` | transform DfT raw counts into empirical departure asset |
@@ -2087,13 +3320,18 @@ Importance legend used below:
 | `backend/scripts/fetch_scenario_live_uk.py` | `core` | gather live scenario evidence |
 | `backend/scripts/fetch_stochastic_residuals_uk.py` | `supporting` | build empirical stochastic residual asset |
 | `backend/scripts/fetch_toll_truth_uk.py` | `supporting` | build toll truth artifacts |
-| `backend/scripts/generate_run_report.py` | `supporting` | generate run report artifacts |
+| `backend/scripts/compose_thesis_suite_report.py` | `supporting` | generate thesis-suite report artifacts |
 | `backend/scripts/preflight_live_runtime.py` | `core` | strict live runtime preflight |
 | `backend/scripts/publish_live_artifacts_uk.py` | `core` | promote compiled assets to live runtime assets and signatures |
 | `backend/scripts/run_headless_scenario.py` | `supporting` | run scenario computations without UI |
+| `backend/scripts/run_hot_rerun_benchmark.py` | `supporting` | repeated-run reuse benchmark for thesis pipeline caches |
 | `backend/scripts/run_robustness_analysis.py` | `supporting` | multi-seed robustness study |
 | `backend/scripts/run_sensitivity_analysis.py` | `supporting` | fuel/carbon/toll sensitivity study |
+| `backend/scripts/run_thesis_evaluation.py` | `core` | multi-variant thesis evaluator and bundle writer |
+| `backend/scripts/run_thesis_lane.py` | `supporting` | thesis-only pytest plus evaluation orchestration lane |
 | `backend/scripts/score_model_quality.py` | `core` | compute subsystem quality scores and evidence checks |
+| `backend/scripts/start_backend_logged.ps1` | `supporting` | helper to start a logged backend for thesis lanes |
+| `backend/scripts/stop_backend_logged.ps1` | `supporting` | helper to stop a logged backend for thesis lanes |
 | `backend/scripts/validate_graph_coverage.py` | `core` | graph coverage validation and reporting |
 
 ### Frontend shell, config, and app files
@@ -2161,6 +3399,7 @@ Importance legend used below:
 | `frontend/app/components/ParetoChart.tsx` | `core` | Pareto visualization |
 | `frontend/app/components/PinManager.tsx` | `supporting` | origin/destination/stop pin management |
 | `frontend/app/components/RouteBaselineComparison.tsx` | `supporting` | local working-tree baseline comparison panel |
+| `frontend/app/components/RouteCertificationPanel.tsx` | `supporting` | thesis-pipeline certificate and VOI stop summary panel |
 | `frontend/app/components/ScenarioComparison.tsx` | `supporting` | compare scenario outputs |
 | `frontend/app/components/ScenarioParameterEditor.tsx` | `core` | advanced routing control panel |
 | `frontend/app/components/ScenarioTimeLapse.tsx` | `supporting` | time-lapse display |
@@ -2263,7 +3502,7 @@ Importance legend used below:
 | `backend/tests/test_routing_graph_feasibility.py` | `test-only` | graph feasibility checks |
 | `backend/tests/test_routing_graph_loader.py` | `test-only` | graph loader behavior |
 | `backend/tests/test_routing_graph_streaming_parse.py` | `test-only` | streaming graph parse behavior |
-| `backend/tests/test_run_store_reporting.py` | `test-only` | artifact storage and reporting |
+| `backend/tests/test_run_store_artifacts.py` | `test-only` | artifact storage and reporting |
 | `backend/tests/test_scenario_compare.py` | `test-only` | scenario compare endpoint |
 | `backend/tests/test_scenario_context_probe_timeout.py` | `test-only` | scenario context probe timeout behavior |
 | `backend/tests/test_scenario_profile_strict_thresholds.py` | `test-only` | strict scenario coverage thresholds |
@@ -2309,7 +3548,7 @@ Importance legend used below:
 
 ### Local working-tree additions worth noting
 
-These files are present locally and materially affect the current codebase, even though they are not part of the tracked baseline:
+These files are present locally and materially affect the current codebase. They are part of the current tracked working tree and are worth calling out explicitly because they add baseline-comparison and regression surfaces:
 
 | File | Importance | Purpose |
 | --- | --- | --- |
@@ -2333,13 +3572,25 @@ These files are present locally and materially affect the current codebase, even
 
 ## Appendix L: Benchmark-Evidence Summary
 
+The repo still does not justify a universal market-wide superiority claim, but it now does contain a thesis-lane-specific benchmark bundle with concrete local evidence. The strongest checked example is `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`, which includes `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json`, `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_report.md`, `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/repo_asset_preflight.json`, `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.json`, `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_metrics.json`, and `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/methods_appendix.md`.
+
 | Evidence type | What exists locally | What it supports | What it does not support by itself |
 | --- | --- | --- | --- |
 | per-run comparison UI | baseline comparison component and endpoints | route-by-route smart vs baseline explanation | global performance claim across all freight trips |
 | benchmark scripts | `backend/scripts/benchmark_model_v2.py`, `backend/scripts/benchmark_batch_pareto.py` | runtime, memory, and p95 gate measurement | universal route-quality superiority claim |
 | sensitivity/robustness scripts | `backend/scripts/run_sensitivity_analysis.py`, `backend/scripts/run_robustness_analysis.py` | stability under changed prices/seeds | aggregate provider-beating percentage |
 | quality scoring | `backend/scripts/score_model_quality.py` | internal subsystem quality thresholds | external market-wide superiority |
-| local generated outputs | model asset reports and preflight summaries | evidence that the strict/live pipeline ran successfully | universal OSRM/ORS win-rate |
+| local generated outputs | model-asset reports, strict preflight summaries, graph coverage reports, and thesis campaign bundles | evidence that the strict/live pipeline ran successfully and that a concrete thesis lane was evaluated end-to-end | universal OSRM/ORS win-rate |
+
+Additional current local benchmark-side artifacts worth preserving are:
+
+- `backend/out/compare_r12_vs_r15_combo_summary.json`, which records `variant_count=4`, retained success rows `2`, and regressions `london_newcastle|C` plus `london_newcastle|V0`
+- the same comparison file shows that only `A` and `B` retain success after the change; `A` slows slightly, `B` speeds up slightly, and both `C` and `V0` collapse to `success_rate=0.0`, `artifact_complete_rate=0.0`, and `route_evidence_ok_rate=0.0`
+- `backend/out/focused_one_od_r4_vs_cap1600_diff.summary.json`, which records that all `A/B/C/V0` variants remained at `success_rate=1.0` and `route_evidence_ok_rate=1.0` after the cap-1600 focused rerun
+- that focused diff also preserves the per-variant runtime deltas: `A +778.166 ms`, `B +2242.353 ms`, `C +492.383 ms`, and `V0 +718.092 ms`
+- `backend/out/corpus_ambiguity_refresh_summary.json`, which records `row_count=19`, `mean_ambiguity_index=0.239727`, `max_ambiguity_index=0.420932`, `mean_engine_disagreement_prior=0.413061`, `mean_hard_case_prior=0.419982`, and `mean_od_ambiguity_confidence=0.899552`
+- the same ambiguity-refresh file also records all `19` rows as bootstrap-backed, all `19` rows with nonzero ambiguity/engine/hard-case priors, `mean_od_ambiguity_source_count=2.526316`, `mean_od_ambiguity_source_support_strength=0.60263`, and source-mix ledgers spanning graph probe, repo-local geometry backfill, and historical bootstrap evidence
+- `backend/out/benchmarks/batch_pareto_benchmark_20260409T053840Z.json`, which records the latest raw benchmark capture as a full-error `10/10` run under `rigid_hgv`, `no_sharing`, `expected_value`, and dominance Pareto selection, with peak memory `7657716472 bytes`, no route candidates for any pair, and a metadata-versus-artifact listing mismatch that should be treated as a reproducibility/debugging issue rather than success evidence
 
 ## Glossary
 
@@ -2627,6 +3878,7 @@ For thesis purposes, the most defensible central claim is that this repository i
 - This flow is documented in both tutorial/reporting docs and sample-manifest docs.
 - The design is useful for dissertations because the UI can reproduce the same evidence chain a thesis appendix might cite.
 - Thesis significance: this is one of the strongest reproducibility features in the whole repository.
+- The current frontend docs make one extra point worth preserving: Run Inspector is now the primary in-app reporting surface for thesis, DCCS, REFC, and VOI bundles, not merely a generic artifact browser.
 
 ### M16. Signature Verification Workflow
 
@@ -2670,6 +3922,8 @@ For thesis purposes, the most defensible central claim is that this repository i
 - This is important because the route output is not a black box.
 - The user can inspect which pieces of the route are driving the total score.
 - Thesis significance: the visualization layer supports explainability, not only presentation.
+- The current overlay docs make the control surface more concrete: toggles include `showStopOverlay`, `showIncidentOverlay`, `showSegmentTooltips`, `showPreviewConnector`, `showBaselineRoute`, `showGoogleBaselineRoute`, and `showReferenceRoute`.
+- Failure-oriented overlays and tooltips can also expose `reason_code`, stage or stage detail, and backend message, which makes failed requests inspectable rather than merely red.
 
 ### M19. Accessibility And i18n Workflow
 
@@ -2682,6 +3936,7 @@ For thesis purposes, the most defensible central claim is that this repository i
 - keyboard-friendly form controls
 - This matters in a strict asynchronous application because long-running tasks can otherwise become inaccessible or opaque.
 - Thesis significance: even though this is not routing math, it is part of the project's engineering completeness.
+- The interaction contract is more specific than the earlier report stated: the custom select supports arrow keys, `Home`/`End`, `Enter`/`Space`, `Escape`, and outside-click dismissal; tooltip-style help surfaces expose `aria-haspopup` and `aria-expanded`; and locale validation is explicit for `en` and `es`.
 
 ### M20. Dev Live-Trace Workflow
 
@@ -2700,6 +3955,7 @@ For thesis purposes, the most defensible central claim is that this repository i
 - This is one of the most operationally rich features in the codebase.
 - It turns live data from a hidden dependency into an inspectable sub-process.
 - Thesis significance: this is unusually strong instrumentation for a routing project.
+- The active ops docs add that the diagnostics view is per-attempt, not only per-request, and can expose URL-level rows, headers, and extra diagnostics for each live call.
 
 ### M21. Full Local Startup Workflow
 
@@ -2763,9 +4019,14 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It is where the FastAPI app is created.
 - It owns the HTTP surface exposed to the frontend and to any direct client.
 - It starts graph warmup during lifespan handling.
-- It wires the OSRM client dependency.
+- It wires both the OSRM and ORS client dependencies.
 - It contains the route-construction path that turns provider geometry into a modeled route option.
+- It now also orchestrates DCCS, REFC, VOI, cache-stat reporting, hot-rerun cache restore, and strict-live readiness reporting.
 - It also contains the scalar route-selection logic and the baseline endpoints.
+- The import surface is itself informative: this file pulls together calibration loading, graph routing, OSRM, ORS, terrain, tolls, fuel, carbon, stochastic uncertainty, incident simulation, signatures, manifests, provenance, metrics, experiments, and all of the newer thesis-pipeline modules in one place.
+- That centralization explains an otherwise surprising fact of the repo: there is no separate heavyweight `route_service.py`. The backend intentionally keeps the final route-construction and artifact-writing path close to the HTTP contract.
+- It also records per-request timing and error information through the metrics store, attaches run identifiers/manifests/artifact endpoints to responses, and owns the logic that turns partial stage outputs into a coherent route or Pareto answer.
+- In plain English, this file is where the project stops being a collection of subsystems and becomes a working routing product.
 - If a thesis needs one file that represents the system's integration logic, this is that file.
 
 ### `backend/app/models.py`
@@ -2773,6 +4034,8 @@ For thesis purposes, the most defensible central claim is that this repository i
 - This file defines the public contract of the backend.
 - Every important request and response shape is validated here.
 - That includes route, Pareto, batch, scenario compare, departure optimize, duty chain, vehicle, signature, and oracle-quality payloads.
+- It now also defines thesis-pipeline fields such as `pipeline_mode`, `pipeline_seed`, `search_budget`, `evidence_budget`, `cert_world_count`, `certificate_threshold`, and `tau_stop`.
+- It carries the larger OD-ambiguity context surface used by the evaluator and controller rather than forcing those priors to live only in external analysis code.
 - The frontend mirrors many of these types.
 - That makes this file central to interface stability.
 - In thesis terms, it defines what the system believes a route request and route answer actually are.
@@ -2990,6 +4253,10 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It supports cache-hit suppression rules and blocked-stage explanations.
 - This is unusually rich instrumentation for a routing project.
 - It turns live-data use into an auditable trace.
+- It uses a request-scoped context variable for trace identity, which means a whole route request can accumulate live-call evidence across many helper functions without having to thread a trace object through every call signature manually.
+- It normalizes source keys into canonical source families such as scenario coefficients, WebTRIS, DfT counts, Meteo, departure profiles, stochastic regimes, toll topology, toll tariffs, fuel prices, carbon schedule, bank holidays, and terrain live tiles.
+- It also redacts sensitive headers unless explicitly configured not to, truncates raw payload bodies for bounded debug output, keeps only a TTL-limited ring buffer of recent traces, and computes an expected-versus-observed rollup with statuses like `ok`, `blocked`, `not_reached`, and `miss`.
+- In thesis terms, this is not just logging. It is a compact observability model for live evidence dependencies.
 - That is central to reproducibility and debugging.
 
 ### `backend/app/metrics_store.py`
@@ -2999,6 +4266,8 @@ For thesis purposes, the most defensible central claim is that this repository i
 - Its value is visibility, not analytics sophistication.
 - It supports the Ops Diagnostics panel and quick health interpretation.
 - The project does not need Prometheus-scale machinery for the use case shown here.
+- The store keeps per-endpoint `request_count`, `error_count`, `total_duration_ms`, `avg_duration_ms`, and `max_duration_ms`, then rolls those up into `total_requests`, `total_errors`, and `endpoint_count`.
+- That makes the `/metrics` surface useful for both operator triage and thesis benchmarking because it preserves the distinction between throughput, error rate, and latency behavior.
 - But it still wants explicit endpoint timing accountability.
 
 ### `backend/app/oracle_quality_store.py`
@@ -3008,6 +4277,8 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It provides a quality layer for the project's upstream evidence sources.
 - That is conceptually distinct from route quality.
 - The design is useful in a thesis because it demonstrates concern for the reliability of model inputs.
+- The concrete storage contract is simple but strong: append one NDJSON record per check, rebuild a grouped summary, and export a CSV dashboard view from the same grouped payload.
+- The grouping logic is by source, not by individual request, which matters because the dashboard is summarizing evidence-system behavior over time rather than replaying one route request.
 - It also supports human-readable and CSV export paths.
 
 ### `backend/app/provenance_store.py`
@@ -3017,6 +4288,8 @@ For thesis purposes, the most defensible central claim is that this repository i
 - Provenance is not the same as a result file.
 - It is a process record.
 - This distinction matters in rigorous reporting.
+- The payload shape is intentionally minimal and stable: `run_id`, `created_at`, `event_count`, and an ordered `events` array. Each event itself is just a timestamped dictionary plus a named event label and contextual fields.
+- That simplicity is useful because provenance should be append-only and interpretable long after the route-response schema changes.
 - The module is therefore a quiet but important reproducibility building block.
 
 ### `backend/app/run_store.py`
@@ -3026,6 +4299,9 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It attaches signatures to manifests.
 - It is central to batch workflows and artifact retrieval.
 - In thesis terms, it operationalizes reproducible experiment outputs.
+- The file is doing more contract work than its name suggests: it defines the canonical artifact-family list, validates artifact names against a safe regex, and distinguishes "known artifact slot" from "present file on disk."
+- That is why the frontend Run Inspector and the thesis evaluator can both speak in terms of artifact completeness rather than only raw directory listings.
+- The current codebase therefore treats artifact naming as part of the public experimental interface, not just as a filesystem convenience.
 - It is where analytical runs become named, inspectable objects.
 
 ### `backend/app/signatures.py`
@@ -3035,12 +4311,14 @@ For thesis purposes, the most defensible central claim is that this repository i
 - The implementation is intentionally transparent.
 - It is not an advanced cryptographic system.
 - It is an integrity mechanism for manifests and related payloads.
+- Canonicalization is explicit: JSON is serialized with sorted keys and compact separators before signing, which keeps signatures stable across harmless formatting differences.
+- Verification compares the expected digest against a lowercased provided signature using a constant-time digest comparison helper, which is the right level of care for an integrity layer of this scope.
 - That level of simplicity is appropriate and defensible for the repository's needs.
 
-### `backend/app/reporting.py`
+### `backend/scripts/compose_thesis_suite_report.py`
 
-- This file is responsible for report generation outputs such as PDF artifacts.
-- It turns stored run artifacts into a more human-consumable summary object.
+- This script is responsible for thesis-suite report composition.
+- It turns stored run artifacts into a more human-consumable summary layer.
 - This is important because raw JSON and CSV are not always the best thesis or operator-facing artifacts.
 - The project therefore includes both machine-readable and human-readable outputs.
 - Reporting is treated as part of the system, not as an external manual step.
@@ -3053,6 +4331,8 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It validates saved requests by reusing core models.
 - That reduces drift between runtime behavior and saved-analysis behavior.
 - The module is modest in complexity but important in workflow.
+- Each experiment is a UUID-addressed JSON bundle, while a small `index.json` file keeps ordering separate from payload contents.
+- Listing supports query filtering, vehicle-type filtering, scenario-mode filtering, and multiple sort orders, which shows the feature is meant to support a real experiment catalog rather than a one-off save/load dialog.
 - It lets scenario-comparison studies persist across sessions.
 
 ### `backend/app/objectives_selection.py`
@@ -3062,6 +4342,7 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It is not the most advanced selection logic in the repo.
 - But it matters because it provides a clean academic-style reference implementation.
 - That is helpful for comparison against the modified profiles.
+- It also explains an important architectural choice: the repository keeps both reference-style selection logic and richer engineering blends instead of pretending there is only one universally correct scalarization path.
 - It supports the thesis discussion of academic versus engineering scoring.
 
 ### `backend/app/objectives_emissions.py`
@@ -3090,6 +4371,103 @@ For thesis purposes, the most defensible central claim is that this repository i
 - Security roles are recognized as a future concern, but they are not the core thesis focus here.
 - The shim prevents invasive refactors later.
 - It is a placeholder with structural value.
+
+### Additional backend runtime modules added after the earlier appendix cut
+
+### `backend/app/_process_cache.py`
+
+- This file is the generic cache primitive behind several newer runtime caches.
+- It estimates deep object size, enforces TTL and entry-count limits, and can also enforce an estimated-byte ceiling.
+- In plain English, it lets later caches be honest about memory pressure rather than pretending only key counts matter.
+- That matters because thesis evaluation reuses large nested payloads, not tiny scalars.
+- It also deep-copies payloads on both insert and read, which is an important design choice: cached state is treated as reusable evidence, not as mutable shared state that downstream code may accidentally corrupt in place.
+- Internally it is an `OrderedDict`-based LRU store with explicit hit, miss, eviction, oversize-rejection, and estimated-byte counters, so cache statistics are not approximations bolted on later.
+- In thesis terms, it supports the repo's move from one route cache to several stage-specific reuse layers.
+- It is infrastructure, but important infrastructure.
+
+### `backend/app/certification_cache.py`
+
+- This module wraps `_process_cache.py` for REFC outputs.
+- It stores certification payloads behind a settings-driven TTL and max-entry policy.
+- In plain English, it avoids recomputing the same certificate package when identical evidence and frontier inputs recur.
+- That matters because certificate work can be materially more expensive than plain scalar selection.
+- In thesis terms, it supports the repeatability and performance story of the REFC stage.
+- It also exposes explicit cache stats rather than hiding reuse.
+
+### `backend/app/k_raw_cache.py`
+
+- This file caches raw `K_raw` graph candidate outputs before refinement.
+- It keeps hits, misses, evictions, TTL, and max-entry state.
+- In plain English, it remembers expensive graph-search results before later route-building work begins.
+- That matters because repeated evaluation rows or hot reruns can revisit the same OD and budget context.
+- In thesis terms, it helps separate graph-search cost from later pipeline cost.
+- It is one of the main reasons hot-rerun evidence can be meaningful.
+
+### `backend/app/route_option_cache.py`
+
+- This module caches route-option builds rather than only final route responses.
+- It builds normalized cache keys from geometry, vehicle type, scenario mode, cost toggles, terrain, stochastic settings, emissions context, weather, incident settings, departure time, weights, and other controls.
+- In plain English, it treats option building as a reusable stage in its own right.
+- That matters because terrain, toll, fuel, carbon, and uncertainty annotation can be expensive even when the route geometry itself is unchanged.
+- The key construction is richer than a route ID lookup: it can use sampled geometry signatures, road-class counts, segment-annotation signatures, evidence snapshot hashes, evidence provenance, and evidence tensors to decide whether reuse is safe.
+- The existence of both a full-detail key and a core key is also revealing. The repo now distinguishes between "this whole option build can be reused" and "the cheaper core of this option build can be reused while some surface details are rebuilt."
+- In thesis terms, it supports the separation between route generation and route interpretation.
+- The presence of both core and full-detail cache keys shows the backend now distinguishes between partially reusable and fully reusable option builds.
+
+### `backend/app/route_state_cache.py`
+
+- This file caches downstream route state rather than only the fully selected answer.
+- It stores bundled state together with estimated option-build and Pareto timing hints.
+- In plain English, it lets the backend resume later decision stages from a prepared state bundle.
+- That matters when the same frontier or selection context is revisited during evaluation or hot reruns.
+- The payload is intentionally stage-shaped rather than UX-shaped: it stores a prepared route-state tuple plus timing hints, which shows the cache exists for replaying computation stages, not for serving preformatted UI responses.
+- In thesis terms, it supports staged replay rather than only end-result replay.
+- It is part of the repo's increasingly explicit stage-by-stage architecture.
+
+### `backend/app/routing_ors.py`
+
+- This module is the ORS counterpart to the OSRM wrapper.
+- It handles ORS directions calls, normalizes error messages, and can describe the local ORS runtime through a manifest.
+- In plain English, it turns the ORS baseline into a measurable local engine instead of a vague third-party reference.
+- It inspects local graph files, build-info metadata, compose image configuration, and source-PBF freshness.
+- In thesis terms, it greatly strengthens the honesty of ORS comparisons because the repo can say what exact ORS graph identity was used.
+- This is one of the clearest examples of the codebase becoming more evaluation-aware over time.
+
+### `backend/app/decision_critical.py`
+
+- This file implements DCCS.
+- It creates stable candidate IDs, objective vectors, mechanism descriptors, overlap/diversity terms, deterministic refine-cost estimates, and selection summaries.
+- In plain English, it decides which raw graph candidates deserve scarce refinement budget before the backend spends money on detailed route building.
+- The fixed in-repo coefficient tables are especially important because they keep refine-cost prediction auditable rather than silently refitted at runtime.
+- In thesis terms, this module is where the project departs most clearly from a plain graph-plus-Pareto router into a budget-aware decision pipeline.
+- It is one of the core additions that makes the current codebase materially different from the earlier baseline architecture.
+
+### `backend/app/evidence_certification.py`
+
+- This file implements REFC.
+- It defines evidence families and evidence states, activates the relevant families for a given frontier, samples bounded worlds, computes winner-frequency certificates, and derives fragility/value-of-refresh outputs.
+- In plain English, it asks how robust the current winner is if the evidence it depends on becomes stale, low-confidence, proxy-like, or freshly refreshed.
+- It is not a generic Monte Carlo noise layer; it is a structured, replayable stress-world system.
+- In thesis terms, this is the module that turns evidence uncertainty into an explicit certification workflow instead of a vague caveat.
+- It is central to the report's claim that the repo can distinguish between an apparent winner and a certified winner.
+
+### `backend/app/voi_controller.py`
+
+- This file implements VOI-AD2R.
+- It keeps controller state, computes ambiguity/support-derived pressure measures, scores a fixed action menu, and emits explicit stop certificates.
+- In plain English, it is the "should I spend more compute or evidence budget, and on what?" module.
+- The controller is deterministic and myopic by design, which keeps its behavior auditable.
+- In thesis terms, this is the module that converts certification uncertainty into an explicit next-action policy.
+- It is one of the strongest examples of the codebase blending algorithmic ideas with operational decision logic.
+
+### `backend/app/voi_dccs_cache.py`
+
+- This file adds a cache for VOI/DCCS intermediate material.
+- In plain English, it avoids redoing the same thesis-pipeline preparation when evaluation revisits a compatible state.
+- That matters because VOI and DCCS are layered on top of earlier route-generation work and can otherwise duplicate stage cost.
+- In thesis terms, it supports more honest hot-rerun and reuse metrics for the later pipeline stages.
+- It is a small module, but it matters to evaluation efficiency.
+- Its stats also appear in the modern diagnostics surface.
 ## Appendix O: Detailed Frontend Runtime Narratives
 
 This appendix expands the frontend coverage from a feature checklist into a file-level explanation.
@@ -3115,6 +4493,8 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - The file therefore embodies the product decision that compute should be observable and resilient rather than opaque.
 - It also mirrors selection math labels exposed to the user, including academic reference and modified profiles.
 - That is important for a thesis because the UI is not hiding the difference between unchanged academic formulas and engineering blends.
+- The compute-session model inside the file is also worth stating explicitly. The page tracks a structured `ComputeSession`, maintains a stepwise trace ledger with reason codes, attempts, stage timing, candidate diagnostics, and failure chains, and turns canonical backend failures into recovery hints instead of surfacing a raw exception string alone.
+- The same file also manages tutorial progress, run-inspector state, signature-verifier state, experiment-catalog state, health/readiness/cache views, and baseline-comparison composition. That breadth is why the page reads more like an analyst console than a conventional form page.
 - The page is therefore a presentation layer, an experiment console, and a method-comparison surface at the same time.
 
 ### `frontend/app/layout.tsx`
@@ -3276,6 +4656,8 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - That level of detail matters because a dense analytical screen can easily obscure route geometry if map layout is handled naively.
 - The component is therefore doing more than drawing a polyline.
 - It is managing how a complex, sidebar-heavy analysis screen still keeps the route readable.
+- It also constrains the experience to UK-focused bounds by default, carries a Leaflet hot-reload workaround so the map survives Next.js fast refresh, and separates click handling, focus-pin requests, and fit-all requests into dedicated helpers.
+- The fit logic samples long routes rather than blindly fitting every coordinate, then adjusts padding against known occluders such as the sidebar and tutorial card. That is an implementation detail, but an important one, because the interface is deliberately information-dense.
 - Tooltips and layer placement also turn backend segment metrics into spatial explanations.
 - In thesis language, this component is where model output becomes geographic evidence.
 - Its debug hooks are also notable because they show the repo treats frontend observability seriously, not only backend observability.
@@ -3319,6 +4701,16 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - A user can inspect per-request differences rather than relying on vague statements about superiority.
 - In thesis terms, the component operationalizes fairer baseline interpretation.
 
+### `frontend/app/components/RouteCertificationPanel.tsx`
+
+- This component exposes the thesis-pipeline certificate surface in the UI.
+- It shows pipeline mode, run id, certificate value, threshold, active evidence families, fragility drivers, top refresh family, main competitor, and VOI stop-summary fields.
+- In plain English, it is where the frontend finally stops treating the selected route as a black-box winner and starts showing whether that winner was actually certified.
+- It is also wired to the Run Inspector, which means the user can move directly from a summary KPI card to the stored artifact set.
+- The KPI layout is itself revealing: it treats certificate strength, refresh priority, competitor identity, active evidence-family count, VOI iteration count, search/evidence budget usage, and stop reason as first-class operator outputs rather than hidden debug values.
+- In thesis terms, this component is important because it turns DCCS/REFC/VOI from hidden backend machinery into an inspectable analytical workflow.
+- It is one of the clearest signs that the frontend evolved alongside the thesis pipeline rather than staying baseline-only.
+
 ### `frontend/app/components/ScenarioComparison.tsx`
 
 - This component renders scenario compare outputs.
@@ -3335,6 +4727,8 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - It covers inputs such as Pareto method, selection math profile, uncertainty options, scenario modes, and related advanced settings.
 - The component therefore matters for methodological transparency.
 - It does not hide the knobs that shape route generation.
+- Concretely, it groups controls for max alternatives, optimization mode, risk aversion, epsilon caps, departure time, stochastic seed/sigma/sample count, fuel and Euro class, weather profile/intensity, and seeded synthetic-incident parameters.
+- That breadth matters because it shows the frontend is not merely toggling one or two scenarios. It is exposing a large part of the backend's actual modeling surface in a typed, tutorial-aware form.
 - That makes the product more suitable for research than a sealed "recommend me a route" interface.
 
 ### `frontend/app/components/ScenarioTimeLapse.tsx`
@@ -3397,6 +4791,8 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - It is a pedagogical tool attached directly to live UI elements.
 - That is important because the interface contains many advanced features that are easier to understand when introduced in a sequence.
 - The component therefore improves discoverability of scenario compare, Pareto exploration, and related workflows.
+- The implementation is more serious than a static help popover: it supports blocked, chooser, running, and completed modes; optional-decision checkpoints; target-anchored cards; responsive card scaling; persisted progress; focus management; and escape-to-close behavior.
+- In plain English, the tutorial is treated as a real state machine attached to the product, not just a marketing overlay.
 - In thesis terms, it reduces the gap between implementation complexity and operator comprehension.
 - It is a product-quality feature with research presentation value.
 
@@ -3444,6 +4840,7 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - It matters because strict/live routing can fail for reasons unrelated to route geometry.
 - The panel makes those reasons inspectable.
 - In plain English, it tells the user whether the system is blocked by graph warmup, stale live data, or another infrastructure issue.
+- The actual UI contract is intentionally raw and operator-oriented: refresh and clear-cache buttons sit next to pretty-printed JSON panes for health, cache stats, and metrics instead of hiding those payloads behind a decorative abstraction.
 - In thesis terms, it is a major part of the project's observability contribution.
 - A research system that cannot explain its own blocked state is weaker than one that can.
 
@@ -3453,6 +4850,7 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - It exposes manifests, provenance, signatures, and generated files for a chosen run identifier.
 - That is crucial for reproducibility.
 - It means a user can revisit what inputs, assets, and outputs defined a past analytical result.
+- More concretely, the control surface is split into two layers: "core docs" (`manifest`, `scenario-manifest`, `provenance`, `signature`, `scenario-signature`) and arbitrary artifact listing/preview/download. That split mirrors the backend distinction between top-level run documents and artifact families.
 - In thesis language, it operationalizes the evidence chain behind a claim.
 - It is one of the strongest bridges between application UX and dissertation-grade documentation.
 
@@ -3760,6 +5158,8 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it is the "prepare the system to be trustworthy" command.
 - It matters because the runtime expects built tables, profiles, and supporting assets rather than raw data dumps.
 - In thesis terms, it is one of the central reproducibility entry points.
+- It is also where the codebase's builder pipeline is unified into a signed manifest story. The script writes `manifest.json` and `refresh_manifest.json`, records the current `model-v2-uk` asset set, and preserves the generated-at/source-policy metadata that later sections of the report rely on.
+- That is an important design choice because the repo does not treat asset building as a loose collection of side effects. It treats it as a named, inspectable build product with provenance.
 - It also expresses the project's preference for scripted pipelines over manual notebook steps.
 
 ### `backend/scripts/publish_live_artifacts_uk.py`
@@ -3769,6 +5169,7 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it is the promotion step from generated result to operational asset.
 - This matters because a build that never gets published does not help the runtime.
 - In thesis terms, the script marks the boundary between experimental generation and active deployment material.
+- It is therefore the moment when the repo's build pipeline becomes a runtime commitment: the script turns freshly built outputs into the actual `backend/assets/uk/*` files that strict mode, live publication summaries, and readiness checks all assume exist.
 - It therefore matters for provenance and version discipline.
 
 ### `backend/scripts/preflight_live_runtime.py`
@@ -3778,6 +5179,7 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it asks "if I start the backend now, will strict routing fail immediately because the inputs are stale or missing?"
 - That is crucial in a fail-closed system.
 - In thesis terms, this script is part of the governance model, not just operations glue.
+- It is also the script that ties together graph identity, asset availability, freshness gates, and local ORS smoke testing into one pre-start verdict. That breadth explains why so many later readiness and thesis-lane claims ultimately point back to preflight output.
 - It externalizes readiness checks into a reproducible command rather than leaving them as implicit startup risk.
 
 ### `backend/scripts/validate_graph_coverage.py`
@@ -3798,6 +5200,7 @@ The scripts explain how the live and strict runtime is made possible.
 - The runtime graph underpins graph-led candidate generation, warmup behavior, feasibility checks, and long-corridor rescue logic.
 - In plain English, it builds the custom road-network brain that distinguishes the project from pure OSRM dependency.
 - In thesis terms, this script is central to the system's hybrid architecture argument.
+- It is also what makes later graph-only diagnostics meaningful: giant-component checks, node/edge counts, corridor rescue, OD feasibility, and graph warmup are all downstream consequences of how this build step encodes the UK network.
 - It is also where UK-only scope becomes concretely embedded in an artifact.
 
 ### `backend/scripts/build_departure_profiles_uk.py`
@@ -3807,6 +5210,7 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it teaches the backend how UK departure timing pressure changes across contexts.
 - That matters because departure optimization requires more than raw routing.
 - In thesis terms, the script operationalizes the shift from static trip modeling to schedule-aware trip modeling.
+- It also explains why the runtime can reason about weekday/weekend/holiday structure, regional variation, and route-shape context instead of applying one universal rush-hour penalty.
 - It provides the data foundation for the departure optimizer endpoint.
 
 ### `backend/scripts/build_scenario_profiles_uk.py`
@@ -3816,6 +5220,7 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it learns or compiles how different sharing assumptions should change route pressure and outcome multipliers in different contexts.
 - That matters because the scenario system is context-conditioned rather than hard-coded globally.
 - In thesis terms, this script is a key part of the argument that the project extends beyond shortest path into policy-sensitive route modeling.
+- The current codebase makes this especially important because the script fixes the weighted-L1 context-similarity recipe and writes the calibrated coefficients that strict runtime later treats as policy-relevant scenario evidence.
 - It also turns live-observed scenario corpora into operational coefficients.
 
 ### `backend/scripts/build_stochastic_calibration_uk.py`
@@ -3825,6 +5230,7 @@ The scripts explain how the live and strict runtime is made possible.
 - The runtime expects calibrated regimes, posterior context mappings, spreads, and copula structure.
 - In plain English, this script teaches the system what "normal variation" and "bad tail behavior" look like under UK freight contexts.
 - In thesis terms, it supports every statement about q95, CVaR, robust score, and correlated uncertainty.
+- The report's current regime counts, PIT/CRPS figures, posterior-key totals, and MAPE statistics all ultimately come from this build step and its outputs. That is why this script belongs in the codebase-creation story, not only in a calibration appendix.
 - It is a foundational script for the uncertainty subsystem.
 
 ### `backend/scripts/build_pricing_tables_uk.py`
@@ -3834,6 +5240,7 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it turns messy pricing inputs into lookup-ready operational data.
 - That matters because monetary cost modeling depends on consistent tariff logic rather than ad hoc price guesses.
 - In thesis terms, this script helps make cost outputs traceable to maintained tables.
+- It also sits on the boundary between raw toll-truth collection and runtime toll-confidence scoring, which is why the repo can discuss both tariff realism and toll-confidence calibration with a defensible provenance chain.
 - It is part of the data-engineering layer behind route economics.
 
 ### `backend/scripts/build_terrain_tiles_uk.py`
@@ -3843,6 +5250,7 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, the script prepares the elevation evidence needed to stop terrain from being a hand-wavy adjustment.
 - That matters because terrain is a genuine physical input, not just a scenario label.
 - In thesis terms, this script supports the claim that terrain-aware routing is backed by actual geospatial data.
+- It is also one reason the terrain subsystem can fail honestly: once the repo commits to prepared terrain assets and coverage manifests, strict mode can reject weak coverage instead of silently pretending terrain is known.
 - It also contributes to fail-closed coverage control.
 
 ### Raw Data Collection And Fetch Scripts
@@ -3984,6 +5392,8 @@ The scripts explain how the live and strict runtime is made possible.
 - In plain English, it asks whether the model inputs and subsystem outputs are good enough to trust.
 - That matters because the project does not rely only on endpoint smoke tests.
 - In thesis terms, this script is one of the clearest signs that the repository distinguishes correctness from quality.
+- The file is also explicit about what "quality" means: it maintains a subsystem threshold table at `95` for risk aversion, dominance, scenario profile, departure time, stochastic sampling, terrain profile, toll classification, fuel price, carbon price, and toll cost; it checks for strict raw-evidence prerequisites, inspects manifest provenance, flags synthetic-or-legacy calibration leakage, and uses fixture-backed route-option construction to score concrete behaviors.
+- That makes it more than a score aggregator. It is a codified view of what kinds of evidence the repo believes should exist before the model can be treated as credible.
 - It provides structured, subsystem-aware evaluation rather than generic pass/fail behavior.
 
 ### `backend/scripts/benchmark_model_v2.py`
@@ -4040,14 +5450,114 @@ The scripts explain how the live and strict runtime is made possible.
 - In thesis terms, this script is a valuable bridge between interactive use and scripted reproducibility.
 - It is one of the most dissertation-friendly scripts in the repository.
 
-### `backend/scripts/generate_run_report.py`
+### `backend/scripts/compose_thesis_suite_report.py`
 
-- This script generates a report artifact from stored run outputs.
+- This script generates a thesis-suite report artifact from stored run outputs.
 - It converts machine-readable run evidence into a more human-oriented report form.
 - In plain English, it helps turn analysis results into something that can be read, shared, or attached to a thesis appendix.
 - That matters because raw JSON is not always the best communication format.
 - In thesis terms, it supports the final presentation layer of reproducible outputs.
 - It is part of the system's end-to-end completeness.
+
+### Additional thesis-pipeline scripts added after the earlier appendix cut
+
+### `backend/scripts/build_od_corpus_uk.py`
+
+- This script builds the OD corpus used by later thesis evaluation.
+- It bins trips by distance and corridor shape, probes graph feasibility, and records ambiguity-relevant candidate-generation signals.
+- In plain English, it creates the set of cases on which the thesis pipeline will later be judged.
+- That matters because evaluation quality depends on corpus quality.
+- In thesis terms, this script is where "what counts as an interesting UK freight case?" becomes an explicit reproducible artifact.
+- It is one of the most important creation scripts for understanding how the current codebase was assembled.
+
+### `backend/scripts/enrich_od_corpus_with_ambiguity.py`
+
+- This script enriches OD rows with ambiguity, support, source-mix, and budget-prior fields.
+- It combines graph probes, geometry backfill, historical bootstrap evidence, and source-support weighting.
+- In plain English, it adds the upstream difficulty labels that later let the evaluator stress the right cases.
+- That matters because DCCS, REFC, and VOI are most meaningful on ambiguous or hard cases.
+- In thesis terms, this script is part of the transition from a generic route study to an ambiguity-aware evaluation framework.
+- It also explains why the repo now has many ambiguity-prefixed fields in request models and artifacts.
+
+### `backend/scripts/evaluation_metrics.py`
+
+- This file defines the aggregate metrics used by the thesis evaluator.
+- It includes frontier hypervolume, epsilon indicators, weighted and balanced gains, ambiguity alignment, certificate margins, fragility entropy, runtime ratios, cache-reuse ratios, and many other evaluation helpers.
+- In plain English, it tells the evaluator what numbers actually count.
+- That matters because without a shared metrics file, the thesis runner and the report could drift apart.
+- In thesis terms, it is the mathematical/reporting bridge between raw artifacts and thesis tables.
+- It also contains the concrete statistical semantics behind many report terms: Hyndman-Fan percentile interpolation, Pareto dominance checks, frontier extraction, 3D hypervolume calculation, additive epsilon indicator, balanced-gain scoring, rank/pearson correlations, ambiguity-overtrigger logic, and per-unit runtime or memory normalization helpers.
+- That breadth matters because the current thesis results are not just dumped from raw CSVs. They are produced by a shared metric vocabulary implemented in code.
+- It is one of the strongest signs that the repo moved from ad hoc benchmarking to an explicit evaluation framework.
+
+### `backend/scripts/benchmark_route_graph_warmup.py`
+
+- This script isolates route-graph warmup cost.
+- It launches warmup in a child process, measures time-to-ready and memory use, and reports the load mode actually taken.
+- In plain English, it turns the very expensive "warm the UK graph" step into a measurable benchmark rather than a hand-waved startup cost.
+- That matters because graph warmup is a major operational fact for this repository.
+- In thesis terms, it supports honest discussion of graph-scale engineering cost.
+- It is also a practical debugging tool when graph assets or cache modes change.
+
+### `backend/scripts/run_hot_rerun_benchmark.py`
+
+- This script compares a cold thesis evaluation against a true hot rerun on the same backend instance.
+- It clears caches, restores hot-rerun caches where appropriate, runs the evaluation again, and then computes delta tables.
+- In plain English, it asks whether the stage-specific reuse layers actually pay off.
+- That matters because the repo now claims reuse at several levels, not only at the final route-response level.
+- In thesis terms, it supports the performance/reuse story with direct before-versus-after evidence.
+- It is one of the key scripts for interpreting cache-hit metrics honestly.
+- The script is more opinionated than a generic benchmark wrapper. It encodes explicit hot-pass gates: `mean_route_cache_hit_rate >= 0.50` for `A/B/C`, `mean_option_build_cache_hit_rate >= 0.70` for `A/B/C`, `mean_option_build_reuse_rate >= 0.70` for `A/B/C`, and `mean_refc_world_reuse_rate >= 0.80` for `B/C`.
+- It also refuses to treat cache reuse as sufficient on its own. For `A/B/C`, the hot rerun must improve both `mean_runtime_ratio_vs_osrm` and `mean_runtime_ratio_vs_ors`, so the script is checking realized runtime competitiveness against both baseline engines rather than only internal cache counters.
+- The cache instrumentation is detailed enough to reconstruct the whole rerun state transition. The comparison artifact records `before_clear`, `after_clear`, `after_cold`, `restore_response`, `after_restore`, and `after_hot` cache snapshots, then carries those alongside per-variant cold-versus-hot delta rows and gate-check rows.
+- The route cache restore step is also explicit: `_restore_hot_rerun_route_cache(...)` calls `POST /cache/hot-rerun/restore`, so the "hot" run is not a vague rerun after incidental warming. It is a deliberate restoration of the thesis hot-rerun surface.
+- Each cold and hot route-run artifact is annotated in place with `benchmark_kind=hot_rerun_benchmark`, `benchmark_phase`, `pair_run_id`, `paired_run_id`, and before/after cache-state payloads. That is useful because it means the benchmark leaves interpretable provenance inside the same artifact directories that the evaluator already understands.
+
+### `backend/scripts/run_thesis_evaluation.py`
+
+- This is the main thesis evaluator.
+- It executes the `V0`, `A`, `B`, and `C` variants, collects artifacts, validates route evidence, computes the thesis summary tables, and writes bundle outputs such as `thesis_results`, `thesis_summary`, `thesis_metrics`, and `methods_appendix`.
+- In plain English, it is the script that turns many route runs into a thesis-grade evidence bundle.
+- It matters because this is where the repo's evaluation claims are actually assembled.
+- In thesis terms, it is one of the single most important scripts in the repository.
+- The file is also where several high-level thesis promises become executable policy: `V0/A/B/C` are mapped to `legacy/dccs/dccs_refc/voi`, suite roles such as `focused_voi_proof` and `hot_rerun` are named explicitly, essential artifacts are declared per pipeline mode, and route-evidence validation is enforced before rows can count as complete evidence.
+- The very large summary-field catalogue inside the script is itself revealing. It shows the evaluator is not only measuring win rates and runtime; it is measuring ambiguity priors, frontier diversity, certificate behavior, cache reuse, controller productivity, baseline honesty, and stage-specific budget utilization at the same time.
+- It is also where comparator honesty, strict evidence policy, and required artifact families become executable policy rather than prose.
+- The suite-role taxonomy deserves to be named explicitly because it turns thesis intent into machine-readable run context. The evaluator currently distinguishes `generic_evaluation`, `broad_cold_proof`, `focused_refc_proof`, `focused_voi_proof`, `dccs_diagnostic_probe`, `hot_rerun_cold_source`, and `hot_rerun`, each with its own scope/focus label.
+- The evaluator's artifact contract is also richer than the main report previously stated. In addition to the "final" REFC/VOI artifacts, the script explicitly knows about pre-action or initial-state artifacts: `initial_certificate_summary.json`, `initial_route_fragility_map.json`, `initial_competitor_fragility_breakdown.json`, `initial_value_of_refresh.json`, and `initial_sampled_world_manifest.json`. Those files matter because they preserve the before-VOI state, allowing the report to compare what the controller inherited against what it changed.
+- Required artifacts are pipeline-specific rather than one-size-fits-all. `legacy` only requires `metadata.json`, `strict_frontier.jsonl`, and `final_route_trace.json`; `dccs` adds `dccs_summary.json` and `dccs_candidates.jsonl`; `dccs_refc` adds the certificate, fragility, competitor-breakdown, refresh, and sampled-world artifacts; and `voi` adds `voi_action_trace.json` plus `voi_stop_certificate.json`. That staged contract is why artifact completeness rates in the thesis summaries are interpretable by mode.
+- Comparator governance is also enforced here rather than left to operator discipline. The strict evidence policy is fixed as `no_synthetic_no_proxy_no_fallback`; the evaluator supports ORS snapshot record/replay modes; it records `ors_snapshot_mode`, hashes, timestamps, and provider mode into row-level outputs; and it raises `strict_proxy_ors_baseline_forbidden` when a proxy ORS baseline leaks into a run that has not explicitly allowed it.
+- Some defaults are intentionally conservative for methodological reasons. The evaluator leaves `--auto-enrich-corpus-ambiguity` off by default so route-graph probing and ambiguity enrichment cost is not silently folded into the measured evaluation runtime, and the separate `--allow-proxy-ors` and `--allow-evidence-fallbacks` switches make any relaxation of comparator or evidence policy an explicit act rather than a hidden convenience.
+- The bundle-level output validation is deliberately strict. Before a bundle can count as complete, the script validates `methods_appendix.md`, `evaluation_manifest.json`, and `thesis_report.md`, records the validation payload in `output_artifact_validation`, and returns those paths in the final result object together with `summary_by_cohort` outputs. That means the evaluator is checking its own evidence bundle, not only producing it.
+- Route-evidence validation is similarly concrete. Rows carry `evidence_policy`, `route_evidence_ok`, `route_evidence_status`, and structured `route_evidence_issues`; in other words, the thesis table rows preserve whether a route was merely computed or whether its provenance and baseline evidence passed the dissertation-grade policy.
+
+### `backend/scripts/run_thesis_lane.py`
+
+- This script wraps the thesis evaluator with the thesis-marked pytest lane.
+- It can manage a local backend lifecycle, validate required output paths, and write combined report payloads.
+- In plain English, it is the "run the thesis lane end to end" command.
+- That matters because a strong dissertation repository should have one explicit command for the full lane, not only a collection of helper scripts.
+- In thesis terms, this script is a major reproducibility affordance.
+- It is also the bridge between runtime code, tests, and final evaluation outputs.
+- The pytest side is tightly scoped. The script runs `pytest` with the marker expression `thesis or thesis_results or thesis_modules`, so it is intentionally targeting the subset of tests that defend thesis behavior, result integrity, and thesis-specific orchestration rather than the full general backend suite.
+- The output validation layer is also more rigorous than a typical wrapper script. `_validated_artifact_paths(...)` refuses success unless `results_csv`, `summary_csv`, `thesis_report`, `methods_appendix`, `evaluation_manifest`, and `manifest_path` all exist and are non-empty.
+- Those validation failures are named, not vague. Missing path keys raise `thesis_lane_missing_artifact_path:<key>`, while absent or empty files raise `thesis_lane_missing_artifact_file:<key>`. The lane also injects the resulting `validated_artifacts` map back into the evaluation payload, so downstream consumers can see exactly which outputs were verified.
+- The markdown lane report is built to surface the same failure modes the thesis reader needs to understand. Successful variant lines include `selector_certificate_disagreement_rate`, while failed variant lines aggregate `failure_reasons=...` counts derived from row-level failure payloads. So the lane output is not just "green/red"; it exposes where selector behavior or route-evidence completeness broke down.
+- Backend lifecycle management is also explicit. The script can stop and restart a local backend through `start_backend_logged.ps1` and `stop_backend_logged.ps1`, but it rejects the invalid combination of `--manage-local-backend` with `--in-process-backend`. That guard matters because it stops the same evaluation lane from accidentally mixing two different backend control models.
+
+### `backend/scripts/start_backend_logged.ps1`
+
+- This PowerShell helper starts a backend instance with logs captured for thesis-lane use.
+- In plain English, it is the controlled "bring up the backend for the evaluator" command.
+- That matters because thesis runs should not depend on a manually opened terminal whose state is unknown.
+- In thesis terms, it supports reproducible backend lifecycle control rather than ad hoc startup.
+
+### `backend/scripts/stop_backend_logged.ps1`
+
+- This companion PowerShell helper stops the logged backend instance cleanly.
+- In plain English, it closes the evaluator-managed backend lifecycle instead of leaving a stray process around.
+- That matters because repeated thesis-lane execution can otherwise be polluted by old servers, ports, or logs.
+- In thesis terms, it makes the full thesis lane more scriptable and less operator-dependent.
 
 ### Supporting Script Notes
 
@@ -4150,6 +5660,10 @@ Second, it records where the rest of the documentation was still useful as a sou
 - Its material has been absorbed into the strict/live chapter, reason-code appendix, and workflow narratives.
 - The document is especially valuable because it standardizes how errors are interpreted across route, batch, and stream flows.
 - In thesis terms, it is a core governance reference rather than mere troubleshooting material.
+- The most important detail is that the contract is structural, not only semantic. The canonical `422` shape is `{\"detail\": {...}}` with required `reason_code`, `message`, and `warnings`, and optional keys such as `stage`, `stage_detail`, `terrain_dem_version`, `terrain_coverage_required`, `terrain_coverage_min_observed`, `candidate_diagnostics`, `retry_after_seconds`, and `retry_hint`.
+- Stream failures use a different but equally standardized shape: a fatal NDJSON object with `type=fatal`, `reason_code`, `message`, and `warnings`, optionally extended by `stage`, `stage_detail`, `stage_elapsed_ms`, `last_error`, `retry_after_seconds`, `retry_hint`, and `candidate_diagnostics`.
+- The document also matters because it explains normalization. Only frozen reason codes are emitted canonically; unknown or internal loader labels are normalized into the frozen set, with non-frozen loader-style asset failures collapsing to `model_asset_unavailable`.
+- Batch consumers get a separate but still standardized serialization: `reason_code:<code>; message:<message>` and, when present, an appended `; warning=<first warning>`. That sounds small, but it is what makes strict-failure aggregation in batch CSV and thesis summaries stable.
 
 ### `docs/performance-profiling-notes.md`
 
@@ -4195,6 +5709,15 @@ Second, it records where the rest of the documentation was still useful as a sou
 - Its material has been absorbed into the tutorial workflow narrative, reporting discussions, and artifact chapters of this report.
 - The document matters because it makes clear that tutorial mode is aligned with real workflows rather than being generic decoration.
 - In thesis terms, it helps connect pedagogy, usability, and reproducibility.
+
+### `docs/voi-pipeline-spec.md`
+
+- This document is the clearest compact contract for the newer DCCS / REFC / VOI thesis pipeline.
+- It defines the four pipeline modes, the named route sets `K_raw`, `R`, `F`, and `r*`, the required artifact families, the budget knobs, determinism expectations, and the meaning of uncertified versus certified outcomes.
+- In plain English, it explains what the late-stage thesis code is trying to do before a reader has to open several backend modules.
+- Its material has been absorbed into the routing-mechanics chapter, the latest-evidence chapter, the artifact discussions, and the runtime/module appendices of this report.
+- The document matters because it upgrades the thesis pipeline from scattered implementation detail to an explicit, documented contract.
+- In thesis terms, it is one of the most important supporting docs added after the original report draft.
 
 ### `docs/synthetic-incidents-weather.md`
 
@@ -4698,9 +6221,9 @@ When this report says a strict failure is canonical, a frontier rule exists, or 
 
 ### Artifact, Provenance, And Reporting Tests
 
-### `backend/tests/test_run_store_reporting.py`
+### `backend/tests/test_run_store_artifacts.py`
 
-- This file checks run storage and reporting behavior.
+- This file checks run storage and artifact behavior.
 - It matters because successful analytical runs should become recoverable evidence objects.
 - In plain English, it helps ensure manifests, artifacts, and reports are written coherently.
 - In thesis terms, it underpins reproducibility.
@@ -4832,6 +6355,28 @@ When this report says a strict failure is canonical, a frontier rule exists, or 
 - It matters for event ordering, partial delivery, and fatal-stream error semantics.
 - In plain English, it helps ensure streamed Pareto behaves like a real progressive workflow.
 - In thesis terms, it supports asynchronous analytical transparency.
+
+### Thesis-pipeline, evaluation, and cache tests added after the original appendix cut
+
+The current tree also contains a newer layer of tests that specifically lock the thesis pipeline and its surrounding tooling:
+
+| File | Why it matters |
+| --- | --- |
+| `backend/tests/test_dccs.py` | locks DCCS candidate triage, scoring, and budget-aware selection behavior |
+| `backend/tests/test_refc.py` | locks REFC certificate, fragility, and value-of-refresh behavior |
+| `backend/tests/test_voi_controller.py` | locks VOI action scoring, stop logic, and controller-state semantics |
+| `backend/tests/test_voi_dccs_cache.py` | checks the newer VOI/DCCS cache layer rather than only the top-level route cache |
+| `backend/tests/test_route_option_cache.py` | verifies route-option cache-key construction and reuse behavior |
+| `backend/tests/test_route_state_cache.py` | verifies staged route-state caching and stats |
+| `backend/tests/test_routing_ors.py` | locks local ORS baseline and manifest/identity handling |
+| `backend/tests/test_build_od_corpus_uk.py` | checks OD corpus construction and graph-probe feature extraction |
+| `backend/tests/test_enrich_od_corpus_with_ambiguity.py` | checks ambiguity/support prior enrichment logic |
+| `backend/tests/test_evaluation_metrics.py` | locks the aggregate metric formulas used by thesis bundles |
+| `backend/tests/test_hot_rerun_benchmark.py` | checks the cold-versus-hot rerun comparison workflow |
+| `backend/tests/test_route_graph_warmup.py` and `backend/tests/test_route_graph_warmup_benchmark.py` | lock graph warmup behavior and warmup benchmark reporting |
+| `backend/tests/test_thesis_evaluation_runner.py` and `backend/tests/test_thesis_evaluation_ready_polling.py` | lock evaluator orchestration and readiness polling behavior |
+| `backend/tests/test_thesis_lane_script.py` | checks the end-to-end thesis lane wrapper rather than only the evaluator internals |
+| `backend/tests/test_scenario_resolution.py` and `backend/tests/test_explainability_compare_integration.py` | extend coverage around scenario resolution and explanation/comparison surfaces that now matter to reporting |
 
 ## Appendix S: Full Route-Compute Microtrace
 

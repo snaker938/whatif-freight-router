@@ -5,6 +5,9 @@ import hashlib
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from .candidate_bounds import CandidateEnvelope, build_candidate_envelope
+from .candidate_criticality import CandidateCriticalityEstimate, build_candidate_criticality
+
 # DCCS is thesis-specific, but its objective-space coverage and diversity terms
 # borrow from standard multi-objective search ideas such as normalized
 # nearest-neighbour spacing and crowding/diversification; see Deb et al.,
@@ -871,6 +874,13 @@ class DCCSCandidateRecord:
     decision_reason: str
     mode: str
     corridor_signature: str
+    candidate_envelope: CandidateEnvelope | None = None
+    candidate_criticality: CandidateCriticalityEstimate | None = None
+    safe_eliminated: bool = False
+    necessary_dominated: bool = False
+    dominated_by_route_id: str | None = None
+    dominance_margin: float | None = None
+    safe_elimination_reason: str | None = None
     candidate_source_engine: str | None = None
     candidate_source_stage: str | None = None
     comparator_seeded: bool = False
@@ -950,6 +960,7 @@ def build_candidate_record(
     mechanism_gap = 0.0 if (refined_items and not refined_pool) else _mechanism_distance(mechanism, refined_pool)
     time_regret_gap = _time_regret_gap(objective, objective_reference_pool)
     time_preservation_bonus = _time_preservation_bonus(time_regret_gap)
+    candidate_envelope = build_candidate_envelope(candidate, frontier=frontier_items)
     predicted_cost = _predicted_refine_cost(candidate, config=cfg)
     flip_probability = _flip_probability(
         candidate,
@@ -984,6 +995,18 @@ def build_candidate_record(
         ),
         "comparator_seed_penalty": float(cfg.comparator_seed_penalty_weight if comparator_seeded else 0.0),
     }
+    candidate_criticality = build_candidate_criticality(
+        candidate,
+        objective_gap=objective_gap,
+        mechanism_gap=mechanism_gap,
+        overlap=overlap,
+        stretch=stretch,
+        time_regret_gap=time_regret_gap,
+        predicted_refine_cost=predicted_cost,
+        flip_probability=flip_probability,
+        candidate_envelope=candidate_envelope,
+        near_duplicate=near_duplicate,
+    )
     return DCCSCandidateRecord(
         candidate_id=candidate_id,
         graph_path=path,
@@ -1009,6 +1032,13 @@ def build_candidate_record(
         decision_reason="pending",
         mode=cfg.mode,
         corridor_signature=_corridor_signature(path),
+        candidate_envelope=candidate_envelope,
+        candidate_criticality=candidate_criticality,
+        safe_eliminated=bool(candidate_envelope.safe_eliminated),
+        necessary_dominated=bool(candidate_envelope.necessary_dominated),
+        dominated_by_route_id=candidate_envelope.dominated_by_route_id,
+        dominance_margin=candidate_envelope.dominance_margin,
+        safe_elimination_reason=candidate_envelope.safe_elimination_reason,
         candidate_source_engine=candidate_source_engine,
         candidate_source_stage=candidate_source_stage,
         comparator_seeded=comparator_seeded,
@@ -1207,6 +1237,21 @@ def summarize_refine_outcomes(
         "refine_cost_mae_ms": (sum(absolute_errors) / float(len(absolute_errors))) if absolute_errors else None,
         "refine_cost_rank_correlation": _rank_correlation(predicted_costs, observed_costs),
         "refine_cost_sample_count": len(refined),
+    }
+
+
+def build_dccs_summary_breadcrumbs(records: Sequence[DCCSCandidateRecord]) -> dict[str, Any]:
+    return {
+        "candidate_envelope_schema_version": "candidate_envelope_v1",
+        "candidate_criticality_schema_version": "candidate_criticality_v1",
+        "candidate_envelope_count": len(records),
+        "candidate_criticality_count": len(records),
+        "safe_elimination_provenance_present": bool(records),
+        "safe_eliminated_count": sum(1 for record in records if record.safe_eliminated),
+        "necessary_dominated_count": sum(1 for record in records if record.necessary_dominated),
+        "dominated_by_route_id_count": sum(
+            1 for record in records if str(record.dominated_by_route_id or "").strip()
+        ),
     }
 
 

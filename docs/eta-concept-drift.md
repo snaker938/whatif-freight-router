@@ -1,11 +1,13 @@
 # ETA Concept Drift Checks
 
-Last Updated: 2026-02-23  
+Last Updated: 2026-04-09
 Applies To: `backend/scripts/check_eta_concept_drift.py`
 
 ## Purpose
 
-Checks drift between predicted and observed ETAs and emits machine-readable outputs for monitoring.
+Checks drift between predicted and observed ETAs and emits machine-readable outputs for monitoring or offline audit.
+
+The script is intentionally simple and deterministic: it does not call the route engine. It scores an external CSV of prediction/observation pairs.
 
 ## Input Requirements
 
@@ -17,6 +19,22 @@ Required CSV columns:
 Optional:
 
 - `trip_id`
+
+Each row is converted into:
+
+- absolute error in seconds
+- percent error against observed ETA
+- a stable row index for later CSV/JSON reconciliation
+
+## Default Thresholds
+
+`backend/scripts/check_eta_concept_drift.py` currently defaults to:
+
+- `--mae-threshold-s 120`
+- `--mape-threshold-pct 10`
+- `--out-dir out`
+
+Those thresholds are the current documented alert boundary, not a checked thesis result.
 
 ## Command
 
@@ -41,29 +59,43 @@ uv run python scripts/check_eta_concept_drift.py `
 
 ## Output Payload
 
-Script writes:
+The JSON summary currently includes:
 
-- JSON summary (metrics + thresholds + alerts)
-- CSV with per-row error breakdown
+- `timestamp`
+- `input_csv`
+- `thresholds.mae_threshold_s`
+- `thresholds.mape_threshold_pct`
+- `metrics.count`
+- `metrics.mae_s`
+- `metrics.mape_pct`
+- `metrics.rmse_s`
+- `metrics.max_abs_error_s`
+- `alerts.mae_alert`
+- `alerts.mape_alert`
+- `alerts.any_alert`
 
-Default locations are auto-generated under:
+The CSV output contains one row per observation with:
+
+- `row_index`
+- `trip_id`
+- `predicted_eta_s`
+- `observed_eta_s`
+- `abs_error_s`
+- `pct_error`
+
+Default output locations are auto-generated under:
 
 - `backend/out/analysis/eta_concept_drift_<timestamp>.json`
 - `backend/out/analysis/eta_concept_drift_rows_<timestamp>.csv`
 
-## Metrics
+As of `2026-04-09`, there is no checked `backend/out/analysis` directory in the repo, so there is no newer saved drift run to summarize here.
 
-- `mae_s`
-- `mape_pct`
-- `rmse_s`
-- `max_abs_error_s`
-- `count`
+## Interpretation Notes
 
-Alert flags:
-
-- `mae_alert`
-- `mape_alert`
-- `any_alert`
+- `mae_s` is the operationally simplest drift metric and the one most likely to map to user-visible ETA trust.
+- `mape_pct` is useful when comparing mixed trip lengths, but it is sensitive to very short observed trips.
+- `rmse_s` is more punitive on large misses and is useful when tail failures matter.
+- `max_abs_error_s` is important for fail-closed or audit-heavy lanes because one severe miss can matter more than a stable mean.
 
 ## Related Docs
 
@@ -71,4 +103,3 @@ Alert flags:
 - [Reproducibility Capsule](reproducibility-capsule.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
 - [Performance Profiling Notes](performance-profiling-notes.md)
-

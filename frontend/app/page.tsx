@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import BatchRunner from './components/devtools/BatchRunner';
 import CollapsibleCard from './components/CollapsibleCard';
 import CounterfactualPanel from './components/CounterfactualPanel';
+import DecisionStateSummary from './components/DecisionStateSummary';
 import CustomVehicleManager from './components/devtools/CustomVehicleManager';
 import DepartureOptimizerChart from './components/DepartureOptimizerChart';
 import DutyChainPlanner from './components/DutyChainPlanner';
@@ -80,6 +81,7 @@ import type {
   CacheClearResponse,
   RouteRequest,
   RouteResponse,
+  RouteResponsePayload,
   RouteBaselineResponse,
   ParetoRequest,
   BatchParetoRequest,
@@ -105,6 +107,8 @@ import type {
   ParetoResponse,
   ParetoMethod,
   ParetoStreamEvent,
+  DecisionPackage,
+  DecisionPackageResponse,
   ManagedStop,
   LiveCallEntry,
   LiveCallTraceResponse,
@@ -124,6 +128,7 @@ import type {
   Waypoint,
   WeatherImpactConfig,
   WeatherProfile,
+  RouteCertificationSummary,
 } from './lib/types';
 import {
   normaliseWeights,
@@ -182,7 +187,177 @@ type RouteRunMeta = {
   provenance_endpoint?: string | null;
   selected_certificate?: RouteResponse['selected_certificate'];
   voi_stop_summary?: RouteResponse['voi_stop_summary'];
+  artifact_pointers?: Record<string, string | null> | null;
+  preference_state?: Record<string, unknown> | null;
+  preference_query_trace?: Record<string, unknown> | null;
+  action_trace_summary?: Record<string, unknown> | null;
+  witness_summary?: Record<string, unknown> | null;
+  world_support_summary?: Record<string, unknown> | null;
+  terminal_type?: string | null;
+  selected_certificate_basis?: string | null;
+  certified_set?: RouteOption[] | null;
+  certified_set_summary?: Record<string, unknown> | null;
+  preference_summary?: Record<string, unknown> | null;
+  support_summary?: Record<string, unknown> | null;
+  abstention_summary?: Record<string, unknown> | null;
 };
+
+type NormalizedRoutePayload = {
+  selected: RouteOption | null;
+  candidates: RouteOption[];
+  run_id?: string | null;
+  pipeline_mode?: RouteResponse['pipeline_mode'];
+  manifest_endpoint?: string | null;
+  artifacts_endpoint?: string | null;
+  provenance_endpoint?: string | null;
+  selected_certificate?: RouteCertificationSummary | null;
+  voi_stop_summary?: RouteResponse['voi_stop_summary'];
+  artifact_pointers?: Record<string, string | null> | null;
+  preference_state?: Record<string, unknown> | null;
+  preference_query_trace?: Record<string, unknown> | null;
+  action_trace_summary?: Record<string, unknown> | null;
+  witness_summary?: Record<string, unknown> | null;
+  world_support_summary?: Record<string, unknown> | null;
+  terminal_type?: string | null;
+  selected_certificate_basis?: string | null;
+  certified_set?: RouteOption[] | null;
+  certified_set_summary?: Record<string, unknown> | null;
+  preference_summary?: Record<string, unknown> | null;
+  support_summary?: Record<string, unknown> | null;
+  abstention_summary?: Record<string, unknown> | null;
+};
+
+function readStringField(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function isWrappedDecisionPackage(payload: RouteResponsePayload): payload is DecisionPackageResponse {
+  return typeof payload === 'object' && payload !== null && 'decision_package' in payload;
+}
+
+function isDecisionPackageShape(payload: RouteResponsePayload): payload is DecisionPackage {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    ('recommended_route' in payload ||
+      'certified_set' in payload ||
+      'frontier_summary' in payload ||
+      'certificate_summary' in payload ||
+      'stability_summary' in payload ||
+      'preference_summary' in payload ||
+      'preference_state' in payload ||
+      'preference_query_trace' in payload ||
+      'action_trace_summary' in payload ||
+      'witness_summary' in payload ||
+      'world_support_summary' in payload ||
+      'support_summary' in payload ||
+      'abstention_summary' in payload ||
+      'action_trace_summary' in payload ||
+      'witness_summary' in payload ||
+      'artifact_pointers' in payload)
+  );
+}
+
+function normalizeRouteResponse(payload: RouteResponsePayload): NormalizedRoutePayload {
+  const packagePayload = isWrappedDecisionPackage(payload) ? payload.decision_package : payload;
+  const rawPayload = packagePayload as Record<string, unknown>;
+  const certifiedSetPayload = Array.isArray(rawPayload.certified_set)
+    ? (rawPayload.certified_set as RouteOption[])
+    : null;
+  if ('selected' in packagePayload && 'candidates' in packagePayload && packagePayload.selected) {
+    return {
+      selected: packagePayload.selected,
+      candidates: packagePayload.candidates ?? [],
+      run_id: packagePayload.run_id ?? null,
+      pipeline_mode: packagePayload.pipeline_mode,
+      manifest_endpoint: packagePayload.manifest_endpoint ?? null,
+      artifacts_endpoint: packagePayload.artifacts_endpoint ?? null,
+      provenance_endpoint: packagePayload.provenance_endpoint ?? null,
+      selected_certificate: packagePayload.selected_certificate ?? packagePayload.selected.certification ?? null,
+      voi_stop_summary: packagePayload.voi_stop_summary ?? null,
+      artifact_pointers:
+        (rawPayload.artifact_pointers as Record<string, string | null> | null | undefined) ?? null,
+      preference_state:
+        (rawPayload.preference_state as Record<string, unknown> | null | undefined) ?? null,
+      preference_query_trace:
+        (rawPayload.preference_query_trace as Record<string, unknown> | null | undefined) ?? null,
+      action_trace_summary:
+        (rawPayload.action_trace_summary as Record<string, unknown> | null | undefined) ?? null,
+      witness_summary: (rawPayload.witness_summary as Record<string, unknown> | null | undefined) ?? null,
+      world_support_summary:
+        (rawPayload.world_support_summary as Record<string, unknown> | null | undefined) ?? null,
+      terminal_type: readStringField(rawPayload.terminal_type),
+      selected_certificate_basis: readStringField(rawPayload.selected_certificate_basis),
+      certified_set: certifiedSetPayload,
+      certified_set_summary:
+        (rawPayload.certified_set_summary as Record<string, unknown> | null | undefined) ?? null,
+      preference_summary: (rawPayload.preference_summary as Record<string, unknown> | null | undefined) ?? null,
+      support_summary: (rawPayload.support_summary as Record<string, unknown> | null | undefined) ?? null,
+      abstention_summary: (rawPayload.abstention_summary as Record<string, unknown> | null | undefined) ?? null,
+    };
+  }
+  const decisionPayload = isDecisionPackageShape(packagePayload) ? packagePayload : null;
+  const selected =
+    packagePayload.selected ?? decisionPayload?.recommended_route ?? decisionPayload?.certified_set?.[0] ?? null;
+  const candidates = packagePayload.candidates ?? decisionPayload?.certified_set ?? (selected ? [selected] : []);
+  return {
+    selected,
+    candidates,
+    run_id: packagePayload.run_id ?? null,
+    pipeline_mode: packagePayload.pipeline_mode,
+    manifest_endpoint: packagePayload.manifest_endpoint ?? null,
+    artifacts_endpoint: packagePayload.artifacts_endpoint ?? null,
+    provenance_endpoint: packagePayload.provenance_endpoint ?? null,
+    selected_certificate: packagePayload.selected_certificate ?? selected?.certification ?? null,
+    voi_stop_summary: packagePayload.voi_stop_summary ?? null,
+    artifact_pointers:
+      (rawPayload.artifact_pointers as Record<string, string | null> | null | undefined) ?? null,
+    preference_state:
+      (rawPayload.preference_state as Record<string, unknown> | null | undefined) ??
+      (decisionPayload ? (decisionPayload.preference_state as Record<string, unknown> | null | undefined) : null) ??
+      null,
+    preference_query_trace:
+      (rawPayload.preference_query_trace as Record<string, unknown> | null | undefined) ??
+      (decisionPayload
+        ? (decisionPayload.preference_query_trace as Record<string, unknown> | null | undefined)
+        : null) ??
+      null,
+    action_trace_summary:
+      (rawPayload.action_trace_summary as Record<string, unknown> | null | undefined) ??
+      (decisionPayload ? (decisionPayload.action_trace_summary as Record<string, unknown> | null | undefined) : null) ??
+      null,
+    witness_summary:
+      (rawPayload.witness_summary as Record<string, unknown> | null | undefined) ??
+      (decisionPayload ? (decisionPayload.witness_summary as Record<string, unknown> | null | undefined) : null) ??
+      null,
+    world_support_summary:
+      (rawPayload.world_support_summary as Record<string, unknown> | null | undefined) ??
+      (decisionPayload
+        ? (decisionPayload.world_support_summary as Record<string, unknown> | null | undefined)
+        : null) ??
+      null,
+    terminal_type: readStringField(rawPayload.terminal_type),
+    selected_certificate_basis: readStringField(rawPayload.selected_certificate_basis),
+    certified_set: certifiedSetPayload ?? (decisionPayload ? (decisionPayload.certified_set ?? null) : null) ?? null,
+    certified_set_summary:
+      (rawPayload.certified_set_summary as Record<string, unknown> | null | undefined) ??
+      null,
+    preference_summary:
+      (rawPayload.preference_summary as Record<string, unknown> | null | undefined) ??
+      (decisionPayload ? (decisionPayload.preference_summary as Record<string, unknown> | null | undefined) : null) ??
+      null,
+    support_summary:
+      (rawPayload.support_summary as Record<string, unknown> | null | undefined) ??
+      (decisionPayload ? (decisionPayload.support_summary as Record<string, unknown> | null | undefined) : null) ??
+      null,
+    abstention_summary:
+      (rawPayload.abstention_summary as Record<string, unknown> | null | undefined) ??
+      (decisionPayload ? (decisionPayload.abstention_summary as Record<string, unknown> | null | undefined) : null) ??
+      null,
+  };
+}
 
 function inferComputeRecoveryHints(message: string): string[] {
   const lower = message.toLowerCase();
@@ -5803,34 +5978,55 @@ export default function Page() {
     };
 
     const applyRoutePayload = (
-      payload: RouteResponse,
+      payload: RouteResponsePayload,
       source: 'route_single' | 'json_fallback_single' | 'stream_fallback_single',
       attempt: AttemptPlan,
     ) => {
       if (seq !== requestSeqRef.current) return;
+      const normalizedPayload = normalizeRouteResponse(payload);
       const routeMap = new Map<string, RouteOption>();
-      [payload.selected, ...(payload.candidates ?? [])].forEach((route) => routeMap.set(route.id, route));
+      if (normalizedPayload.selected) {
+        [normalizedPayload.selected, ...(normalizedPayload.candidates ?? [])].forEach((route) =>
+          routeMap.set(route.id, route),
+        );
+      }
       const finalRoutes = sortRoutesDeterministic(Array.from(routeMap.values()));
       startTransition(() => {
         setParetoRoutes(finalRoutes);
       });
       setRouteRunMeta({
-        run_id: payload.run_id ?? null,
-        pipeline_mode: payload.pipeline_mode,
-        manifest_endpoint: payload.manifest_endpoint ?? null,
-        artifacts_endpoint: payload.artifacts_endpoint ?? null,
-        provenance_endpoint: payload.provenance_endpoint ?? null,
-        selected_certificate: payload.selected_certificate ?? payload.selected.certification ?? null,
-        voi_stop_summary: payload.voi_stop_summary ?? null,
+        run_id: normalizedPayload.run_id ?? null,
+        pipeline_mode: normalizedPayload.pipeline_mode,
+        manifest_endpoint: normalizedPayload.manifest_endpoint ?? null,
+        artifacts_endpoint: normalizedPayload.artifacts_endpoint ?? null,
+        provenance_endpoint: normalizedPayload.provenance_endpoint ?? null,
+        selected_certificate:
+          normalizedPayload.selected_certificate ?? normalizedPayload.selected?.certification ?? null,
+        voi_stop_summary: normalizedPayload.voi_stop_summary ?? null,
+        artifact_pointers: normalizedPayload.artifact_pointers ?? null,
+        preference_state: normalizedPayload.preference_state ?? null,
+        preference_query_trace: normalizedPayload.preference_query_trace ?? null,
+        action_trace_summary: normalizedPayload.action_trace_summary ?? null,
+        witness_summary: normalizedPayload.witness_summary ?? null,
+        world_support_summary: normalizedPayload.world_support_summary ?? null,
+        terminal_type: normalizedPayload.terminal_type ?? null,
+        selected_certificate_basis: normalizedPayload.selected_certificate_basis ?? null,
+        certified_set: normalizedPayload.certified_set ?? null,
+        certified_set_summary: normalizedPayload.certified_set_summary ?? null,
+        preference_summary: normalizedPayload.preference_summary ?? null,
+        support_summary: normalizedPayload.support_summary ?? null,
+        abstention_summary: normalizedPayload.abstention_summary ?? null,
       });
-      if (payload.run_id) {
-        setRunInspectorRunId(payload.run_id);
+      if (normalizedPayload.run_id) {
+        setRunInspectorRunId(normalizedPayload.run_id);
       }
-      setSelectedId(payload.selected.id);
+      setSelectedId(normalizedPayload.selected?.id ?? null);
       setProgress({ done: finalRoutes.length, total: finalRoutes.length });
       markTutorialAction('pref.compute_pareto_done');
-      void fetchBaselineForRequest(baselineRequestSnapshot);
-      void fetchGoogleBaselineForRequest(baselineRequestSnapshot);
+      if (normalizedPayload.selected) {
+        void fetchBaselineForRequest(baselineRequestSnapshot);
+        void fetchGoogleBaselineForRequest(baselineRequestSnapshot);
+      }
       appendComputeTrace({
         level: 'success',
         step:
@@ -5839,7 +6035,7 @@ export default function Page() {
             : source === 'json_fallback_single'
               ? 'JSON fallback converted to single-route complete'
               : 'Stream fallback converted to single-route complete',
-        detail: `selected=${payload.selected.id}; candidates=${finalRoutes.length}`,
+        detail: `selected=${normalizedPayload.selected?.id ?? 'none'}; candidates=${finalRoutes.length}`,
         attempt: attempt.attempt,
         endpoint: attempt.endpoint,
         alternativesUsed: attempt.alternatives,
@@ -6287,7 +6483,7 @@ export default function Page() {
             timeoutMs: attempt.timeoutMs,
           });
           try {
-            const { data: payload, response: rawResponse } = await postJSONWithMeta<RouteResponse>(
+            const { data: payload, response: rawResponse } = await postJSONWithMeta<RouteResponsePayload>(
               '/api/route',
               buildRouteBody(attempt.alternatives),
               runtime.signal,
@@ -8193,13 +8389,39 @@ export default function Page() {
                 <span>Show all smart alternatives on map</span>
               </label>
 
+              <DecisionStateSummary
+                locale={locale}
+                route={selectedRoute}
+                terminalType={routeRunMeta?.terminal_type ?? null}
+                selectedCertificateBasis={
+                  routeRunMeta?.selected_certificate_basis ??
+                  (routeRunMeta?.preference_summary?.selected_certificate_basis as string | null | undefined) ??
+                  null
+                }
+                certifiedSet={routeRunMeta?.certified_set ?? null}
+                certifiedSetSummary={routeRunMeta?.certified_set_summary ?? null}
+                preferenceState={routeRunMeta?.preference_state ?? null}
+                preferenceQueryTrace={routeRunMeta?.preference_query_trace ?? null}
+                supportSummary={routeRunMeta?.support_summary ?? null}
+                preferenceSummary={routeRunMeta?.preference_summary ?? null}
+                abstentionSummary={routeRunMeta?.abstention_summary ?? null}
+                artifactPointers={routeRunMeta?.artifact_pointers ?? null}
+                routeManifestEndpoint={routeRunMeta?.manifest_endpoint ?? null}
+                routeArtifactsEndpoint={routeRunMeta?.artifacts_endpoint ?? null}
+                routeProvenanceEndpoint={routeRunMeta?.provenance_endpoint ?? null}
+              />
+
               <RouteCertificationPanel
                 locale={locale}
                 route={selectedRoute}
                 runId={routeRunMeta?.run_id ?? null}
                 pipelineMode={routeRunMeta?.pipeline_mode}
+                selectedCertificateBasis={routeRunMeta?.selected_certificate_basis ?? null}
                 selectedCertificate={routeRunMeta?.selected_certificate ?? selectedRoute?.certification ?? null}
                 voiStopSummary={routeRunMeta?.voi_stop_summary ?? null}
+                actionTraceSummary={routeRunMeta?.action_trace_summary ?? null}
+                witnessSummary={routeRunMeta?.witness_summary ?? null}
+                worldSupportSummary={routeRunMeta?.world_support_summary ?? null}
                 onOpenRunInspector={openRunInspectorForRun}
               />
 

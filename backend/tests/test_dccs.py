@@ -11,6 +11,7 @@ from app.decision_critical import (
     _bootstrap_score,
     _challenger_score,
     _normalised_distance,
+    build_dccs_summary_breadcrumbs,
     DCCSCandidateRecord,
     DCCSConfig,
     build_candidate_ledger,
@@ -21,6 +22,8 @@ from app.decision_critical import (
     summarize_refine_outcomes,
     stable_candidate_id,
 )
+from app.candidate_bounds import CandidateEnvelope
+from app.candidate_criticality import CandidateCriticalityEstimate
 
 pytestmark = pytest.mark.thesis_modules
 
@@ -109,6 +112,12 @@ def test_candidate_ledger_is_stable_and_auditable() -> None:
     assert record.proxy_objective == (10.0, 11.0, 12.0)
     assert 0.0 <= record.flip_probability <= 1.0
     assert record.predicted_refine_cost > 0.0
+    assert isinstance(record.candidate_envelope, CandidateEnvelope)
+    assert isinstance(record.candidate_criticality, CandidateCriticalityEstimate)
+    assert record.candidate_envelope.lower_objective[0] <= record.proxy_objective[0] <= record.candidate_envelope.upper_objective[0]
+    assert record.candidate_envelope.provenance == "proxy_objective_envelope_v1"
+    assert record.candidate_criticality.provenance == "candidate_criticality_v1"
+    assert record.safe_eliminated is False
     assert set(record.score_terms) == {
         "objective_gap",
         "mechanism_gap",
@@ -123,6 +132,43 @@ def test_candidate_ledger_is_stable_and_auditable() -> None:
         "comparator_seed_penalty",
     }
     assert record.comparator_seeded is False
+
+
+def test_candidate_envelope_and_criticality_round_trip_in_ledger_dict() -> None:
+    frontier = [
+        _candidate(
+            "frontier_anchor",
+            path=["f1", "f2", "f3"],
+            objective=(10.0, 10.0, 10.0),
+            road_mix={"motorway_share": 0.5, "a_road_share": 0.3, "urban_share": 0.2},
+            toll_share=0.05,
+            terrain_burden=0.10,
+            straight_line_km=10.0,
+            mechanism={"motorway_share": 0.5, "toll_share": 0.05, "terrain_burden": 0.10},
+        )
+    ]
+    dominated = _candidate(
+        "cand_dominated",
+        path=["d1", "d2", "d3"],
+        objective=(12.0, 12.0, 12.0),
+        road_mix={"motorway_share": 0.4, "a_road_share": 0.4, "urban_share": 0.2},
+        toll_share=0.06,
+        terrain_burden=0.11,
+        straight_line_km=9.8,
+        mechanism={"motorway_share": 0.4, "toll_share": 0.06, "terrain_burden": 0.11},
+    )
+
+    record = build_candidate_ledger([dominated], frontier=frontier, config=DCCSConfig(mode="challenger", search_budget=1))[0]
+    payload = record.as_dict()
+
+    assert payload["candidate_envelope"]["provenance"] == "proxy_objective_envelope_v1"
+    assert payload["candidate_criticality"]["provenance"] == "candidate_criticality_v1"
+    assert payload["safe_eliminated"] is True
+    assert payload["necessary_dominated"] is True
+    assert payload["dominated_by_route_id"] == "frontier_anchor"
+    assert payload["safe_elimination_reason"] == "objective_dominated_by_frontier_envelope"
+    assert payload["candidate_envelope"]["safe_eliminated"] is True
+    assert payload["candidate_envelope"]["dominated_by_route_id"] == "frontier_anchor"
 
 
 def test_bootstrap_mode_selects_diverse_representatives_under_budget() -> None:
@@ -1306,3 +1352,9 @@ def test_dccs_summary_flags_prediction_stage_and_supports_observed_rollup() -> N
     assert observed["observed_redundant_count"] == 1
     assert observed["observed_dc_yield"] == 0.5
     assert 0.0 <= observed["observed_dc_yield"] <= 1.0
+    breadcrumbs = build_dccs_summary_breadcrumbs(result.candidate_ledger)
+    assert breadcrumbs["candidate_envelope_schema_version"] == "candidate_envelope_v1"
+    assert breadcrumbs["candidate_criticality_schema_version"] == "candidate_criticality_v1"
+    assert breadcrumbs["candidate_envelope_count"] == len(result.candidate_ledger)
+    assert breadcrumbs["candidate_criticality_count"] == len(result.candidate_ledger)
+    assert breadcrumbs["safe_elimination_provenance_present"] is True
