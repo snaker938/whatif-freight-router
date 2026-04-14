@@ -1,7 +1,7 @@
 # Backend APIs and Tooling
 
-Last Updated: 2026-04-09
-Applies To: `backend/app/main.py`, `backend/app/models.py`, `backend/app/run_store.py`, `backend/app/model_data_errors.py`, `backend/app/metrics_store.py`, `backend/app/settings.py`
+Last Updated: 2026-04-14
+Applies To: `backend/app/main.py`, `backend/app/models.py`, `backend/app/preference_runtime.py`, `backend/app/run_store.py`, `backend/app/model_data_errors.py`, `backend/app/metrics_store.py`, `backend/app/settings.py`
 
 This page is the source-of-truth backend API contract for current strict runtime behavior.
 
@@ -15,6 +15,8 @@ This page is the source-of-truth backend API contract for current strict runtime
 - `/health/ready` exposes both graph readiness and strict live-source readiness; the top-level shape includes `status`, `strict_route_ready`, `recommended_action`, `route_graph`, and `strict_live`.
 - Route responses carry `selected_certificate` and `voi_stop_summary` when VOI/certification is active, while the persisted run bundle also records `candidate_diagnostics`.
 - Batch pair failures are serialized as strict text in the form `reason_code:<code>; message:<message>` and may append a `; warning=<first warning>` suffix.
+- Live `POST /route` is certification-facing only: it rejects `pipeline_mode=legacy` and waypoint requests, and comparison traffic belongs on `POST /route/baseline` or `POST /route/baseline/ors`.
+- `POST /route/preference` is the runtime-backed preference-elicitation sync surface used by the frontend to re-emit monotone `preference_state`, `preference_query_trace`, and `preference_summary` payloads against the current candidate set.
 
 ## Current Metrics And Diagnostics
 
@@ -74,6 +76,7 @@ This page is the source-of-truth backend API contract for current strict runtime
 ### Routing And Pareto
 
 - `POST /route`
+- `POST /route/preference`
 - `POST /route/baseline`
 - `POST /route/baseline/ors`
 - `POST /pareto`
@@ -166,6 +169,10 @@ Shared fields:
 Endpoint-specific:
 
 - `POST /route`: `pipeline_mode`, `refinement_policy`, `pipeline_seed`, `search_budget`, `evidence_budget`, `cert_world_count`, `certificate_threshold`, `tau_stop`, `evaluation_lean_mode`
+  - live `/route` rejects `pipeline_mode=legacy` and waypoint requests; use `/route/baseline` or `/route/baseline/ors` for comparison, replay, historical-comparison, or waypoint flows
+- `POST /route/preference`: `candidate_routes`, `selected_route_id`, `selected_certificate_basis`, `pipeline_mode`, `support_flag`, `support_reason`, `preference_state`
+  - request/response models live in `backend/app/preference_runtime.py`
+  - validation fails with `422` and `reason_code=preference_runtime_invalid_update` when `candidate_routes` cannot supply at least one usable route id
 - `POST /pareto`: `pipeline_mode`, `pipeline_seed`
 - `POST /batch/pareto`: `pairs` (1..500), optional `seed`, `toggles`, `model_version`, `pipeline_mode`, `pipeline_seed`, `search_budget`, `evidence_budget`, `cert_world_count`, `certificate_threshold`, `tau_stop`
 - `POST /batch/import/csv`: `csv_text` plus the same optional controls as batch
@@ -245,6 +252,14 @@ Endpoint-specific:
   - `warnings`
   - `diagnostics`
   - common diagnostics keys include `candidate_count_raw`, `candidate_count_deduped`, `graph_explored_states`, `graph_generated_paths`, `graph_emitted_paths`, `candidate_budget`, `graph_effective_max_hops`, `graph_effective_hops_floor`, `graph_effective_state_budget_initial`, `graph_effective_state_budget`, `prefetch_*`, `scenario_gate_*`, `precheck_*`, `graph_retry_*`, `graph_rescue_*`, `pareto_count`, `dominated_count`, and `frontier_certificate`
+- `PreferenceRuntimeUpdateResponse`
+  - `selected_route_id`
+  - `selected_certificate_basis`
+  - `pipeline_mode`
+  - `terminal_type`
+  - `preference_state`
+  - `preference_query_trace`
+  - `preference_summary`
 - `ScenarioCompareResponse`
   - `run_id`
   - `results`
@@ -332,6 +347,8 @@ Successful route payloads include additive scenario fields:
   - results.json
   - results.csv
   - metadata.json
+  - index.json
+  - index.md
   - routes.geojson
   - results_summary.csv
 - The thesis bundle also emits extended artifacts when the run enables them:
@@ -362,11 +379,20 @@ Successful route payloads include additive scenario fields:
   - thesis_summary.json
   - thesis_summary_by_cohort.csv
   - thesis_summary_by_cohort.json
+
+- `index.json` is the machine-readable route-bundle index. It summarizes run id, terminal type, selected certificate basis, support state, artifact pointers, and per-artifact endpoints for the current run folder.
+- `index.md` is the reviewer-readable companion summary for the same route bundle.
+- The public `/route` response is the transport contract. In the current smoke-covered direct-REFC slice, that transport can normalize to `terminal_type=typed_abstention` even when the emitted local run bundle preserves richer proof artifacts such as `decision_package.json` and `certified_set_summary.json`.
+- In that same checked local slice, the public `typed_abstention` response can still carry normalized explanation surfaces such as `certified_set_summary`, `winner_confidence_state`, `certificate_witness`, and `artifact_pointers`; those fields remain part of the transport contract even when the emitted bundle keeps a richer local proof surface.
+- Operators who need that richer local proof surface should inspect those emitted artifacts through `GET /runs/{run_id}/artifacts/{artifact_name}`. This is a narrow note about the checked local smoke slice, not a global claim about every `/route` abstention.
+  - `thesis_summary_by_cohort.*` may include a derived `support_fragile` slice, which can overlap with other cohorts under the current evaluator thresholding.
   - thesis_metrics.json
   - thesis_plots.json
   - methods_appendix.md
   - thesis_report.md
   - evaluation_manifest.json
+
+For thesis-like bundles emitted or rewritten through the run store, `index.json` now uses `bundle_type = thesis_evaluation` and includes an `export_status` section for maintained thesis/report artifacts; `index.md` mirrors that same presence/absence view as an `Export Status` section. In the maintained set, this can include files such as `thesis_results.csv`, `thesis_summary.csv`, the thesis summary-by-cohort CSV, `thesis_report.md`, and `evaluation_manifest.json`. Read that behavior as forward-looking for new or rewritten bundles only: it does not imply historical backfill for older checked directories that predate the newer bundle-index emission path.
 - Signed manifests are written to:
   - `backend/out/manifests/{run_id}.json`
   - `backend/out/scenario_manifests/{run_id}.json`

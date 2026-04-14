@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
 
@@ -356,11 +357,15 @@ class DecisionPackage(BaseModel):
     terminal_type: Literal["certified_singleton", "certified_set", "typed_abstention"] = (
         "certified_singleton"
     )
+    selected: "RouteOption | None" = None
+    candidates: list["RouteOption"] = Field(default_factory=list)
     recommended_route: "RouteOption | None" = None
     certified_set: list["RouteOption"] = Field(default_factory=list)
     abstention: AbstentionRecord | None = None
     frontier_summary: dict[str, Any] = Field(default_factory=dict)
+    selected_certificate: "RouteCertificationSummary | None" = None
     certificate_summary: dict[str, Any] | RouteCertificationSummary | None = None
+    fixed_weight_certificate_state: dict[str, Any] = Field(default_factory=dict)
     stability_summary: dict[str, Any] = Field(default_factory=dict)
     winner_confidence_state: WinnerConfidenceState | dict[str, Any] | None = None
     pairwise_gap_states: list[PairwiseGapState | dict[str, Any]] = Field(default_factory=list)
@@ -378,6 +383,12 @@ class DecisionPackage(BaseModel):
     witness_summary: dict[str, Any] = Field(default_factory=dict)
     artifact_pointers: dict[str, str] = Field(default_factory=dict)
     selected_certificate_basis: str | None = None
+    run_id: str | None = None
+    pipeline_mode: PipelineMode | None = None
+    manifest_endpoint: str | None = None
+    artifacts_endpoint: str | None = None
+    provenance_endpoint: str | None = None
+    voi_stop_summary: "VoiStopSummary | None" = None
 
 
 class RouteCertificationSummary(BaseModel):
@@ -405,6 +416,69 @@ class VoiStopSummary(BaseModel):
     search_completeness_score: float | None = Field(default=None, ge=0.0, le=1.0)
     search_completeness_gap: float | None = Field(default=None, ge=0.0)
     credible_search_uncertainty: bool | None = None
+
+
+def _build_preference_summary(
+    *,
+    preference_state: PreferenceState | Mapping[str, Any] | None,
+    selected_certificate_basis: str | None = None,
+    pipeline_mode: str | None = None,
+) -> dict[str, Any]:
+    if isinstance(preference_state, PreferenceState):
+        state_payload = preference_state.model_dump(mode="json")
+    elif isinstance(preference_state, Mapping):
+        state_payload = dict(preference_state)
+    else:
+        state_payload = {}
+
+    compatible_set_summary = state_payload.get("compatible_set_summary")
+    compatible_set_summary = (
+        dict(compatible_set_summary) if isinstance(compatible_set_summary, Mapping) else {}
+    )
+    derived_invariants = state_payload.get("derived_invariants")
+    derived_invariants = dict(derived_invariants) if isinstance(derived_invariants, Mapping) else {}
+    contradiction_record = state_payload.get("contradiction_record")
+    contradiction_record = dict(contradiction_record) if isinstance(contradiction_record, Mapping) else {}
+
+    shrinkage_trace = state_payload.get("shrinkage_trace")
+    shrinkage_rows = list(shrinkage_trace) if isinstance(shrinkage_trace, list) else []
+    last_trace = shrinkage_rows[-1] if shrinkage_rows and isinstance(shrinkage_rows[-1], Mapping) else {}
+    targeted_challenger_route_id = last_trace.get("target_route_id")
+    query_count = int(state_payload.get("query_count", 0) or 0)
+    preference_irrelevance_proven = bool(state_payload.get("preference_irrelevance_proven", False))
+    compatible_set_size = int(compatible_set_summary.get("compatible_set_size", 0) or 0)
+    support_flag = compatible_set_summary.get("support_flag")
+    if query_count > 0:
+        no_query_reason = None
+    elif contradiction_record.get("contradiction_detected"):
+        no_query_reason = "preference_contradiction_detected"
+    elif support_flag is False:
+        no_query_reason = "preference_support_insufficient"
+    elif preference_irrelevance_proven:
+        no_query_reason = "preference_irrelevance_proven"
+    elif compatible_set_size <= 1:
+        no_query_reason = "singleton_frontier"
+    else:
+        no_query_reason = state_payload.get("no_query_reason") or "no_preference_query_issued"
+    query_selection_reason = last_trace.get("query_reason") or no_query_reason
+
+    summary = {
+        "terminal_type": state_payload.get("terminal_type"),
+        "query_count": query_count,
+        "compatible_set_summary": compatible_set_summary,
+        "derived_invariants": derived_invariants,
+        "contradiction_record": contradiction_record,
+        "preference_irrelevance_proven": preference_irrelevance_proven,
+        "no_query_reason": no_query_reason,
+        "no_preference_query_reason": no_query_reason,
+        "targeted_challenger_route_id": targeted_challenger_route_id,
+        "query_selection_reason": query_selection_reason,
+    }
+    if selected_certificate_basis is not None:
+        summary["selected_certificate_basis"] = selected_certificate_basis
+    if pipeline_mode is not None:
+        summary["pipeline_mode"] = pipeline_mode
+    return summary
 
 
 class RouteOption(BaseModel):
@@ -440,16 +514,23 @@ def _build_certified_set_summary(
     certified_set: list[RouteOption],
     selected_certificate: RouteCertificationSummary | None,
     support_summary: dict[str, Any],
+    terminal_type: str,
+    base_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    payload = dict(base_summary or {})
     member_route_ids = [route.id for route in certified_set]
+    candidate_route_ids = [route.id for route in candidates]
     excluded_route_ids = [route.id for route in candidates if route.id not in member_route_ids]
-    support_flag = bool(support_summary.get("support_flag")) if support_summary else False
+    support_flag_value = support_summary.get("support_flag") if support_summary else None
+    if support_flag_value is None and support_summary:
+        support_flag_value = support_summary.get("supported")
+    support_flag = bool(support_flag_value) if support_flag_value is not None else False
     witness = {
         "route_id": selected.id,
         "active_challenger_ids": excluded_route_ids[:1],
         "support_flag": support_flag,
     }
-    return CertifiedSetState(
+    payload.update(CertifiedSetState(
         member_route_ids=member_route_ids,
         excluded_route_ids=excluded_route_ids,
         exclusion_basis=["certificate_threshold", "frontier_selection"],
@@ -460,7 +541,171 @@ def _build_certified_set_summary(
         support_flag=support_flag,
         set_size=len(member_route_ids),
         witness=witness,
-    ).as_dict()
+    ).as_dict())
+
+    if terminal_type == "certified_set":
+        payload.update(
+            {
+                "certified": bool(member_route_ids),
+                "set_size": len(member_route_ids),
+                "terminal_type": terminal_type,
+                "not_applicable_reason": None,
+            }
+        )
+        return payload
+
+    normalized_excluded_route_ids = list(candidate_route_ids)
+    if terminal_type == "certified_singleton":
+        normalized_excluded_route_ids = [
+            route_id for route_id in candidate_route_ids if route_id != selected.id
+        ]
+
+    payload.update(
+        {
+            "member_route_ids": [],
+            "excluded_route_ids": normalized_excluded_route_ids,
+            "certified": False,
+            "set_size": 0,
+            "terminal_type": terminal_type,
+            "not_applicable_reason": (
+                "singleton_terminal" if terminal_type == "certified_singleton" else "abstention_terminal"
+            ),
+            "selected_route_id": selected.id,
+            "support_flag": support_flag,
+        }
+    )
+    payload.setdefault("exclusion_basis", [])
+    witness_payload = payload.get("witness")
+    witness_payload = dict(witness_payload) if isinstance(witness_payload, Mapping) else {}
+    witness_payload.setdefault("route_id", selected.id)
+    payload["witness"] = witness_payload
+    return payload
+
+
+def _merge_support_summary(
+    *,
+    support_summary: Mapping[str, Any] | None,
+    world_support_summary: Mapping[str, Any] | None,
+    abstention: AbstentionRecord | None,
+    selected_certificate: RouteCertificationSummary | None,
+) -> dict[str, Any]:
+    summary = dict(support_summary or {})
+    world_summary = dict(world_support_summary or {})
+    support_state = world_summary.get("support_state")
+    support_state_map = dict(support_state) if isinstance(support_state, Mapping) else {}
+    world_bundle_summary = world_summary.get("world_bundle_summary")
+    world_bundle_summary = (
+        dict(world_bundle_summary) if isinstance(world_bundle_summary, Mapping) else {}
+    )
+    risk_summary = world_summary.get("risk_summary")
+    risk_summary = dict(risk_summary) if isinstance(risk_summary, Mapping) else {}
+
+    support_flag = summary.get("support_flag")
+    if support_flag is None:
+        support_flag = summary.get("supported")
+    if support_flag is None:
+        support_flag = world_summary.get("support_flag")
+    if support_flag is None:
+        support_flag = support_state_map.get("support_flag")
+    if support_flag is None and abstention is not None and abstention.support_flag is not None:
+        support_flag = abstention.support_flag
+    if support_flag is None and selected_certificate is not None:
+        support_flag = bool(selected_certificate.certified)
+    if support_flag is not None:
+        normalized_flag = bool(support_flag)
+        summary["support_flag"] = normalized_flag
+        summary.setdefault("supported", normalized_flag)
+
+    support_reason = summary.get("support_reason")
+    if support_reason is None or str(support_reason).strip() == "":
+        support_reason = world_summary.get("support_reason")
+    if support_reason is None or str(support_reason).strip() == "":
+        support_reason = support_state_map.get("out_of_support_reason")
+    if (
+        support_reason is None or str(support_reason).strip() == ""
+    ) and abstention is not None and isinstance(abstention.detail, Mapping):
+        support_reason = abstention.detail.get("support_reason")
+    if support_reason is not None and str(support_reason).strip():
+        summary["support_reason"] = str(support_reason).strip()
+
+    for key in ("world_count", "unique_world_count", "world_reuse_rate", "calibration_bin", "support_bin"):
+        if summary.get(key) is not None:
+            continue
+        value = world_summary.get(key)
+        if value is None:
+            value = support_state_map.get(key)
+        if value is not None:
+            summary[key] = value
+
+    if not summary.get("active_families"):
+        active_families = world_summary.get("active_families")
+        if not isinstance(active_families, list) and selected_certificate is not None:
+            active_families = list(selected_certificate.active_families)
+        if isinstance(active_families, list):
+            summary["active_families"] = list(active_families)
+
+    multi_fidelity_summary = summary.get("multi_fidelity_summary")
+    if not isinstance(multi_fidelity_summary, Mapping):
+        multi_fidelity_summary = world_summary.get("multi_fidelity_summary")
+    if not isinstance(multi_fidelity_summary, Mapping):
+        multi_fidelity_summary = world_bundle_summary.get("multi_fidelity_summary")
+    if not isinstance(multi_fidelity_summary, Mapping):
+        multi_fidelity_summary = risk_summary.get("multi_fidelity_summary")
+    if isinstance(multi_fidelity_summary, Mapping):
+        compact_multi_fidelity = dict(multi_fidelity_summary)
+        summary["multi_fidelity_summary"] = compact_multi_fidelity
+        for key in (
+            "proxy_world_count",
+            "audit_world_count",
+            "proxy_bias_model_version",
+            "audit_propensity_version",
+            "proxy_correction_active",
+            "multi_fidelity_certificate_basis",
+            "proxy_only_fraction",
+            "audit_correction_mass",
+            "positivity_diagnostics",
+        ):
+            if summary.get(key) is None and compact_multi_fidelity.get(key) is not None:
+                summary[key] = compact_multi_fidelity.get(key)
+
+    return summary
+
+
+def _build_abstention_summary(
+    *,
+    abstention: AbstentionRecord | None,
+    abstention_summary: Mapping[str, Any] | None,
+    terminal_type: str,
+) -> dict[str, Any]:
+    summary = dict(abstention_summary or {})
+    if abstention is None:
+        summary.setdefault("reason_code", None)
+        summary.setdefault("message", None)
+        summary["terminal_type"] = terminal_type
+        summary["has_typed_abstention"] = False
+        return summary
+
+    detail = summary.get("detail")
+    detail_summary = dict(detail) if isinstance(detail, Mapping) else {}
+    detail_summary.update(dict(abstention.detail))
+    summary.update(
+        {
+            "reason_code": abstention.reason_code,
+            "message": abstention.message,
+            "terminal_type": abstention.terminal_type,
+            "has_typed_abstention": True,
+            "detail": detail_summary,
+        }
+    )
+    if abstention.support_flag is not None:
+        summary["support_flag"] = abstention.support_flag
+    if abstention.evidence_family is not None:
+        summary["evidence_family"] = abstention.evidence_family
+    if abstention.budget_channel is not None:
+        summary["budget_channel"] = abstention.budget_channel
+    if abstention.model_assumption is not None:
+        summary["model_assumption"] = abstention.model_assumption
+    return summary
 
 
 class RouteResponse(DecisionPackage):
@@ -490,13 +735,16 @@ class RouteResponse(DecisionPackage):
             object.__setattr__(self, "terminal_type", "certified_set")
         else:
             object.__setattr__(self, "terminal_type", "certified_singleton")
-        if not self.support_summary:
-            object.__setattr__(self, "support_summary", {
-                "supported": self.selected_certificate is None or bool(self.selected_certificate.certified),
-                "active_families": list(self.selected_certificate.active_families)
-                if self.selected_certificate is not None
-                else [],
-            })
+        object.__setattr__(
+            self,
+            "support_summary",
+            _merge_support_summary(
+                support_summary=self.support_summary,
+                world_support_summary=self.world_support_summary,
+                abstention=self.abstention,
+                selected_certificate=self.selected_certificate,
+            ),
+        )
         if not self.frontier_summary:
             object.__setattr__(self, "frontier_summary", {
                 "candidate_count": len(self.candidates),
@@ -508,12 +756,25 @@ class RouteResponse(DecisionPackage):
                 "threshold": self.selected_certificate.threshold,
             })
         if not self.preference_summary:
-            object.__setattr__(self, "preference_summary", {
-                "weights": {"time": 1.0, "money": 0.0, "co2": 0.0},
-            })
-        if not self.abstention_summary:
-            object.__setattr__(self, "abstention_summary", {"reason_code": None, "message": None})
-        if self.abstention is not None or not self.certified_set_summary:
+            object.__setattr__(
+                self,
+                "preference_summary",
+                _build_preference_summary(
+                    preference_state=self.preference_state,
+                    selected_certificate_basis=self.selected_certificate_basis,
+                    pipeline_mode=self.pipeline_mode,
+                ),
+            )
+        object.__setattr__(
+            self,
+            "abstention_summary",
+            _build_abstention_summary(
+                abstention=self.abstention,
+                abstention_summary=self.abstention_summary,
+                terminal_type=self.terminal_type,
+            ),
+        )
+        if self.terminal_type != "certified_set" or not self.certified_set_summary:
             object.__setattr__(
                 self,
                 "certified_set_summary",
@@ -523,6 +784,8 @@ class RouteResponse(DecisionPackage):
                     certified_set=list(self.certified_set),
                     selected_certificate=self.selected_certificate,
                     support_summary=self.support_summary,
+                    terminal_type=self.terminal_type,
+                    base_summary=self.certified_set_summary,
                 ),
             )
         if not self.action_trace_summary:
@@ -562,6 +825,12 @@ class RouteResponse(DecisionPackage):
                     ],
                     "compatible_set_summary": self.preference_state.compatible_set_summary.model_dump(mode="json"),
                     "derived_invariants": dict(self.preference_state.derived_invariants),
+                    "contradiction_record": self.preference_state.contradiction_record.model_dump(mode="json"),
+                    "preference_irrelevance_proven": bool(self.preference_state.preference_irrelevance_proven),
+                    "no_query_reason": self.preference_state.no_query_reason,
+                    "no_preference_query_reason": self.preference_state.no_query_reason,
+                    "targeted_challenger_route_id": None,
+                    "query_selection_reason": self.preference_state.no_query_reason,
                     "provenance": {
                         "selected_route_id": self.selected.id,
                         "pipeline_mode": self.pipeline_mode,

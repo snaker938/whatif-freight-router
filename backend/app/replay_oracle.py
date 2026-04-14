@@ -95,6 +95,7 @@ class ReplayOracleSummary:
     mean_abs_runner_up_gap_error: float
     mean_abs_frontier_delta_error: float
     mean_abs_search_completeness_error: float
+    action_family_confusion_matrix: dict[str, dict[str, int]] = field(default_factory=dict)
     action_family_sequence: list[str] = field(default_factory=list)
     action_modality_sequence: list[str] = field(default_factory=list)
     family_switch_count: int = 0
@@ -137,6 +138,7 @@ def summarize_replay_oracle_trace(
     abs_search_completeness_error = 0.0
     productive_action_count = 0
     replay_regret = 0.0
+    family_confusion: dict[str, dict[str, int]] = {}
     family_sequence: list[str] = []
     modality_sequence: list[str] = []
     previous_family = ""
@@ -163,6 +165,20 @@ def summarize_replay_oracle_trace(
         kind = str(chosen.get("kind", "")).strip()
         action_family = str(chosen.get("action_family") or _action_family(kind))
         action_modality = str(chosen.get("action_modality") or _action_modality(kind))
+        oracle_action = chosen
+        if feasible_actions and chosen_q + 1e-12 < best_q:
+            oracle_action = max(
+                feasible_actions,
+                key=lambda candidate: _as_float(candidate.get("q_score")),
+            )
+        oracle_kind = str(oracle_action.get("kind", "")).strip()
+        oracle_action_family = str(
+            oracle_action.get("action_family") or _action_family(oracle_kind)
+        )
+        family_confusion.setdefault(action_family, {})
+        family_confusion[action_family][oracle_action_family] = (
+            family_confusion[action_family].get(oracle_action_family, 0) + 1
+        )
         family_sequence.append(action_family)
         modality_sequence.append(action_modality)
         if previous_family and previous_family != action_family:
@@ -238,6 +254,13 @@ def summarize_replay_oracle_trace(
         mean_abs_runner_up_gap_error=(abs_runner_up_gap_error / action_count) if action_count else 0.0,
         mean_abs_frontier_delta_error=(abs_frontier_error / action_count) if action_count else 0.0,
         mean_abs_search_completeness_error=(abs_search_completeness_error / action_count) if action_count else 0.0,
+        action_family_confusion_matrix={
+            chosen_family: {
+                oracle_family: count
+                for oracle_family, count in sorted(oracle_counts.items())
+            }
+            for chosen_family, oracle_counts in sorted(family_confusion.items())
+        },
         action_family_sequence=family_sequence,
         action_modality_sequence=modality_sequence,
         family_switch_count=sum(

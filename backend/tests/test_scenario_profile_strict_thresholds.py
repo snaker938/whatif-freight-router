@@ -117,3 +117,70 @@ def test_scenario_quality_gate_fails_when_projection_threshold_exceeded(monkeypa
     details = excinfo.value.details if isinstance(excinfo.value.details, dict) else {}
     assert float(details.get("projection_dominant_context_share", 0.0)) == pytest.approx(0.50)
     assert float(details.get("required_max_projection_dominant_context_share", 0.0)) == pytest.approx(0.40)
+
+
+def test_scenario_quality_gate_accepts_support_fragile_but_valid_thresholds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "scenario_require_signature", False)
+    monkeypatch.setattr(settings, "scenario_min_observed_mode_row_share", 0.20)
+    monkeypatch.setattr(settings, "scenario_max_projection_dominant_context_share", 0.80)
+    payload = _scenario_profiles_payload(
+        observed_mode_row_share=0.21,
+        projection_dominant_context_share=0.79,
+    )
+
+    parsed = calibration_loader._parse_scenario_profiles_payload(
+        payload,
+        source="live_runtime:scenario_profiles",
+    )
+    assert parsed.holdout_metrics is not None
+    assert float(parsed.holdout_metrics.get("observed_mode_row_share", 0.0)) == pytest.approx(0.21)
+    assert float(parsed.holdout_metrics.get("projection_dominant_context_share", 0.0)) == pytest.approx(0.79)
+
+
+def test_scenario_quality_gate_accepts_mixed_contexts_below_projection_dominance_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "scenario_require_signature", False)
+    monkeypatch.setattr(settings, "scenario_min_observed_mode_row_share", 0.20)
+    monkeypatch.setattr(settings, "scenario_max_projection_dominant_context_share", 0.80)
+
+    payload = _scenario_profiles_payload(
+        observed_mode_row_share=0.50,
+        projection_dominant_context_share=0.0,
+    )
+    payload["contexts"] = []
+    for corridor_idx in range(8):
+        for hour in (0, 4, 8, 12, 16, 20):
+            payload["contexts"].append(
+                {
+                    "context_key": f"uk0{corridor_idx:02d}|h{hour:02d}|weekday|mixed|rigid_hgv|clear",
+                    "corridor_bucket": f"uk0{corridor_idx:02d}",
+                    "corridor_geohash5": f"uk0{corridor_idx:02d}",
+                    "hour_slot_local": hour,
+                    "road_mix_bucket": "mixed",
+                    "road_mix_vector": {"mixed": 1.0},
+                    "vehicle_class": "rigid_hgv",
+                    "day_kind": "weekday",
+                    "weather_bucket": "clear",
+                    "weather_regime": "clear",
+                    "mode_observation_source": "observed_mode_labels",
+                    "mode_projection_ratio": 0.50,
+                    "source_coverage": {
+                        "webtris": 1.0,
+                        "traffic_england": 1.0,
+                        "dft": 1.0,
+                        "open_meteo": 1.0,
+                    },
+                    "profiles": payload["profiles"],
+                }
+            )
+
+    parsed = calibration_loader._parse_scenario_profiles_payload(
+        payload,
+        source="live_runtime:scenario_profiles",
+    )
+
+    assert parsed.contexts is not None
+    assert len(parsed.contexts) == 48

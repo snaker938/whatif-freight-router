@@ -11,7 +11,7 @@ The pipeline supports four modes:
 * `dccs_refc`: DCCS plus strict-frontier certification.
 * `voi`: full thesis pipeline, including DCCS, REFC, and the VOI-AD2R controller.
 
-The effective mode is carried on route requests through `RouteRequest.pipeline_mode`, `ParetoRequest.pipeline_mode`, and the batch request variants. The runtime resolves an explicit request override against the deployment default, and the thesis modes are selected explicitly rather than being the unconditional user-facing default.
+The effective mode is carried on route requests through `RouteRequest.pipeline_mode`, `ParetoRequest.pipeline_mode`, and the batch request variants. In the verified default configuration, the default primary live `/route` path for thesis-facing non-waypoint requests resolves through `dccs_refc`. Live `/route` no longer supports `pipeline_mode=legacy` and does not support waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. Explicit request overrides still resolve against that deployment default for the supported live modes.
 In thesis-suite runs, those modes are mapped as `V0 -> legacy`, `A -> dccs`, `B -> dccs_refc`, and `C -> voi`.
 
 ## 2. Candidate Lifecycle
@@ -80,7 +80,7 @@ REFC operates only on the strict frontier `F` and computes certificate values, f
 * `score_action(...)`
 * `run_controller(...)`
 
-The controller uses a fixed auditable action set: refine top-1 DCCS candidate, refine top-k DCCS candidates, refresh the top-1 value-of-refresh evidence family, increase stochastic samples for the near-tie set, and stop.
+The controller uses a fixed auditable action set: refine top-1 DCCS candidate, refine top-k DCCS candidates, refresh the top-1 value-of-refresh evidence family, increase stochastic samples for the near-tie set, pairwise-route preference query, tradeoff-threshold query, ratio query, veto query, time-guard query, and stop.
 
 ## 4. Artifact Contract
 
@@ -93,6 +93,8 @@ The current checked thesis example bundle is:
 Within that bundle, the route-level artifact set includes:
 
 * metadata.json
+* index.json
+* index.md
 * dccs_candidates.jsonl
 * dccs_summary.json
 * strict_frontier.jsonl
@@ -105,6 +107,8 @@ Within that bundle, the route-level artifact set includes:
 * voi_controller_state.jsonl
 * voi_action_trace.json
 * voi_stop_certificate.json
+
+`index.json` is the machine-readable route-bundle index for the run folder, and `index.md` is the reviewer-readable companion summary. Both are refreshed as route-level artifacts are written so artifact pointers and run endpoints stay synchronized with the stored bundle.
 
 When the controller runs in refinement mode, the evaluator also accepts before/after snapshot artifacts:
 
@@ -133,9 +137,9 @@ The thesis-suite evaluation outputs in the same checked bundle include:
 
 Recommended schemas:
 
-* dccs_candidates.jsonl: one record per candidate, with candidate id, graph path, objective proxy, gaps, overlap, stretch, predicted refine cost, flip probability, decision, and observed refine-cost fields when available.
-* dccs_summary.json: mode, search budget, transition reason, candidate counts, selected/skipped counts, DC-yield, challenger hit rate, and frontier gain per refinement.
-* certificate_summary.json: winner route id, certificate map, threshold, certified flag, selected route id, selector config, and world manifest summary.
+* dccs_candidates.jsonl: one record per candidate, with candidate id, graph path, objective proxy, gaps, overlap, stretch, predicted refine cost, flip probability, decision, observed refine-cost fields when available, the gate-facing DCCS flags `quota_assignment`, `time_preserving_likely`, `dominance_likely`, `certificate_critical_candidate`, `hidden_challenger_risk`, and `safe_prune_consistent`, plus the search-deficiency / forecast fields `unresolved_possible_frontier_mass_contribution`, `unresolved_possible_winner_mass_contribution`, `unresolved_certificate_critical_mass_contribution`, `expected_proxy_value`, `expected_audit_value`, `preference_query_sensitivity`, `changes_possible_best_probability`, `changes_necessary_best_probability`, and `search_completeness_contribution`.
+* dccs_summary.json: mode, search budget, transition reason, candidate counts, selected/skipped counts, DC-yield, challenger hit rate, frontier gain per refinement, the gate-facing rollups `safe_prune_rate`, `false_safe_prune_rate`, `anti_collapse_success_rate`, `certificate_critical_hit_rate`, `time_preserving_challenger_coverage`, `dominance_likely_challenger_coverage`, and `hidden_challenger_miss_diagnostics`, and the unresolved-mass / completeness rollups `unresolved_possible_frontier_mass`, `unresolved_possible_winner_mass`, `unresolved_certificate_critical_mass`, `search_completeness_score`, and `search_completeness_gap`.
+* certificate_summary.json: winner route id, selected route id, empirical certificate, certificate LCB/UCB, minimum pairwise gap LCB, necessary-best/possible-best probabilities, selected certificate basis, multi-fidelity basis, support flag, out-of-support reason, and terminal type.
 * sampled_world_manifest.json: seed, world count, active families, state catalog, and the exact sampled worlds.
 * voi_action_trace.json: per-iteration feasible actions, chosen action, scores, budgets remaining, and stop diagnostics.
 * voi_controller_state.jsonl: per-iteration controller state snapshots, including the selected action, scores, and budget bookkeeping.

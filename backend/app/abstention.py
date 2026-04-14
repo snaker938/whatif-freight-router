@@ -1,3 +1,5 @@
+"""Typed abstention payloads and reason mapping for terminal certification outcomes."""
+
 from __future__ import annotations
 
 from typing import Any, Literal, Sequence

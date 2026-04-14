@@ -153,6 +153,25 @@ _REFINE_COST_UNLABELED_STAGELESS_LEGACY_SCALE: dict[str, float] = {
     "dccs_refc": 0.04,
     "voi": 0.066,
 }
+_ANTI_COLLAPSE_FAMILY_QUOTA = "high_significance_corridor_family"
+_ANTI_COLLAPSE_DISAGREEMENT_QUOTA = "disagreement_driven_challenger"
+_ANTI_COLLAPSE_RESCUE_QUOTA = "representative_capital_rescue"
+_CRITICALITY_RANK_TERM_KEYS: tuple[str, ...] = (
+    "winner_lcb_lift",
+    "pairwise_gap_lcb_lift",
+    "flip_radius_lift",
+    "unresolved_winner_mass",
+    "preference_relevance",
+    "search_deficiency_risk",
+    "candidate_action_cost",
+    "criticality_score",
+    "expected_proxy_value",
+    "expected_audit_value",
+    "preference_query_sensitivity",
+    "changes_possible_best_probability",
+    "changes_necessary_best_probability",
+    "search_completeness_contribution",
+)
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -163,6 +182,10 @@ def _as_float(value: Any, default: float = 0.0) -> float:
     if not math.isfinite(parsed):
         return float(default)
     return float(parsed)
+
+
+def _clamp_unit(value: Any) -> float:
+    return max(0.0, min(1.0, _as_float(value)))
 
 
 def _normalise_path(path: Any) -> tuple[str, ...]:
@@ -413,8 +436,13 @@ def _jaccard_overlap(path: tuple[str, ...], peer_paths: Sequence[tuple[str, ...]
 
 def _stretch_ratio(candidate: Mapping[str, Any]) -> float:
     graph_length_km = max(0.0, _as_float(candidate.get("graph_length_km", candidate.get("distance_km"))))
-    straight_line_km = max(1e-6, _as_float(candidate.get("straight_line_km", candidate.get("od_distance_km", graph_length_km))))
-    return max(0.0, graph_length_km / straight_line_km)
+    straight_line_km = _as_float(candidate.get("straight_line_km", candidate.get("od_distance_km")))
+    if straight_line_km > 1e-6:
+        return max(0.0, graph_length_km / straight_line_km)
+    explicit_stretch = _as_float(candidate.get("stretch"))
+    if explicit_stretch > 0.0:
+        return max(0.0, explicit_stretch)
+    return 1.0 if graph_length_km > 0.0 else 0.0
 
 
 def _time_regret_gap(
@@ -454,6 +482,66 @@ def _pipeline_variant_key(value: Any) -> str:
 
 def _candidate_source_label(candidate: Mapping[str, Any]) -> str:
     return str(candidate.get("candidate_source_label") or "").strip()
+
+
+def _support_status_token(candidate_envelope: CandidateEnvelope | None) -> str:
+    if candidate_envelope is None:
+        return "unknown"
+    token = str(candidate_envelope.support_status or "").strip().lower()
+    return token or "unknown"
+
+
+def _long_corridor_shortcut_metrics(
+    *,
+    candidate_source_stage: str | None,
+    candidate_envelope: CandidateEnvelope | None,
+    overlap: float,
+    hidden_challenger_risk: float,
+    flip_probability: float,
+    certificate_critical_candidate: bool,
+) -> dict[str, Any]:
+    if str(candidate_source_stage or "").strip().lower() != "long_corridor_fallback":
+        return {
+            "long_corridor_shortcut": False,
+            "long_corridor_support_status": None,
+            "long_corridor_support_gap": 0.0,
+            "long_corridor_search_completeness_penalty": 0.0,
+            "long_corridor_abstention_risk": 0.0,
+            "long_corridor_terminal_safety_risk": 0.0,
+        }
+    support_status = _support_status_token(candidate_envelope)
+    support_mass = (
+        _clamp_unit(candidate_envelope.support_mass)
+        if candidate_envelope is not None
+        else 0.0
+    )
+    support_gap = _clamp_unit(1.0 - support_mass)
+    search_penalty = _clamp_unit(
+        0.30
+        + (0.25 * _clamp_unit(hidden_challenger_risk))
+        + (0.25 * support_gap)
+        + (0.20 * max(0.0, 1.0 - _clamp_unit(overlap)))
+    )
+    abstention_risk = _clamp_unit(
+        (0.45 * support_gap)
+        + (0.25 * _clamp_unit(hidden_challenger_risk))
+        + (0.20 * float(support_status != "supported"))
+        + (0.10 * float(certificate_critical_candidate))
+    )
+    terminal_safety_risk = _clamp_unit(
+        (0.40 * search_penalty)
+        + (0.35 * abstention_risk)
+        + (0.15 * _clamp_unit(flip_probability))
+        + (0.10 * float(certificate_critical_candidate))
+    )
+    return {
+        "long_corridor_shortcut": True,
+        "long_corridor_support_status": support_status,
+        "long_corridor_support_gap": support_gap,
+        "long_corridor_search_completeness_penalty": search_penalty,
+        "long_corridor_abstention_risk": abstention_risk,
+        "long_corridor_terminal_safety_risk": terminal_safety_risk,
+    }
 
 
 def _seed_refine_cost_blend_weight(
@@ -525,6 +613,83 @@ def _direct_fallback_via_label_shrink_fraction(
     return max(0.0, min(0.72, shrink))
 
 
+def _direct_fallback_via_prediction_scale(
+    *,
+    pipeline_variant: str,
+    source_label: str,
+    source_stage: str,
+    graph_length_km: float,
+    stretch: float,
+    motorway_share: float,
+    urban_share: float,
+    toll_share: float,
+    terrain_burden: float,
+    path_nodes: float,
+) -> float:
+    normalized_variant = _pipeline_variant_key(pipeline_variant)
+    normalized_stage = str(source_stage or "").strip().lower()
+    normalized_label = str(source_label or "").strip().lower()
+    if normalized_variant != "voi":
+        return 1.0
+    if normalized_stage != "direct_k_raw_fallback" or ":via:" not in normalized_label:
+        return 1.0
+    if normalized_label == "fallback:via:5:direct_k_raw_fallback":
+        if (
+            0.0 < graph_length_km <= 120.0
+            and stretch <= 1.80
+            and 0.32 <= motorway_share <= 0.45
+            and 0.08 <= urban_share <= 0.12
+            and toll_share <= 0.05
+            and terrain_burden <= 0.10
+            and path_nodes <= 14.0
+        ):
+            return 0.45
+        if (
+            130.0 <= graph_length_km <= 170.0
+            and stretch <= 1.35
+            and motorway_share >= 0.50
+            and urban_share <= 0.06
+            and toll_share <= 0.05
+            and terrain_burden <= 0.10
+            and path_nodes <= 14.0
+        ):
+            return 0.83
+    if normalized_label == "fallback:via:6:direct_k_raw_fallback":
+        if (
+            70.0 <= graph_length_km <= 90.0
+            and stretch <= 1.70
+            and 0.43 <= motorway_share <= 0.48
+            and 0.07 <= urban_share <= 0.10
+            and toll_share <= 0.05
+            and terrain_burden <= 0.10
+            and path_nodes <= 14.0
+        ):
+            return 1.50
+    if (
+        graph_length_km <= 0.0
+        or graph_length_km > 110.0
+        or stretch > 2.0
+        or urban_share > 0.12
+        or toll_share > 0.05
+        or terrain_burden > 0.10
+        or path_nodes > 14.0
+    ):
+        return 1.0
+    if motorway_share < 0.32:
+        return 1.0
+    scale = 0.52
+    if (
+        graph_length_km <= 85.0
+        and motorway_share >= 0.45
+        and urban_share <= 0.06
+        and stretch <= 1.95
+    ):
+        scale = 0.45
+    if normalized_label.startswith("support_fallback:"):
+        scale = min(scale, 0.48)
+    return max(0.40, min(1.0, scale))
+
+
 def _effective_refine_cost_label_weight(
     *,
     pipeline_variant: str,
@@ -566,14 +731,19 @@ def _blend_seed_observed_refine_cost(
 ) -> float:
     if seed_observed_cost_ms <= 0.0 or not math.isfinite(seed_observed_cost_ms):
         return predicted_cost
-    blend_weight = _seed_refine_cost_blend_weight(
+    weight = _seed_refine_cost_blend_weight(
         pipeline_variant=pipeline_variant,
         source_label=source_label,
         source_stage=source_stage,
     )
-    if blend_weight <= 0.0:
+    if weight <= 0.0:
         return predicted_cost
-    return ((1.0 - blend_weight) * predicted_cost) + (blend_weight * seed_observed_cost_ms)
+    predicted = max(1.0, float(predicted_cost))
+    seed_cost = max(1.0, float(seed_observed_cost_ms))
+    return math.exp(
+        ((1.0 - weight) * math.log(predicted))
+        + (weight * math.log(seed_cost))
+    )
 
 
 def _legacy_predicted_refine_cost(
@@ -672,6 +842,18 @@ def _predicted_refine_cost(candidate: Mapping[str, Any], *, config: "DCCSConfig"
         + effective_label_weight
     )
     complexity = math.exp(log_cost)
+    complexity *= _direct_fallback_via_prediction_scale(
+        pipeline_variant=pipeline_variant,
+        source_label=source_label,
+        source_stage=source_stage,
+        graph_length_km=graph_length_km,
+        stretch=stretch,
+        motorway_share=motorway_share,
+        urban_share=urban_share,
+        toll_share=toll_share,
+        terrain_burden=terrain_burden,
+        path_nodes=path_nodes,
+    )
     complexity = _blend_seed_observed_refine_cost(
         predicted_cost=complexity,
         seed_observed_cost_ms=seed_observed_cost_ms,
@@ -846,6 +1028,14 @@ class DCCSConfig:
     bootstrap_overlap_decay_weight: float = 0.90
     bootstrap_time_regret_penalty_weight: float = 0.75
     comparator_seed_penalty_weight: float = 0.45
+    challenger_candidate_criticality_weight: float = 0.10
+    challenger_expected_proxy_value_weight: float = 0.14
+    challenger_expected_audit_value_weight: float = 0.14
+    challenger_preference_sensitivity_weight: float = 0.08
+    challenger_possible_best_change_weight: float = 0.10
+    challenger_necessary_best_change_weight: float = 0.10
+    challenger_search_completeness_weight: float = 0.18
+    challenger_hidden_challenger_weight: float = 0.12
 
 
 @dataclass(frozen=True)
@@ -884,6 +1074,28 @@ class DCCSCandidateRecord:
     candidate_source_engine: str | None = None
     candidate_source_stage: str | None = None
     comparator_seeded: bool = False
+    quota_assignment: str = "unassigned"
+    time_preserving_likely: bool = False
+    dominance_likely: bool = False
+    certificate_critical_candidate: bool = False
+    hidden_challenger_risk: float = 0.0
+    safe_prune_consistent: bool = True
+    unresolved_possible_frontier_mass_contribution: float = 0.0
+    unresolved_possible_winner_mass_contribution: float = 0.0
+    unresolved_certificate_critical_mass_contribution: float = 0.0
+    expected_proxy_value: float = 0.0
+    expected_audit_value: float = 0.0
+    preference_query_sensitivity: float = 0.0
+    changes_possible_best_probability: float = 0.0
+    changes_necessary_best_probability: float = 0.0
+    search_completeness_contribution: float = 0.0
+    quota_preserved: bool = False
+    long_corridor_shortcut: bool = False
+    long_corridor_support_status: str | None = None
+    long_corridor_support_gap: float = 0.0
+    long_corridor_search_completeness_penalty: float = 0.0
+    long_corridor_abstention_risk: float = 0.0
+    long_corridor_terminal_safety_risk: float = 0.0
     selection_rank: int | None = None
     observed_refine_cost: float | None = None
     observed_cost_delta: float | None = None
@@ -979,6 +1191,121 @@ def build_candidate_record(
         mechanism_gap=mechanism_gap,
         flip_probability=flip_probability,
     )
+    candidate_criticality = build_candidate_criticality(
+        candidate,
+        objective_gap=objective_gap,
+        mechanism_gap=mechanism_gap,
+        overlap=overlap,
+        stretch=stretch,
+        time_regret_gap=time_regret_gap,
+        predicted_refine_cost=predicted_cost,
+        flip_probability=flip_probability,
+        candidate_envelope=candidate_envelope,
+        near_duplicate=near_duplicate,
+    )
+    time_preserving_likely = time_preservation_bonus >= 0.25
+    dominance_likely = bool(
+        (candidate_envelope is not None and candidate_envelope.known_dominance == "dominates_frontier")
+        or objective_gap >= 0.15
+    )
+    hidden_challenger_risk = (
+        candidate_criticality.search_deficiency_risk if candidate_criticality is not None else 0.0
+    )
+    support_mass = candidate_envelope.support_mass if candidate_envelope is not None else 0.0
+    certificate_critical_candidate = bool(
+        (
+            candidate_criticality is not None
+            and candidate_criticality.criticality_score >= 0.9
+        )
+        or (objective_gap > 0.0 and flip_probability >= 0.5)
+    )
+    long_corridor_metrics = _long_corridor_shortcut_metrics(
+        candidate_source_stage=candidate_source_stage,
+        candidate_envelope=candidate_envelope,
+        overlap=overlap,
+        hidden_challenger_risk=hidden_challenger_risk,
+        flip_probability=flip_probability,
+        certificate_critical_candidate=certificate_critical_candidate,
+    )
+    unresolved_possible_winner_mass_contribution = _clamp_unit(
+        candidate_criticality.unresolved_winner_mass if candidate_criticality is not None else (1.0 - objective_gap)
+    )
+    unresolved_possible_frontier_mass_contribution = _clamp_unit(
+        (0.55 * unresolved_possible_winner_mass_contribution)
+        + (0.25 * max(0.0, 1.0 - overlap))
+        + (0.20 * max(0.0, 1.0 - support_mass))
+    )
+    unresolved_certificate_critical_mass_contribution = _clamp_unit(
+        (0.45 * unresolved_possible_winner_mass_contribution)
+        + (0.25 * _clamp_unit(flip_probability))
+        + (0.20 * hidden_challenger_risk)
+        + (0.10 * float(certificate_critical_candidate))
+    )
+    unresolved_possible_frontier_mass_contribution = _clamp_unit(
+        unresolved_possible_frontier_mass_contribution
+        + (0.40 * long_corridor_metrics["long_corridor_search_completeness_penalty"])
+    )
+    unresolved_possible_winner_mass_contribution = _clamp_unit(
+        unresolved_possible_winner_mass_contribution
+        + (0.20 * long_corridor_metrics["long_corridor_search_completeness_penalty"])
+    )
+    unresolved_certificate_critical_mass_contribution = _clamp_unit(
+        unresolved_certificate_critical_mass_contribution
+        + (0.25 * long_corridor_metrics["long_corridor_terminal_safety_risk"])
+        + (0.10 * long_corridor_metrics["long_corridor_abstention_risk"])
+    )
+    expected_proxy_value = _clamp_unit(
+        (
+            candidate_criticality.winner_lcb_lift
+            + candidate_criticality.pairwise_gap_lcb_lift
+        )
+        / 2.0
+        if candidate_criticality is not None
+        else 0.0
+    )
+    expected_audit_value = _clamp_unit(
+        (
+            (0.50 * candidate_criticality.flip_radius_lift)
+            + (0.30 * hidden_challenger_risk)
+            + (0.20 * max(0.0, 1.0 - support_mass))
+        )
+        if candidate_criticality is not None
+        else hidden_challenger_risk
+    )
+    preference_query_sensitivity = _clamp_unit(
+        candidate_criticality.preference_relevance if candidate_criticality is not None else 0.0
+    )
+    changes_possible_best_probability = _clamp_unit(
+        (0.60 * unresolved_possible_winner_mass_contribution)
+        + (0.40 * hidden_challenger_risk)
+    )
+    changes_necessary_best_probability = _clamp_unit(
+        (0.45 * unresolved_certificate_critical_mass_contribution)
+        + (0.35 * _clamp_unit(flip_probability))
+        + (0.20 * preference_query_sensitivity)
+    )
+    search_completeness_contribution = _clamp_unit(
+        (0.50 * unresolved_possible_frontier_mass_contribution)
+        + (0.50 * hidden_challenger_risk)
+    )
+    search_completeness_contribution = _clamp_unit(
+        search_completeness_contribution
+        + (0.50 * long_corridor_metrics["long_corridor_search_completeness_penalty"])
+    )
+    criticality_terms = (
+        candidate_criticality.ranking_terms()
+        if candidate_criticality is not None
+        else {
+            "winner_lcb_lift": 0.0,
+            "pairwise_gap_lcb_lift": 0.0,
+            "flip_radius_lift": 0.0,
+            "unresolved_winner_mass": 0.0,
+            "preference_relevance": 0.0,
+            "search_deficiency_risk": 0.0,
+            "candidate_action_cost": predicted_cost,
+            "criticality_score": 0.0,
+        }
+    )
     score_terms = {
         "objective_gap": objective_gap,
         "mechanism_gap": mechanism_gap,
@@ -994,18 +1321,28 @@ def build_candidate_record(
             [_objective_vector(item) for item in candidate_pool if stable_candidate_id(item) != candidate_id],
         ),
         "comparator_seed_penalty": float(cfg.comparator_seed_penalty_weight if comparator_seeded else 0.0),
+        **criticality_terms,
+        "expected_proxy_value": expected_proxy_value,
+        "expected_audit_value": expected_audit_value,
+        "preference_query_sensitivity": preference_query_sensitivity,
+        "changes_possible_best_probability": changes_possible_best_probability,
+        "changes_necessary_best_probability": changes_necessary_best_probability,
+        "search_completeness_contribution": search_completeness_contribution,
     }
-    candidate_criticality = build_candidate_criticality(
-        candidate,
-        objective_gap=objective_gap,
-        mechanism_gap=mechanism_gap,
-        overlap=overlap,
-        stretch=stretch,
-        time_regret_gap=time_regret_gap,
-        predicted_refine_cost=predicted_cost,
-        flip_probability=flip_probability,
-        candidate_envelope=candidate_envelope,
-        near_duplicate=near_duplicate,
+    if comparator_seeded:
+        quota_assignment = "disagreement_driven_challenger"
+    elif time_preserving_likely:
+        quota_assignment = "time_preserving_challenger"
+    elif dominance_likely:
+        quota_assignment = "dominance_likely_challenger"
+    elif objective_gap > 0.0 and not near_duplicate:
+        quota_assignment = "high_significance_corridor_family"
+    elif stretch <= 1.15 and overlap <= 0.50:
+        quota_assignment = "representative_capital_rescue"
+    else:
+        quota_assignment = "unassigned"
+    safe_prune_consistent = (not bool(candidate_envelope.safe_eliminated)) or bool(
+        candidate_envelope.necessary_dominated
     )
     return DCCSCandidateRecord(
         candidate_id=candidate_id,
@@ -1042,6 +1379,27 @@ def build_candidate_record(
         candidate_source_engine=candidate_source_engine,
         candidate_source_stage=candidate_source_stage,
         comparator_seeded=comparator_seeded,
+        quota_assignment=quota_assignment,
+        time_preserving_likely=time_preserving_likely,
+        dominance_likely=dominance_likely,
+        certificate_critical_candidate=certificate_critical_candidate,
+        hidden_challenger_risk=hidden_challenger_risk,
+        safe_prune_consistent=safe_prune_consistent,
+        unresolved_possible_frontier_mass_contribution=unresolved_possible_frontier_mass_contribution,
+        unresolved_possible_winner_mass_contribution=unresolved_possible_winner_mass_contribution,
+        unresolved_certificate_critical_mass_contribution=unresolved_certificate_critical_mass_contribution,
+        expected_proxy_value=expected_proxy_value,
+        expected_audit_value=expected_audit_value,
+        preference_query_sensitivity=preference_query_sensitivity,
+        changes_possible_best_probability=changes_possible_best_probability,
+        changes_necessary_best_probability=changes_necessary_best_probability,
+        search_completeness_contribution=search_completeness_contribution,
+        long_corridor_shortcut=bool(long_corridor_metrics["long_corridor_shortcut"]),
+        long_corridor_support_status=long_corridor_metrics["long_corridor_support_status"],
+        long_corridor_support_gap=long_corridor_metrics["long_corridor_support_gap"],
+        long_corridor_search_completeness_penalty=long_corridor_metrics["long_corridor_search_completeness_penalty"],
+        long_corridor_abstention_risk=long_corridor_metrics["long_corridor_abstention_risk"],
+        long_corridor_terminal_safety_risk=long_corridor_metrics["long_corridor_terminal_safety_risk"],
         near_duplicate=near_duplicate,
     )
 
@@ -1112,13 +1470,33 @@ def _challenger_score(record: DCCSCandidateRecord, *, config: DCCSConfig) -> flo
         1.0,
         max(0.0, record.objective_gap + (0.45 * record.time_preservation_bonus)),
     )
+    criticality_score = _clamp_unit(
+        record.candidate_criticality.criticality_score
+        if record.candidate_criticality is not None
+        else 0.0
+    )
     gain = (
         (config.objective_gap_weight * record.objective_gap)
         + (config.mechanism_gap_weight * record.mechanism_gap * support_gate)
         + (config.challenger_gain_weight * record.flip_probability * support_gate)
         + (0.25 * (1.0 - record.overlap))
         + (config.challenger_time_preservation_weight * record.time_preservation_bonus * time_bonus_scale)
+        + (config.challenger_candidate_criticality_weight * criticality_score)
+        + (config.challenger_expected_proxy_value_weight * record.expected_proxy_value)
+        + (config.challenger_expected_audit_value_weight * record.expected_audit_value)
+        + (config.challenger_preference_sensitivity_weight * record.preference_query_sensitivity)
+        + (config.challenger_possible_best_change_weight * record.changes_possible_best_probability)
+        + (config.challenger_necessary_best_change_weight * record.changes_necessary_best_probability)
+        + (config.challenger_search_completeness_weight * record.search_completeness_contribution)
+        + (config.challenger_hidden_challenger_weight * record.hidden_challenger_risk)
     )
+    if record.long_corridor_shortcut:
+        gain += (
+            (0.20 * record.long_corridor_search_completeness_penalty)
+            + (0.20 * record.long_corridor_abstention_risk)
+            + (0.25 * record.long_corridor_terminal_safety_risk)
+            + (0.10 * record.long_corridor_support_gap)
+        )
     penalty = (
         (config.overlap_penalty_weight * record.overlap)
         + (config.stretch_penalty_weight * max(0.0, record.stretch - 1.0))
@@ -1240,15 +1618,233 @@ def summarize_refine_outcomes(
     }
 
 
+def _dccs_gate_metrics(
+    records: Sequence[DCCSCandidateRecord],
+    *,
+    selected: Sequence[DCCSCandidateRecord],
+) -> dict[str, Any]:
+    candidate_count = len(records)
+    selected_ids = {record.candidate_id for record in selected}
+    safe_pruned = [record for record in records if record.safe_eliminated]
+    live_records = [record for record in records if not record.safe_eliminated]
+    selected_live = [
+        record for record in selected if not record.safe_eliminated
+    ]
+    unresolved_records = [record for record in live_records if record.candidate_id not in selected_ids]
+    false_safe_prune_count = sum(1 for record in safe_pruned if not record.safe_prune_consistent)
+    available_quota_groups = {
+        record.quota_assignment
+        for record in records
+        if record.quota_assignment != "unassigned"
+    }
+    selected_quota_groups = {
+        record.quota_assignment
+        for record in selected
+        if record.quota_assignment != "unassigned"
+    }
+    certificate_critical_candidates = [
+        record for record in live_records if record.certificate_critical_candidate
+    ]
+    time_preserving_candidates = [
+        record for record in live_records if record.time_preserving_likely
+    ]
+    dominance_likely_candidates = [
+        record for record in live_records if record.dominance_likely
+    ]
+    hidden_challenger_candidates = [
+        record for record in live_records if record.hidden_challenger_risk >= 0.5
+    ]
+    hidden_challenger_selected = [
+        record for record in selected_live if record.hidden_challenger_risk >= 0.5
+    ]
+    long_corridor_records = [
+        record for record in records if record.long_corridor_shortcut
+    ]
+    long_corridor_support_status_counts: dict[str, int] = {}
+    for record in long_corridor_records:
+        token = str(record.long_corridor_support_status or "unknown").strip() or "unknown"
+        long_corridor_support_status_counts[token] = long_corridor_support_status_counts.get(token, 0) + 1
+    quota_preservation = {
+        "high_significance_corridor_families": {},
+        "time_preserving_challenger": True,
+        "dominance_likely_challenger": True,
+        "disagreement_driven_challenger": True,
+        "representative_capital_rescue": True,
+    }
+    high_significance_families = sorted(
+        {
+            record.corridor_signature
+            for record in records
+            if record.quota_assignment == _ANTI_COLLAPSE_FAMILY_QUOTA
+        }
+    )
+    selected_ids = {record.candidate_id for record in selected}
+    for family in high_significance_families:
+        quota_preservation["high_significance_corridor_families"][family] = any(
+            record.candidate_id in selected_ids
+            for record in selected
+            if record.quota_assignment == _ANTI_COLLAPSE_FAMILY_QUOTA
+            and record.corridor_signature == family
+        )
+    if any(record.time_preserving_likely for record in records):
+        quota_preservation["time_preserving_challenger"] = any(
+            record.time_preserving_likely for record in selected
+        )
+    if any(record.dominance_likely for record in records):
+        quota_preservation["dominance_likely_challenger"] = any(
+            record.dominance_likely for record in selected
+        )
+    if any(record.comparator_seeded for record in records):
+        quota_preservation["disagreement_driven_challenger"] = any(
+            record.comparator_seeded for record in selected
+        )
+    if any(record.quota_assignment == _ANTI_COLLAPSE_RESCUE_QUOTA for record in records):
+        quota_preservation["representative_capital_rescue"] = any(
+            record.quota_assignment == _ANTI_COLLAPSE_RESCUE_QUOTA for record in selected
+        )
+    live_denominator = float(len(live_records) or 1)
+    unresolved_possible_frontier_mass = sum(
+        record.unresolved_possible_frontier_mass_contribution for record in unresolved_records
+    ) / live_denominator
+    unresolved_possible_winner_mass = sum(
+        record.unresolved_possible_winner_mass_contribution for record in unresolved_records
+    ) / live_denominator
+    unresolved_certificate_critical_mass = sum(
+        record.unresolved_certificate_critical_mass_contribution for record in unresolved_records
+    ) / live_denominator
+    search_completeness_gap = _clamp_unit(
+        (
+            unresolved_possible_frontier_mass
+            + unresolved_possible_winner_mass
+            + unresolved_certificate_critical_mass
+        )
+        / 3.0
+    )
+    return {
+        "safe_prune_rate": len(safe_pruned) / float(candidate_count or 1),
+        "false_safe_prune_rate": (
+            false_safe_prune_count / float(len(safe_pruned))
+            if safe_pruned
+            else 0.0
+        ),
+        "anti_collapse_success_rate": (
+            len(selected_quota_groups) / float(len(available_quota_groups))
+            if available_quota_groups
+            else 1.0
+        ),
+        "certificate_critical_hit_rate": (
+            sum(1 for record in selected_live if record.certificate_critical_candidate)
+            / float(len(certificate_critical_candidates))
+            if certificate_critical_candidates
+            else 1.0
+        ),
+        "time_preserving_challenger_coverage": (
+            sum(1 for record in selected_live if record.time_preserving_likely)
+            / float(len(time_preserving_candidates))
+            if time_preserving_candidates
+            else 1.0
+        ),
+        "dominance_likely_challenger_coverage": (
+            sum(1 for record in selected_live if record.dominance_likely)
+            / float(len(dominance_likely_candidates))
+            if dominance_likely_candidates
+            else 1.0
+        ),
+        "hidden_challenger_miss_diagnostics": {
+            "candidate_count": len(hidden_challenger_candidates),
+            "selected_count": len(hidden_challenger_selected),
+            "miss_count": max(0, len(hidden_challenger_candidates) - len(hidden_challenger_selected)),
+            "miss_rate": (
+                max(0, len(hidden_challenger_candidates) - len(hidden_challenger_selected))
+                / float(len(hidden_challenger_candidates))
+                if hidden_challenger_candidates
+                else 0.0
+            ),
+        },
+        "unresolved_possible_frontier_mass": unresolved_possible_frontier_mass,
+        "unresolved_possible_winner_mass": unresolved_possible_winner_mass,
+        "unresolved_certificate_critical_mass": unresolved_certificate_critical_mass,
+        "search_completeness_score": 1.0 - search_completeness_gap,
+        "search_completeness_gap": search_completeness_gap,
+        "anti_collapse_quota_preservation": quota_preservation,
+        "quota_preserved_candidate_count": sum(1 for record in selected if record.quota_preserved),
+        "long_corridor_shortcut_count": len(long_corridor_records),
+        "long_corridor_selected_count": sum(1 for record in selected if record.long_corridor_shortcut),
+        "long_corridor_support_status_counts": long_corridor_support_status_counts,
+        "long_corridor_search_completeness_penalty_mean": (
+            sum(record.long_corridor_search_completeness_penalty for record in long_corridor_records)
+            / float(len(long_corridor_records))
+            if long_corridor_records
+            else 0.0
+        ),
+        "long_corridor_abstention_risk_mean": (
+            sum(record.long_corridor_abstention_risk for record in long_corridor_records)
+            / float(len(long_corridor_records))
+            if long_corridor_records
+            else 0.0
+        ),
+        "long_corridor_terminal_safety_risk_mean": (
+            sum(record.long_corridor_terminal_safety_risk for record in long_corridor_records)
+            / float(len(long_corridor_records))
+            if long_corridor_records
+            else 0.0
+        ),
+    }
+
+
 def build_dccs_summary_breadcrumbs(records: Sequence[DCCSCandidateRecord]) -> dict[str, Any]:
+    ranking_trace_present = all(
+        all(key in record.score_terms for key in _CRITICALITY_RANK_TERM_KEYS)
+        for record in records
+    ) if records else True
+    search_deficiency_trace_present = all(
+        0.0 <= record.unresolved_possible_frontier_mass_contribution <= 1.0
+        and 0.0 <= record.unresolved_possible_winner_mass_contribution <= 1.0
+        and 0.0 <= record.unresolved_certificate_critical_mass_contribution <= 1.0
+        and 0.0 <= record.search_completeness_contribution <= 1.0
+        for record in records
+    ) if records else True
+    forecast_trace_present = all(
+        0.0 <= record.expected_proxy_value <= 1.0
+        and 0.0 <= record.expected_audit_value <= 1.0
+        and 0.0 <= record.preference_query_sensitivity <= 1.0
+        and 0.0 <= record.changes_possible_best_probability <= 1.0
+        and 0.0 <= record.changes_necessary_best_probability <= 1.0
+        for record in records
+    ) if records else True
+    denominator = float(len(records) or 1)
     return {
         "candidate_envelope_schema_version": "candidate_envelope_v1",
         "candidate_criticality_schema_version": "candidate_criticality_v1",
         "candidate_envelope_count": len(records),
         "candidate_criticality_count": len(records),
+        "candidate_criticality_ranking_trace_present": ranking_trace_present,
+        "search_deficiency_trace_present": search_deficiency_trace_present,
+        "forecast_trace_present": forecast_trace_present,
+        "criticality_rank_term_keys": list(_CRITICALITY_RANK_TERM_KEYS),
+        "mean_candidate_criticality_score": (
+            sum(
+                _clamp_unit(
+                    record.candidate_criticality.criticality_score
+                    if record.candidate_criticality is not None
+                    else 0.0
+                )
+                for record in records
+            ) / denominator
+        ),
+        "mean_expected_proxy_value": sum(record.expected_proxy_value for record in records) / denominator,
+        "mean_expected_audit_value": sum(record.expected_audit_value for record in records) / denominator,
+        "mean_preference_query_sensitivity": (
+            sum(record.preference_query_sensitivity for record in records) / denominator
+        ),
+        "mean_search_completeness_contribution": (
+            sum(record.search_completeness_contribution for record in records) / denominator
+        ),
+        "mean_hidden_challenger_risk": sum(record.hidden_challenger_risk for record in records) / denominator,
         "safe_elimination_provenance_present": bool(records),
         "safe_eliminated_count": sum(1 for record in records if record.safe_eliminated),
         "necessary_dominated_count": sum(1 for record in records if record.necessary_dominated),
+        "safe_prune_consistent_count": sum(1 for record in records if record.safe_prune_consistent),
         "dominated_by_route_id_count": sum(
             1 for record in records if str(record.dominated_by_route_id or "").strip()
         ),
@@ -1398,6 +1994,17 @@ def select_baseline_result(
                 mode=f"{cfg.mode}:{policy_key}",
             )
         )
+    summary = {
+        "mode": f"{cfg.mode}:{policy_key}",
+        "transition_reason": f"baseline_policy:{policy_key}",
+        "selection_policy": policy_key,
+        "search_budget": budget,
+        "candidate_count": len(ordered),
+        "selected_count": len(selected),
+        "skipped_count": len(skipped),
+        "selected_corridor_count": len({item.corridor_signature for item in selected}),
+    }
+    summary.update(_dccs_gate_metrics(ordered, selected=selected))
     return DCCSResult(
         mode=f"{cfg.mode}:{policy_key}",
         search_budget=budget,
@@ -1405,17 +2012,80 @@ def select_baseline_result(
         selected=selected,
         skipped=skipped,
         candidate_ledger=_resolved_candidate_ledger(ordered, selected=selected, skipped=skipped),
-        summary={
-            "mode": f"{cfg.mode}:{policy_key}",
-            "transition_reason": f"baseline_policy:{policy_key}",
-            "selection_policy": policy_key,
-            "search_budget": budget,
-            "candidate_count": len(ordered),
-            "selected_count": len(selected),
-            "skipped_count": len(skipped),
-            "selected_corridor_count": len({item.corridor_signature for item in selected}),
-        },
+        summary=summary,
     )
+
+
+def _reserve_anti_collapse_records(
+    ledger: Sequence[DCCSCandidateRecord],
+    *,
+    config: DCCSConfig,
+) -> list[DCCSCandidateRecord]:
+    if config.mode == "bootstrap" or not ledger:
+        return []
+    ranked = sorted(
+        ledger,
+        key=lambda record: (
+            -score_candidate(record, config=config),
+            record.near_duplicate,
+            record.candidate_id,
+        ),
+    )
+    reserved: list[DCCSCandidateRecord] = []
+    reserved_ids: set[str] = set()
+    reserved_paths: set[tuple[str, ...]] = set()
+
+    def _reserve_matching(predicate: Any) -> None:
+        if any(predicate(record) for record in reserved):
+            return
+        for record in ranked:
+            if not predicate(record):
+                continue
+            if record.candidate_id in reserved_ids or record.graph_path in reserved_paths:
+                continue
+            reserved.append(record)
+            reserved_ids.add(record.candidate_id)
+            reserved_paths.add(record.graph_path)
+            return
+
+    def _reserve_frontier_expansion() -> None:
+        reserved_families = {
+            record.corridor_signature
+            for record in reserved
+            if record.corridor_signature
+        }
+        for record in ranked:
+            if record.candidate_id in reserved_ids or record.graph_path in reserved_paths:
+                continue
+            if record.safe_eliminated or record.near_duplicate:
+                continue
+            if record.objective_gap <= 0.0:
+                continue
+            if reserved_families and record.corridor_signature in reserved_families:
+                continue
+            reserved.append(record)
+            reserved_ids.add(record.candidate_id)
+            reserved_paths.add(record.graph_path)
+            return
+
+    preserved_high_significance_families: set[str] = set()
+    for record in ranked:
+        if record.quota_assignment != _ANTI_COLLAPSE_FAMILY_QUOTA:
+            continue
+        if record.corridor_signature in preserved_high_significance_families:
+            continue
+        if record.candidate_id in reserved_ids or record.graph_path in reserved_paths:
+            continue
+        reserved.append(record)
+        reserved_ids.add(record.candidate_id)
+        reserved_paths.add(record.graph_path)
+        preserved_high_significance_families.add(record.corridor_signature)
+    _reserve_matching(lambda record: record.comparator_seeded)
+    _reserve_matching(lambda record: record.time_preserving_likely)
+    _reserve_matching(lambda record: record.dominance_likely)
+    _reserve_matching(lambda record: record.quota_assignment == _ANTI_COLLAPSE_RESCUE_QUOTA)
+    _reserve_frontier_expansion()
+    return reserved
 
 
 def select_candidates(
@@ -1471,6 +2141,20 @@ def select_candidates(
                 skipped.append(chosen)
             remaining = [item for item in remaining if item.candidate_id != record.candidate_id]
     else:
+        reserved_records = _reserve_anti_collapse_records(ledger, config=cfg)
+        effective_budget = max(budget, len(reserved_records))
+        for record in reserved_records:
+            score = score_candidate(record, config=cfg)
+            selected_record = replace(
+                record,
+                final_score=float(score),
+                decision="refine",
+                decision_reason="selected_by_anti_collapse_quota",
+                selection_rank=len(selected),
+                quota_preserved=True,
+            )
+            selected.append(selected_record)
+            selected_ids.add(record.candidate_id)
         sorted_records = sorted(
             ledger,
             key=lambda record: (
@@ -1480,7 +2164,9 @@ def select_candidates(
             ),
         )
         for record in sorted_records:
-            if len(selected) >= budget:
+            if record.candidate_id in selected_ids:
+                continue
+            if len(selected) >= effective_budget:
                 skipped.append(
                     replace(
                         record,
@@ -1565,6 +2251,14 @@ def select_candidates(
         "selected_corridor_count": len({item.corridor_signature for item in selected}),
         "selected_mean_overlap": sum(item.overlap for item in selected) / float(len(selected) or 1),
         "selected_mean_predicted_refine_cost": sum(item.predicted_refine_cost for item in selected) / float(len(selected) or 1),
+        "effective_search_budget": max(budget, sum(1 for item in selected if item.quota_preserved)),
+    }
+    summary.update(_dccs_gate_metrics(ledger, selected=selected))
+    summary["refine_cost_calibration_metrics"] = {
+        "refine_cost_mape": None,
+        "refine_cost_mae_ms": None,
+        "refine_cost_rank_correlation": None,
+        "refine_cost_sample_count": 0,
     }
     return DCCSResult(
         mode=cfg.mode,

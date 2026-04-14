@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from .certification_models import AuditWorldBundle, ProbabilisticWorldBundle, WorldSupportState
 from .model_data_errors import ModelDataError
+from .support_model import MultiFidelitySummary, build_multi_fidelity_summary
 
 try:
     UK_TZ = ZoneInfo("Europe/London")
@@ -108,6 +109,7 @@ class ScenarioSupportSummary:
     support_state: WorldSupportState | None = None
     probabilistic_world_bundle: ProbabilisticWorldBundle | None = None
     audit_world_bundle: AuditWorldBundle | None = None
+    multi_fidelity_summary: MultiFidelitySummary | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -157,6 +159,12 @@ def build_scenario_support_summary(
         support_state=support_state,
         probabilistic_world_bundle=probabilistic_world_bundle,
         audit_world_bundle=audit_world_bundle,
+        multi_fidelity_summary=build_multi_fidelity_summary(
+            probabilistic_world_bundle=probabilistic_world_bundle,
+            audit_world_bundle=audit_world_bundle,
+            support_state=support_state,
+            provenance={"source": "scenario_support_summary"},
+        ),
         provenance=dict(provenance or {}),
     )
 

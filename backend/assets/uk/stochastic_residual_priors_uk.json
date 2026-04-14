@@ -1,8 +1,8 @@
 {
   "source": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\assets\\uk\\stochastic_residuals_empirical.csv",
   "calibration_version": "v4-uk-residual-fit",
-  "generated_at_utc": "2026-03-21T13:09:06.883293Z",
-  "as_of_utc": "2026-03-21T13:09:06.883304Z",
+  "generated_at_utc": "2026-04-10T15:18:04.366131Z",
+  "as_of_utc": "2026-04-10T15:18:04.366145Z",
   "priors": [
     {
       "corridor_bucket": "london_southeast",

@@ -249,6 +249,63 @@ def test_pick_best_option_supports_vikor_profiles() -> None:
         settings.route_selection_math_profile = original_profile
 
 
+def test_pick_best_option_tie_break_uses_stable_route_geometry() -> None:
+    option_a = _option(
+        route_id="route_z",
+        duration_s=100.0,
+        money=90.0,
+        co2=80.0,
+        distance_km=40.0,
+        mean_duration_s=100.0,
+        std_duration_s=1.0,
+    ).model_copy(
+        update={
+            "geometry": GeoJSONLineString(
+                type="LineString",
+                coordinates=[(-1.0, 52.0), (-0.4, 51.75)],
+            )
+        }
+    )
+    option_b = _option(
+        route_id="route_a",
+        duration_s=100.0,
+        money=90.0,
+        co2=80.0,
+        distance_km=40.0,
+        mean_duration_s=100.0,
+        std_duration_s=1.0,
+    ).model_copy(
+        update={
+            "geometry": GeoJSONLineString(
+                type="LineString",
+                coordinates=[(-1.2, 52.1), (-0.7, 51.85)],
+            )
+        }
+    )
+
+    base_pick = _pick_best_option(
+        [option_a, option_b],
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+    )
+    renumbered_pick = _pick_best_option(
+        [
+            option_a.model_copy(update={"id": "route_8"}),
+            option_b.model_copy(update={"id": "route_9"}),
+        ],
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+    )
+
+    assert renumbered_pick.geometry.coordinates == base_pick.geometry.coordinates
+
+
 def test_route_selection_score_map_matches_robust_pick() -> None:
     option_a = _option(
         route_id="a",

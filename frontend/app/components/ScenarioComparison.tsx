@@ -1,5 +1,7 @@
 'use client';
 
+import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import { formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
 import type { ScenarioCompareResponse } from '../lib/types';
@@ -13,6 +15,25 @@ type Props = {
   onInspectScenarioSignature?: (runId: string) => void;
   onOpenRunInspector?: (runId: string) => void;
 };
+
+const headerLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function headerLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={headerLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 function fmtDelta(value: number | null | undefined, locale: Locale, status?: string): string {
   if (status === 'missing') return 'n/a';
@@ -84,10 +105,34 @@ export default function ScenarioComparison({
           <caption className="srOnly">Scenario Comparison Results Table</caption>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', padding: '6px 4px' }}>Scenario</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px' }}>ETA delta (s)</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px' }}>Cost delta (£)</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px' }}>CO2 delta (kg)</th>
+              <th style={{ textAlign: 'left', padding: '6px 4px' }}>
+                {headerLabel('Scenario', {
+                  definition: 'Scenario mode being compared against the selected baseline mode.',
+                  direction: 'Context only; this names the scenario row rather than a better/worse metric.',
+                  unit: 'categorical scenario label',
+                })}
+              </th>
+              <th style={{ textAlign: 'right', padding: '6px 4px' }}>
+                {headerLabel('ETA delta (s)', {
+                  definition: 'Travel-time difference between this scenario row and the chosen scenario-comparison baseline.',
+                  direction: 'Lower or more negative is better because less travel time is being added versus the baseline.',
+                  unit: 'seconds delta',
+                })}
+              </th>
+              <th style={{ textAlign: 'right', padding: '6px 4px' }}>
+                {headerLabel('Cost delta (£)', {
+                  definition: 'Monetary-cost difference between this scenario row and the chosen scenario-comparison baseline.',
+                  direction: 'Lower or more negative is better because less cost is being added versus the baseline.',
+                  unit: 'currency delta',
+                })}
+              </th>
+              <th style={{ textAlign: 'right', padding: '6px 4px' }}>
+                {headerLabel('CO2 delta (kg)', {
+                  definition: 'Emissions difference between this scenario row and the chosen scenario-comparison baseline.',
+                  direction: 'Lower or more negative is better because less CO2 is being added versus the baseline.',
+                  unit: 'kilogram CO2 delta',
+                })}
+              </th>
             </tr>
           </thead>
           <tbody>

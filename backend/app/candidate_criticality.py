@@ -1,3 +1,5 @@
+"""Pipeline stage: score candidate criticality to prioritize refinement, search, and evidence actions."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,6 +30,18 @@ class CandidateCriticalityEstimate:
     action_cost: float
     criticality_score: float
     provenance: str
+
+    def ranking_terms(self) -> dict[str, float]:
+        return {
+            "winner_lcb_lift": float(self.winner_lcb_lift),
+            "pairwise_gap_lcb_lift": float(self.pairwise_gap_lcb_lift),
+            "flip_radius_lift": float(self.flip_radius_lift),
+            "unresolved_winner_mass": float(self.unresolved_winner_mass),
+            "preference_relevance": float(self.preference_relevance),
+            "search_deficiency_risk": float(self.search_deficiency_risk),
+            "candidate_action_cost": float(self.action_cost),
+            "criticality_score": float(self.criticality_score),
+        }
 
 
 def build_candidate_criticality(

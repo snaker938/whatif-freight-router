@@ -16,6 +16,14 @@ from fastapi.testclient import TestClient
 
 from app import route_cache
 from app.main import app, osrm_client
+from app.certification_cache import (
+    checkpoint_certification_cache,
+    clear_certification_cache,
+    clear_certification_cache_checkpoint,
+    get_cached_certification,
+    restore_checkpointed_certification_cache,
+    set_cached_certification,
+)
 from app.departure_profile import DepartureMultiplier
 from app.models import CostToggles
 from app.routing_graph import GraphCandidateDiagnostics
@@ -286,10 +294,13 @@ def test_route_cache_hits_and_keying() -> None:
             assert stats["size"] >= 1
             assert "hot_rerun_route_cache_checkpoint" in stats_payload
             assert "certification_cache" in stats_payload
+            assert "hot_rerun_certification_cache_checkpoint" in stats_payload
     finally:
         app.dependency_overrides.clear()
         route_cache.clear_route_cache()
         route_cache.clear_route_cache_checkpoint()
+        clear_certification_cache()
+        clear_certification_cache_checkpoint()
 
 
 def test_thesis_cold_cache_scope_preserves_k_raw_and_option_layers(
@@ -304,6 +315,7 @@ def test_thesis_cold_cache_scope_preserves_k_raw_and_option_layers(
     monkeypatch.setattr(main_module, "clear_route_state_cache", lambda: observed_calls.append("route_state") or 23)
     monkeypatch.setattr(main_module, "clear_voi_dccs_cache", lambda: observed_calls.append("voi_dccs") or 29)
     monkeypatch.setattr(main_module, "clear_route_cache_checkpoint", lambda: observed_calls.append("route_checkpoint") or 31)
+    monkeypatch.setattr(main_module, "clear_certification_cache_checkpoint", lambda: observed_calls.append("certification_checkpoint") or 37)
 
     with TestClient(app) as client:
         response = client.delete("/cache?scope=thesis_cold")
@@ -317,15 +329,23 @@ def test_thesis_cold_cache_scope_preserves_k_raw_and_option_layers(
         "cleared_route_state": 23,
         "cleared_voi_dccs": 29,
     }
-    assert observed_calls == ["route_checkpoint", "route", "certification", "route_state", "voi_dccs"]
+    assert observed_calls == [
+        "route_checkpoint",
+        "certification_checkpoint",
+        "route",
+        "certification",
+        "route_state",
+        "voi_dccs",
+    ]
 
 
-def test_hot_rerun_cold_source_scope_preserves_certification_and_option_layers(
+def test_hot_rerun_cold_source_scope_checkpoints_and_clears_certification_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed_calls: list[str] = []
 
     monkeypatch.setattr(main_module, "checkpoint_route_cache", lambda: observed_calls.append("route_checkpoint") or 7)
+    monkeypatch.setattr(main_module, "checkpoint_certification_cache", lambda: observed_calls.append("certification_checkpoint") or 5)
     monkeypatch.setattr(main_module, "clear_route_cache", lambda: observed_calls.append("route") or 11)
     monkeypatch.setattr(main_module, "clear_k_raw_cache", lambda: observed_calls.append("k_raw") or 13)
     monkeypatch.setattr(main_module, "clear_route_option_cache", lambda: observed_calls.append("route_option") or 17)
@@ -341,11 +361,18 @@ def test_hot_rerun_cold_source_scope_preserves_certification_and_option_layers(
         "cleared": 11,
         "cleared_k_raw": 0,
         "cleared_route_option": 0,
-        "cleared_certifications": 0,
+        "cleared_certifications": 19,
         "cleared_route_state": 23,
         "cleared_voi_dccs": 29,
     }
-    assert observed_calls == ["route_checkpoint", "route", "route_state", "voi_dccs"]
+    assert observed_calls == [
+        "route_checkpoint",
+        "certification_checkpoint",
+        "route",
+        "certification",
+        "route_state",
+        "voi_dccs",
+    ]
 
 
 def test_route_cache_checkpoint_restore_round_trip() -> None:
@@ -371,19 +398,49 @@ def test_route_cache_checkpoint_restore_round_trip() -> None:
         route_cache.clear_route_cache_checkpoint()
 
 
+def test_certification_cache_checkpoint_restore_round_trip() -> None:
+    clear_certification_cache()
+    clear_certification_cache_checkpoint()
+    try:
+        stored = set_cached_certification(
+            "checkpoint-key",
+            ({"winner_id": "route-1"}, {"radius": 1.0}, {"world_count": 2}, ["scenario"]),
+        )
+        assert stored is True
+        checkpointed = checkpoint_certification_cache()
+        assert checkpointed == 1
+        assert clear_certification_cache() == 1
+        assert get_cached_certification("checkpoint-key") is None
+        restored = restore_checkpointed_certification_cache(clear_first=False)
+        assert restored == 1
+        cached = get_cached_certification("checkpoint-key")
+        assert cached is not None
+        assert cached[0]["winner_id"] == "route-1"
+        assert cached[2]["world_count"] == 2
+    finally:
+        clear_certification_cache()
+        clear_certification_cache_checkpoint()
+
+
 def test_restore_hot_rerun_cache_endpoint_reports_restore_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(main_module, "restore_checkpointed_route_cache", lambda clear_first=False: 5)
+    monkeypatch.setattr(main_module, "restore_checkpointed_certification_cache", lambda clear_first=False: 3)
     monkeypatch.setattr(main_module, "route_cache_checkpoint_stats", lambda: {"size": 7})
+    monkeypatch.setattr(main_module, "certification_cache_checkpoint_stats", lambda: {"size": 4})
 
     with TestClient(app) as client:
         response = client.post("/cache/hot-rerun/restore")
 
     assert response.status_code == 200
     assert response.json() == {
-        "restored": 5,
-        "checkpoint_size": 7,
+        "restored": 8,
+        "checkpoint_size": 11,
+        "restored_route_cache": 5,
+        "route_checkpoint_size": 7,
+        "certification_checkpoint_size": 4,
+        "restored_certification_cache": 3,
     }
 
 
@@ -549,6 +606,100 @@ def test_graph_refine_route_cache_key_ignores_candidate_label() -> None:
     assert key_a == key_b
     assert changed_via_key != key_a
     assert changed_exclude_key != key_a
+
+
+def test_graph_refine_route_cache_key_separates_candidate_scope_with_identical_via_points() -> None:
+    origin = main_module.LatLng(lat=52.4862, lon=-1.8904)
+    destination = main_module.LatLng(lat=51.5072, lon=-0.1276)
+    departure = datetime(2026, 3, 30, 9, 0, tzinfo=UTC)
+    toggles = CostToggles(use_tolls=True, carbon_price_per_kg=0.10)
+    shared_via = [(52.2, -1.1), (51.9, -0.9)]
+
+    key_a = main_module._graph_refine_route_cache_key(
+        origin=origin,
+        destination=destination,
+        alternatives=False,
+        via=shared_via,
+        vehicle_type="rigid_hgv",
+        scenario_mode="full_sharing",
+        cost_toggles=toggles,
+        terrain_profile="flat",
+        departure_time_utc=departure,
+        scenario_cache_token="scenario-a",
+        candidate_scope_token="candidate-scope-a",
+    )
+    key_b = main_module._graph_refine_route_cache_key(
+        origin=origin,
+        destination=destination,
+        alternatives=False,
+        via=shared_via,
+        vehicle_type="rigid_hgv",
+        scenario_mode="full_sharing",
+        cost_toggles=toggles,
+        terrain_profile="flat",
+        departure_time_utc=departure,
+        scenario_cache_token="scenario-a",
+        candidate_scope_token="candidate-scope-b",
+    )
+    key_b_same_scope = main_module._graph_refine_route_cache_key(
+        origin=origin,
+        destination=destination,
+        alternatives=False,
+        via=shared_via,
+        vehicle_type="rigid_hgv",
+        scenario_mode="full_sharing",
+        cost_toggles=toggles,
+        terrain_profile="flat",
+        departure_time_utc=departure,
+        scenario_cache_token="scenario-a",
+        candidate_scope_token="candidate-scope-a",
+    )
+
+    assert key_a != key_b
+    assert key_a == key_b_same_scope
+
+
+def test_refine_candidate_scope_token_prefers_stable_route_shape_over_transient_candidate_id() -> None:
+    raw_route = _make_route(duration_s=1_000.0, distance_m=24_000.0, lon_offset=-1.3)
+    same_shape_different_candidate = _make_route(duration_s=1_000.0, distance_m=24_000.0, lon_offset=-1.3)
+    different_shape = _make_route(duration_s=1_000.0, distance_m=24_000.0, lon_offset=-1.0)
+
+    token_a = main_module._refine_candidate_scope_token(
+        candidate_id="candidate-a",
+        raw_route=raw_route,
+    )
+    token_b = main_module._refine_candidate_scope_token(
+        candidate_id="candidate-b",
+        raw_route=same_shape_different_candidate,
+    )
+    token_c = main_module._refine_candidate_scope_token(
+        candidate_id="candidate-c",
+        raw_route=different_shape,
+    )
+
+    assert token_a == token_b
+    assert token_a == main_module._graph_family_signature(raw_route)
+    assert token_c != token_a
+
+
+def test_refine_candidate_scope_token_falls_back_to_stable_candidate_identity_without_geometry() -> None:
+    raw_route = {
+        "distance": 24_000.0,
+        "duration": 1_000.0,
+        "geometry": {"type": "LineString", "coordinates": []},
+    }
+
+    token_a = main_module._refine_candidate_scope_token(
+        candidate_id="candidate-a",
+        raw_route=raw_route,
+    )
+    token_b = main_module._refine_candidate_scope_token(
+        candidate_id="candidate-b",
+        raw_route=raw_route,
+    )
+
+    assert token_a == token_b
+    assert token_a != "candidate-a"
 
 
 def test_graph_refine_route_cache_key_separates_scenario_sensitive_context() -> None:

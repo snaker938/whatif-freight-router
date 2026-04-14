@@ -13,12 +13,16 @@ import app.carbon_model as carbon_model
 import app.main as main_module
 import app.risk_model as risk_model
 from app.calibration_loader import (
+    ScenarioContextProfile,
+    ScenarioPolicyProfile,
+    ScenarioProfiles,
     RiskNormalizationReference,
     StochasticResidualPrior,
     load_fuel_price_snapshot,
     load_scenario_profiles,
 )
 from app.main import TerrainDiagnostics, app, build_option, osrm_client
+from app.scenario import ScenarioMode, ScenarioRouteContext, resolve_scenario_profile
 from app.settings import settings
 
 
@@ -428,6 +432,120 @@ async def _collect_route_options_missing_baseline(
     return await _collect_route_options_mock(**kwargs)
 
 
+def _patch_compare_request_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_run_scenario_compare = main_module._run_scenario_compare
+
+    async def _run_scenario_compare_with_defaults(*, req, osrm):
+        defaults = {
+            "od_ambiguity_index": 0.12,
+            "od_engine_disagreement_prior": 0.08,
+            "od_hard_case_prior": 0.05,
+            "od_ambiguity_support_ratio": 0.9,
+            "od_ambiguity_source_entropy": 0.2,
+            "od_candidate_path_count": 4,
+        }
+        for name, value in defaults.items():
+            if not hasattr(req, name):
+                object.__setattr__(req, name, value)
+        return await original_run_scenario_compare(req=req, osrm=osrm)
+
+    monkeypatch.setattr(main_module, "_run_scenario_compare", _run_scenario_compare_with_defaults)
+
+
+def _profile(*, base: float, spread: float) -> ScenarioPolicyProfile:
+    q10 = base - spread
+    q50 = base
+    q90 = base + spread
+    quantiles = {
+        field: (q10, q50, q90)
+        for field in (
+            "duration_multiplier",
+            "incident_rate_multiplier",
+            "incident_delay_multiplier",
+            "fuel_consumption_multiplier",
+            "emissions_multiplier",
+            "stochastic_sigma_multiplier",
+        )
+    }
+    return ScenarioPolicyProfile(
+        duration_multiplier=q50,
+        incident_rate_multiplier=q50,
+        incident_delay_multiplier=q50,
+        fuel_consumption_multiplier=q50,
+        emissions_multiplier=q50,
+        stochastic_sigma_multiplier=q50,
+        quantiles=quantiles,
+    )
+
+
+def _scenario_profiles(
+    *,
+    weekday_profile: ScenarioPolicyProfile,
+    weekend_profile: ScenarioPolicyProfile,
+) -> ScenarioProfiles:
+    transform = calibration_loader._default_scenario_transform_params()
+    transform["context_similarity"]["max_distance"] = 10.0
+    weekday_key = "1c816|h08|weekday|mixed|rigid_hgv|clear"
+    weekend_key = "1c816|h08|weekend|mixed|rigid_hgv|clear"
+    mode_profiles = {"partial_sharing": weekday_profile}
+    return ScenarioProfiles(
+        source="repo_local:test_scenario_profiles.json",
+        version="scenario_profiles_test_v1",
+        as_of_utc="2026-03-30T00:00:00Z",
+        generated_at_utc="2026-03-30T00:00:00Z",
+        signature=None,
+        calibration_basis="empirical_live_fit",
+        profiles=mode_profiles,
+        contexts={
+            weekday_key: ScenarioContextProfile(
+                context_key=weekday_key,
+                corridor_bucket="wales_west",
+                corridor_geohash5="1c816",
+                hour_slot_local=8,
+                road_mix_bucket="mixed",
+                road_mix_vector={"mixed": 1.0},
+                vehicle_class="rigid_hgv",
+                day_kind="weekday",
+                weather_bucket="clear",
+                weather_regime="clear",
+                profiles={"partial_sharing": weekday_profile},
+                source_coverage={"webtris": 1.0, "traffic_england": 1.0, "dft": 1.0, "open_meteo": 1.0},
+                mode_observation_source="observed_mode_labels",
+                mode_projection_ratio=0.0,
+            ),
+            weekend_key: ScenarioContextProfile(
+                context_key=weekend_key,
+                corridor_bucket="wales_west",
+                corridor_geohash5="1c816",
+                hour_slot_local=8,
+                road_mix_bucket="mixed",
+                road_mix_vector={"mixed": 1.0},
+                vehicle_class="rigid_hgv",
+                day_kind="weekend",
+                weather_bucket="clear",
+                weather_regime="clear",
+                profiles={"partial_sharing": weekend_profile},
+                source_coverage={"webtris": 1.0, "traffic_england": 1.0, "dft": 1.0, "open_meteo": 1.0},
+                mode_observation_source="observed_mode_labels",
+                mode_projection_ratio=0.0,
+            ),
+        },
+        transform_params=transform,
+    )
+
+
+def _live_context() -> ScenarioRouteContext:
+    return ScenarioRouteContext(
+        corridor_geohash5="1c816",
+        hour_slot_local=8,
+        day_kind="weekend",
+        road_mix_bucket="mixed",
+        road_mix_vector={"mixed": 1.0},
+        vehicle_class="rigid_hgv",
+        weather_regime="clear",
+    )
+
+
 def test_scenario_compare_manifest_and_signature(tmp_path: Path, monkeypatch) -> None:
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -435,6 +553,7 @@ def test_scenario_compare_manifest_and_signature(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(settings, "live_scenario_coefficient_max_age_minutes", 10_000_000)
     app.dependency_overrides[osrm_client] = lambda: FakeOSRM()
     monkeypatch.setattr(main_module, "_collect_route_options", _collect_route_options_mock)
+    _patch_compare_request_defaults(monkeypatch)
 
     try:
         with TestClient(app) as client:
@@ -443,6 +562,12 @@ def test_scenario_compare_manifest_and_signature(tmp_path: Path, monkeypatch) ->
                 "destination": {"lat": 51.5072, "lon": -0.1276},
                 "vehicle_type": "rigid_hgv",
                 "max_alternatives": 3,
+                "od_ambiguity_index": 0.12,
+                "od_engine_disagreement_prior": 0.08,
+                "od_hard_case_prior": 0.05,
+                "od_ambiguity_support_ratio": 0.9,
+                "od_ambiguity_source_entropy": 0.2,
+                "od_candidate_path_count": 4,
                 "pareto_method": "epsilon_constraint",
                 "epsilon": {"duration_s": 10000, "monetary_cost": 5000, "emissions_kg": 5000},
                 "departure_time_utc": "2026-02-12T08:30:00Z",
@@ -485,6 +610,26 @@ def test_scenario_compare_manifest_and_signature(tmp_path: Path, monkeypatch) ->
         app.dependency_overrides.clear()
 
 
+def test_scenario_compare_prefers_paired_day_context_when_weekend_context_collapses(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    weekday_profile = _profile(base=1.28, spread=0.06)
+    weekend_profile = _profile(base=1.24, spread=0.0)
+    profiles = _scenario_profiles(
+        weekday_profile=weekday_profile,
+        weekend_profile=weekend_profile,
+    )
+    monkeypatch.setattr(calibration_loader, "load_scenario_profiles", lambda: profiles)
+    load_scenario_profiles.cache_clear()
+
+    policy = resolve_scenario_profile(ScenarioMode.PARTIAL_SHARING, context=_live_context())
+
+    assert policy.context_key == "1c816|h08|weekday|mixed|rigid_hgv|clear"
+    assert policy.duration_multiplier == weekday_profile.duration_multiplier
+    assert policy.incident_rate_multiplier == weekday_profile.incident_rate_multiplier
+
+
 def test_scenario_compare_missing_baseline_uses_nullable_deltas(
     tmp_path: Path,
     monkeypatch,
@@ -495,6 +640,7 @@ def test_scenario_compare_missing_baseline_uses_nullable_deltas(
     monkeypatch.setattr(settings, "live_scenario_coefficient_max_age_minutes", 10_000_000)
     app.dependency_overrides[osrm_client] = lambda: FakeOSRM()
     monkeypatch.setattr(main_module, "_collect_route_options", _collect_route_options_missing_baseline)
+    _patch_compare_request_defaults(monkeypatch)
 
     try:
         with TestClient(app) as client:
@@ -503,7 +649,14 @@ def test_scenario_compare_missing_baseline_uses_nullable_deltas(
                 "destination": {"lat": 51.5072, "lon": -0.1276},
                 "vehicle_type": "rigid_hgv",
                 "max_alternatives": 3,
+                "od_ambiguity_index": 0.12,
+                "od_engine_disagreement_prior": 0.08,
+                "od_hard_case_prior": 0.05,
+                "od_ambiguity_support_ratio": 0.9,
+                "od_ambiguity_source_entropy": 0.2,
+                "od_candidate_path_count": 4,
                 "pareto_method": "dominance",
+                "departure_time_utc": "2026-02-12T08:30:00Z",
             }
             compare_resp = client.post("/scenario/compare", json=payload)
             assert compare_resp.status_code == 200

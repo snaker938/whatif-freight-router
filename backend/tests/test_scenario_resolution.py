@@ -147,6 +147,25 @@ def test_resolve_scenario_profile_prefers_richer_paired_day_context_for_collapse
     assert policy.duration_multiplier == weekday_profile.duration_multiplier
 
 
+def test_resolve_scenario_profile_prefers_richer_paired_day_context_for_collapse_prone_exact(
+    monkeypatch,
+) -> None:
+    weekday_profile = _profile(base=1.28, spread=0.06)
+    weekend_profile = _profile(base=1.24, spread=0.0)
+    profiles = _scenario_profiles(
+        weekday_profile=weekday_profile,
+        weekend_profile=weekend_profile,
+    )
+    monkeypatch.setattr(calibration_loader, "load_scenario_profiles", lambda: profiles)
+    monkeypatch.setattr(calibration_loader, "load_live_scenario_context", lambda **_: _live_context())
+
+    policy = resolve_scenario_profile(ScenarioMode.PARTIAL_SHARING, context=_request_context())
+
+    assert policy.context_key == "1c816|h08|weekday|mixed|rigid_hgv|clear"
+    assert policy.duration_multiplier == weekday_profile.duration_multiplier
+    assert policy.incident_rate_multiplier == weekday_profile.incident_rate_multiplier
+
+
 def test_resolve_scenario_profile_prefers_richer_paired_day_context_for_collapsed_best_match(
     monkeypatch,
 ) -> None:

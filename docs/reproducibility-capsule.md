@@ -1,6 +1,6 @@
 # Reproducibility Capsule
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-11
 Applies To: deterministic benchmark workflows, thesis-evaluation bundles, and artifact provenance under `backend/out/*`
 
 ## One-Command Repro Demo
@@ -48,10 +48,10 @@ For thesis-lane reproduction, use the same OD corpus, budgets, and strict-eviden
 `backend/out/model_assets/manifest.json` currently records:
 
 - version `model-v2-uk`
-- generated/as-of `2026-03-21T13:09:12.262992Z`
+- generated/as-of `2026-04-10T15:18:10.176657Z`
 - source policy `repo_local_fresh`
 - 19 built assets
-- manifest signature `87270329a4e941f63c991fc3edf23298ecdaad803a74e2ab5388a16db4690d0a`
+- manifest signature `580e01e2da3350bf83182cc7900a82c54a0424a31146bc7e58911bbe3fd444ac`
 
 `backend/out/model_assets/refresh_manifest.json` fixes the repo-local input set used for that build, including hashes and as-of timestamps for:
 
@@ -64,16 +64,32 @@ For thesis-lane reproduction, use the same OD corpus, budgets, and strict-eviden
 - `backend/data/raw/uk/toll_tariffs_operator_truth.json`
 - toll classification/pricing corpora
 
-`backend/out/model_assets/live_publish_summary.json` records the publish handoff at `2026-03-21T13:09:18Z`, including:
+`backend/out/model_assets/live_publish_summary.json` records the latest successful publish handoff at `2026-04-10T15:18:18Z`, including:
 
-- scenario signature prefix `dbca97d56394`
-- fuel signature prefix `02ec87074710`
+- scenario signature prefix `e2499fbc342d`
+- fuel signature prefix `39e656b5ca83`
 
 ### Strict-readiness anchors
 
-The latest checked local strict preflight is `backend/out/model_assets/preflight_live_runtime.json` at `2026-04-04T15:48:39Z`, with `required_ok: true` and zero required failures.
+The latest checked local strict preflight is `backend/out/model_assets/preflight_live_runtime.json` at `2026-04-10T16:03:44Z`, with `required_ok: true` and `0` required failures.
+
+The checked passing slice includes:
+
+- `scenario_profiles` passing with `source=repo_local:scenario_profiles_uk.json`, `resolved_source_locator=backend/assets/uk/scenario_profiles_uk.json`, `calibration_basis=empirical_live_fit`, and `contexts=192`
+- `scenario_live_context` passing with `as_of_utc=2026-04-10T13:53:23Z` and source coverage `overall=1.0`
+
+That same preflight surface records the resolved scenario-profile locator used by strict runtime selection. Use it to verify whether strict runtime is currently on the repo-local scenario asset locator `backend/assets/uk/scenario_profiles_uk.json` or a live URL-backed source. It does not currently expose which repo-local file won inside `repo_local_fresh`.
 
 The latest checked thesis-bundle repo preflight is `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/repo_asset_preflight.json` at `2026-04-06T09:36:17Z`, also with `required_ok: true`.
+
+So the current checked local asset/publish slice and the current checked local strict-readiness result are now aligned on a passing repo-local preflight. Treat that as a local strict-runtime readiness anchor only.
+
+The current checked publishability/adoption verdict does not come from those local readiness anchors. It comes from the newer checked full-suite assessment bundle `out/headline_exports/current_checked/full_suite_curated_latest_20260411`, whose suite-level verdict JSON now reports `publishable_on_current_evidence=false`, `adoption_claim_supported=false`, `sample_size_failure_count=0`, `fairness_failure_count=0`, `hot_rerun_all_green=true`, and publishability blockers `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green`.
+
+That distinction matters for the maintained row status:
+
+- `P14.35` is not closed by the local preflight/manifests alone; any closure argument still has to pass through the checked full-suite bundle and its documented one-command reproduction surfaces.
+- `P14.39` is not closed by the local repro anchors alone; the checked reviewer package and current suite-level publishability/adoption verdict are still insufficient to claim closure today.
 
 ### Thesis-lane parameter anchors
 
@@ -135,7 +151,17 @@ For thesis-grade evaluation:
 - `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/repo_asset_preflight.json`
 - `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.json`
 - `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_metrics.json`
+- `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json` (plot-ready source behind the campaign-backed figure entries indexed in `paper_artifact_index.json`)
 - `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/methods_appendix.md`
+- `paper_artifact_index.json`
+
+For the latest checked suite-level verdict outside the local reviewer package:
+
+- `C:\app\out\artifacts\full_suite_curated_latest_20260411\index.md`
+- `C:\app\out\artifacts\full_suite_curated_latest_20260411\publishability_verdict.json`
+- `C:\app\out\artifacts\full_suite_curated_latest_20260411\publishability_assessment.md`
+
+Use those external checked suite artifacts when you need the current publishability/adoption judgment. Use the local reviewer package when you need the checked local table/figure source surfaces and the local campaign-backed evidence family. They are related, but they are not the same evidence scope.
 
 Recommended metadata bundle:
 
@@ -144,6 +170,12 @@ Recommended metadata bundle:
 3. model-asset manifest signature
 4. benchmark or thesis command line
 5. seed, budget, and comparator-policy settings
+
+For the current reviewer-facing publication slice, `paper_artifact_index.json` is the authoritative map from indexed headline table/figure surfaces to the checked local source artifacts. At present that map is source-artifact first: it records CSV/JSON evidence paths and does not claim that every indexed surface already has a committed PDF/SVG export.
+
+The checked focused-VOI bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now also carries additively backfilled `index.json` and `index.md` as bundle-level inspection entrypoints for artifact presence and export-status checks only. Treat those files as current inspection aids for this checked local bundle, not as proof that every older thesis-like bundle originally emitted them; older pre-refresh bundles may still legitimately lack those index files.
+
+That reviewer index now also names `table.focused_voi.preference_burden_summary` and `table.focused_voi.preference_burden_by_cohort` as maintained source surfaces backed by `thesis_summary.*`, `thesis_summary_by_cohort.*`, and `evaluation_manifest.json` from the checked focused-VOI bundle. Those maintained surfaces expose `median_preference_query_count`, `p90_preference_query_count`, `max_preference_query_count`, and `preference_certification_success_rate`. For the current checked local slice, read them as single-bundle descriptive surfaces only: the checked focused-VOI bundle now does populate those burden fields, but that descriptive surface still does not close `P14.17` or `P14.18` on its own.
 
 ## Comparing Two Runs
 
@@ -160,5 +192,7 @@ Use these checks before attributing differences to model changes:
 
 - [Documentation Index](DOCS_INDEX.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+- [Paper Artifact Index](../paper_artifact_index.json)
+- [Reviewer Quickstart](reviewer_quickstart.md)
 - [Sample Manifest and Outputs](sample-manifest.md)
 - [Performance Profiling Notes](performance-profiling-notes.md)

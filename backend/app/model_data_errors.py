@@ -39,6 +39,7 @@ FROZEN_REASON_CODES: frozenset[str] = frozenset(
         "no_route_candidates",
         "baseline_route_unavailable",
         "baseline_provider_unconfigured",
+        "waypoints_require_explicit_legacy_pipeline",
         "model_asset_unavailable",
     }
 )

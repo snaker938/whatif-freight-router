@@ -55,3 +55,56 @@ def test_docs_index_links_cover_maintained_non_docs_surfaces() -> None:
         "frontend/README.md",
         "claim_matrix.md",
     }.issubset(linked)
+
+
+def test_theorem_and_claim_docs_are_semantically_consistent() -> None:
+    module = _load_check_docs_module()
+
+    assert module.run_theorem_claim_consistency_check() == []
+
+
+def test_theorem_map_inventory_covers_required_family_ids() -> None:
+    module = _load_check_docs_module()
+
+    theorem_rows = module.load_theorem_map_rows()
+
+    assert module.REQUIRED_THEOREM_IDS.issubset(theorem_rows)
+
+
+def test_theorem_mentions_fail_when_theorem_id_is_unknown(tmp_path: Path) -> None:
+    module = _load_check_docs_module()
+
+    note = tmp_path / "note.md"
+    note.write_text("## Note\nThis section depends on THM-99.\n", encoding="utf-8")
+
+    errors = module.run_theorem_mention_consistency_check(
+        module.load_theorem_map_rows(),
+        markdown_files=[note],
+    )
+
+    assert any("THM-99" in error for error in errors)
+
+
+def test_theorem_mentions_fail_when_mapped_family_lacks_required_fields(tmp_path: Path) -> None:
+    module = _load_check_docs_module()
+
+    note = tmp_path / "note.md"
+    note.write_text("## Note\nTheorem: Safe elimination\n", encoding="utf-8")
+
+    errors = module.run_theorem_mention_consistency_check(
+        {
+            "THM-01": {
+                "ID": "THM-01",
+                "Family": "Safe elimination",
+                "Unit test anchor": "backend/tests/test_dccs.py::test_candidate_ledger_is_stable_and_auditable",
+                "Negative / property test anchor": "",
+                "Artifact field(s)": "dccs_candidates.jsonl.safe_eliminated",
+                "Evaluator metric(s)": "",
+                "Report appendix location": "Appendix N",
+            }
+        },
+        markdown_files=[note],
+    )
+
+    assert any("Negative / property test anchor" in error for error in errors)
+    assert any("Evaluator metric(s)" in error for error in errors)

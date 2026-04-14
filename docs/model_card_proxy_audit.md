@@ -1,6 +1,6 @@
 # Proxy-Audit Model Card
 
-This page documents the current proxy-audit / correction / propensity surface at the level the repository actually supports today.
+This page documents the current proxy-audit / correction surface at the level the repository actually supports today.
 
 It is intentionally conservative. It describes the current features, signals, and caveats, but it does **not** claim complete leakage-safe validation or unconditional overlap.
 
@@ -9,7 +9,7 @@ It is intentionally conservative. It describes the current features, signals, an
 The repository uses proxy and audit evidence in support-aware routing and evaluation workflows. This card keeps the model-facing part of that story explicit:
 
 - what signals the docs already mention
-- what training or validation split language is documented
+- what validation language is documented
 - what failure modes and caveats remain visible
 - where the current evidence lives
 
@@ -49,6 +49,8 @@ The repo’s docs also reference the support/fidelity state family and the curre
 - world-support summaries
 - correction-related artifact names and summary surfaces
 
+The evaluator-facing cohort vocabulary also includes `support_fragile`, which should be read as a derived support-richness cohort slice rather than a mutually exclusive class. It can overlap with other cohort labels when a row is both support-fragile and another labeled case under the current evaluator thresholding.
+
 The key point is that the model surface is support-aware and evidence-family-aware, not a black-box one-number score.
 
 ## Documented Validation Language
@@ -57,7 +59,7 @@ The current docs do describe validation and calibration, but only at a bounded l
 
 What is documented:
 
-- the support/fidelity/world-policy/correction surfaces are currently test-backed in the repo
+- the support/fidelity/world-policy/correction surfaces are currently test-backed in the repo, including bounded helper-level guards for clamped counts/probabilities, zero-proxy correction behavior, deterministic sparse-summary defaults, and emitted correction-mass/provenance fields
 - the quality-gates page records strict preflight evidence, current local validation, and benchmark evidence
 - the claim matrix marks the support/fidelity/world-policy/correction surface as empirical
 - the docs consistently point to checked artifacts and bundle outputs rather than a universal model guarantee
@@ -85,6 +87,10 @@ These are not defects hidden from the publication surface. They are part of the 
 
 The current evidence for this surface lives in:
 
+- `docs/evaluation_card.md`
+  - evaluator lanes, cohort labels, and checked artifacts
+- `docs/negative_results.md`
+  - scoped limitations and publication-safe wording
 - `docs/thesis-codebase-report.md`
   - strictness and scope limitations
   - support and proxy caveats
@@ -121,6 +127,22 @@ The strongest current claim is limited to this:
 - the evaluator uses them in checked bundles and current docs
 - the model card can point to those surfaces and their artifacts
 - the current evidence is sufficient for scoped UK-focused analysis
+- the checked full-suite reviewer root now carries the publishability-facing closure surfaces for proxy-audit sample size and claim discipline via `out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.*` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`
+
+The current checked evidence should be read in two layers. The lane-local calibration metrics remain the detailed truth for overlap, support-conditioned calibration, and estimator behavior. The checked full-suite reviewer root is still the publication-safe summary surface for the sample-size and claim-discipline family: it records the proxy-audit gate row in `sample_size_gate_summary.*` with the maintained row-count requirement, direct `evaluation_requirement_observed_count`, `evaluation_requirement_observed_count_source`, and `evaluation_requirement_total_minimum`. But the suite verdict in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json` currently reports `publishable_on_current_evidence=false`, `adoption_claim_supported=false`, `hot_rerun_all_green=true`, and remaining blockers `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green`.
+
+That means the current checked evidence supports the leakage-safe calibration surface and the reviewer-facing proxy-audit sample-size accounting, but not a green overall publication verdict. The detailed calibration plots, positivity diagnostics, and support-conditioned summaries are still the right place to inspect model behavior, while the full-suite root provides the honest gate-facing summary instead of leaving the reader with row-count-only totals.
+
+## Validation Split And Cross-Fit Strategy
+
+The current checked calibration artifacts are explicitly out-of-fold rather than in-sample:
+
+- the emitted calibration payload carries `leakage_safe_training=true`
+- the support-conditioned payloads are carried with `oof_row_count=50`
+- the checked bundle reports `proxy_audit_calibration_leakage_safe_training=true`
+- the checked bundle also exposes `proxy_bias_model_version`, `audit_propensity_version`, and the full support-conditioned calibration JSON rather than a synthetic placeholder
+
+In other words, the repo already documents the validation split the checked bundle actually uses: a leakage-safe, out-of-fold calibration path with support-conditioned metrics. That is enough to describe the model-card surface truthfully, even though it is still not enough to claim the audit lane is fully green.
 
 It does **not** justify:
 
@@ -144,3 +166,9 @@ When reviewing this surface, ask:
 The current proxy-audit surface is explicit and test-backed at the implementation level, but the documentation only supports a cautious, scoped reading.
 
 That is the correct publication posture for the current repository state: support-aware and evidence-rich, but not complete or universally validated.
+
+## Related Docs
+
+- [Data Card](data_card.md)
+- [Evaluation Card](evaluation_card.md)
+- [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)

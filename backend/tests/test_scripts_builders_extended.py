@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.run_store as run_store
 import scripts.benchmark_model_v2 as benchmark_model_v2
 import scripts.build_departure_profiles_uk as build_departure_profiles_uk
 import scripts.build_model_assets as build_model_assets
@@ -15,6 +16,7 @@ import scripts.build_routing_graph_uk as build_routing_graph_uk
 import scripts.build_scenario_profiles_uk as build_scenario_profiles_uk
 import scripts.build_stochastic_calibration_uk as build_stochastic_calibration_uk
 import scripts.build_terrain_tiles_uk as build_terrain_tiles_uk
+import scripts.run_full_latest_suite as run_full_latest_suite
 
 
 def test_benchmark_model_v2_load_fixture_routes_and_metrics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -327,6 +329,108 @@ def test_build_scenario_profiles_uses_latest_observation_time_for_as_of(tmp_path
     assert payload["source_observation_filter"]["dropped_row_count"] == 0
 
 
+def test_build_scenario_profiles_counts_nested_empirical_outcome_rows_as_observed(tmp_path: Path) -> None:
+    raw_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    observed_modes_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
+    output_json = tmp_path / "scenario_profiles_uk.json"
+
+    corridor_keys = [f"uk{idx:03d}" for idx in range(8)]
+    hour_slots = [0, 4, 8, 12, 16, 20]
+    weather_by_hour = {0: "clear", 4: "clear", 8: "rain", 12: "clear", 16: "rain", 20: "clear"}
+
+    def _nested_modes_row(corridor: str, hour: int, as_of_utc: str, *, mode_source: str) -> dict[str, object]:
+        return {
+            "corridor_bucket": corridor,
+            "corridor_geohash5": corridor,
+            "hour_slot_local": hour,
+            "road_mix_bucket": "mixed",
+            "road_mix_vector": {"mixed": 1.0},
+            "vehicle_class": "rigid_hgv",
+            "day_kind": "weekday" if hour < 20 else "weekend",
+            "weather_bucket": weather_by_hour[hour],
+            "weather_regime": weather_by_hour[hour],
+            "as_of_utc": as_of_utc,
+            "flow_index": 1.15,
+            "speed_index": 1.0,
+            "delay_pressure": 0.8,
+            "severity_index": 0.9,
+            "weather_severity_index": 0.7 if weather_by_hour[hour] == "clear" else 1.2,
+            "mode_observation_source": mode_source,
+            "mode_is_projected": mode_source != "empirical_outcome_public_feeds_v1",
+            "modes": {
+                "no_sharing": {
+                    "duration_multiplier": 1.22,
+                    "incident_rate_multiplier": 1.22,
+                    "incident_delay_multiplier": 1.22,
+                    "fuel_consumption_multiplier": 1.22,
+                    "emissions_multiplier": 1.22,
+                    "stochastic_sigma_multiplier": 1.22,
+                },
+                "partial_sharing": {
+                    "duration_multiplier": 1.08,
+                    "incident_rate_multiplier": 1.08,
+                    "incident_delay_multiplier": 1.08,
+                    "fuel_consumption_multiplier": 1.08,
+                    "emissions_multiplier": 1.08,
+                    "stochastic_sigma_multiplier": 1.08,
+                },
+                "full_sharing": {
+                    "duration_multiplier": 0.94,
+                    "incident_rate_multiplier": 0.94,
+                    "incident_delay_multiplier": 0.94,
+                    "fuel_consumption_multiplier": 0.94,
+                    "emissions_multiplier": 0.94,
+                    "stochastic_sigma_multiplier": 0.94,
+                },
+            },
+        }
+
+    raw_rows: list[dict[str, object]] = []
+    observed_rows: list[dict[str, object]] = []
+    for corridor_index, corridor in enumerate(corridor_keys):
+        for hour_index, hour in enumerate(hour_slots):
+            observed_as_of = (
+                "2026-02-22T23:47:40Z"
+                if corridor_index == len(corridor_keys) - 1 and hour == hour_slots[-1]
+                else f"2026-02-{20 + ((corridor_index + hour_index) % 3):02d}T{hour:02d}:00:00Z"
+            )
+            raw_rows.append(
+                _nested_modes_row(
+                    corridor,
+                    hour,
+                    observed_as_of,
+                    mode_source="projection_from_runtime_profile",
+                )
+            )
+            observed_rows.append(
+                _nested_modes_row(
+                    corridor,
+                    hour,
+                    observed_as_of,
+                    mode_source="empirical_outcome_public_feeds_v1",
+                )
+            )
+
+    raw_jsonl.write_text("\n".join(json.dumps(row) for row in raw_rows) + "\n", encoding="utf-8")
+    observed_modes_jsonl.write_text("\n".join(json.dumps(row) for row in observed_rows) + "\n", encoding="utf-8")
+
+    payload = build_scenario_profiles_uk.build(
+        raw_jsonl=raw_jsonl,
+        observed_modes_jsonl=observed_modes_jsonl,
+        output_json=output_json,
+        min_contexts=8,
+        min_observed_mode_row_share=0.2,
+        max_projection_dominant_context_share=0.8,
+    )
+
+    expected_rows_per_corpus = len(corridor_keys) * len(hour_slots) * len(build_scenario_profiles_uk.MODES)
+    assert output_json.exists()
+    assert payload["source_observation_window"]["row_count"] == expected_rows_per_corpus * 2
+    assert payload["source_observation_window"]["observed_mode_row_count"] == expected_rows_per_corpus
+    assert payload["source_observation_filter"]["selected_observed_mode_row_count"] == expected_rows_per_corpus
+    assert payload["holdout_metrics"]["observed_mode_row_share"] == pytest.approx(0.5)
+
+
 def test_build_scenario_profiles_filters_to_recent_observation_window(tmp_path: Path) -> None:
     raw_jsonl = tmp_path / "scenario_live_observed.jsonl"
     observed_modes_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
@@ -407,6 +511,270 @@ def test_build_scenario_profiles_filters_to_recent_observation_window(tmp_path: 
     assert payload["source_observation_filter"]["input_row_count"] == len(all_rows) * 2
     assert payload["source_observation_filter"]["selected_row_count"] == len(fresh_rows) * 2
     assert payload["source_observation_filter"]["dropped_row_count"] == len(stale_rows) * 2
+
+
+def test_build_scenario_profiles_augments_observed_rows_from_bucket_matched_live_refs(
+    tmp_path: Path,
+) -> None:
+    raw_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    observed_modes_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
+    output_json = tmp_path / "scenario_profiles_uk.json"
+
+    corridor_pairs = [(f"corridor_{idx:02d}", f"uk{idx:03d}") for idx in range(8)]
+    hour_slots = [0, 4, 8, 12, 16, 20]
+    weather_by_hour = {0: "clear", 4: "clear", 8: "rain", 12: "clear", 16: "rain", 20: "clear"}
+    stale_live_rows: list[dict[str, object]] = []
+    fresh_observed_rows: list[dict[str, object]] = []
+
+    for corridor_index, (corridor_bucket, corridor_geohash5) in enumerate(corridor_pairs):
+        for hour_index, hour in enumerate(hour_slots):
+            stale_as_of = f"2026-03-30T{hour:02d}:{(corridor_index + hour_index) % 50:02d}:00Z"
+            fresh_as_of = "2026-04-10T13:53:23Z"
+            weather_bucket = weather_by_hour[hour]
+            stale_live_rows.append(
+                {
+                    "corridor_bucket": corridor_bucket,
+                    "hour_slot_local": hour,
+                    "road_mix_bucket": "mixed",
+                    "road_mix_vector": {"mixed": 1.0},
+                    "vehicle_class": "rigid_hgv",
+                    "day_kind": "weekday" if hour < 20 else "weekend",
+                    "weather_bucket": weather_bucket,
+                    "weather_regime": weather_bucket,
+                    "as_of_utc": stale_as_of,
+                    "flow_index": 1.15 + (0.01 * corridor_index),
+                    "speed_index": 1.0,
+                    "delay_pressure": 0.7 + (0.01 * hour_index),
+                    "severity_index": 0.9,
+                    "weather_severity_index": 0.7 if weather_bucket == "clear" else 1.2,
+                    "mode_observation_source": "runtime_projection",
+                    "modes": {
+                        "no_sharing": {
+                            "duration_multiplier": 1.22,
+                            "incident_rate_multiplier": 1.22,
+                            "incident_delay_multiplier": 1.22,
+                            "fuel_consumption_multiplier": 1.22,
+                            "emissions_multiplier": 1.22,
+                            "stochastic_sigma_multiplier": 1.22,
+                        },
+                        "partial_sharing": {
+                            "duration_multiplier": 1.08,
+                            "incident_rate_multiplier": 1.08,
+                            "incident_delay_multiplier": 1.08,
+                            "fuel_consumption_multiplier": 1.08,
+                            "emissions_multiplier": 1.08,
+                            "stochastic_sigma_multiplier": 1.08,
+                        },
+                        "full_sharing": {
+                            "duration_multiplier": 0.94,
+                            "incident_rate_multiplier": 0.94,
+                            "incident_delay_multiplier": 0.94,
+                            "fuel_consumption_multiplier": 0.94,
+                            "emissions_multiplier": 0.94,
+                            "stochastic_sigma_multiplier": 0.94,
+                        },
+                    },
+                }
+            )
+            fresh_observed_rows.append(
+                {
+                    "corridor_bucket": corridor_bucket,
+                    "corridor_geohash5": corridor_geohash5,
+                    "hour_slot_local": hour,
+                    "road_mix_bucket": "mixed",
+                    "road_mix_vector": {"mixed": 1.0},
+                    "vehicle_class": "rigid_hgv",
+                    "day_kind": "weekday" if hour < 20 else "weekend",
+                    "weather_bucket": weather_bucket,
+                    "weather_regime": weather_bucket,
+                    "as_of_utc": fresh_as_of,
+                    "mode_observation_source": "empirical_outcome_public_feeds_v1",
+                    "modes": {
+                        "no_sharing": {
+                            "duration_multiplier": 1.24,
+                            "incident_rate_multiplier": 1.24,
+                            "incident_delay_multiplier": 1.24,
+                            "fuel_consumption_multiplier": 1.24,
+                            "emissions_multiplier": 1.24,
+                            "stochastic_sigma_multiplier": 1.24,
+                        },
+                        "partial_sharing": {
+                            "duration_multiplier": 1.10,
+                            "incident_rate_multiplier": 1.10,
+                            "incident_delay_multiplier": 1.10,
+                            "fuel_consumption_multiplier": 1.10,
+                            "emissions_multiplier": 1.10,
+                            "stochastic_sigma_multiplier": 1.10,
+                        },
+                        "full_sharing": {
+                            "duration_multiplier": 0.96,
+                            "incident_rate_multiplier": 0.96,
+                            "incident_delay_multiplier": 0.96,
+                            "fuel_consumption_multiplier": 0.96,
+                            "emissions_multiplier": 0.96,
+                            "stochastic_sigma_multiplier": 0.96,
+                        },
+                    },
+                }
+            )
+
+    raw_jsonl.write_text("\n".join(json.dumps(row) for row in stale_live_rows) + "\n", encoding="utf-8")
+    observed_modes_jsonl.write_text(
+        "\n".join(json.dumps(row) for row in fresh_observed_rows) + "\n",
+        encoding="utf-8",
+    )
+
+    payload = build_scenario_profiles_uk.build(
+        raw_jsonl=raw_jsonl,
+        observed_modes_jsonl=observed_modes_jsonl,
+        output_json=output_json,
+        min_contexts=8,
+        min_observed_mode_row_share=0.2,
+        max_projection_dominant_context_share=0.8,
+        max_observation_window_minutes=60,
+    )
+
+    expected_observed_rows = len(corridor_pairs) * len(hour_slots) * len(build_scenario_profiles_uk.MODES)
+    traffic_fit = payload["transform_params"]["live_feature_transform"]["traffic_pressure"]
+
+    assert output_json.exists()
+    assert payload["source_observation_filter"]["selected_row_count"] == expected_observed_rows
+    assert payload["source_observation_filter"]["selected_observed_mode_row_count"] == expected_observed_rows
+    assert payload["holdout_metrics"]["observed_mode_row_share"] == pytest.approx(1.0)
+    assert int(traffic_fit["sample_count"]) == expected_observed_rows
+
+
+def test_build_scenario_profiles_falls_back_when_recent_rows_lack_complete_traffic_features(
+    tmp_path: Path,
+) -> None:
+    raw_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    observed_modes_jsonl = tmp_path / "scenario_mode_outcomes_observed.jsonl"
+    output_json = tmp_path / "scenario_profiles_uk.json"
+    mirror_output_json = tmp_path / "out" / "model_assets" / "scenario_profiles_uk.json"
+
+    corridor_pairs = [(f"corridor_{idx:02d}", f"uk{idx:03d}") for idx in range(8)]
+    hour_slots = [0, 4, 8, 12, 16, 20]
+    weather_by_hour = {0: "clear", 4: "clear", 8: "rain", 12: "clear", 16: "rain", 20: "clear"}
+    current_as_of = "2026-04-13T22:36:36Z"
+    raw_rows: list[dict[str, object]] = []
+    observed_rows: list[dict[str, object]] = []
+
+    for corridor_index, (corridor_bucket, corridor_geohash5) in enumerate(corridor_pairs):
+        for hour_index, hour in enumerate(hour_slots):
+            weather_bucket = weather_by_hour[hour]
+            raw_rows.append(
+                {
+                    "corridor_bucket": corridor_bucket,
+                    "corridor_geohash5": corridor_geohash5,
+                    "hour_slot_local": hour,
+                    "road_mix_bucket": "mixed",
+                    "road_mix_vector": {"mixed": 1.0},
+                    "vehicle_class": "rigid_hgv",
+                    "day_kind": "weekday" if hour < 20 else "weekend",
+                    "weather_bucket": weather_bucket,
+                    "weather_regime": weather_bucket,
+                    "as_of_utc": current_as_of,
+                    "flow_index": 0.0,
+                    "speed_index": 0.0,
+                    "delay_pressure": 0.65 + (0.02 * hour_index),
+                    "severity_index": 0.8 + (0.01 * corridor_index),
+                    "weather_severity_index": 0.7 if weather_bucket == "clear" else 1.2,
+                    "mode_observation_source": "runtime_projection",
+                    "modes": {
+                        "no_sharing": {
+                            "duration_multiplier": 1.18 + (0.01 * corridor_index),
+                            "incident_rate_multiplier": 1.19 + (0.01 * corridor_index),
+                            "incident_delay_multiplier": 1.17 + (0.01 * corridor_index),
+                            "fuel_consumption_multiplier": 1.12 + (0.01 * corridor_index),
+                            "emissions_multiplier": 1.11 + (0.01 * corridor_index),
+                            "stochastic_sigma_multiplier": 1.16 + (0.01 * corridor_index),
+                        },
+                        "partial_sharing": {
+                            "duration_multiplier": 1.08 + (0.01 * corridor_index),
+                            "incident_rate_multiplier": 1.09 + (0.01 * corridor_index),
+                            "incident_delay_multiplier": 1.07 + (0.01 * corridor_index),
+                            "fuel_consumption_multiplier": 1.04 + (0.01 * corridor_index),
+                            "emissions_multiplier": 1.03 + (0.01 * corridor_index),
+                            "stochastic_sigma_multiplier": 1.06 + (0.01 * corridor_index),
+                        },
+                        "full_sharing": {
+                            "duration_multiplier": 0.98,
+                            "incident_rate_multiplier": 0.99,
+                            "incident_delay_multiplier": 0.98,
+                            "fuel_consumption_multiplier": 0.98,
+                            "emissions_multiplier": 0.98,
+                            "stochastic_sigma_multiplier": 0.99,
+                        },
+                    },
+                }
+            )
+            observed_rows.append(
+                {
+                    "corridor_bucket": corridor_bucket,
+                    "corridor_geohash5": corridor_geohash5,
+                    "hour_slot_local": hour,
+                    "road_mix_bucket": "mixed",
+                    "road_mix_vector": {"mixed": 1.0},
+                    "vehicle_class": "rigid_hgv",
+                    "day_kind": "weekday" if hour < 20 else "weekend",
+                    "weather_bucket": weather_bucket,
+                    "weather_regime": weather_bucket,
+                    "as_of_utc": current_as_of,
+                    "mode_observation_source": "empirical_outcome_public_feeds_v1",
+                    "modes": {
+                        "no_sharing": {
+                            "duration_multiplier": 1.20 + (0.01 * corridor_index),
+                            "incident_rate_multiplier": 1.21 + (0.01 * corridor_index),
+                            "incident_delay_multiplier": 1.19 + (0.01 * corridor_index),
+                            "fuel_consumption_multiplier": 1.14 + (0.01 * corridor_index),
+                            "emissions_multiplier": 1.13 + (0.01 * corridor_index),
+                            "stochastic_sigma_multiplier": 1.18 + (0.01 * corridor_index),
+                        },
+                        "partial_sharing": {
+                            "duration_multiplier": 1.10 + (0.01 * corridor_index),
+                            "incident_rate_multiplier": 1.11 + (0.01 * corridor_index),
+                            "incident_delay_multiplier": 1.09 + (0.01 * corridor_index),
+                            "fuel_consumption_multiplier": 1.06 + (0.01 * corridor_index),
+                            "emissions_multiplier": 1.05 + (0.01 * corridor_index),
+                            "stochastic_sigma_multiplier": 1.08 + (0.01 * corridor_index),
+                        },
+                        "full_sharing": {
+                            "duration_multiplier": 0.98,
+                            "incident_rate_multiplier": 0.99,
+                            "incident_delay_multiplier": 0.98,
+                            "fuel_consumption_multiplier": 0.98,
+                            "emissions_multiplier": 0.98,
+                            "stochastic_sigma_multiplier": 0.99,
+                        },
+                    },
+                }
+            )
+
+    raw_jsonl.write_text("\n".join(json.dumps(row) for row in raw_rows) + "\n", encoding="utf-8")
+    observed_modes_jsonl.write_text("\n".join(json.dumps(row) for row in observed_rows) + "\n", encoding="utf-8")
+
+    payload = build_scenario_profiles_uk.build(
+        raw_jsonl=raw_jsonl,
+        observed_modes_jsonl=observed_modes_jsonl,
+        output_json=output_json,
+        mirror_output_json=mirror_output_json,
+        min_contexts=8,
+        min_observed_mode_row_share=0.2,
+        max_projection_dominant_context_share=0.8,
+        max_observation_window_minutes=60,
+    )
+
+    expected_rows = len(corridor_pairs) * len(hour_slots) * len(build_scenario_profiles_uk.MODES) * 2
+    traffic_fit = payload["transform_params"]["live_feature_transform"]["traffic_pressure"]
+
+    assert output_json.exists()
+    assert mirror_output_json.exists()
+    assert mirror_output_json.read_text(encoding="utf-8") == output_json.read_text(encoding="utf-8")
+    assert payload["source_observation_filter"]["selected_row_count"] == expected_rows
+    assert int(traffic_fit["sample_count"]) == expected_rows
+    assert int(traffic_fit["fit_sample_count"]) == 0
+    assert traffic_fit["fit_mode"] == "default_weights_fallback"
+    assert traffic_fit["fallback_reason"] == "insufficient_feature_complete_samples"
 
 
 def test_build_stochastic_calibration_helpers_and_synthetic_build(
@@ -560,6 +928,24 @@ def test_build_model_assets_helpers_and_main_wiring(tmp_path: Path, monkeypatch:
     assert captured["force_rebuild_terrain"] is True
 
 
+def test_build_model_assets_main_default_out_dir_is_repo_rooted(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_build_assets(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(build_model_assets, "build_assets", _fake_build_assets)
+    monkeypatch.chdir(build_model_assets.ROOT)
+    monkeypatch.setattr(build_model_assets.sys, "argv", ["build_model_assets.py"])
+
+    build_model_assets.main()
+
+    expected = build_model_assets.ROOT / "out" / "model_assets"
+    wrong_cwd_relative = build_model_assets.ROOT / "backend" / "out" / "model_assets"
+    assert captured["out_dir"] == expected
+    assert captured["out_dir"] != wrong_cwd_relative
+
+
 def test_build_model_assets_existing_coverage_report_reuse_requires_fresh_matching_graph(tmp_path: Path) -> None:
     graph_output = tmp_path / "routing_graph_uk.json"
     graph_output.write_text(json.dumps({"nodes": [], "edges": []}), encoding="utf-8")
@@ -655,3 +1041,60 @@ def test_build_model_assets_rejects_proxy_toll_raw_inputs(tmp_path: Path) -> Non
             tariffs_path=tariffs_path,
             source_policy="strict_external",
         )
+
+
+def test_run_full_latest_suite_uses_curated_base_pool_slice_when_curated_defaults_are_short(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_store.settings, "out_dir", str(tmp_path / "out"), raising=False)
+    monkeypatch.setattr(run_full_latest_suite.settings, "out_dir", str(tmp_path / "out"), raising=False)
+
+    def _fail_generated(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("generated fallback should not be used when the curated base pool is available")
+
+    monkeypatch.setattr(run_full_latest_suite, "_build_generated_corpora", _fail_generated)
+    monkeypatch.setattr(
+        run_full_latest_suite,
+        "_build_optional_stopping_corpus",
+        lambda *args, **kwargs: run_full_latest_suite.CorpusArtifact(
+            key="optional_stopping",
+            label="Optional-stopping latest corpus",
+            row_count=run_full_latest_suite.DEFAULT_OPTIONAL_STOPPING_COUNT,
+            csv_path=str(tmp_path / "optional.csv"),
+            json_path=str(tmp_path / "optional.json"),
+            summary_path=str(tmp_path / "optional.summary.json"),
+            source_summary_path=str(tmp_path / "optional.source.json"),
+        ),
+    )
+
+    args = SimpleNamespace(
+        use_curated_corpora=True,
+        broad_corpus_csv=None,
+        focused_corpus_csv=None,
+        transfer_corpus_csv=None,
+        synthetic_corpus_csv=None,
+        broad_count=run_full_latest_suite.DEFAULT_BROAD_COUNT,
+        focused_count=run_full_latest_suite.DEFAULT_FOCUSED_COUNT,
+        transfer_count=run_full_latest_suite.DEFAULT_TRANSFER_COUNT,
+        synthetic_count=run_full_latest_suite.DEFAULT_SYNTHETIC_COUNT,
+    )
+
+    corpora = run_full_latest_suite._build_corpora(args, suite_run_id="suite_curated_base_pool_test")
+
+    assert corpora["broad"].row_count == run_full_latest_suite.DEFAULT_BROAD_COUNT
+    assert corpora["focused"].row_count == run_full_latest_suite.DEFAULT_FOCUSED_COUNT
+    assert corpora["transfer"].row_count == run_full_latest_suite.DEFAULT_TRANSFER_COUNT
+    assert corpora["synthetic"].row_count == run_full_latest_suite.DEFAULT_SYNTHETIC_COUNT
+
+    for key, expected_policy in {
+        "broad": "curated_base_pool_representative_slice",
+        "focused": "curated_base_pool_focused_mixed_slice",
+        "transfer": "curated_base_pool_transfer_slice",
+        "synthetic": "curated_base_pool_representative_slice",
+    }.items():
+        artifact = corpora[key]
+        assert artifact.source_summary_path.endswith("latest_corpus_curated_base_pool.summary.json")
+        summary = json.loads(Path(artifact.summary_path).read_text(encoding="utf-8"))
+        assert summary["selection_policy"] == expected_policy
+        assert summary["selected_count"] == artifact.row_count

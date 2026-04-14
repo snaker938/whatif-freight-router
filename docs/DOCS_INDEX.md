@@ -1,6 +1,6 @@
 # Documentation Index
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-14
 Applies To: `backend/` + `frontend/` (strict v2 runtime)
 
 This is the source-of-truth index for all project documentation.
@@ -8,6 +8,11 @@ Start here, then follow topic links.
 
 ## Getting Started
 
+- [Root README](../README.md)
+- [Codex Agent Ops](agent-ops/README.md)
+- [Backend README](../backend/README.md)
+- [Frontend README](../frontend/README.md)
+- [Operator Runbook](runbook.md)
 - [Run and Operations Guide](run-and-operations.md)
 - [Reviewer Quickstart](reviewer_quickstart.md)
 - [API Cookbook](api-cookbook.md)
@@ -51,12 +56,27 @@ Start here, then follow topic links.
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
 - [Performance Profiling Notes](performance-profiling-notes.md)
 - [Reproducibility Capsule](reproducibility-capsule.md)
+- [Evaluation Card](evaluation_card.md)
 - [ETA Concept Drift Checks](eta-concept-drift.md)
+- [Theorem and Lower-Bound Package](theorem_package.md)
+
+## Publication and Review
+
+- [Paper Artifact Index](../paper_artifact_index.json)
+- [Top-Level Claim Matrix](../claim_matrix.md)
+- [Detailed Claim Matrix](claim_matrix.md)
+- [Theorem Map](theorem_map.md)
+- [Negative Results](negative_results.md)
+- [Data Card](data_card.md)
+- [Model Card for Proxy/Audit Calibration](model_card_proxy_audit.md)
 
 ## Docs Maintenance
 
 - [Redesign Implementation Tracker](redesign-implementation-tracker.md)
 - [Reviewer Quickstart](reviewer_quickstart.md)
+- [Codex Agent Ops](agent-ops/README.md)
+
+The agent-ops docs describe the real-six-child parent-controller workflow. A parent is healthy only when the shared board and `doctor` output show 6 live child subagents and no missing-child violation.
 
 - Review tracker and publication gaps:
 
@@ -105,4 +125,5 @@ Project docs are markdown files under `docs/`. There is no separate docs build p
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+- [Codex Agent Ops](agent-ops/README.md)
 

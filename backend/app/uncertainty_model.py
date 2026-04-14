@@ -17,6 +17,7 @@ from .certification_models import AuditWorldBundle, ProbabilisticWorldBundle, Wo
 from .model_data_errors import ModelDataError
 from .risk_model import cvar, normalized_weighted_utility, quantile, robust_objective
 from .settings import settings
+from .support_model import MultiFidelitySummary, build_multi_fidelity_summary
 
 try:
     UK_TZ = ZoneInfo("Europe/London")
@@ -298,6 +299,7 @@ class WorldBundleSummary:
     support_state: WorldSupportState | None = None
     probabilistic_world_bundle: ProbabilisticWorldBundle | None = None
     audit_world_bundle: AuditWorldBundle | None = None
+    multi_fidelity_summary: MultiFidelitySummary | None = None
     uncertainty_summary: UncertaintySummary | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
 
@@ -321,13 +323,144 @@ def build_world_bundle_summary(
     provenance: Mapping[str, Any] | None = None,
 ) -> WorldBundleSummary:
     payload = dict(manifest or {})
+    all_world_rows = [
+        dict(world)
+        for world in payload.get("worlds", [])
+        if isinstance(world, Mapping)
+    ]
+    probabilistic_world_rows = [
+        dict(world)
+        for world in payload.get("probabilistic_worlds", [])
+        if isinstance(world, Mapping)
+    ]
+    if not probabilistic_world_rows and all_world_rows:
+        probabilistic_world_rows = [
+            dict(world)
+            for world in all_world_rows
+            if str(world.get("world_kind", "sampled")).strip().lower() == "sampled"
+        ]
+    audit_world_rows = [
+        dict(world)
+        for world in payload.get("audit_worlds", [])
+        if isinstance(world, Mapping)
+    ]
+    if not audit_world_rows and all_world_rows:
+        audit_world_rows = [
+            dict(world)
+            for world in all_world_rows
+            if str(world.get("world_kind", "sampled")).strip().lower() != "sampled"
+        ]
+    audited_world_rows = [
+        dict(world)
+        for world in payload.get("audited_worlds", [])
+        if isinstance(world, Mapping)
+    ]
+    if not audited_world_rows and all_world_rows:
+        audited_world_rows = [
+            dict(world)
+            for world in all_world_rows
+            if any(
+                str(value).strip().lower() == "refreshed"
+                for value in (
+                    world.get("states", {}).values()
+                    if isinstance(world.get("states"), Mapping)
+                    else []
+                )
+            )
+        ]
+    probabilistic_manifest = dict(payload)
+    if probabilistic_world_rows:
+        probabilistic_manifest["worlds"] = probabilistic_world_rows
+        probabilistic_manifest["world_count"] = len(probabilistic_world_rows)
+        probabilistic_manifest["unique_world_count"] = len(
+            {
+                str(world.get("world_id") or "")
+                for world in probabilistic_world_rows
+                if str(world.get("world_id") or "").strip()
+            }
+        ) or len(probabilistic_world_rows)
     probabilistic_world_bundle = (
-        ProbabilisticWorldBundle.from_manifest(payload) if payload else None
+        ProbabilisticWorldBundle.from_manifest(probabilistic_manifest)
+        if probabilistic_manifest
+        else None
     )
     resolved_support_state = support_state
     support_payload = payload.get("support_state")
     if resolved_support_state is None and isinstance(support_payload, Mapping):
         resolved_support_state = WorldSupportState(**dict(support_payload))
+    inferred_proxy_world_count = (
+        len(probabilistic_world_rows)
+        if probabilistic_world_rows
+        else (
+            len(all_world_rows)
+            if all_world_rows and not audit_world_rows
+            else 0
+        )
+    )
+    proxy_world_count = payload.get(
+        "proxy_world_count",
+        inferred_proxy_world_count if inferred_proxy_world_count > 0 else payload.get("world_count", 0),
+    )
+    inferred_audit_world_count = (
+        len(audit_world_rows)
+        if audit_world_rows
+        else len(audited_world_rows)
+    )
+    audit_world_count = payload.get(
+        "audit_world_count",
+        getattr(audit_world_bundle, "audit_world_count", 0)
+        if audit_world_bundle is not None
+        else inferred_audit_world_count,
+    )
+    proxy_bias_model_version = payload.get(
+        "proxy_bias_model_version",
+        payload.get("proxy_correction_version", ""),
+    )
+    audit_propensity_version = payload.get("audit_propensity_version", "")
+    proxy_correction_active = bool(payload.get("proxy_correction_active", False))
+    multi_fidelity_certificate_basis = payload.get(
+        "multi_fidelity_certificate_basis",
+        payload.get("multi_fidelity_basis"),
+    )
+    audit_correction_mass = payload.get("audit_correction_mass", 0.0)
+    resolved_audit_world_bundle = audit_world_bundle
+    if resolved_audit_world_bundle is None and (inferred_audit_world_count > 0 or audited_world_rows):
+        resolved_audit_world_bundle = AuditWorldBundle(
+            audit_world_count=max(0, int(inferred_audit_world_count)),
+            audited_route_pair_count=max(0, len(audited_world_rows)),
+            support_condition=(
+                str(
+                    getattr(resolved_support_state, "out_of_support_reason", "")
+                    or getattr(resolved_support_state, "support_source", "unknown")
+                    or "unknown"
+                )
+                .strip()
+                or "unknown"
+            ),
+            calibration_version=(
+                str(payload.get("calibration_policy_version") or "").strip() or None
+            ),
+            propensity_version=(str(audit_propensity_version or "").strip() or None),
+            diagnostics={
+                "source": "inferred_from_world_manifest",
+                "audit_world_row_count": len(audit_world_rows),
+                "audited_world_row_count": len(audited_world_rows),
+            },
+        )
+    audited_route_pair_count = payload.get(
+        "audited_route_pair_count",
+        len(audited_world_rows) if audited_world_rows else audit_world_count,
+    )
+    candidate_route_pair_count = payload.get(
+        "candidate_route_pair_count",
+        max(
+            int(proxy_world_count or 0) + int(audit_world_count or 0),
+            len(all_world_rows),
+        ),
+    )
+    propensity_scores = payload.get("audit_propensity_scores")
+    if not isinstance(propensity_scores, list):
+        propensity_scores = []
     return WorldBundleSummary(
         regime_id=str(regime_id) if regime_id is not None else None,
         copula_id=str(copula_id) if copula_id is not None else None,
@@ -335,7 +468,27 @@ def build_world_bundle_summary(
         as_of_utc=str(as_of_utc) if as_of_utc is not None else None,
         support_state=resolved_support_state,
         probabilistic_world_bundle=probabilistic_world_bundle,
-        audit_world_bundle=audit_world_bundle,
+        audit_world_bundle=resolved_audit_world_bundle,
+        multi_fidelity_summary=build_multi_fidelity_summary(
+            probabilistic_world_bundle=probabilistic_world_bundle,
+            audit_world_bundle=resolved_audit_world_bundle,
+            support_state=resolved_support_state,
+            proxy_world_count=int(proxy_world_count or 0),
+            audit_world_count=int(audit_world_count or 0),
+            proxy_bias_model_version=str(proxy_bias_model_version or ""),
+            audit_propensity_version=str(audit_propensity_version or ""),
+            proxy_correction_active=proxy_correction_active,
+            multi_fidelity_certificate_basis=(
+                str(multi_fidelity_certificate_basis)
+                if multi_fidelity_certificate_basis is not None
+                else None
+            ),
+            audit_correction_mass=float(audit_correction_mass or 0.0),
+            audited_route_pair_count=int(audited_route_pair_count or 0),
+            candidate_route_pair_count=int(candidate_route_pair_count or 0),
+            propensity_scores=[float(value) for value in propensity_scores],
+            provenance={"source": "world_bundle_summary"},
+        ),
         uncertainty_summary=uncertainty_summary,
         provenance=dict(provenance or payload.get("provenance", {})),
     )

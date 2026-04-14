@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import Select, { type SelectOption } from './Select';
 import { formatDateTime, formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
@@ -43,6 +44,34 @@ const SIGNATURE_STATE_OPTIONS: SelectOption<SignatureState>[] = [
   { value: 'valid', label: 'Valid', description: 'Signature check passed.' },
   { value: 'invalid', label: 'Invalid', description: 'Signature check failed.' },
 ];
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function metricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <>
+      {label}
+      <FieldInfo text={metricHelp(tooltip)} />
+    </>
+  );
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 export default function OracleQualityDashboard({
   dashboard,
@@ -345,19 +374,37 @@ export default function OracleQualityDashboard({
         <div style={{ marginTop: 10 }}>
           <div className="metrics">
             <div className="metric">
-              <div className="metric__label">Total Checks</div>
+              <div className="metric__label">
+                {metricLabel('Total Checks', {
+                  definition: 'Total oracle feed checks recorded in the dashboard summary.',
+                  direction: 'Context only; more checks mean more monitoring history, not automatically better quality.',
+                  unit: 'check count',
+                })}
+              </div>
               <div className="metric__value">
                 {formatNumber(dashboard.total_checks, locale, { maximumFractionDigits: 0 })}
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Sources</div>
+              <div className="metric__label">
+                {metricLabel('Sources', {
+                  definition: 'Number of distinct oracle sources represented in the current dashboard summary.',
+                  direction: 'Context only; more sources mean broader monitored coverage, not automatically better quality.',
+                  unit: 'source count',
+                })}
+              </div>
               <div className="metric__value">
                 {formatNumber(dashboard.source_count, locale, { maximumFractionDigits: 0 })}
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Stale Threshold</div>
+              <div className="metric__label">
+                {metricLabel('Stale Threshold', {
+                  definition: 'Freshness cutoff used to classify oracle checks as stale.',
+                  direction: 'Context only; this is the configured monitoring threshold rather than a better/worse score.',
+                  unit: 'seconds',
+                })}
+              </div>
               <div className="metric__value">
                 {formatNumber(dashboard.stale_threshold_s, locale, { maximumFractionDigits: 0 })} s
               </div>
@@ -370,24 +417,54 @@ export default function OracleQualityDashboard({
                 <div className="routeCard__top">
                   <div className="routeCard__id">{item.source}</div>
                   <div className="routeCard__pill">
+                    {inlineMetricLabel('Pass rate', {
+                      definition: 'Share of recorded checks for this source that passed.',
+                      direction: 'Higher is better because more checks are succeeding.',
+                      unit: 'pass-rate percent',
+                    })}{' '}
                     {formatNumber(item.pass_rate * 100, locale, { maximumFractionDigits: 1 })}% Pass
                   </div>
                 </div>
                 <div className="routeCard__meta">
                   <span>
-                    Checks {formatNumber(item.check_count, locale, { maximumFractionDigits: 0 })}
+                    {inlineMetricLabel('Checks', {
+                      definition: 'Number of recorded checks for this source.',
+                      direction: 'Context only; more checks mean more monitoring history, not automatically better quality.',
+                      unit: 'check count',
+                    })}{' '}
+                    {formatNumber(item.check_count, locale, { maximumFractionDigits: 0 })}
                   </span>
                   <span>
-                    Schema Fail {formatNumber(item.schema_failures, locale, { maximumFractionDigits: 0 })}
+                    {inlineMetricLabel('Schema Fail', {
+                      definition: 'Count of checks for this source that failed schema validation.',
+                      direction: 'Lower is better because fewer schema failures occurred.',
+                      unit: 'failure count',
+                    })}{' '}
+                    {formatNumber(item.schema_failures, locale, { maximumFractionDigits: 0 })}
                   </span>
                   <span>
-                    Signature Fail{' '}
+                    {inlineMetricLabel('Signature Fail', {
+                      definition: 'Count of checks for this source that failed signature validation.',
+                      direction: 'Lower is better because fewer signature failures occurred.',
+                      unit: 'failure count',
+                    })}{' '}
                     {formatNumber(item.signature_failures, locale, { maximumFractionDigits: 0 })}
                   </span>
-                  <span>Stale {formatNumber(item.stale_count, locale, { maximumFractionDigits: 0 })}</span>
+                  <span>
+                    {inlineMetricLabel('Stale', {
+                      definition: 'Count of checks for this source that exceeded the stale threshold.',
+                      direction: 'Lower is better because fewer stale checks occurred.',
+                      unit: 'stale-check count',
+                    })}{' '}
+                    {formatNumber(item.stale_count, locale, { maximumFractionDigits: 0 })}
+                  </span>
                 </div>
                 <div className="tiny">
-                  Avg Latency:{' '}
+                  {inlineMetricLabel('Avg Latency', {
+                    definition: 'Average observed latency for checks from this source.',
+                    direction: 'Lower is better because checks complete faster.',
+                    unit: 'milliseconds',
+                  })}:{' '}
                   {item.avg_latency_ms !== null && item.avg_latency_ms !== undefined
                     ? `${formatNumber(item.avg_latency_ms, locale, { maximumFractionDigits: 1 })} ms`
                     : 'n/a'}{' '}

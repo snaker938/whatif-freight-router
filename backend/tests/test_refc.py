@@ -19,6 +19,11 @@ from app.evidence_certification import (
     EVIDENCE_FAMILIES,
     annotate_world_manifest_cache_reuse,
     active_evidence_families,
+    build_competitor_fragility_artifact_payload,
+    build_certified_set_state,
+    build_route_fragility_artifact_payload,
+    build_sampled_world_manifest_artifact_payload,
+    build_winner_confidence_state,
     compute_certificate,
     compute_fragility_maps,
     dependency_tensor,
@@ -171,6 +176,35 @@ def test_sampled_world_manifest_is_seed_replayable() -> None:
     assert manifest_a == manifest_b
     assert manifest_a["active_families"] == ["scenario", "toll", "weather"]
     assert all(set(world["states"]) <= {"scenario", "toll", "weather"} for world in manifest_a["worlds"])
+
+
+def test_sampled_world_manifest_artifact_payload_separates_world_groups() -> None:
+    manifest = {
+        "worlds": [
+            {"world_id": "w0", "states": {"scenario": "nominal"}, "world_kind": "sampled"},
+            {"world_id": "w1", "states": {"scenario": "proxy"}, "world_kind": "sampled"},
+            {"world_id": "w2", "states": {"scenario": "refreshed"}, "world_kind": "hard_case_targeted"},
+            {"world_id": "w2", "states": {"scenario": "refreshed"}, "world_kind": "hard_case_targeted"},
+        ],
+        "support_flag": True,
+        "support_bin": "supported",
+        "calibration_bin": "empirical",
+        "selected_certificate_basis": "empirical",
+        "calibration_policy_version": "calibration-policy-v3",
+    }
+
+    payload = build_sampled_world_manifest_artifact_payload(manifest)
+
+    assert [world["world_id"] for world in payload["probabilistic_worlds"]] == ["w0", "w1"]
+    assert [world["world_id"] for world in payload["audit_worlds"]] == ["w2", "w2"]
+    assert [world["world_id"] for world in payload["proxy_only_worlds"]] == ["w1"]
+    assert [world["world_id"] for world in payload["audited_worlds"]] == ["w2", "w2"]
+    assert [world["world_id"] for world in payload["reused_worlds"]] == ["w2", "w2"]
+    assert payload["support_bins"] == {
+        "support_bin": "supported",
+        "calibration_bin": "empirical",
+    }
+    assert payload["calibration_policy_version"] == "calibration-policy-v3"
 
 
 def test_repo_local_fresh_provenance_biases_world_sampling_away_from_proxy_states() -> None:
@@ -327,6 +361,53 @@ def test_certification_frontier_signature_map_uses_stable_option_geometry() -> N
         "route_a": main_module._route_option_signature(option_a),
         "route_b": main_module._route_option_signature(option_b),
     }
+
+
+def test_evidence_snapshot_manifest_hash_ignores_transient_route_ids_and_option_order() -> None:
+    option_a = _route_option(
+        "route_a",
+        duration_s=100.0,
+        money_cost=20.0,
+        co2_kg=5.0,
+        coordinates=[(-1.0, 52.0), (-0.5, 52.2)],
+    )
+    option_b = _route_option(
+        "route_b",
+        duration_s=101.0,
+        money_cost=19.5,
+        co2_kg=5.2,
+        coordinates=[(-2.0, 53.0), (-1.5, 53.2)],
+    )
+    renumbered_b = _route_option(
+        "route_8",
+        duration_s=101.0,
+        money_cost=19.5,
+        co2_kg=5.2,
+        coordinates=[(-2.0, 53.0), (-1.5, 53.2)],
+    )
+    renumbered_a = _route_option(
+        "route_9",
+        duration_s=100.0,
+        money_cost=20.0,
+        co2_kg=5.0,
+        coordinates=[(-1.0, 52.0), (-0.5, 52.2)],
+    )
+
+    base_manifest = main_module._build_evidence_snapshot_manifest_payload(
+        current_options=[option_a, option_b],
+        run_seed=11,
+        pipeline_mode="dccs_refc",
+    )
+    renumbered_manifest = main_module._build_evidence_snapshot_manifest_payload(
+        current_options=[renumbered_b, renumbered_a],
+        run_seed=11,
+        pipeline_mode="dccs_refc",
+    )
+
+    assert renumbered_manifest["snapshot_hash"] == base_manifest["snapshot_hash"]
+    assert [row["route_signature"] for row in renumbered_manifest["routes"]] == [
+        row["route_signature"] for row in base_manifest["routes"]
+    ]
 
 
 def test_refc_bypass_helper_matches_refc_classification_thresholds() -> None:
@@ -538,6 +619,96 @@ def test_fragility_is_family_isolated_not_joint_noise() -> None:
 
     assert fragility.route_fragility_map["route_a"]["scenario"] > 0.0
     assert fragility.competitor_fragility_breakdown["route_a"]["route_b"]["scenario"] == len(worlds)
+
+
+def test_fragility_artifact_payloads_surface_flip_radius_and_challenger_fields() -> None:
+    routes = [
+        _route(
+            "route_a",
+            objective=(10.0, 10.0, 10.0),
+            evidence_tensor={
+                "scenario": {"time": 1.0, "money": 0.0, "co2": 0.0},
+                "weather": {"time": 0.0, "money": 0.0, "co2": 0.0},
+            },
+        ),
+        _route(
+            "route_b",
+            objective=(10.2, 10.0, 10.0),
+            evidence_tensor={
+                "scenario": {"time": 1.0, "money": 0.0, "co2": 0.0},
+                "weather": {"time": 0.0, "money": 0.0, "co2": 0.0},
+            },
+        ),
+    ]
+    worlds = [
+        {"world_id": "w0", "states": {"scenario": "nominal", "weather": "nominal"}},
+        {"world_id": "w1", "states": {"scenario": "severely_stale", "weather": "nominal"}},
+        {"world_id": "w2", "states": {"scenario": "severely_stale", "weather": "nominal"}},
+    ]
+
+    certificate = compute_certificate(
+        routes,
+        worlds=worlds,
+        selector_weights=(1.0, 1.0, 1.0),
+        threshold=0.60,
+        active_families=["scenario", "weather"],
+    )
+    fragility = compute_fragility_maps(
+        routes,
+        worlds=worlds,
+        selector_weights=(1.0, 1.0, 1.0),
+        active_families=["scenario", "weather"],
+        selected_route_id="route_a",
+    )
+    route_payload = build_route_fragility_artifact_payload(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+    )
+    competitor_payload = build_competitor_fragility_artifact_payload(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+    )
+    pairwise_state = evidence_certification_module.build_pairwise_gap_states(
+        certificate,
+        selected_route_id="route_a",
+        competitor_fragility_breakdown=fragility.competitor_fragility_breakdown,
+    )[0]
+
+    route_entry = route_payload["route_a"]
+    challenger_entry = competitor_payload["route_a"]["route_b"]
+
+    assert route_entry["deterministic_local_flip_radius"] == pytest.approx(1.0 - route_entry["family_specific_radii"]["scenario"])
+    assert route_entry["probabilistic_flip_radius"] == pytest.approx(route_entry["deterministic_local_flip_radius"])
+    assert route_entry["family_specific_radii"]["scenario"] == pytest.approx(
+        fragility.route_fragility_map["route_a"]["scenario"],
+        rel=0.0,
+        abs=1e-6,
+    )
+    assert route_entry["dominant_fragility_family"] == "scenario"
+    assert route_entry["adversarial_degradation_curve"]
+    assert challenger_entry["family_fragility_counts"] == fragility.competitor_fragility_breakdown["route_a"]["route_b"]
+    assert challenger_entry["pairwise_gap_lower_bound"] == pytest.approx(
+        pairwise_state.pairwise_gap_lower_bound,
+        rel=0.0,
+        abs=1e-6,
+    )
+    assert challenger_entry["pairwise_gap_upper_bound"] == pytest.approx(
+        pairwise_state.pairwise_gap_upper_bound,
+        rel=0.0,
+        abs=1e-6,
+    )
+    assert challenger_entry["challenger_radius"] == pytest.approx(
+        pairwise_state.challenger_radius,
+        rel=0.0,
+        abs=1e-6,
+    )
+    assert challenger_entry["challenger_audit_sensitivity"] == pytest.approx(
+        pairwise_state.challenger_audit_sensitivity,
+        rel=0.0,
+        abs=1e-6,
+    )
 
 
 def test_mixed_targeted_worlds_do_not_change_family_attribution() -> None:
@@ -2166,6 +2337,83 @@ def test_refc_certification_frontier_rescues_supported_single_frontier_with_rank
     assert metadata["certification_frontier_rescue_added_route_ids"] == ["route_b", "route_c"]
 
 
+def test_refc_certification_frontier_rescue_is_stable_under_route_id_renumbering() -> None:
+    selected = _route_option(
+        "route_selected",
+        duration_s=100.0,
+        money_cost=20.0,
+        co2_kg=5.0,
+        coordinates=[(-1.0, 52.0), (-0.5, 52.2)],
+    )
+    challenger_a = _route_option(
+        "route_z",
+        duration_s=103.0,
+        money_cost=21.0,
+        co2_kg=5.3,
+        coordinates=[(-1.2, 52.0), (-0.6, 52.18)],
+    )
+    challenger_b = _route_option(
+        "route_a",
+        duration_s=103.0,
+        money_cost=21.0,
+        co2_kg=5.3,
+        coordinates=[(-1.1, 52.05), (-0.55, 52.16)],
+    )
+    challenger_c = _route_option(
+        "route_m",
+        duration_s=103.0,
+        money_cost=21.0,
+        co2_kg=5.3,
+        coordinates=[(-1.3, 51.98), (-0.62, 52.14)],
+    )
+    ambiguity_context = {
+        "od_ambiguity_index": 0.26,
+        "od_hard_case_prior": 0.36,
+        "od_engine_disagreement_prior": 0.37,
+        "od_ambiguity_support_ratio": 0.68,
+        "od_ambiguity_source_entropy": 0.78,
+        "od_ambiguity_source_count": 3,
+        "od_ambiguity_source_mix_count": 3,
+        "ambiguity_budget_band": "high",
+    }
+
+    frontier_a, _ = main_module._refc_certification_frontier_options(
+        pipeline_mode="dccs_refc",
+        strict_frontier=[selected],
+        options=[selected, challenger_a, challenger_b, challenger_c],
+        selected=selected,
+        ambiguity_context=ambiguity_context,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+    selected_renumbered = selected.model_copy(update={"id": "route_7"})
+    frontier_b, _ = main_module._refc_certification_frontier_options(
+        pipeline_mode="dccs_refc",
+        strict_frontier=[selected_renumbered],
+        options=[
+            selected_renumbered,
+            challenger_a.model_copy(update={"id": "route_2"}),
+            challenger_b.model_copy(update={"id": "route_8"}),
+            challenger_c.model_copy(update={"id": "route_1"}),
+        ],
+        selected=selected_renumbered,
+        ambiguity_context=ambiguity_context,
+        w_time=1.0,
+        w_money=1.0,
+        w_co2=1.0,
+        optimization_mode="robust",
+        risk_aversion=1.0,
+    )
+
+    signatures_a = [main_module._route_option_signature(option) for option in frontier_a]
+    signatures_b = [main_module._route_option_signature(option) for option in frontier_b]
+
+    assert signatures_b == signatures_a
+
+
 def test_refc_certification_frontier_does_not_rescue_low_support_single_frontier() -> None:
     selected = _route_option("route_a", duration_s=100.0, money_cost=20.0, co2_kg=5.0)
     challenger = _route_option("route_b", duration_s=103.0, money_cost=21.0, co2_kg=5.3)
@@ -2586,6 +2834,556 @@ def test_compute_certificate_rejects_empty_world_sets() -> None:
         assert "worlds" in str(exc)
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("empty world sets should be rejected")
+
+
+def test_winner_confidence_state_records_anytime_bound_method_and_delta() -> None:
+    certificate = evidence_certification_module.CertificateResult(
+        winner_id="route_a",
+        certificate={"route_a": 2.0 / 3.0, "route_b": 1.0 / 3.0},
+        threshold=0.6,
+        certified=True,
+        selected_route_id="route_a",
+        route_scores={"route_a": [1.0, 1.0, 0.0], "route_b": [0.0, 0.0, 1.0]},
+        world_manifest={
+            "world_count": 3,
+            "unique_world_count": 3,
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+            "confidence_delta": 0.1,
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+
+    state = build_winner_confidence_state(certificate)
+
+    assert state.method == "anytime_hoeffding_union_bound"
+    assert state.delta == pytest.approx(0.1, rel=0.0, abs=1e-6)
+    assert state.sample_count == 3
+    assert 0.0 <= state.lower_bound <= state.empirical_win <= state.upper_bound <= 1.0
+    assert state.lower_bound < state.empirical_win < state.upper_bound
+    assert state.stopping_valid_trace_state["success_count"] == 2
+    assert state.stopping_valid_trace_state["delta_schedule"] == "delta/(n*(n+1))"
+    assert state.stopping_valid_trace_state["delta_source"] == "world_manifest.confidence_delta"
+
+
+def test_winner_confidence_state_interval_tightens_with_more_worlds_at_same_empirical_rate() -> None:
+    small_sample_certificate = evidence_certification_module.CertificateResult(
+        winner_id="route_a",
+        certificate={"route_a": 2.0 / 3.0, "route_b": 1.0 / 3.0},
+        threshold=0.6,
+        certified=True,
+        selected_route_id="route_a",
+        route_scores={"route_a": [1.0, 1.0, 0.0], "route_b": [0.0, 0.0, 1.0]},
+        world_manifest={
+            "world_count": 3,
+            "unique_world_count": 3,
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+    large_sample_certificate = evidence_certification_module.CertificateResult(
+        winner_id="route_a",
+        certificate={"route_a": 20.0 / 30.0, "route_b": 10.0 / 30.0},
+        threshold=0.6,
+        certified=True,
+        selected_route_id="route_a",
+        route_scores={"route_a": [1.0] * 20 + [0.0] * 10, "route_b": [0.0] * 20 + [1.0] * 10},
+        world_manifest={
+            "world_count": 30,
+            "unique_world_count": 30,
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+
+    small_state = build_winner_confidence_state(small_sample_certificate)
+    large_state = build_winner_confidence_state(large_sample_certificate)
+
+    small_width = small_state.upper_bound - small_state.lower_bound
+    large_width = large_state.upper_bound - large_state.lower_bound
+
+    assert large_state.empirical_win == pytest.approx(small_state.empirical_win, rel=0.0, abs=1e-6)
+    assert large_width < small_width
+    assert large_state.lower_bound >= small_state.lower_bound
+    assert large_state.upper_bound <= small_state.upper_bound
+
+
+def test_winner_confidence_state_threshold_crossing_requires_enough_worlds() -> None:
+    small_sample_certificate = _exact_synthetic_certificate_from_winners(
+        ("route_a",) * 20 + ("route_b",) * 10,
+        threshold=0.49,
+    )
+    large_sample_certificate = _exact_synthetic_certificate_from_winners(
+        ("route_a",) * 200 + ("route_b",) * 100,
+        threshold=0.49,
+    )
+
+    small_state = build_winner_confidence_state(small_sample_certificate)
+    large_state = build_winner_confidence_state(large_sample_certificate)
+
+    assert small_state.empirical_win == pytest.approx(2.0 / 3.0, rel=0.0, abs=1e-6)
+    assert large_state.empirical_win == pytest.approx(2.0 / 3.0, rel=0.0, abs=1e-6)
+    assert small_state.lower_bound < 0.49
+    assert large_state.lower_bound > 0.49
+    assert small_state.method == "anytime_hoeffding_union_bound"
+    assert large_state.method == "anytime_hoeffding_union_bound"
+
+
+def test_winner_confidence_state_threshold_delta_sensitivity_from_world_manifest() -> None:
+    looser_delta_certificate = _exact_synthetic_certificate_from_winners(
+        ("route_a",) * 20 + ("route_b",) * 10,
+        threshold=0.49,
+    )
+    stricter_delta_certificate = evidence_certification_module.CertificateResult(
+        **{
+            **looser_delta_certificate.as_dict(),
+            "world_manifest": {
+                **looser_delta_certificate.world_manifest,
+                "confidence_delta": 0.01,
+            },
+        }
+    )
+    looser_delta_certificate = evidence_certification_module.CertificateResult(
+        **{
+            **looser_delta_certificate.as_dict(),
+            "world_manifest": {
+                **looser_delta_certificate.world_manifest,
+                "confidence_delta": 0.2,
+            },
+        }
+    )
+
+    looser_state = build_winner_confidence_state(looser_delta_certificate)
+    stricter_state = build_winner_confidence_state(stricter_delta_certificate)
+
+    assert looser_state.delta == pytest.approx(0.2, rel=0.0, abs=1e-6)
+    assert stricter_state.delta == pytest.approx(0.01, rel=0.0, abs=1e-6)
+    assert stricter_state.lower_bound < looser_state.lower_bound
+    assert stricter_state.upper_bound >= looser_state.upper_bound
+    assert (
+        stricter_state.upper_bound - stricter_state.lower_bound
+        > looser_state.upper_bound - looser_state.lower_bound
+    )
+    assert looser_state.stopping_valid_trace_state["delta_source"] == "world_manifest.confidence_delta"
+    assert stricter_state.stopping_valid_trace_state["delta_source"] == "world_manifest.confidence_delta"
+
+
+def _exact_synthetic_certificate_from_winners(
+    world_winners: tuple[str, ...],
+    *,
+    threshold: float = 0.49,
+    selected_route_id: str = "route_a",
+) -> evidence_certification_module.CertificateResult:
+    route_ids = ("route_a", "route_b", "route_c")
+    route_scores = {
+        route_id: [1.0 if winner == route_id else 0.0 for winner in world_winners]
+        for route_id in route_ids
+    }
+    certificate = {
+        route_id: sum(route_scores[route_id]) / float(len(world_winners))
+        for route_id in route_ids
+    }
+    winner_id = min(certificate.items(), key=lambda item: (-float(item[1]), str(item[0])))[0]
+    return evidence_certification_module.CertificateResult(
+        winner_id=winner_id,
+        certificate=certificate,
+        threshold=threshold,
+        certified=bool(certificate[winner_id] >= threshold),
+        selected_route_id=selected_route_id,
+        route_scores=route_scores,
+        world_manifest={
+            "world_count": len(world_winners),
+            "unique_world_count": len(world_winners),
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+
+
+def _exact_synthetic_fragility_result() -> evidence_certification_module.FragilityResult:
+    return evidence_certification_module.FragilityResult(
+        route_fragility_map={"route_a": {"scenario": 0.125, "weather": 0.2}},
+        competitor_fragility_breakdown={},
+        value_of_refresh={
+            "top_refresh_family": "weather",
+            "top_refresh_family_controller": "weather",
+        },
+    )
+
+
+def test_certified_set_state_does_not_auto_certify_multi_member_frontier_when_singleton_is_already_justified() -> None:
+    certificate = evidence_certification_module.CertificateResult(
+        winner_id="route_a",
+        certificate={"route_a": 0.95, "route_b": 0.03, "route_c": 0.02},
+        threshold=0.7,
+        certified=True,
+        selected_route_id="route_a",
+        route_scores={"route_a": [1.0] * 190 + [0.0] * 10, "route_b": [0.0] * 200, "route_c": [0.0] * 200},
+        world_manifest={
+            "world_count": 200,
+            "unique_world_count": 200,
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+
+    state = build_certified_set_state(
+        certificate,
+        frontier_route_ids=["route_a", "route_b"],
+        selected_route_id="route_a",
+    )
+
+    assert state.member_route_ids == ["route_a", "route_b"]
+    assert state.excluded_route_ids == ["route_c"]
+    assert state.certified is False
+    assert "singleton_justified" in state.exclusion_basis
+    assert state.witness["singleton_justified"] is True
+    assert state.witness["singleton_not_justified_reasons"] == []
+
+
+def test_certified_set_state_records_witness_and_excluded_route_consistency() -> None:
+    certificate = evidence_certification_module.CertificateResult(
+        winner_id="route_a",
+        certificate={"route_a": 0.5, "route_b": 0.5, "route_c": 0.0},
+        threshold=0.49,
+        certified=True,
+        selected_route_id="route_a",
+        route_scores={"route_a": [1.0, 0.0], "route_b": [0.0, 1.0], "route_c": [0.0, 0.0]},
+        world_manifest={
+            "world_count": 2,
+            "unique_world_count": 2,
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+
+    state = build_certified_set_state(
+        certificate,
+        frontier_route_ids=["route_a", "route_b"],
+        selected_route_id="route_a",
+    )
+
+    assert state.certified is True
+    assert state.member_route_ids == ["route_a", "route_b"]
+    assert state.excluded_route_ids == ["route_c"]
+    assert "outside_routes_excluded" in state.exclusion_basis
+    assert "outside_routes_safely_excluded" in state.exclusion_basis
+    assert "singleton_not_justified:winner_lcb_below_threshold" in state.exclusion_basis
+    assert "singleton_not_justified:frontier_pairwise_gap_unresolved" in state.exclusion_basis
+    assert state.witness["active_challenger_ids"] == ["route_b"]
+    assert state.witness["outside_routes_excluded"] is True
+    assert state.witness["outside_routes_safely_excluded"] is True
+    assert state.witness["singleton_justified"] is False
+    assert state.witness["frontier_member_ids"] == ["route_a", "route_b"]
+
+
+def test_exact_synthetic_style_tie_blocks_singleton_and_prevents_wrong_singleton_leak() -> None:
+    certificate = evidence_certification_module.CertificateResult(
+        winner_id="route_a",
+        certificate={"route_a": 0.5, "route_b": 0.5, "route_c": 0.0},
+        threshold=0.49,
+        certified=True,
+        selected_route_id="route_a",
+        route_scores={"route_a": [1.0, 0.0], "route_b": [0.0, 1.0], "route_c": [0.0, 0.0]},
+        world_manifest={
+            "world_count": 2,
+            "unique_world_count": 2,
+            "support_flag": True,
+            "selected_certificate_basis": "empirical",
+        },
+        selector_config={"selector_weights": [1.0, 1.0, 1.0]},
+    )
+
+    winner_state = build_winner_confidence_state(certificate)
+    set_state = build_certified_set_state(
+        certificate,
+        frontier_route_ids=["route_a", "route_b"],
+        selected_route_id="route_a",
+    )
+
+    assert winner_state.lower_bound < certificate.threshold
+    assert set_state.certified is True
+    assert set_state.member_route_ids != ["route_a"]
+    assert set_state.witness["singleton_justified"] is False
+    assert "frontier_pairwise_gap_unresolved" in set_state.witness["singleton_not_justified_reasons"]
+
+
+def test_exact_synthetic_excluded_route_tie_blocks_certified_set() -> None:
+    certificate = _exact_synthetic_certificate_from_winners(("route_a", "route_c"))
+
+    winner_state = build_winner_confidence_state(certificate)
+    set_state = build_certified_set_state(
+        certificate,
+        frontier_route_ids=["route_a", "route_b"],
+        selected_route_id="route_a",
+    )
+
+    assert winner_state.lower_bound < certificate.threshold
+    assert set_state.certified is False
+    assert "outside_routes_not_safely_excluded" in set_state.exclusion_basis
+    assert "excluded_route_pairwise_gap_unresolved" in set_state.witness["excluded_route_safety_reasons"]
+    assert set_state.witness["outside_routes_safely_excluded"] is False
+
+
+def test_exact_synthetic_small_corpus_has_zero_excluded_route_certification_leaks() -> None:
+    corpus = [
+        (winner_a, winner_b)
+        for winner_a in ("route_a", "route_b", "route_c")
+        for winner_b in ("route_a", "route_b", "route_c")
+    ]
+    invalid_certified_set_count = 0
+    safely_certified_set_count = 0
+
+    for world_winners in corpus:
+        certificate = _exact_synthetic_certificate_from_winners(world_winners)
+        set_state = build_certified_set_state(
+            certificate,
+            frontier_route_ids=["route_a", "route_b"],
+            selected_route_id="route_a",
+        )
+        excluded_route_ties_or_beats_selected = (
+            float(certificate.certificate["route_c"]) > 0.0
+            and float(certificate.certificate["route_c"]) >= float(certificate.certificate["route_a"])
+        )
+        if excluded_route_ties_or_beats_selected and set_state.certified:
+            invalid_certified_set_count += 1
+        if set_state.certified:
+            safely_certified_set_count += 1
+            assert set_state.witness["outside_routes_safely_excluded"] is True
+            assert float(certificate.certificate["route_c"]) < float(certificate.certificate["route_a"])
+            assert set_state.witness["singleton_not_justified_reasons"]
+
+    assert invalid_certified_set_count == 0
+    assert safely_certified_set_count >= 1
+
+
+def test_exact_synthetic_certified_set_validity_rate_is_one_on_small_batch() -> None:
+    corpus = [
+        (winner_a, winner_b, winner_c)
+        for winner_a in ("route_a", "route_b", "route_c")
+        for winner_b in ("route_a", "route_b", "route_c")
+        for winner_c in ("route_a", "route_b", "route_c")
+    ]
+    certified_set_count = 0
+    valid_certified_set_count = 0
+    rejected_case_count = 0
+
+    for world_winners in corpus:
+        certificate = _exact_synthetic_certificate_from_winners(world_winners)
+        set_state = build_certified_set_state(
+            certificate,
+            frontier_route_ids=["route_a", "route_b"],
+            selected_route_id="route_a",
+        )
+
+        if set_state.certified:
+            certified_set_count += 1
+            assert set_state.witness["outside_routes_safely_excluded"] is True
+            assert set_state.witness["excluded_route_safety_reasons"] == []
+            assert float(certificate.certificate["route_c"]) < float(certificate.certificate["route_a"])
+            assert set_state.witness["singleton_not_justified_reasons"]
+            assert set_state.set_size >= 2
+            valid_certified_set_count += 1
+        else:
+            rejected_case_count += 1
+
+    certified_set_validity_rate = valid_certified_set_count / float(max(1, certified_set_count))
+
+    assert certified_set_count >= 1
+    assert rejected_case_count >= 1
+    assert certified_set_validity_rate == pytest.approx(1.0, rel=0.0, abs=1e-12)
+
+
+def test_exact_synthetic_flip_radius_tie_case_has_no_minimum_flip_budget() -> None:
+    certificate = _exact_synthetic_certificate_from_winners(("route_a", "route_c"))
+    pairwise_states = evidence_certification_module.build_pairwise_gap_states(
+        certificate,
+        selected_route_id="route_a",
+    )
+
+    flip_state = evidence_certification_module.build_flip_radius_state(
+        certificate,
+        None,
+        selected_route_id="route_a",
+        pairwise_states=pairwise_states,
+    )
+
+    assert flip_state.challenger_specific_radii["route_c"] == pytest.approx(0.0, rel=0.0, abs=1e-12)
+    assert flip_state.minimum_flip_budget is None
+
+
+def test_exact_synthetic_flip_radius_violation_count_is_zero_on_small_batch() -> None:
+    corpus = [
+        (winner_a, winner_b, winner_c)
+        for winner_a in ("route_a", "route_b", "route_c")
+        for winner_b in ("route_a", "route_b", "route_c")
+        for winner_c in ("route_a", "route_b", "route_c")
+    ]
+    safe_case_count = 0
+    unsafe_case_count = 0
+    violation_count = 0
+
+    for world_winners in corpus:
+        certificate = _exact_synthetic_certificate_from_winners(world_winners)
+        pairwise_states = evidence_certification_module.build_pairwise_gap_states(
+            certificate,
+            selected_route_id="route_a",
+        )
+        flip_state = evidence_certification_module.build_flip_radius_state(
+            certificate,
+            None,
+            selected_route_id="route_a",
+            pairwise_states=pairwise_states,
+        )
+
+        selected_certificate = float(certificate.certificate["route_a"])
+        challenger_certificates = [
+            float(certificate.certificate["route_b"]),
+            float(certificate.certificate["route_c"]),
+        ]
+        if any(challenger >= selected_certificate for challenger in challenger_certificates):
+            unsafe_case_count += 1
+            if flip_state.minimum_flip_budget is not None:
+                violation_count += 1
+        else:
+            safe_case_count += 1
+            expected_budget = round(
+                min(selected_certificate - challenger for challenger in challenger_certificates),
+                6,
+            )
+            assert flip_state.minimum_flip_budget == expected_budget
+
+    assert safe_case_count >= 1
+    assert unsafe_case_count >= 1
+    assert violation_count == 0
+
+
+def test_exact_synthetic_flip_radius_uses_evidence_family_radii_in_minimum_flip_budget() -> None:
+    certificate = _exact_synthetic_certificate_from_winners(("route_a", "route_a", "route_b"))
+    fragility = _exact_synthetic_fragility_result()
+    pairwise_states = evidence_certification_module.build_pairwise_gap_states(
+        certificate,
+        selected_route_id="route_a",
+    )
+
+    flip_state = evidence_certification_module.build_flip_radius_state(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+        pairwise_states=pairwise_states,
+    )
+
+    assert flip_state.evidence_family_radii == {"scenario": 0.125, "weather": 0.2}
+    assert flip_state.dominant_fragility_family == "weather"
+    assert flip_state.minimum_flip_budget == pytest.approx(0.125, rel=0.0, abs=1e-12)
+
+
+def test_exact_synthetic_flip_radius_with_fragility_has_zero_batch_violations() -> None:
+    corpus = [
+        (winner_a, winner_b, winner_c)
+        for winner_a in ("route_a", "route_b", "route_c")
+        for winner_b in ("route_a", "route_b", "route_c")
+        for winner_c in ("route_a", "route_b", "route_c")
+    ]
+    fragility = _exact_synthetic_fragility_result()
+    safe_case_count = 0
+    unsafe_case_count = 0
+
+    for world_winners in corpus:
+        certificate = _exact_synthetic_certificate_from_winners(world_winners)
+        pairwise_states = evidence_certification_module.build_pairwise_gap_states(
+            certificate,
+            selected_route_id="route_a",
+        )
+        flip_state = evidence_certification_module.build_flip_radius_state(
+            certificate,
+            fragility,
+            selected_route_id="route_a",
+            pairwise_states=pairwise_states,
+        )
+
+        selected_certificate = float(certificate.certificate["route_a"])
+        challenger_certificates = [
+            float(certificate.certificate["route_b"]),
+            float(certificate.certificate["route_c"]),
+        ]
+        if any(challenger >= selected_certificate for challenger in challenger_certificates):
+            unsafe_case_count += 1
+            assert flip_state.minimum_flip_budget is None
+        else:
+            safe_case_count += 1
+            expected_budget = round(
+                min(selected_certificate - challenger for challenger in challenger_certificates),
+                6,
+            )
+            expected_budget = min(expected_budget, 0.125, 0.2)
+            assert flip_state.minimum_flip_budget == expected_budget
+            assert flip_state.dominant_fragility_family == "weather"
+
+    assert safe_case_count >= 1
+    assert unsafe_case_count >= 1
+
+
+def test_exact_synthetic_safe_row_with_fragility_prefers_flip_radius_decision_region_boundary() -> None:
+    certificate = _exact_synthetic_certificate_from_winners(("route_a", "route_a", "route_b"))
+    fragility = _exact_synthetic_fragility_result()
+    pairwise_states = evidence_certification_module.build_pairwise_gap_states(
+        certificate,
+        selected_route_id="route_a",
+    )
+    flip_state = evidence_certification_module.build_flip_radius_state(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+        pairwise_states=pairwise_states,
+    )
+
+    decision_state = evidence_certification_module.build_decision_region_state(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+        pairwise_states=pairwise_states,
+        flip_radius_state=flip_state,
+    )
+
+    assert decision_state.nearest_certificate_boundary == "flip_radius"
+    assert decision_state.nearest_threat_axis == "evidence"
+    assert decision_state.active_challenger_id == "route_b"
+    assert decision_state.dominant_evidence_family == "weather"
+    assert decision_state.most_fragile_preference_direction == "guard:time_preserving"
+    assert decision_state.minimum_joint_perturbation == pytest.approx(0.125, rel=0.0, abs=1e-12)
+
+
+def test_exact_synthetic_tie_row_with_fragility_prefers_pairwise_gap_decision_region_boundary() -> None:
+    certificate = _exact_synthetic_certificate_from_winners(("route_a", "route_c"))
+    fragility = _exact_synthetic_fragility_result()
+    pairwise_states = evidence_certification_module.build_pairwise_gap_states(
+        certificate,
+        selected_route_id="route_a",
+    )
+    flip_state = evidence_certification_module.build_flip_radius_state(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+        pairwise_states=pairwise_states,
+    )
+
+    decision_state = evidence_certification_module.build_decision_region_state(
+        certificate,
+        fragility,
+        selected_route_id="route_a",
+        pairwise_states=pairwise_states,
+        flip_radius_state=flip_state,
+    )
+
+    assert decision_state.nearest_certificate_boundary == "pairwise_gap"
+    assert decision_state.nearest_threat_axis == "search"
+    assert decision_state.minimum_joint_perturbation == pytest.approx(0.0, rel=0.0, abs=1e-12)
 
 
 def test_route_option_dependency_weights_are_route_specific() -> None:

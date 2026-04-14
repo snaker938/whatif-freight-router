@@ -1,9 +1,17 @@
 # Frontend Dev Tools Coverage
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-10
 Applies To: `frontend/app/components/devtools/*` and adjacent reporting panels
 
 This page maps frontend Dev Tools panels to backend endpoints so backend features are reachable from the UI without leaving the app shell.
+
+Current truth anchors for the live runtime and UI:
+
+- [Backend README](../backend/README.md)
+- [Frontend README](../frontend/README.md)
+- [API Cookbook](api-cookbook.md)
+- [Run and Operations Guide](run-and-operations.md)
+- [Reviewer Quickstart](reviewer_quickstart.md)
 
 ## Ops Diagnostics Panel
 
@@ -57,7 +65,6 @@ Current surface:
 - `GET /runs/{run_id}/artifacts/metadata.json`
 - `GET /runs/{run_id}/artifacts/routes.geojson`
 - `GET /runs/{run_id}/artifacts/results_summary.csv`
-- `GET /runs/{run_id}/artifacts/report.pdf`
 - `GET /runs/{run_id}/artifacts/dccs_candidates.jsonl`
 - `GET /runs/{run_id}/artifacts/dccs_summary.json`
 - `GET /runs/{run_id}/artifacts/refined_routes.jsonl`
@@ -100,6 +107,11 @@ These are not under `frontend/app/components/devtools/*`, but they are the other
 - `DepartureOptimizerChart` for departure-time sweeps
 - `DutyChainPlanner` for chained multi-stop runs
 - `RouteBaselineComparison` for OSRM, OpenRouteService, and academic-baseline comparisons
+- `DecisionStateSummary` for read-only inspection of the live `DecisionPackage` terminal state, including terminal type, selected certificate basis, certified-set visibility/summary, support and world-support summary, abstention summary, and preference-trace surfaces from `preference_state`, `preference_query_trace`, and `preference_summary` such as compatible-set summary, query evidence, shrinkage trace, and explicit no-query reasons
+- `PreferenceElicitationPanel` for live in-memory preference actions on top of the current route/runtime payload, including pairwise questions, threshold and ratio tradeoff questions, veto settings, time-preserving guard questions, compatible-set region summary, shrinkage-over-time, and `why this query` context without switching to mock data
+- `RouteCertificationPanel` for controller stop context, artifact-backed controller trace from `voi_action_trace.json`, `voi_action_scores.csv`, and `voi_stop_certificate.json`, plus inline support/governance state and artifact-backed evidence audit from `sampled_world_manifest.json`, `route_fragility_map.json`, and `value_of_refresh.json`, with frontend-generated CSV and SVG exports for the visible decision card, controller trace, and evidence summary; the SVG exports are vector figure surfaces intended for PDF-ready placement rather than direct PDF generation
+- `ProofDashboardPanel` for read-only proof inspection across V0/A/B/C, broad/focused, cold/hot, OSRM/ORS, and theorem-to-artifact groupings, with direct artifact links and `RunInspector` entrypoints on the tiles, text-summary copy/export and CSV dashboard export, plus a deterministic witness-driven explanation from emitted payload fields; figure-ready SVG/PDF export remains outside this panel beyond current bundle outputs
+- proof-demo presets in the main setup card for safe singleton, certified set, support abstention, preference-sensitive, collapse-prone, and hot-rerun inspection
 - `MapView` for live-call traces, route badges, and map-level failure diagnostics
 
 ## Current Runtime Knobs

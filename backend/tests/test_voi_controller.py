@@ -9,11 +9,13 @@ import app.main as main_module
 import app.voi_controller as voi_module
 from app.decision_critical import DCCSConfig, select_candidates
 from app.evidence_certification import compute_certificate, compute_fragility_maps, sample_world_manifest
+from app.models import GeoJSONLineString, RouteMetrics, RouteOption
 from app.voi_controller import (
     VOIActionHooks,
     VOIConfig,
     VOIControllerState,
     build_action_menu,
+    build_controller_state_literal_fields,
     enrich_controller_state_for_actioning,
     credible_evidence_uncertainty,
     credible_search_uncertainty,
@@ -85,6 +87,81 @@ def _support_rich_zero_signal_bridge_state(
         top_fragility_mass=0.0,
         competitor_pressure=0.0,
     )
+
+
+def test_build_controller_state_literal_fields_surfaces_literal_metrics() -> None:
+    fields = build_controller_state_literal_fields(
+        winner_confidence_state=types.SimpleNamespace(lower_bound=0.612345, upper_bound=0.934567),
+        pairwise_gap_states=[
+            types.SimpleNamespace(pairwise_gap_lower_bound=0.07),
+            types.SimpleNamespace(pairwise_gap_lower_bound=-0.03),
+        ],
+        flip_radius_state=types.SimpleNamespace(
+            deterministic_local_flip_radius=0.14,
+            probabilistic_flip_radius=0.21,
+            minimum_flip_budget=3.0,
+        ),
+        certified_set_state=types.SimpleNamespace(set_size=2),
+        preference_state={
+            "compatible_set_summary": {
+                "necessary_best_prob": 0.44,
+                "possible_best_prob": 0.72,
+            },
+            "preference_irrelevance_proven": True,
+            "no_query_reason": "preference_irrelevance_proven",
+        },
+        selected_certificate_value=0.81,
+    )
+
+    assert fields["certificate_lcb"] == pytest.approx(0.612345, rel=0.0, abs=1e-6)
+    assert fields["certificate_ucb"] == pytest.approx(0.934567, rel=0.0, abs=1e-6)
+    assert fields["necessary_best_probability"] == pytest.approx(0.44, rel=0.0, abs=1e-6)
+    assert fields["possible_best_probability"] == pytest.approx(0.72, rel=0.0, abs=1e-6)
+    assert fields["minimum_pairwise_gap_lcb"] == pytest.approx(-0.03, rel=0.0, abs=1e-6)
+    assert fields["deterministic_local_flip_radius"] == pytest.approx(0.14, rel=0.0, abs=1e-6)
+    assert fields["probabilistic_flip_radius"] == pytest.approx(0.21, rel=0.0, abs=1e-6)
+    assert fields["minimum_flip_budget"] == pytest.approx(3.0, rel=0.0, abs=1e-6)
+    assert fields["certified_set_size"] == 2
+    assert fields["preference_irrelevance_proven"] is True
+    assert fields["no_preference_query_reason"] == "preference_irrelevance_proven"
+
+
+def test_proxy_audit_world_bundle_manifest_uses_proxy_only_counts() -> None:
+    manifest = {
+        "world_count": 4,
+        "selected_certificate_basis": "empirical",
+        "calibration_policy_version": "audit-v2",
+        "worlds": [
+            {
+                "world_id": "proxy-only",
+                "world_kind": "sampled",
+                "states": {"fuel": "proxy", "scenario": "nominal"},
+            },
+            {
+                "world_id": "audited-sampled",
+                "world_kind": "sampled",
+                "states": {"fuel": "refreshed", "scenario": "nominal"},
+            },
+            {
+                "world_id": "mixed-sampled",
+                "world_kind": "sampled",
+                "states": {"fuel": "proxy", "scenario": "refreshed"},
+            },
+            {
+                "world_id": "audit-world",
+                "world_kind": "hard_case_targeted",
+                "states": {"fuel": "refreshed", "scenario": "nominal"},
+            },
+        ],
+    }
+
+    payload = main_module._proxy_audit_world_bundle_manifest(manifest)
+
+    assert len(payload["proxy_only_worlds"]) == 1
+    assert len(payload["audit_worlds"]) == 1
+    assert payload["proxy_world_count"] == 1
+    assert payload["audit_world_count"] == 1
+    assert payload["audit_propensity_version"] == "audit-v2"
 
 
 def test_initial_controller_overconfidence_cap_reduces_overconfident_incomplete_search_baseline() -> None:
@@ -243,6 +320,320 @@ def test_certification_cache_key_changes_when_route_payload_changes(monkeypatch:
     assert salted_key != base_key
 
 
+def test_certification_cache_key_ignores_transient_route_ids_and_payload_order() -> None:
+    base_payloads = [
+        {
+            "route_id": "route-1",
+            "id": "route-1",
+            "objective_vector": (100.0, 20.0, 5.0),
+            "distance_km": 12.0,
+            "evidence_tensor": {"scenario": {"time": 1.0, "money": 0.4, "co2": 0.2}},
+            "evidence_provenance": {
+                "active_families": ["scenario"],
+                "dependency_weights": {"scenario": {"time": 1.0, "money": 0.4, "co2": 0.2}},
+                "families": [{"family": "scenario", "signature": "sig-a"}],
+            },
+        },
+        {
+            "route_id": "route-2",
+            "id": "route-2",
+            "objective_vector": (120.0, 18.0, 4.0),
+            "distance_km": 13.0,
+            "evidence_tensor": {"weather": {"time": 0.7, "money": 0.1, "co2": 0.3}},
+            "evidence_provenance": {
+                "active_families": ["weather"],
+                "dependency_weights": {"weather": {"time": 0.7, "money": 0.1, "co2": 0.3}},
+                "families": [{"family": "weather", "signature": "sig-b"}],
+            },
+        },
+    ]
+    renumbered_payloads = [
+        {
+            **base_payloads[1],
+            "route_id": "route-8",
+            "id": "route-8",
+        },
+        {
+            **base_payloads[0],
+            "route_id": "route-9",
+            "id": "route-9",
+        },
+    ]
+    base_key = main_module._certification_cache_key(
+        frontier_route_ids=["route-1", "route-2"],
+        frontier_signatures={"route-1": "sig-route-a", "route-2": "sig-route-b"},
+        route_payloads=base_payloads,
+        evidence_snapshot_hash="snapshot-a",
+        selected_route_id="route-1",
+        run_seed=11,
+        world_count=64,
+        threshold=0.8,
+        weights=(1.0, 1.0, 1.0),
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        forced_refreshed_families=(),
+        ambiguity_context={"od_ambiguity_index": 0.42},
+    )
+    renumbered_key = main_module._certification_cache_key(
+        frontier_route_ids=["route-8", "route-9"],
+        frontier_signatures={"route-8": "sig-route-b", "route-9": "sig-route-a"},
+        route_payloads=renumbered_payloads,
+        evidence_snapshot_hash="snapshot-a",
+        selected_route_id="route-9",
+        run_seed=11,
+        world_count=64,
+        threshold=0.8,
+        weights=(1.0, 1.0, 1.0),
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        forced_refreshed_families=(),
+        ambiguity_context={"od_ambiguity_index": 0.42},
+    )
+
+    assert renumbered_key == base_key
+
+
+def test_certification_cache_key_ignores_volatile_route_metadata_and_diagnostic_context() -> None:
+    route_payload = {
+        "route_id": "route-1",
+        "id": "route-1",
+        "objective_vector": (100.0, 20.0, 5.0),
+        "distance_km": 12.0,
+        "weather_summary": {
+            "family": "weather",
+            "freshness_timestamp_utc": "2026-04-13T05:00:00Z",
+            "details": {"speed_multiplier": 1.0},
+        },
+        "scenario_summary": {
+            "calibration_basis": "empirical_live_fit",
+            "recorded_at_utc": "2026-04-13T05:00:00Z",
+            "duration_multiplier": 1.25,
+        },
+        "uncertainty": {
+            "duration_p95_s": 120.0,
+            "duration_cvar95_s": 135.0,
+        },
+        "metrics": {"duration_s": 100.0, "monetary_cost": 20.0, "emissions_kg": 5.0},
+        "segment_breakdown": [{"segment_id": "seg-1", "duration_s": 50.0}],
+        "evidence_tensor": {"scenario": {"time": 1.0, "money": 0.4, "co2": 0.2}},
+        "evidence_provenance": {
+            "active_families": ["scenario"],
+            "dependency_weights": {"scenario": {"time": 1.0, "money": 0.4, "co2": 0.2}},
+            "families": [
+                {
+                    "family": "scenario",
+                    "signature": "sig-a",
+                    "freshness_timestamp_utc": "2026-04-13T05:00:00Z",
+                }
+            ],
+        },
+    }
+    base_key = main_module._certification_cache_key(
+        frontier_route_ids=["route-1"],
+        frontier_signatures={"route-1": "sig-route-1"},
+        route_payloads=[route_payload],
+        evidence_snapshot_hash=None,
+        selected_route_id="route-1",
+        run_seed=11,
+        world_count=64,
+        threshold=0.8,
+        weights=(1.0, 1.0, 1.0),
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        forced_refreshed_families=(),
+        ambiguity_context={
+            "od_ambiguity_index": 0.42,
+            "observed_ambiguity_index": 0.18,
+            "world_count_policy": "adaptive_high_ambiguity",
+            "support_status": "unsupported",
+            "out_of_support_reason": "out_of_support_world_model",
+        },
+    )
+    changed_key = main_module._certification_cache_key(
+        frontier_route_ids=["route-1"],
+        frontier_signatures={"route-1": "sig-route-1"},
+        route_payloads=[
+            {
+                **route_payload,
+                "weather_summary": {
+                    "family": "weather",
+                    "freshness_timestamp_utc": "2026-04-13T06:00:00Z",
+                    "details": {"speed_multiplier": 1.0},
+                },
+                "scenario_summary": {
+                    "calibration_basis": "empirical_live_fit",
+                    "recorded_at_utc": "2026-04-13T06:00:00Z",
+                    "duration_multiplier": 1.25,
+                },
+                "metrics": {"duration_s": 999.0, "monetary_cost": 999.0, "emissions_kg": 999.0},
+                "segment_breakdown": [{"segment_id": "seg-9", "duration_s": 999.0}],
+                "evidence_provenance": {
+                    **route_payload["evidence_provenance"],
+                    "families": [
+                        {
+                            "family": "scenario",
+                            "signature": "sig-a",
+                            "freshness_timestamp_utc": "2026-04-13T06:00:00Z",
+                        }
+                    ],
+                },
+            }
+        ],
+        evidence_snapshot_hash=None,
+        selected_route_id="route-1",
+        run_seed=11,
+        world_count=64,
+        threshold=0.8,
+        weights=(1.0, 1.0, 1.0),
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        forced_refreshed_families=(),
+        ambiguity_context={
+            "od_ambiguity_index": 0.91,
+            "observed_ambiguity_index": 0.07,
+            "world_count_policy": "adaptive_high_ambiguity",
+            "support_status": "unsupported",
+            "out_of_support_reason": "out_of_support_world_model",
+        },
+    )
+
+    assert changed_key == base_key
+
+
+def test_certification_cache_key_changes_when_support_regime_changes() -> None:
+    route_payload = {
+        "route_id": "route-1",
+        "objective_vector": (100.0, 20.0, 5.0),
+        "distance_km": 12.0,
+        "evidence_tensor": {"scenario": {"time": 1.0, "money": 0.4, "co2": 0.2}},
+        "evidence_provenance": {
+            "active_families": ["scenario"],
+            "dependency_weights": {"scenario": {"time": 1.0, "money": 0.4, "co2": 0.2}},
+            "families": [{"family": "scenario", "signature": "sig-a"}],
+        },
+    }
+    unsupported_key = main_module._certification_cache_key(
+        frontier_route_ids=["route-1"],
+        frontier_signatures={"route-1": "sig-route-1"},
+        route_payloads=[route_payload],
+        evidence_snapshot_hash=None,
+        selected_route_id="route-1",
+        run_seed=11,
+        world_count=64,
+        threshold=0.8,
+        weights=(1.0, 1.0, 1.0),
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        forced_refreshed_families=(),
+        ambiguity_context={
+            "world_count_policy": "adaptive_high_ambiguity",
+            "support_status": "unsupported",
+            "out_of_support_reason": "out_of_support_world_model",
+        },
+    )
+    supported_key = main_module._certification_cache_key(
+        frontier_route_ids=["route-1"],
+        frontier_signatures={"route-1": "sig-route-1"},
+        route_payloads=[route_payload],
+        evidence_snapshot_hash=None,
+        selected_route_id="route-1",
+        run_seed=11,
+        world_count=64,
+        threshold=0.8,
+        weights=(1.0, 1.0, 1.0),
+        optimization_mode="expected_value",
+        risk_aversion=1.0,
+        forced_refreshed_families=(),
+        ambiguity_context={
+            "world_count_policy": "adaptive_high_ambiguity",
+            "support_status": "supported",
+            "out_of_support_reason": None,
+        },
+    )
+
+    assert supported_key != unsupported_key
+
+
+def test_global_cached_certification_payload_remaps_route_ids_to_current_frontier() -> None:
+    certificate = main_module.CertificateResult(
+        winner_id="route-1",
+        certificate={"route-1": 0.91, "route-2": 0.27},
+        threshold=0.8,
+        certified=True,
+        selected_route_id="route-1",
+        route_scores={"route-1": {"score": 0.91}, "route-2": {"score": 0.27}},
+        world_manifest={
+            "selected_route_id": "route-1",
+            "certification_frontier_route_ids": ["route-1", "route-2"],
+            "_cache_frontier_signatures": {
+                "route-1": "sig-route-a",
+                "route-2": "sig-route-b",
+            },
+        },
+        selector_config={"threshold": 0.8},
+    )
+    fragility = main_module.FragilityResult(
+        route_fragility_map={
+            "route-1": {"weather": 0.2},
+            "route-2": {"weather": 0.7},
+        },
+        competitor_fragility_breakdown={
+            "route-1": {"route-2": {"weather": 1}},
+        },
+        value_of_refresh={
+            "controller_refresh_frontier_route_ids": ["route-1", "route-2"],
+            "top_competitor_route_id": "route-2",
+        },
+        route_fragility_details={
+            "route-1": {
+                "active_route_ids": ["route-1", "route-2"],
+            }
+        },
+        evidence_snapshot_manifest={"selected_route_id": "route-1"},
+    )
+
+    remapped_certificate, remapped_fragility, remapped_manifest, active_families = (
+        main_module._remap_cached_certification_payload_for_frontier(
+            certificate_result=certificate,
+            fragility_result=fragility,
+            world_manifest_payload=certificate.world_manifest,
+            active_families=["scenario", "weather"],
+            frontier_signatures={
+                "route-9": "sig-route-a",
+                "route-8": "sig-route-b",
+            },
+            selected_route_id="route-9",
+        )
+    )
+
+    assert remapped_certificate.winner_id == "route-9"
+    assert remapped_certificate.selected_route_id == "route-9"
+    assert remapped_certificate.certificate == {
+        "route-9": pytest.approx(0.91),
+        "route-8": pytest.approx(0.27),
+    }
+    assert remapped_certificate.route_scores == {
+        "route-9": {"score": 0.91},
+        "route-8": {"score": 0.27},
+    }
+    assert remapped_manifest["selected_route_id"] == "route-9"
+    assert remapped_manifest["certification_frontier_route_ids"] == ["route-9", "route-8"]
+    assert remapped_manifest["_cache_frontier_signatures"] == {
+        "route-9": "sig-route-a",
+        "route-8": "sig-route-b",
+    }
+    assert remapped_fragility.route_fragility_map["route-9"]["weather"] == pytest.approx(0.2)
+    assert remapped_fragility.route_fragility_map["route-8"]["weather"] == pytest.approx(0.7)
+    assert remapped_fragility.competitor_fragility_breakdown == {
+        "route-9": {"route-8": {"weather": 1}}
+    }
+    assert remapped_fragility.value_of_refresh["controller_refresh_frontier_route_ids"] == ["route-9", "route-8"]
+    assert remapped_fragility.value_of_refresh["top_competitor_route_id"] == "route-8"
+    assert remapped_fragility.route_fragility_details["route-9"]["active_route_ids"] == ["route-9", "route-8"]
+    assert remapped_fragility.evidence_snapshot_manifest["selected_route_id"] == "route-9"
+    assert active_families == ["scenario", "weather"]
+
+
 def test_committed_refresh_route_state_cache_key_is_order_invariant() -> None:
     base_key = main_module._committed_refresh_route_state_cache_key(
         base_route_state_cache_key="base-route-state",
@@ -268,6 +659,74 @@ def test_committed_refresh_route_state_cache_key_is_order_invariant() -> None:
     assert same_key == base_key
     assert changed_base_key != base_key
     assert changed_refresh_key != base_key
+
+
+def test_voi_dccs_cache_key_is_schema_salted_and_stable(monkeypatch: pytest.MonkeyPatch) -> None:
+    remaining_candidates = [
+        {"candidate_id": "cand-b", "graph_path": ["b1", "b2", "b3"], "proxy_objective": (12.0, 8.0, 4.0)},
+        {"candidate_id": "cand-a", "graph_path": ["a1", "a2", "a3"], "proxy_objective": (10.0, 9.0, 5.0)},
+    ]
+    renumbered_candidates = [
+        {"candidate_id": "cand-y", "graph_path": ["b1", "b2", "b3"], "proxy_objective": (12.0, 8.0, 4.0)},
+        {"candidate_id": "cand-x", "graph_path": ["a1", "a2", "a3"], "proxy_objective": (10.0, 9.0, 5.0)},
+    ]
+    frontier_payloads = [
+        {"route_id": "route-b", "route_signature": "sig-route-b", "objective_vector": (12.0, 8.0, 4.0)},
+        {"route_id": "route-a", "route_signature": "sig-route-a", "objective_vector": (10.0, 9.0, 5.0)},
+    ]
+    renumbered_frontier_payloads = [
+        {"route_id": "route-9", "route_signature": "sig-route-b", "objective_vector": (12.0, 8.0, 4.0)},
+        {"route_id": "route-8", "route_signature": "sig-route-a", "objective_vector": (10.0, 9.0, 5.0)},
+    ]
+    refined_payloads = [
+        {"route_id": "route-z", "route_signature": "sig-route-z"},
+        {"route_id": "route-y", "route_signature": "sig-route-y"},
+    ]
+    renumbered_refined_payloads = [
+        {"route_id": "route-7", "route_signature": "sig-route-z"},
+        {"route_id": "route-6", "route_signature": "sig-route-y"},
+    ]
+
+    base_key = main_module._voi_dccs_cache_key(
+        remaining_candidates=remaining_candidates,
+        frontier_payloads=frontier_payloads,
+        refined_payloads=refined_payloads,
+        remaining_search_budget=2,
+    )
+    same_key = main_module._voi_dccs_cache_key(
+        remaining_candidates=list(reversed(remaining_candidates)),
+        frontier_payloads=list(reversed(frontier_payloads)),
+        refined_payloads=list(reversed(refined_payloads)),
+        remaining_search_budget=2,
+    )
+    renumbered_key = main_module._voi_dccs_cache_key(
+        remaining_candidates=renumbered_candidates,
+        frontier_payloads=renumbered_frontier_payloads,
+        refined_payloads=renumbered_refined_payloads,
+        remaining_search_budget=2,
+    )
+    changed_budget_key = main_module._voi_dccs_cache_key(
+        remaining_candidates=remaining_candidates,
+        frontier_payloads=frontier_payloads,
+        refined_payloads=refined_payloads,
+        remaining_search_budget=1,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "VOI_DCCS_CACHE_KEY_SCHEMA_VERSION",
+        "voi_dccs_cache_key_test_salt",
+    )
+    salted_key = main_module._voi_dccs_cache_key(
+        remaining_candidates=remaining_candidates,
+        frontier_payloads=frontier_payloads,
+        refined_payloads=refined_payloads,
+        remaining_search_budget=2,
+    )
+
+    assert same_key == base_key
+    assert renumbered_key == base_key
+    assert changed_budget_key != base_key
+    assert salted_key != base_key
 
 
 def _candidate(
@@ -446,6 +905,43 @@ def _supported_ambiguity_fragility_result():
         selected_route_id="route_a",
         baseline_certificate=certificate,
         ambiguity_context=manifest["ambiguity_context"],
+    )
+
+
+def _neutral_fragility_result():
+    fragility = _fragility_result()
+    return replace(
+        fragility,
+        route_fragility_map={},
+        competitor_fragility_breakdown={},
+        value_of_refresh={"ranking": []},
+        route_fragility_details={},
+        evidence_snapshot_manifest={},
+    )
+
+
+def _preference_sensitive_dccs_result():
+    dccs = _dccs_result()
+
+    def _boost(records):
+        boosted = []
+        for index, record in enumerate(records):
+            boosted.append(replace(
+                record,
+                preference_query_sensitivity=max(0.74, record.preference_query_sensitivity),
+                changes_possible_best_probability=max(0.69, record.changes_possible_best_probability),
+                changes_necessary_best_probability=max(0.57, record.changes_necessary_best_probability),
+                time_regret_gap=max(0.34 + (0.02 * index), record.time_regret_gap),
+                objective_gap=max(0.28, record.objective_gap),
+                mechanism_gap=max(0.22, record.mechanism_gap),
+            ))
+        return boosted
+
+    return replace(
+        dccs,
+        selected=_boost(dccs.selected),
+        skipped=_boost(dccs.skipped),
+        candidate_ledger=_boost(dccs.candidate_ledger),
     )
 
 
@@ -2593,6 +3089,17 @@ def test_post_action_controller_state_refresh_uses_updated_frontier_and_certific
             "support_strength": 0.58,
         },
         action_trace=[{"iteration": 1, "kind": "refresh_top1_vor"}],
+        literal_state_fields={
+            "certificate_lcb": 0.83,
+            "certificate_ucb": 0.97,
+            "necessary_best_probability": 0.64,
+            "possible_best_probability": 0.91,
+            "minimum_pairwise_gap_lcb": 0.08,
+            "deterministic_local_flip_radius": 0.12,
+            "probabilistic_flip_radius": 0.18,
+            "minimum_flip_budget": 2.0,
+            "certified_set_size": 1,
+        },
     )
 
     assert refreshed.winner_id == "route_b"
@@ -2604,6 +3111,25 @@ def test_post_action_controller_state_refresh_uses_updated_frontier_and_certific
     assert refreshed.top_refresh_gain >= raw_state.top_refresh_gain
     assert refreshed.support_richness >= raw_state.support_richness
     assert refreshed.competitor_pressure >= 0.0
+    assert refreshed.certificate_lcb == pytest.approx(0.83, rel=0.0, abs=1e-6)
+    assert refreshed.certificate_ucb == pytest.approx(0.97, rel=0.0, abs=1e-6)
+    assert refreshed.necessary_best_probability == pytest.approx(0.64, rel=0.0, abs=1e-6)
+    assert refreshed.possible_best_probability == pytest.approx(0.91, rel=0.0, abs=1e-6)
+    assert refreshed.minimum_pairwise_gap_lcb == pytest.approx(0.08, rel=0.0, abs=1e-6)
+    assert refreshed.deterministic_local_flip_radius == pytest.approx(0.12, rel=0.0, abs=1e-6)
+    assert refreshed.probabilistic_flip_radius == pytest.approx(0.18, rel=0.0, abs=1e-6)
+    assert refreshed.minimum_flip_budget == pytest.approx(2.0, rel=0.0, abs=1e-6)
+    assert refreshed.certified_set_size == 1
+    refreshed_payload = refreshed.as_dict()
+    assert refreshed_payload["certificate_lcb"] == pytest.approx(0.83, rel=0.0, abs=1e-6)
+    assert refreshed_payload["certificate_ucb"] == pytest.approx(0.97, rel=0.0, abs=1e-6)
+    assert refreshed_payload["necessary_best_probability"] == pytest.approx(0.64, rel=0.0, abs=1e-6)
+    assert refreshed_payload["possible_best_probability"] == pytest.approx(0.91, rel=0.0, abs=1e-6)
+    assert refreshed_payload["minimum_pairwise_gap_lcb"] == pytest.approx(0.08, rel=0.0, abs=1e-6)
+    assert refreshed_payload["deterministic_local_flip_radius"] == pytest.approx(0.12, rel=0.0, abs=1e-6)
+    assert refreshed_payload["probabilistic_flip_radius"] == pytest.approx(0.18, rel=0.0, abs=1e-6)
+    assert refreshed_payload["minimum_flip_budget"] == pytest.approx(2.0, rel=0.0, abs=1e-6)
+    assert refreshed_payload["certified_set_size"] == 1
 
 
 def test_action_scoring_is_deterministic() -> None:
@@ -5214,6 +5740,54 @@ def test_uncertified_weak_search_tail_can_stop_prior_only_evidence_uncertainty()
         state=state,
         current_certificate=0.769002,
         config=VOIConfig(certificate_threshold=0.81),
+        evidence_uncertainty=True,
+    ) is True
+
+
+def test_uncertified_weak_search_tail_ignores_tiny_fragility_noise() -> None:
+    state = VOIControllerState(
+        iteration_index=0,
+        frontier=[{"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)}],
+        certificate={"route_a": 0.756973},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=3,
+        remaining_evidence_budget=2,
+        ambiguity_context={
+            "single_frontier_certificate_cap_applied": True,
+            "refc_world_count": 1,
+            "refc_requested_world_count": 88,
+            "refc_sampler_requested_world_count": 1,
+            "refc_world_count_policy": "single_frontier_full_stress",
+        },
+        near_tie_mass=0.0,
+        top_refresh_gain=0.0,
+        top_fragility_mass=0.000343,
+        competitor_pressure=0.0,
+        frontier_recall_at_budget=1.0,
+        search_completeness_gap=0.075407,
+        certificate_margin=0.756973,
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="test",
+        q_score=0.229364,
+        predicted_delta_certificate=0.243027,
+        predicted_delta_margin=0.21658,
+        predicted_delta_frontier=0.13442,
+        metadata={
+            "normalized_objective_gap": 0.107226,
+            "normalized_mechanism_gap": 0.190531,
+            "normalized_overlap_reduction": 0.857143,
+        },
+    )
+
+    assert voi_module._should_stop_uncertified_weak_search_tail(
+        refine,
+        state=state,
+        current_certificate=0.756973,
+        config=VOIConfig(certificate_threshold=0.80),
         evidence_uncertainty=True,
     ) is True
 
@@ -9799,6 +10373,95 @@ def test_uncertified_evidence_plateau_preference_defers_to_frontier_completion_s
     assert "uncertified_evidence_plateau_search_discount_applied" not in adjusted_refine.metadata
 
 
+def test_uncertified_evidence_plateau_preference_recovers_after_single_dead_refine() -> None:
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.16, 10.04, 10.02)},
+            {"route_id": "route_c", "objective_vector": (10.21, 10.09, 10.05)},
+        ],
+        certificate={"route_a": 0.601504, "route_b": 0.0, "route_c": 0.398496},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=2,
+        remaining_evidence_budget=2,
+        action_trace=[
+            {
+                "chosen_action": {"kind": "refine_top1_dccs"},
+                "realized_certificate_delta": 0.0,
+                "realized_frontier_gain": 0.0,
+                "realized_selected_route_improvement": 0.0,
+                "realized_runner_up_gap_delta": 0.0,
+                "realized_evidence_uncertainty_delta": 0.0,
+                "realized_productive": False,
+            }
+        ],
+        top_refresh_gain=0.278195,
+        top_fragility_mass=0.601504,
+        competitor_pressure=1.0,
+        support_richness=0.686842,
+        prior_support_strength=0.686842,
+        ambiguity_pressure=0.734275,
+        search_completeness_score=0.616479,
+        search_completeness_gap=0.383521,
+        ambiguity_context={
+            "od_hard_case_prior": 0.492942,
+            "ambiguity_budget_prior": 0.423843,
+            "od_ambiguity_support_ratio": 0.686842,
+            "od_ambiguity_source_entropy": 0.836641,
+            "od_ambiguity_index": 0.403029,
+        },
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="candidate",
+        q_score=0.37217,
+        predicted_delta_certificate=0.398496,
+        predicted_delta_margin=0.244361,
+        predicted_delta_frontier=0.54337,
+        metadata={
+            "mean_flip_probability": 0.999561,
+            "normalized_objective_gap": 0.491795,
+            "normalized_mechanism_gap": 0.112269,
+            "normalized_overlap_reduction": 0.904762,
+        },
+    )
+    refresh = voi_module.VOIAction(
+        action_id="refresh:scenario",
+        kind="refresh_top1_vor",
+        target="stochastic",
+        q_score=0.275786,
+        predicted_delta_certificate=0.047044,
+        predicted_delta_margin=0.023522,
+        predicted_delta_frontier=0.0,
+        metadata={
+            "structured_refresh_signal": True,
+            "empirical_refresh_certificate_uplift": 0.0,
+            "winner_side_refresh_preference_bonus": 0.24,
+            "winner_side_refresh_preference_applied": True,
+            "winner_side_refresh_preference_uncertified_bridge": True,
+        },
+    )
+    adjusted_actions = voi_module._apply_uncertified_evidence_plateau_preference(
+        [refine, refresh],
+        state=state,
+        current_certificate=0.601504,
+        config=VOIConfig(certificate_threshold=0.83),
+        evidence_uncertainty=True,
+        supported_fragility_uncertainty=True,
+    )
+
+    adjusted_refine = next(action for action in adjusted_actions if action.kind == "refine_top1_dccs")
+    adjusted_refresh = next(action for action in adjusted_actions if action.kind == "refresh_top1_vor")
+    assert adjusted_refresh.q_score > adjusted_refine.q_score
+    assert adjusted_refresh.metadata["uncertified_evidence_plateau_preference_applied"] is True
+    assert adjusted_refresh.metadata["uncertified_evidence_plateau_recent_no_gain_recovery"] is True
+    assert adjusted_refine.metadata["uncertified_evidence_plateau_search_discount_applied"] is True
+    assert adjusted_refine.metadata["uncertified_evidence_plateau_recent_no_gain_discount"] is True
+
+
 def test_uncertified_evidence_plateau_preference_can_override_frontier_completion_search_on_narrow_margin_near_tie_row() -> None:
     state = VOIControllerState(
         iteration_index=2,
@@ -10459,6 +11122,79 @@ def test_topk_refine_action_aggregates_real_candidate_ids() -> None:
     assert 0.0 <= topk.metadata["normalized_mechanism_gap"] <= 1.0
 
 
+def test_refine_action_cohort_signature_ignores_transient_candidate_ids() -> None:
+    base_candidates = [
+        _candidate(
+            "cand_fast",
+            path=["c1", "c2", "c3"],
+            objective=(9.0, 9.2, 9.1),
+            road_mix={"motorway_share": 0.7, "a_road_share": 0.2, "urban_share": 0.1},
+            toll_share=0.02,
+            terrain_burden=0.05,
+            straight_line_km=8.8,
+            mechanism={"motorway_share": 0.7, "toll_share": 0.02, "terrain_burden": 0.05},
+        ),
+        _candidate(
+            "cand_mid",
+            path=["m1", "m2", "m3"],
+            objective=(9.4, 9.5, 9.6),
+            road_mix={"motorway_share": 0.4, "a_road_share": 0.4, "urban_share": 0.2},
+            toll_share=0.04,
+            terrain_burden=0.08,
+            straight_line_km=8.5,
+            mechanism={"motorway_share": 0.4, "toll_share": 0.04, "terrain_burden": 0.08},
+        ),
+        _candidate(
+            "cand_alt",
+            path=["a1", "a2", "a3"],
+            objective=(9.5, 9.7, 9.4),
+            road_mix={"motorway_share": 0.3, "a_road_share": 0.5, "urban_share": 0.2},
+            toll_share=0.03,
+            terrain_burden=0.07,
+            straight_line_km=8.4,
+            mechanism={"motorway_share": 0.3, "toll_share": 0.03, "terrain_burden": 0.07},
+        ),
+    ]
+    renumbered_candidates = [
+        {**candidate, "candidate_id": f"renumbered-{idx}"}
+        for idx, candidate in enumerate(base_candidates, start=1)
+    ]
+    state = VOIControllerState(
+        iteration_index=0,
+        frontier=[{"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)}],
+        certificate={"route_a": 0.25, "route_b": 0.23},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=2,
+        remaining_evidence_budget=1,
+        action_trace=[],
+        state_trace=[],
+        active_evidence_families=["scenario"],
+        near_tie_mass=0.2,
+    )
+
+    base_dccs = select_candidates(base_candidates, config=DCCSConfig(mode="challenger", search_budget=1))
+    renumbered_dccs = select_candidates(
+        renumbered_candidates,
+        config=DCCSConfig(mode="challenger", search_budget=1),
+    )
+    fragility = _fragility_result()
+    base_actions = build_action_menu(state, dccs=base_dccs, fragility=fragility, config=VOIConfig(top_k_refine=2))
+    renumbered_actions = build_action_menu(
+        state,
+        dccs=renumbered_dccs,
+        fragility=fragility,
+        config=VOIConfig(top_k_refine=2),
+    )
+    base_topk = next(action for action in base_actions if action.kind == "refine_topk_dccs")
+    renumbered_topk = next(action for action in renumbered_actions if action.kind == "refine_topk_dccs")
+
+    assert base_topk.action_id == renumbered_topk.action_id
+    assert base_topk.target == renumbered_topk.target
+    assert base_topk.metadata["cohort_signature"] == renumbered_topk.metadata["cohort_signature"]
+    assert base_topk.metadata["candidate_ids"] != renumbered_topk.metadata["candidate_ids"]
+
+
 def test_live_voi_refine_resolution_prefers_chosen_action_candidate_ids() -> None:
     dccs = _dccs_result()
     fallback_candidate_id = dccs.selected[0].candidate_id
@@ -10572,6 +11308,26 @@ def test_controller_emits_audit_ready_stop_certificate() -> None:
     assert stop_certificate.controller_state["used_search_budget"] == 1
     assert stop_certificate.controller_state["certificate_margin"] > 0.0
     assert stop_certificate.iteration_count == 1
+    assert stop_certificate.predicted_winner_lcb_gain >= 0.0
+    assert stop_certificate.realized_certificate_delta == pytest.approx(0.0)
+    assert stop_certificate.predicted_gap_lcb_gain >= 0.0
+    assert stop_certificate.realized_runner_up_gap_delta == pytest.approx(0.0)
+    assert stop_certificate.predicted_delta_radius_or_flip_budget >= 0.0
+    assert stop_certificate.predicted_certified_set_contraction >= 0.0
+    assert stop_certificate.realized_delta_radius_or_flip_budget == pytest.approx(0.0)
+    assert stop_certificate.realized_preference_shrinkage == pytest.approx(0.0)
+    assert stop_certificate.realized_certified_set_contraction == pytest.approx(0.0)
+    assert stop_certificate.hindsight_necessity_label in {
+        "unknown",
+        "plausibly_helpful",
+        "plausibly_necessary_for_certification",
+        "not_needed_observed_nonproductive",
+    }
+    assert stop_certificate.metric_semantics["predicted_delta_radius_or_flip_budget"]
+    assert stop_certificate.metric_semantics["predicted_preference_shrinkage"]
+    assert stop_certificate.metric_semantics["predicted_certified_set_contraction"]
+    assert stop_certificate.metric_semantics["predicted_winner_lcb_gain"]
+    assert stop_certificate.metric_semantics["predicted_gap_lcb_gain"]
 
 
 def test_controller_stops_immediately_after_certified_no_gain_action() -> None:
@@ -10663,6 +11419,11 @@ def test_controller_fails_closed_when_action_execution_hooks_are_missing() -> No
     assert stop_certificate.stop_reason == "error_missing_action_hooks"
     assert stop_certificate.action_trace
     assert stop_certificate.best_rejected_action is not None
+    assert stop_certificate.action_trace[0]["next_best_unused_action"] is not None
+    assert (
+        stop_certificate.action_trace[0]["next_best_unused_action"]["action_id"]
+        == stop_certificate.best_rejected_action["action_id"]
+    )
 
 
 def test_controller_normalizes_hook_side_effects_for_iteration_and_budget() -> None:
@@ -10816,6 +11577,132 @@ def test_controller_keeps_searching_when_supported_pending_flip_signal_is_credib
     assert stop_certificate.stop_reason == "search_incomplete_no_action_worth_it"
     assert stop_certificate.controller_state is not None
     assert stop_certificate.controller_state["search_completeness_score"] < 0.95
+
+
+def test_controller_does_not_recertify_after_nonproductive_refine_when_hidden_challenger_risk_remains() -> None:
+    dccs = select_candidates(
+        [
+            _candidate(
+                "cand_strong",
+                path=["c1", "c2", "c3", "c4"],
+                objective=(16.0, 15.6, 15.4),
+                road_mix={"motorway_share": 0.05, "a_road_share": 0.25, "urban_share": 0.70},
+                toll_share=0.18,
+                terrain_burden=0.24,
+                straight_line_km=8.5,
+                mechanism={"motorway_share": 0.05, "toll_share": 0.18, "terrain_burden": 0.24},
+            )
+        ],
+        frontier=[
+            _candidate(
+                "frontier_anchor",
+                path=["f1", "f2"],
+                objective=(10.0, 10.0, 10.0),
+                road_mix={"motorway_share": 0.6, "a_road_share": 0.3, "urban_share": 0.1},
+                toll_share=0.02,
+                terrain_burden=0.05,
+                straight_line_km=9.0,
+                mechanism={"motorway_share": 0.6, "toll_share": 0.02, "terrain_burden": 0.05},
+            )
+        ],
+        config=DCCSConfig(mode="challenger", search_budget=0),
+    )
+    fragility = types.SimpleNamespace(
+        value_of_refresh={
+            "ranking": [{"family": "scenario", "vor": 0.01}],
+            "top_refresh_family": "scenario",
+            "top_refresh_gain": 0.01,
+        },
+        route_fragility_map={"route_a": {"scenario": 0.02}},
+        competitor_fragility_breakdown={"route_a": {"route_b": {"scenario": 0.2}}},
+    )
+    seed_state = VOIControllerState(
+        iteration_index=0,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.02, 10.03, 10.01)},
+        ],
+        certificate={"route_a": 1.0, "route_b": 1.0},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=1,
+        remaining_evidence_budget=0,
+        action_trace=[],
+        active_evidence_families=["scenario", "weather", "toll"],
+        stochastic_enabled=False,
+        ambiguity_context={
+            "od_ambiguity_index": 0.44,
+            "od_hard_case_prior": 0.55,
+            "od_engine_disagreement_prior": 0.24,
+            "od_ambiguity_confidence": 0.92,
+            "od_ambiguity_source_count": 3,
+            "od_ambiguity_source_mix": '{"engine_augmented_probe":1,"routing_graph_probe":1,"historical_results_bootstrap":1}',
+            "od_ambiguity_support_ratio": 0.78,
+            "od_ambiguity_prior_strength": 0.58,
+            "od_ambiguity_source_entropy": 0.74,
+            "ambiguity_budget_prior": 0.43,
+            "refc_stress_world_fraction": 0.20,
+            "is_hard_case": True,
+        },
+        certificate_margin=0.01,
+        search_completeness_score=0.94,
+        search_completeness_gap=0.01,
+        prior_support_strength=0.79,
+        pending_challenger_mass=0.20,
+        best_pending_flip_probability=0.26,
+        frontier_recall_at_budget=0.92,
+        top_refresh_gain=0.01,
+        top_fragility_mass=0.02,
+        competitor_pressure=0.20,
+        near_tie_mass=0.08,
+    )
+    config = VOIConfig(
+        certificate_threshold=0.80,
+        search_completeness_threshold=0.95,
+        stop_threshold=0.0,
+        search_budget=1,
+        evidence_budget=0,
+    )
+    enriched = enrich_controller_state_for_actioning(
+        seed_state,
+        dccs=dccs,
+        fragility=fragility,
+        config=config,
+    )
+    actions = build_action_menu(enriched, dccs=dccs, fragility=fragility, config=config)
+
+    assert enriched.search_completeness_gap > 0.0
+    assert enriched.pending_challenger_mass > 0.0
+    assert actions
+    assert actions[0].kind == "refine_top1_dccs"
+
+    def _refine_without_relief(state: VOIControllerState, _action):
+        return replace(
+            state,
+            certificate=dict(state.certificate),
+            frontier=[dict(route) for route in state.frontier],
+            ambiguity_context=dict(state.ambiguity_context),
+        )
+
+    stop_certificate = run_controller(
+        initial_frontier=seed_state.frontier,
+        dccs=dccs,
+        fragility=fragility,
+        winner_id=seed_state.winner_id,
+        certificate_value=1.0,
+        certificate_map=seed_state.certificate,
+        selected_route_id=seed_state.selected_route_id,
+        ambiguity_context=seed_state.ambiguity_context,
+        config=config,
+        hooks=VOIActionHooks(refine=_refine_without_relief),
+    )
+
+    assert stop_certificate.certified is False
+    assert stop_certificate.stop_reason == "budget_exhausted"
+    assert stop_certificate.terminal_action_kind == "refine_top1_dccs"
+    assert stop_certificate.controller_state is not None
+    assert stop_certificate.controller_state["search_completeness_gap"] > 0.0
+    assert stop_certificate.controller_state["pending_challenger_mass"] > 0.0
 
 
 def test_controller_reports_iteration_cap_distinct_from_budget_exhaustion() -> None:
@@ -11276,6 +12163,193 @@ def test_uncertified_last_search_token_resample_preference_allows_direct_fallbac
     assert adjusted_refine.metadata["uncertified_last_search_token_resample_search_discount_applied"] is True
 
 
+def test_uncertified_last_search_token_preference_bridge_promotes_pairwise_query_after_search_only_progress() -> None:
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.08, 10.04, 10.02)},
+            {"route_id": "route_c", "objective_vector": (10.19, 10.10, 10.05)},
+            {"route_id": "route_d", "objective_vector": (10.31, 10.18, 10.09)},
+        ],
+        certificate={"route_a": 0.588235, "route_b": 0.352941, "route_c": 0.058824},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=1,
+        remaining_evidence_budget=3,
+        action_trace=[
+            {
+                "chosen_action": {"kind": "refine_top1_dccs"},
+                "realized_certificate_delta": 0.0,
+                "realized_frontier_gain": 1.0,
+                "realized_selected_route_improvement": 0.0,
+                "realized_runner_up_gap_delta": -0.032459,
+                "realized_evidence_uncertainty_delta": 0.0,
+                "realized_productive": True,
+            }
+        ],
+        ambiguity_context={
+            "selected_candidate_source_stage": "direct_k_raw_fallback",
+            "selected_final_route_source_stage": "osrm_refined",
+            "od_ambiguity_support_ratio": 0.707403,
+            "od_ambiguity_source_entropy": 0.836641,
+            "od_hard_case_prior": 0.635657,
+            "ambiguity_budget_prior": 0.423843,
+        },
+        support_richness=0.707403,
+        ambiguity_pressure=0.722581,
+        pending_challenger_mass=0.645128,
+        best_pending_flip_probability=0.999984,
+        top_refresh_gain=0.0,
+        top_fragility_mass=0.0,
+        competitor_pressure=0.0,
+        corridor_family_recall=0.333333,
+        frontier_recall_at_budget=0.164944,
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="candidate",
+        q_score=0.319296,
+        predicted_delta_certificate=0.411765,
+        predicted_delta_margin=0.217538,
+        predicted_delta_frontier=0.095431,
+        metadata={
+            "mean_flip_probability": 0.998442,
+            "normalized_objective_gap": 0.038052,
+            "normalized_mechanism_gap": 0.110464,
+            "normalized_overlap_reduction": 0.857143,
+        },
+        reason="refine_candidate",
+    )
+    pairwise = voi_module.VOIAction(
+        action_id="preference_pairwise_route_query:route_a|route_b",
+        kind="preference_pairwise_route_query",
+        target="route_a|route_b",
+        q_score=0.24709,
+        cost_evidence=1,
+        predicted_delta_certificate=0.21801,
+        predicted_delta_margin=0.373673,
+        predicted_delta_frontier=0.049999,
+        metadata={
+            "route_ids": ["route_a", "route_b"],
+            "frontier_route_ids": ["route_a", "route_b"],
+            "preference_signal": 1.0,
+            "possible_best_signal": 0.794286,
+            "necessary_best_signal": 0.908707,
+            "frontier_pressure": 0.999984,
+        },
+        reason="issue_pairwise_route_query",
+    )
+
+    adjusted = voi_module._apply_uncertified_last_search_token_preference_bridge(
+        [refine, pairwise],
+        state=state,
+        current_certificate=0.588235,
+        config=VOIConfig(certificate_threshold=0.80),
+    )
+
+    adjusted_refine = next(action for action in adjusted if action.kind == "refine_top1_dccs")
+    adjusted_pairwise = next(
+        action for action in adjusted if action.kind == "preference_pairwise_route_query"
+    )
+    assert adjusted_pairwise.q_score > adjusted_refine.q_score
+    assert adjusted_pairwise.metadata["uncertified_last_search_token_preference_bridge_applied"] is True
+    assert (
+        adjusted_refine.metadata["uncertified_last_search_token_preference_bridge_search_discount_applied"]
+        is True
+    )
+
+
+def test_uncertified_last_search_token_preference_bridge_does_not_override_novel_search() -> None:
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.22, 10.14, 10.08)},
+            {"route_id": "route_c", "objective_vector": (10.44, 10.23, 10.13)},
+        ],
+        certificate={"route_a": 0.588235, "route_b": 0.352941, "route_c": 0.058824},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=1,
+        remaining_evidence_budget=3,
+        action_trace=[
+            {
+                "chosen_action": {"kind": "refine_top1_dccs"},
+                "realized_certificate_delta": 0.0,
+                "realized_frontier_gain": 1.0,
+                "realized_selected_route_improvement": 0.0,
+                "realized_runner_up_gap_delta": 0.0,
+                "realized_evidence_uncertainty_delta": 0.0,
+                "realized_productive": True,
+            }
+        ],
+        ambiguity_context={
+            "selected_candidate_source_stage": "direct_k_raw_fallback",
+            "od_ambiguity_support_ratio": 0.707403,
+            "od_ambiguity_source_entropy": 0.836641,
+            "od_hard_case_prior": 0.635657,
+            "ambiguity_budget_prior": 0.423843,
+        },
+        support_richness=0.707403,
+        ambiguity_pressure=0.722581,
+        pending_challenger_mass=0.645128,
+        best_pending_flip_probability=0.999984,
+        corridor_family_recall=0.333333,
+        frontier_recall_at_budget=0.164944,
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="candidate",
+        q_score=0.319296,
+        predicted_delta_certificate=0.411765,
+        predicted_delta_margin=0.217538,
+        predicted_delta_frontier=0.182,
+        metadata={
+            "mean_flip_probability": 0.998442,
+            "normalized_objective_gap": 0.142,
+            "normalized_mechanism_gap": 0.110464,
+            "normalized_overlap_reduction": 0.857143,
+        },
+        reason="refine_candidate",
+    )
+    pairwise = voi_module.VOIAction(
+        action_id="preference_pairwise_route_query:route_a|route_b",
+        kind="preference_pairwise_route_query",
+        target="route_a|route_b",
+        q_score=0.24709,
+        cost_evidence=1,
+        predicted_delta_certificate=0.21801,
+        predicted_delta_margin=0.373673,
+        predicted_delta_frontier=0.049999,
+        metadata={
+            "route_ids": ["route_a", "route_b"],
+            "frontier_route_ids": ["route_a", "route_b"],
+            "preference_signal": 1.0,
+            "possible_best_signal": 0.794286,
+            "necessary_best_signal": 0.908707,
+            "frontier_pressure": 0.999984,
+        },
+        reason="issue_pairwise_route_query",
+    )
+
+    adjusted = voi_module._apply_uncertified_last_search_token_preference_bridge(
+        [refine, pairwise],
+        state=state,
+        current_certificate=0.588235,
+        config=VOIConfig(certificate_threshold=0.80),
+    )
+
+    adjusted_refine = next(action for action in adjusted if action.kind == "refine_top1_dccs")
+    adjusted_pairwise = next(
+        action for action in adjusted if action.kind == "preference_pairwise_route_query"
+    )
+    assert adjusted_refine.q_score == pytest.approx(refine.q_score, rel=0.0, abs=1e-9)
+    assert adjusted_pairwise.q_score == pytest.approx(pairwise.q_score, rel=0.0, abs=1e-9)
+
+
 def test_uncertified_last_search_token_resample_preference_does_not_override_productive_search() -> None:
     state = VOIControllerState(
         iteration_index=1,
@@ -11671,6 +12745,54 @@ def test_saturated_certified_zero_headroom_search_probe_drops_support_rich_direc
     assert [action.kind for action in filtered] == ["refresh_top1_vor", "stop"]
 
 
+def test_saturated_certified_zero_headroom_search_probe_stops_strong_signal_probe_without_evidence_actions() -> None:
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.12, 10.05, 10.02)},
+        ],
+        certificate={"route_a": 1.0, "route_b": 0.0},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=1,
+        remaining_evidence_budget=1,
+        certificate_margin=1.0,
+        near_tie_mass=0.0,
+        top_refresh_gain=0.85,
+        top_fragility_mass=1.0,
+        competitor_pressure=1.0,
+        corridor_family_recall=0.5,
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="candidate",
+        q_score=0.072052,
+        predicted_delta_certificate=0.0,
+        predicted_delta_margin=0.20311,
+        predicted_delta_frontier=0.106484,
+        metadata={
+            "normalized_objective_gap": 0.093981,
+            "normalized_mechanism_gap": 0.146823,
+            "normalized_overlap_reduction": 0.904762,
+            "certificate_headroom_cap_applied": True,
+            "certificate_headroom_remaining": 0.0,
+        },
+    )
+    stop = voi_module.VOIAction(action_id="stop", kind="stop", target="stop", q_score=0.0)
+
+    filtered = voi_module._suppress_saturated_certified_zero_headroom_search_probe(
+        [refine, stop],
+        state=state,
+        current_certificate=1.0,
+        config=VOIConfig(certificate_threshold=0.80),
+        certified_frontier_fill_bridge=True,
+    )
+
+    assert [action.kind for action in filtered] == ["stop"]
+
+
 def test_certified_single_frontier_zero_signal_search_churn_prefers_stop() -> None:
     cfg = VOIConfig(certificate_threshold=0.78)
     state = VOIControllerState(
@@ -11969,6 +13091,526 @@ def test_evidence_exhausted_uncertified_search_tail_prefers_stop_after_productiv
     ) is True
 
 
+def test_preference_action_menu_exposes_all_five_query_modalities() -> None:
+    dccs = _preference_sensitive_dccs_result()
+    fragility = _neutral_fragility_result()
+    state = VOIControllerState(
+        iteration_index=0,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.02, 10.01, 10.0)},
+        ],
+        certificate={"route_a": 0.58, "route_b": 0.54},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=0,
+        remaining_evidence_budget=2,
+        action_trace=[],
+        state_trace=[],
+        active_evidence_families=["scenario"],
+        stochastic_enabled=False,
+        near_tie_mass=0.18,
+        certificate_margin=0.01,
+        pending_challenger_mass=0.27,
+        best_pending_flip_probability=0.31,
+        frontier_recall_at_budget=0.82,
+    )
+
+    actions = build_action_menu(
+        state,
+        dccs=dccs,
+        fragility=fragility,
+        config=VOIConfig(certificate_threshold=0.80, search_budget=0, evidence_budget=2),
+    )
+
+    preference_actions = [action for action in actions if action.action_family == "preference"]
+
+    assert {action.kind for action in preference_actions} == {
+        "preference_pairwise_route_query",
+        "preference_tradeoff_threshold_query",
+        "preference_ratio_query",
+        "preference_veto_query",
+        "preference_time_guard_query",
+    }
+    assert {action.action_modality for action in preference_actions} == {
+        "pairwise_route_query",
+        "tradeoff_threshold_query",
+        "ratio_query",
+        "veto_query",
+        "time_guard_query",
+    }
+    assert all(action.q_score > 0.0 for action in preference_actions)
+
+
+def test_preference_action_menu_suppresses_queries_when_irrelevance_is_proven() -> None:
+    dccs = _preference_sensitive_dccs_result()
+    fragility = _neutral_fragility_result()
+    state = VOIControllerState(
+        iteration_index=0,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.02, 10.01, 10.0)},
+        ],
+        certificate={"route_a": 0.58, "route_b": 0.54},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=0,
+        remaining_evidence_budget=2,
+        action_trace=[],
+        state_trace=[],
+        active_evidence_families=["scenario"],
+        stochastic_enabled=False,
+        near_tie_mass=0.18,
+        certificate_margin=0.01,
+        pending_challenger_mass=0.27,
+        best_pending_flip_probability=0.31,
+        frontier_recall_at_budget=0.82,
+        preference_irrelevance_proven=True,
+        no_preference_query_reason="preference_irrelevance_proven",
+    )
+
+    actions = build_action_menu(
+        state,
+        dccs=dccs,
+        fragility=fragility,
+        config=VOIConfig(certificate_threshold=0.80, search_budget=0, evidence_budget=2),
+    )
+
+    assert all(action.action_family != "preference" for action in actions)
+
+
+def test_controller_can_select_and_trace_preference_action_without_extra_hooks() -> None:
+    dccs = _preference_sensitive_dccs_result()
+    fragility = _neutral_fragility_result()
+
+    stop_certificate = run_controller(
+        initial_frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.02, 10.01, 10.0)},
+        ],
+        dccs=dccs,
+        fragility=fragility,
+        winner_id="route_a",
+        certificate_value=0.58,
+        certificate_map={"route_a": 0.58, "route_b": 0.54},
+        selected_route_id="route_a",
+        config=VOIConfig(certificate_threshold=0.80, stop_threshold=0.02, search_budget=0, evidence_budget=1),
+    )
+
+    assert stop_certificate.action_trace
+    assert stop_certificate.action_trace[0]["chosen_action"]["action_family"] == "preference"
+    assert stop_certificate.action_trace[0]["chosen_action"]["action_modality"] in {
+        "pairwise_route_query",
+        "tradeoff_threshold_query",
+        "ratio_query",
+        "veto_query",
+        "time_guard_query",
+    }
+    assert stop_certificate.action_trace[0]["chosen_action"]["predicted_preference_shrinkage"] > 0.0
+    assert stop_certificate.action_trace[0]["chosen_action"]["predicted_certified_set_contraction"] >= 0.0
+    assert stop_certificate.action_trace[0]["chosen_action"]["predicted_delta_radius_or_flip_budget"] == pytest.approx(0.0)
+    assert stop_certificate.terminal_action_family == "preference"
+    assert stop_certificate.evidence_budget_used == 1
+    assert stop_certificate.controller_state is not None
+    assert stop_certificate.controller_state["predicted_winner_lcb_gain"] > 0.0
+    assert stop_certificate.controller_state["realized_certificate_delta"] == pytest.approx(0.0)
+    assert stop_certificate.controller_state["predicted_gap_lcb_gain"] > 0.0
+    assert stop_certificate.controller_state["realized_runner_up_gap_delta"] == pytest.approx(0.0)
+    assert stop_certificate.controller_state["predicted_preference_shrinkage"] > 0.0
+    assert stop_certificate.controller_state["predicted_certified_set_contraction"] >= 0.0
+    assert stop_certificate.controller_state["predicted_delta_radius_or_flip_budget"] == pytest.approx(0.0)
+    assert stop_certificate.controller_state["realized_delta_radius_or_flip_budget"] == pytest.approx(0.0)
+    assert stop_certificate.controller_state["realized_preference_shrinkage"] == pytest.approx(0.0)
+    assert stop_certificate.controller_state["realized_certified_set_contraction"] == pytest.approx(0.0)
+    assert stop_certificate.controller_state["hindsight_necessity_label"] in {
+        "unknown",
+        "plausibly_helpful",
+        "plausibly_necessary_for_certification",
+        "not_needed_observed_nonproductive",
+    }
+    assert stop_certificate.controller_state["metric_semantics"]["predicted_preference_shrinkage"]
+    assert stop_certificate.state_trace
+    assert stop_certificate.state_trace[-1]["predicted_preference_shrinkage"] > 0.0
+    assert stop_certificate.state_trace[-1]["metric_semantics"]["hindsight_necessity_label"]
+
+
+def test_live_runtime_preference_action_emits_nonzero_query_and_shrinkage() -> None:
+    state = main_module.build_preference_state(
+        route_ids=["route_a", "route_b", "route_c"],
+        weights={"time": 2.0, "money": 1.0, "co2": 0.5},
+        support_flag=True,
+        support_reason=None,
+    )
+    chosen_action = {
+        "kind": "preference_pairwise_route_query",
+        "target": "route_a|route_b",
+        "metadata": {"route_ids": ["route_a", "route_b"]},
+        "reason": "pairwise_route_preference",
+    }
+    options = [
+        RouteOption(
+            id="route_a",
+            geometry=GeoJSONLineString(type="LineString", coordinates=[(0.0, 0.0), (1.0, 1.0)]),
+            metrics=RouteMetrics(
+                distance_km=10.0,
+                duration_s=900.0,
+                monetary_cost=40.0,
+                emissions_kg=8.0,
+                avg_speed_kmh=40.0,
+            ),
+        ),
+        RouteOption(
+            id="route_b",
+            geometry=GeoJSONLineString(type="LineString", coordinates=[(0.0, 0.0), (1.1, 1.1)]),
+            metrics=RouteMetrics(
+                distance_km=10.5,
+                duration_s=1080.0,
+                monetary_cost=42.0,
+                emissions_kg=8.5,
+                avg_speed_kmh=35.0,
+            ),
+        ),
+        RouteOption(
+            id="route_c",
+            geometry=GeoJSONLineString(type="LineString", coordinates=[(0.0, 0.0), (1.2, 1.2)]),
+            metrics=RouteMetrics(
+                distance_km=11.0,
+                duration_s=1140.0,
+                monetary_cost=39.0,
+                emissions_kg=9.0,
+                avg_speed_kmh=34.7,
+            ),
+        ),
+    ]
+
+    updated_state, preference_diag = main_module._apply_runtime_preference_query_action(
+        chosen_action=chosen_action,
+        preference_state=state,
+        options=options,
+        selection_score_map={"route_a": 0.18, "route_b": 0.31, "route_c": 0.44},
+        selected_route_id="route_a",
+        utility_weights=(2.0, 1.0, 0.5),
+    )
+
+    assert preference_diag["preference_query_skipped"] is False
+    assert preference_diag["preference_query_type"] == "pairwise"
+    assert preference_diag["preferred_route_id"] == "route_a"
+    assert preference_diag["targeted_challenger_route_id"] == "route_b"
+    assert updated_state.query_count == 1
+    assert updated_state.query_history[0].query_type == "pairwise"
+    assert updated_state.query_history[0].preferred_route_id == "route_a"
+    assert updated_state.no_query_reason is None
+    assert updated_state.compatible_set_summary.compatible_set_size == 2
+    assert updated_state.compatible_set_summary.compatible_set_volume_proxy < 1.0
+    assert "route_b" not in updated_state.compatible_set_summary.possible_best_route_ids
+    assert updated_state.shrinkage_trace
+    assert updated_state.shrinkage_trace[0].realized_shrinkage > 0.0
+
+
+def test_voi_artifact_metric_helpers_emit_predicted_and_realized_fields() -> None:
+    refresh_action = voi_module.VOIAction(
+        action_id="refresh:scenario",
+        kind="refresh_top1_vor",
+        target="scenario",
+        cost_evidence=1,
+        predicted_delta_certificate=0.05,
+        predicted_delta_margin=0.02,
+        predicted_delta_frontier=0.01,
+        metadata={
+            "route_fragility": 0.44,
+            "normalized_competitor_pressure": 0.31,
+            "empirical_refresh_certificate_uplift": 0.06,
+        },
+    )
+
+    score_row = voi_module.build_voi_action_score_row(
+        iteration=2,
+        action=refresh_action,
+        selected_route_id="route_a",
+        selected_certificate=0.71,
+    )
+
+    assert score_row["predicted_delta_radius_or_flip_budget"] > 0.0
+    assert score_row["predicted_preference_shrinkage"] == pytest.approx(0.0)
+    assert score_row["predicted_certified_set_contraction"] == pytest.approx(0.01)
+
+    realized_fields = voi_module.compute_voi_realized_metric_deltas(
+        {
+            "radius_or_flip_budget": 0.18,
+            "preference_volume_proxy": 1.0,
+            "certified_set_size": 3,
+        },
+        {
+            "radius_or_flip_budget": 0.31,
+            "preference_volume_proxy": 0.72,
+            "certified_set_size": 1,
+        },
+    )
+
+    assert realized_fields["realized_delta_radius_or_flip_budget"] == pytest.approx(0.13)
+    assert realized_fields["realized_preference_shrinkage"] == pytest.approx(0.28)
+    assert realized_fields["realized_certified_set_contraction"] == pytest.approx(2.0)
+    assert voi_module.classify_voi_hindsight_necessity(
+        chosen_action=refresh_action,
+        realized_fields={**realized_fields, "realized_certificate_delta": 0.04},
+        stop_reason="certified",
+    ) == "plausibly_necessary_for_certification"
+
+
+def test_controller_state_serialization_surfaces_latest_voi_artifact_fields() -> None:
+    refresh_action = voi_module.VOIAction(
+        action_id="refresh:scenario",
+        kind="refresh_top1_vor",
+        target="scenario",
+        cost_evidence=1,
+        predicted_delta_certificate=0.05,
+        predicted_delta_margin=0.02,
+        predicted_delta_frontier=0.01,
+        metadata={
+            "route_fragility": 0.44,
+            "normalized_competitor_pressure": 0.31,
+            "empirical_refresh_certificate_uplift": 0.06,
+        },
+    )
+    action_trace = [
+        {
+            "iteration": 0,
+            "chosen_action": refresh_action.as_dict(),
+            "realized_certificate_delta": 0.04,
+            "realized_runner_up_gap_delta": -0.02,
+            "realized_delta_radius_or_flip_budget": 0.13,
+            "realized_preference_shrinkage": 0.28,
+            "realized_certified_set_contraction": 2.0,
+            "realized_productive": True,
+            "hindsight_necessity_label": "plausibly_helpful",
+        }
+    ]
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.1, 10.05, 10.0)},
+        ],
+        certificate={"route_a": 0.75, "route_b": 0.33},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=2,
+        remaining_evidence_budget=1,
+        action_trace=action_trace,
+        certificate_lcb=0.61,
+        certificate_ucb=0.87,
+        necessary_best_probability=0.44,
+        possible_best_probability=0.72,
+        minimum_pairwise_gap_lcb=0.03,
+        deterministic_local_flip_radius=0.14,
+        probabilistic_flip_radius=0.21,
+        minimum_flip_budget=3.0,
+        certified_set_size=2,
+        weight_set_volume=0.58,
+        weight_set_shrinkage=0.42,
+        unresolved_possible_frontier_mass=0.17,
+        unresolved_possible_winner_mass=0.11,
+        unresolved_certificate_critical_mass=0.07,
+        support_flag=False,
+        out_of_support_reason="weak_overlap_detected",
+        proxy_only_fraction=0.63,
+        audit_propensity_summary={
+            "audit_coverage_ratio": 0.52,
+            "minimum_propensity": 0.09,
+            "positivity_ok": False,
+            "certification_evaluation_tag": "corrected_from_residual_model",
+        },
+        active_certificate_boundary_summary={
+            "active_challenger_id": "route_b",
+            "boundary_count": 2,
+            "certificate_boundary_kind": "challenger_frontier",
+        },
+        last_action_id=refresh_action.action_id,
+        last_action_kind=refresh_action.kind,
+    )
+
+    payload = state.as_dict()
+
+    assert payload["predicted_winner_lcb_gain"] == pytest.approx(0.05)
+    assert payload["realized_certificate_delta"] == pytest.approx(0.04)
+    assert payload["predicted_gap_lcb_gain"] == pytest.approx(0.02)
+    assert payload["realized_runner_up_gap_delta"] == pytest.approx(-0.02)
+    assert payload["predicted_delta_radius_or_flip_budget"] > 0.0
+    assert payload["realized_delta_radius_or_flip_budget"] == pytest.approx(0.13)
+    assert payload["predicted_preference_shrinkage"] == pytest.approx(0.0)
+    assert payload["realized_preference_shrinkage"] == pytest.approx(0.28)
+    assert payload["predicted_certified_set_contraction"] == pytest.approx(0.01)
+    assert payload["realized_certified_set_contraction"] == pytest.approx(2.0)
+    assert payload["hindsight_necessity_label"] == "plausibly_helpful"
+    assert payload["metric_semantics"]["predicted_delta_radius_or_flip_budget"]
+    assert payload["weight_set_shrinkage"] == pytest.approx(0.42)
+    assert payload["support_flag"] is False
+    assert payload["proxy_only_fraction"] == pytest.approx(0.63)
+    assert payload["audit_propensity_summary"]["audit_coverage_ratio"] == pytest.approx(0.52)
+    assert payload["active_certificate_boundary_summary"]["active_challenger_id"] == "route_b"
+
+    snapshot = voi_module._state_snapshot(
+        state,
+        current_certificate=0.75,
+        feasible_actions=[refresh_action],
+        chosen_action=refresh_action,
+        best_rejected_action={"action_id": "audit:backup", "kind": "audit_world_expansion", "target": "route_b"},
+    )
+
+    assert snapshot["predicted_winner_lcb_gain"] == pytest.approx(0.05)
+    assert snapshot["realized_certificate_delta"] == pytest.approx(0.04)
+    assert snapshot["predicted_gap_lcb_gain"] == pytest.approx(0.02)
+    assert snapshot["realized_runner_up_gap_delta"] == pytest.approx(-0.02)
+    assert snapshot["predicted_delta_radius_or_flip_budget"] > 0.0
+    assert snapshot["realized_delta_radius_or_flip_budget"] == pytest.approx(0.13)
+    assert snapshot["realized_preference_shrinkage"] == pytest.approx(0.28)
+    assert snapshot["realized_certified_set_contraction"] == pytest.approx(2.0)
+    assert snapshot["hindsight_necessity_label"] == "plausibly_helpful"
+    assert snapshot["metric_semantics"]["predicted_certified_set_contraction"]
+    assert snapshot["certificate_lcb"] == pytest.approx(0.61)
+    assert snapshot["possible_best_probability"] == pytest.approx(0.72)
+    assert snapshot["deterministic_local_flip_radius"] == pytest.approx(0.14)
+    assert snapshot["next_best_unused_action"]["action_id"] == "audit:backup"
+    assert snapshot["weight_set_shrinkage"] == pytest.approx(0.42)
+    assert snapshot["unresolved_possible_winner_mass"] == pytest.approx(0.11)
+    assert snapshot["support_flag"] is False
+    assert snapshot["out_of_support_reason"] == "weak_overlap_detected"
+    assert snapshot["proxy_only_fraction"] == pytest.approx(0.63)
+    assert snapshot["audit_propensity_summary"]["minimum_propensity"] == pytest.approx(0.09)
+    assert (
+        snapshot["active_certificate_boundary_summary"]["certificate_boundary_kind"]
+        == "challenger_frontier"
+    )
+
+
+def test_score_action_uses_explicit_lcb_and_gain_family_formula() -> None:
+    cfg = VOIConfig(
+        lambda_certificate=0.60,
+        lambda_margin=0.25,
+        lambda_frontier=0.15,
+        lambda_radius_or_flip_budget=0.02,
+        lambda_unresolved_mass=0.02,
+        lambda_preference_ambiguity=0.02,
+    )
+    action = voi_module.VOIAction(
+        action_id="refresh:scenario",
+        kind="refresh_top1_vor",
+        target="scenario",
+        cost_evidence=1,
+        predicted_delta_certificate=0.11,
+        predicted_delta_margin=0.07,
+        predicted_delta_frontier=0.03,
+        predicted_delta_search_completeness=0.09,
+        metadata={
+            "route_fragility": 0.42,
+            "normalized_competitor_pressure": 0.33,
+            "empirical_refresh_certificate_uplift": 0.05,
+        },
+    )
+
+    scored = voi_module.score_action(action, config=cfg)
+    payload = scored.as_dict()
+    expected_q = (
+        (cfg.lambda_certificate * payload["predicted_winner_lcb_gain"])
+        + (cfg.lambda_margin * payload["predicted_gap_lcb_gain"])
+        + (cfg.lambda_frontier * payload["predicted_boundary_contraction"])
+        + (cfg.lambda_radius_or_flip_budget * payload["predicted_radius_or_flip_budget_gain"])
+        + (cfg.lambda_unresolved_mass * payload["predicted_unresolved_mass_reduction"])
+        + (
+            cfg.lambda_preference_ambiguity
+            * payload["predicted_preference_ambiguity_reduction"]
+        )
+    ) / (action.cost_evidence + cfg.epsilon)
+
+    assert payload["predicted_winner_lcb_gain"] == pytest.approx(action.predicted_delta_certificate)
+    assert payload["predicted_gap_lcb_gain"] == pytest.approx(action.predicted_delta_margin)
+    assert payload["predicted_radius_or_flip_budget_gain"] > 0.0
+    assert payload["predicted_unresolved_mass_reduction"] == pytest.approx(action.predicted_delta_search_completeness)
+    assert payload["predicted_preference_ambiguity_reduction"] == pytest.approx(0.0)
+    assert payload["predicted_boundary_contraction"] == pytest.approx(
+        max(action.predicted_delta_frontier, payload["predicted_certified_set_contraction"])
+    )
+    assert scored.q_score == pytest.approx(expected_q)
+
+
+def test_score_action_q_score_increases_with_radius_search_and_preference_gains() -> None:
+    cfg = VOIConfig(
+        lambda_certificate=0.60,
+        lambda_margin=0.25,
+        lambda_frontier=0.15,
+        lambda_radius_or_flip_budget=0.20,
+        lambda_unresolved_mass=0.20,
+        lambda_preference_ambiguity=0.20,
+    )
+
+    refresh_base = voi_module.VOIAction(
+        action_id="refresh:base",
+        kind="refresh_top1_vor",
+        target="fuel",
+        cost_evidence=1,
+        predicted_delta_certificate=0.08,
+        predicted_delta_margin=0.04,
+        predicted_delta_frontier=0.01,
+        metadata={},
+    )
+    refresh_boosted = replace(
+        refresh_base,
+        metadata={
+            "route_fragility": 0.55,
+            "normalized_competitor_pressure": 0.44,
+            "empirical_refresh_certificate_uplift": 0.06,
+        },
+    )
+
+    refine_base = voi_module.VOIAction(
+        action_id="refine:base",
+        kind="refine_top1_dccs",
+        target="top1",
+        cost_search=1,
+        predicted_delta_certificate=0.08,
+        predicted_delta_margin=0.04,
+        predicted_delta_frontier=0.01,
+        metadata={},
+    )
+    refine_boosted = replace(
+        refine_base,
+        metadata={"search_completeness_bonus": 0.32},
+    )
+
+    preference_base = voi_module.VOIAction(
+        action_id="preference:base",
+        kind="preference_pairwise_route_query",
+        target="route_b",
+        cost_evidence=1,
+        predicted_delta_certificate=0.08,
+        predicted_delta_margin=0.04,
+        predicted_delta_frontier=0.01,
+        metadata={},
+    )
+    preference_boosted = replace(
+        preference_base,
+        metadata={
+            "preference_signal": 0.74,
+            "possible_best_signal": 0.69,
+            "necessary_best_signal": 0.57,
+            "frontier_pressure": 0.26,
+        },
+    )
+
+    assert voi_module.score_action(refresh_boosted, config=cfg).q_score > voi_module.score_action(
+        refresh_base,
+        config=cfg,
+    ).q_score
+    assert voi_module.score_action(refine_boosted, config=cfg).q_score > voi_module.score_action(
+        refine_base,
+        config=cfg,
+    ).q_score
+    assert voi_module.score_action(preference_boosted, config=cfg).q_score > voi_module.score_action(
+        preference_base,
+        config=cfg,
+    ).q_score
+
+
 def test_support_rich_certified_refresh_preference_targets_best_refresh_action() -> None:
     cfg = VOIConfig(certificate_threshold=0.81)
     state = VOIControllerState(
@@ -12117,6 +13759,79 @@ def test_strong_winner_side_refresh_preference_targets_best_refresh_action() -> 
     assert adjusted_high.metadata["winner_side_refresh_preference_empirical_bridge"] is True
     assert adjusted_refine.metadata["winner_side_refresh_refine_discount_applied"] is True
     assert adjusted_high.q_score > adjusted_refine.q_score
+
+
+def test_strong_winner_side_refresh_preference_recovers_after_dead_refine() -> None:
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.08, 10.02, 10.01)},
+        ],
+        certificate={"route_a": 0.551724, "route_b": 0.448276},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=2,
+        remaining_evidence_budget=2,
+        ambiguity_context={
+            "od_ambiguity_support_ratio": 0.686842,
+            "od_ambiguity_source_entropy": 0.836641,
+            "od_hard_case_prior": 0.492942,
+            "ambiguity_budget_prior": 0.423843,
+        },
+        support_richness=0.686842,
+        ambiguity_pressure=0.734275,
+        top_refresh_gain=0.367816,
+        top_fragility_mass=0.551724,
+        competitor_pressure=1.0,
+    )
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="candidate",
+        q_score=0.29733,
+        predicted_delta_certificate=0.399599,
+        predicted_delta_margin=0.228934,
+        predicted_delta_frontier=0.046815,
+        metadata={
+            "mean_flip_probability": 0.998923,
+            "normalized_objective_gap": 0.010869,
+            "normalized_mechanism_gap": 0.132312,
+            "normalized_overlap_reduction": 0.904762,
+        },
+        reason="refine_candidate",
+    )
+    refresh = voi_module.VOIAction(
+        action_id="refresh:scenario",
+        kind="refresh_top1_vor",
+        target="scenario",
+        q_score=0.031625,
+        predicted_delta_certificate=0.041528,
+        predicted_delta_margin=0.021173,
+        predicted_delta_frontier=0.0,
+        metadata={
+            "structured_refresh_signal": True,
+            "empirical_refresh_certificate_uplift": 0.0,
+        },
+        reason="refresh_evidence_family",
+    )
+
+    adjusted_actions = voi_module._apply_strong_winner_side_refresh_preference(
+        [refine, refresh],
+        state=state,
+        current_certificate=0.551724,
+        config=VOIConfig(certificate_threshold=0.83),
+        evidence_uncertainty=True,
+        supported_fragility_uncertainty=True,
+        recent_no_gain_refine_streak=1,
+    )
+
+    adjusted_refine = next(action for action in adjusted_actions if action.kind == "refine_top1_dccs")
+    adjusted_refresh = next(action for action in adjusted_actions if action.kind == "refresh_top1_vor")
+    assert adjusted_refresh.metadata["winner_side_refresh_preference_applied"] is True
+    assert adjusted_refresh.metadata["winner_side_refresh_preference_dead_refine_recovery"] is True
+    assert adjusted_refine.metadata["winner_side_refresh_refine_discount_applied"] is True
+    assert adjusted_refresh.q_score > refresh.q_score
 
 
 def test_evidence_exhausted_uncertified_search_tail_stops_low_value_terminal_topk_tail() -> None:

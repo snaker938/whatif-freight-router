@@ -2,15 +2,15 @@
   "copula_id": "gaussian_5x5_uk_v3_calibrated",
   "calibration_version": "v4-uk-residual-fit",
   "calibration_basis": "empirical",
-  "generated_at_utc": "2026-03-21T13:09:06.883293Z",
-  "as_of_utc": "2026-03-21T13:09:06.883304Z",
+  "generated_at_utc": "2026-04-10T15:18:04.366131Z",
+  "as_of_utc": "2026-04-10T15:18:04.366145Z",
   "fit_window": {
     "start_utc": "",
     "end_utc": ""
   },
   "holdout_window": {
-    "start_utc": "2026-03-04T14:58:07Z",
-    "end_utc": "2026-03-04T14:58:07Z"
+    "start_utc": "2026-04-10T13:55:08Z",
+    "end_utc": "2026-04-10T13:55:08Z"
   },
   "split_strategy": "temporal_forward_plus_corridor_block",
   "holdout_metrics": {

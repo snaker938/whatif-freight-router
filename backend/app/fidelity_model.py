@@ -1,3 +1,5 @@
+"""Pipeline stage: represent proxy-versus-audit action value estimates for VOI decisions."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

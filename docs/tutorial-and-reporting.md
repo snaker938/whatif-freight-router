@@ -1,7 +1,15 @@
 # Tutorial Mode and Reporting
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-12
 Applies To: frontend tutorial flows, reporting surfaces, and backend run artifact APIs
+
+Current truth anchors for the live runtime and UI:
+
+- [Backend README](../backend/README.md)
+- [Frontend README](../frontend/README.md)
+- [API Cookbook](api-cookbook.md)
+- [Run and Operations Guide](run-and-operations.md)
+- [Reviewer Quickstart](reviewer_quickstart.md)
 
 ## Tutorial Mode Scope
 
@@ -67,9 +75,105 @@ Current artifact endpoints exposed through the frontend proxy are:
 - `GET /runs/{run_id}/artifacts/methods_appendix.md`
 - `GET /runs/{run_id}/artifacts/thesis_report.md`
 
-The `frontend/app/api/runs/[runId]/[...subpath]/route.ts` proxy is intentionally allowlisted, so reporting links stay predictable instead of exposing arbitrary backend paths.
+The `frontend/app/api/runs/[runId]/[...subpath]/route.ts` proxy is intentionally allowlisted, so reporting links stay predictable instead of exposing arbitrary backend paths. In the current allowlist, `index.json` and `index.md` are bundle files you may inspect through the backend artifact route directly, but they are not exposed through this frontend proxy today.
+
+For route-compute bundles, `index.json` is the machine-readable bundle manifest and `index.md` is the reviewer-readable companion summary. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as stable artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
+
+## Labeling Discipline For Reporting Surfaces
+
+- Certification-facing summaries in the UI are conditional report surfaces: they reflect the support, bounded-world, and model-validity assumptions carried by the current response or artifact bundle, not assumption-free guarantees about reality.
+- Baseline deltas, run summaries, and exported CSV rows are empirical summaries of the visible run or checked bundle unless a page explicitly cites a stronger artifact-backed invariant.
+- `epic score`, `epic tier`, witness explanations, demo presets, and controller-score summaries are heuristic or organizational surfaces unless the underlying artifact explicitly marks a theorem-backed invariant.
 
 ## Current Reporting Panels
+
+### Decision State / Preference Visibility
+
+`frontend/app/components/DecisionStateSummary.tsx` remains the read-only preference-inspection surface inside the main route result view. It consumes the live `DecisionPackage` payload and stays visible for singleton, certified-set, and typed-abstention outcomes.
+
+`frontend/app/components/PreferenceElicitationPanel.tsx` is the adjacent live elicitation surface in that same route view. It consumes the current route/runtime payload, lets the reviewer issue pairwise, tradeoff, veto, and time-preserving guard answers against the visible routes, and updates the in-memory compatible-set summary and shrinkage trace without switching to mock data.
+
+The component currently renders:
+
+- terminal type, certificate basis, certified-set membership/exclusion notes, and abstention class
+- support summary and world-count/reuse visibility carried by the response payload
+- typed preference payload summaries from:
+  - `preference_state`
+  - `preference_query_trace`
+  - `preference_summary`
+- compatible-set size and volume proxy
+- necessary-best vs possible-best probability summaries when the payload provides them
+- pairwise, tradeoff, veto, and time-guard query evidence when present
+- shrinkage-over-time from the recorded preference trace
+- explicit `why this query` and `why no preference query was asked` messaging when the backend provides those reasons
+
+The live panel currently adds:
+
+- pairwise choice between the selected route and a runtime challenger
+- threshold and ratio tradeoff questions over the visible route metrics
+- route-level veto submission
+- time-preserving guard questions derived from the selected route duration
+- a compatible-set region summary and shrinkage timeline that update immediately on the current runtime payload
+
+### Route Certification / Decision Proof
+
+`frontend/app/components/RouteCertificationPanel.tsx` is the current in-app certificate-inspection surface for singleton, certified-set, and typed-abstention outcomes. It keeps decision/support/controller context visible even when no singleton route geometry is available. The panel reports conditional certification artifacts from the active run; it does not upgrade those artifacts into assumption-free guarantees.
+
+The panel currently renders:
+
+- controller context from the live response payload (`terminal_type`, stop reason, search completeness, search gap, iteration and budget summaries)
+- an artifact-backed controller trace with chosen actions, next-best unused action summaries, predicted vs realized certificate movement, action costs, and stop/abstain reasoning from:
+  - `voi_action_trace.json`
+  - `voi_action_scores.csv`
+  - `voi_stop_certificate.json`
+- support and governance context from the inline `world_support_summary` / `support_summary` payloads
+- scenario/profile provenance, mode observation source, and mode projection ratio
+- evidence audit metrics from proxied route artifacts:
+  - `sampled_world_manifest.json`
+  - `route_fragility_map.json`
+  - `value_of_refresh.json`
+- direct artifact links for the visible evidence-audit and controller metrics
+- frontend-generated CSV and SVG exports for the visible decision card, controller trace, and evidence summary; the SVG exports are vector figure surfaces intended for PDF-ready placement rather than direct PDF rendering
+
+The standalone `world_support_summary.json` artifact is still emitted by the backend run bundle, but the current frontend route-artifact proxy does not expose that file directly, so the panel uses the inline response payload for support/governance details today.
+
+### Proof Dashboard / Demo Presets
+
+`frontend/app/components/ProofDashboardPanel.tsx` is the separate proof-dashboard surface on the main page. It does not replace the route-level proof cards; it reorganizes the same run into reviewer-facing proof slices and bundle-entry links. In this page, "proof" means artifact-backed reviewer navigation, not automatic closure of theorem, publication, or adoption claims.
+
+The dashboard currently renders:
+
+- `V0 / A / B / C` proof slices for comparator, search/DCCS, certification/support, and VOI/controller families
+- proof lenses for:
+  - broad vs focused
+  - cold vs hot
+  - OSRM vs ORS
+  - theorem-to-artifact navigation
+- direct deep links to bundle and artifact files such as:
+  - `index.json`
+  - `index.md`
+  - `dccs_summary.json`
+  - `strict_frontier.jsonl`
+  - `certificate_summary.json`
+  - `route_fragility_map.json`
+  - `sampled_world_manifest.json`
+  - `voi_action_trace.json`
+  - `voi_action_scores.csv`
+  - `voi_stop_certificate.json`
+- `RunInspector` buttons on the visible proof tiles
+- `Copy Proof Summary` and `Export Dashboard CSV` actions grounded in the visible dashboard state
+- a deterministic witness-driven explanation synthesized from the current terminal/support/controller/witness payload fields
+
+The setup card also exposes canned proof-demo presets for:
+
+- safe singleton
+- certified set
+- support abstention
+- preference-sensitive inspection
+- collapse-prone search inspection
+- hot-rerun inspection
+
+These presets only prefill existing request knobs. They are not synthetic result bundles, so the backend still determines the actual terminal outcome.
 
 ### Route Comparison
 
@@ -87,7 +191,7 @@ The `frontend/app/api/runs/[runId]/[...subpath]/route.ts` proxy is intentionally
 - live-source coverage
 - live calls observed
 
-The comparison math is built from current route metrics and uses the existing baseline route as the reference. Positive percentages mean better when the metric is lower-is-better, which is why the panel labels the sign convention explicitly.
+The comparison math is built from current route metrics and uses the existing baseline route as the reference. Positive percentages mean better when the metric is lower-is-better, which is why the panel labels the sign convention explicitly. Those deltas are empirical for the visible request or checked bundle, while `epic score` and `epic tier` remain heuristic summary labels for that comparison frame.
 
 The map and summary panels currently support three baseline styles:
 
@@ -118,6 +222,8 @@ The map and summary panels currently support three baseline styles:
 - last observed timestamp
 
 The dashboard also exposes a CSV export at `GET /api/oracle/quality/dashboard.csv`.
+
+The proof dashboard's CSV export is frontend-generated from the visible proof tiles. Full SVG/PDF-ready figure export for the decision-proof surfaces is still a later packet.
 
 ### Departure And Duty Reporting
 

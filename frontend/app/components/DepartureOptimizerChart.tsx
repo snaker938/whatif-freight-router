@@ -2,6 +2,7 @@
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import { formatDateTime, formatNumber } from '../lib/format';
 import {
   SIDEBAR_FIELD_HELP,
@@ -34,6 +35,25 @@ type Props = {
     tutorialLocked?: boolean;
   };
 };
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 export default function DepartureOptimizerChart({
   windowStartLocal,
@@ -174,23 +194,43 @@ export default function DepartureOptimizerChart({
                   {formatDateTime(candidate.departure_time_utc, locale)} UTC
                 </div>
                 <div className="routeCard__pill">
-                  Score {formatNumber(candidate.score, locale, { maximumFractionDigits: 4 })}
+                  {inlineMetricLabel('Score', {
+                    definition: 'Departure-optimization score used to rank this departure candidate.',
+                    direction: 'Higher is better because candidates are ordered by this score.',
+                    unit: 'optimizer score',
+                  })}{' '}
+                  {formatNumber(candidate.score, locale, { maximumFractionDigits: 4 })}
                 </div>
               </div>
               <div className="routeCard__meta">
                 <span>
+                  {inlineMetricLabel('Duration', {
+                    definition: 'Travel time for the selected route at this departure candidate.',
+                    direction: 'Lower is usually better because the route arrives sooner.',
+                    unit: 'minutes',
+                  })}{' '}
                   {formatNumber(candidate.selected.metrics.duration_s / 60, locale, {
                     maximumFractionDigits: 1,
                   })}{' '}
                   min
                 </span>
                 <span>
+                  {inlineMetricLabel('Cost', {
+                    definition: 'Proxy monetary cost for the selected route at this departure candidate.',
+                    direction: 'Lower is usually better because the trip costs less.',
+                    unit: 'currency units',
+                  })}{' '}
                   £
                   {formatNumber(candidate.selected.metrics.monetary_cost, locale, {
                     maximumFractionDigits: 2,
                   })}
                 </span>
                 <span>
+                  {inlineMetricLabel('CO2', {
+                    definition: 'Estimated emissions for the selected route at this departure candidate.',
+                    direction: 'Lower is usually better because less CO2 is emitted.',
+                    unit: 'kilograms CO2',
+                  })}{' '}
                   {formatNumber(candidate.selected.metrics.emissions_kg, locale, {
                     maximumFractionDigits: 3,
                   })}{' '}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import Select, { type SelectOption } from './Select';
 import {
   SIDEBAR_DROPDOWN_OPTIONS_HELP,
@@ -31,6 +32,25 @@ const PLAYBACK_SPEED_OPTIONS: SelectOption<PlaybackSpeedValue>[] = [
   { value: '2', label: 'x2', description: 'Faster playback.' },
   { value: '4', label: 'x4', description: 'Fastest playback.' },
 ];
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 function pointAlongRoute(coords: [number, number][], progress: number): LatLng | null {
   if (coords.length < 2) {
@@ -180,7 +200,14 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
       tutorialLocked={sectionControl?.tutorialLocked}
     >
       <div className="sectionTitleRow">
-        <div className="routeCard__pill">{(progress * 100).toFixed(0)}%</div>
+        <div className="routeCard__pill">
+          {inlineMetricLabel('Progress', {
+            definition: 'Share of the current route animation that has already been played.',
+            direction: 'Context only; a higher value means playback is further along.',
+            unit: 'percent complete',
+          })}{' '}
+          {(progress * 100).toFixed(0)}%
+        </div>
       </div>
 
       <div className="actionGrid">
@@ -295,7 +322,18 @@ export default function ScenarioTimeLapse({ route, onPositionChange, sectionCont
       </div>
 
       <div className="tiny">
-        Elapsed {(elapsedS / 60).toFixed(1)} min Of {(durationS / 60).toFixed(1)} min
+        {inlineMetricLabel('Elapsed', {
+          definition: 'Playback time already traversed on the current route animation.',
+          direction: 'Context only; a higher value means the playback is further through the route.',
+          unit: 'minutes',
+        })}{' '}
+        {(elapsedS / 60).toFixed(1)} min |{' '}
+        {inlineMetricLabel('Duration', {
+          definition: 'Full route duration used by the current route animation.',
+          direction: 'Lower is usually better because the route completes sooner.',
+          unit: 'minutes',
+        })}{' '}
+        {(durationS / 60).toFixed(1)} min
       </div>
     </CollapsibleCard>
   );

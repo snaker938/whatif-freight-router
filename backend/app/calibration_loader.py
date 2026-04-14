@@ -1133,17 +1133,19 @@ def _parse_scenario_profiles_payload(
                             "full_total": full_total,
                         },
                     )
-            projection_context_count = 0
-            for ctx in contexts.values():
-                projected_ratio = getattr(ctx, "mode_projection_ratio", None)
-                projected_source = str(getattr(ctx, "mode_observation_source", "") or "").strip().lower()
-                is_projected_context = False
-                if projected_ratio is not None:
-                    is_projected_context = float(projected_ratio) > 0.0
-                if (not is_projected_context) and projected_source:
-                    is_projected_context = any(
-                        token in projected_source for token in ("project", "synth", "heuristic", "legacy")
-                    )
+                projection_context_count = 0
+                for ctx in contexts.values():
+                    projected_ratio = getattr(ctx, "mode_projection_ratio", None)
+                    projected_source = str(getattr(ctx, "mode_observation_source", "") or "").strip().lower()
+                    is_projected_context = False
+                    if projected_ratio is not None:
+                        # Match the builder's projection-dominant classification:
+                        # mixed observed/projected contexts are valid until projected rows dominate.
+                        is_projected_context = float(projected_ratio) >= 0.80
+                    if (not is_projected_context) and projected_source:
+                        is_projected_context = any(
+                            token in projected_source for token in ("project", "synth", "heuristic", "legacy")
+                        )
                 if projected_ratio is None and not projected_source:
                     # Missing provenance in strict runtime is treated as projected to avoid overclaiming realism.
                     is_projected_context = True

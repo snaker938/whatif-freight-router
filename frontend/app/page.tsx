@@ -13,9 +13,12 @@ import DepartureOptimizerChart from './components/DepartureOptimizerChart';
 import DutyChainPlanner from './components/DutyChainPlanner';
 import ExperimentManager from './components/ExperimentManager';
 import FieldInfo from './components/FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './components/metricTooltip';
 import OpsDiagnosticsPanel from './components/devtools/OpsDiagnosticsPanel';
 import OracleQualityDashboard from './components/OracleQualityDashboard';
 import PinManager from './components/PinManager';
+import PreferenceElicitationPanel from './components/PreferenceElicitationPanel';
+import ProofDashboardPanel from './components/ProofDashboardPanel';
 import RouteBaselineComparison from './components/RouteBaselineComparison';
 import RouteCertificationPanel from './components/RouteCertificationPanel';
 import RunInspector from './components/devtools/RunInspector';
@@ -129,6 +132,17 @@ import type {
   WeatherImpactConfig,
   WeatherProfile,
   RouteCertificationSummary,
+  ActionTraceSummary,
+  PreferenceState,
+  PreferenceQueryTrace,
+  PreferenceRuntimeUpdateRequest,
+  PreferenceRuntimeUpdateResponse,
+  PreferenceSummary,
+  ProofDemoPreset,
+  ProofDemoPresetId,
+  DecisionProofContext,
+  WitnessSummary,
+  WorldSupportSummary,
 } from './lib/types';
 import {
   normaliseWeights,
@@ -186,18 +200,20 @@ type RouteRunMeta = {
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
   selected_certificate?: RouteResponse['selected_certificate'];
+  certificate_summary?: RouteResponse['certificate_summary'];
   voi_stop_summary?: RouteResponse['voi_stop_summary'];
   artifact_pointers?: Record<string, string | null> | null;
-  preference_state?: Record<string, unknown> | null;
-  preference_query_trace?: Record<string, unknown> | null;
-  action_trace_summary?: Record<string, unknown> | null;
-  witness_summary?: Record<string, unknown> | null;
-  world_support_summary?: Record<string, unknown> | null;
+  preference_state?: PreferenceState | null;
+  preference_query_trace?: PreferenceQueryTrace | null;
+  action_trace_summary?: ActionTraceSummary | null;
+  witness_summary?: WitnessSummary | null;
+  world_support_summary?: WorldSupportSummary | null;
   terminal_type?: string | null;
   selected_certificate_basis?: string | null;
+  proof_context?: DecisionProofContext | null;
   certified_set?: RouteOption[] | null;
   certified_set_summary?: Record<string, unknown> | null;
-  preference_summary?: Record<string, unknown> | null;
+  preference_summary?: PreferenceSummary | null;
   support_summary?: Record<string, unknown> | null;
   abstention_summary?: Record<string, unknown> | null;
 };
@@ -211,21 +227,29 @@ type NormalizedRoutePayload = {
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
   selected_certificate?: RouteCertificationSummary | null;
+  certificate_summary?: RouteResponse['certificate_summary'];
   voi_stop_summary?: RouteResponse['voi_stop_summary'];
   artifact_pointers?: Record<string, string | null> | null;
-  preference_state?: Record<string, unknown> | null;
-  preference_query_trace?: Record<string, unknown> | null;
-  action_trace_summary?: Record<string, unknown> | null;
-  witness_summary?: Record<string, unknown> | null;
-  world_support_summary?: Record<string, unknown> | null;
+  preference_state?: PreferenceState | null;
+  preference_query_trace?: PreferenceQueryTrace | null;
+  action_trace_summary?: ActionTraceSummary | null;
+  witness_summary?: WitnessSummary | null;
+  world_support_summary?: WorldSupportSummary | null;
   terminal_type?: string | null;
   selected_certificate_basis?: string | null;
+  proof_context?: DecisionProofContext | null;
   certified_set?: RouteOption[] | null;
   certified_set_summary?: Record<string, unknown> | null;
-  preference_summary?: Record<string, unknown> | null;
+  preference_summary?: PreferenceSummary | null;
   support_summary?: Record<string, unknown> | null;
   abstention_summary?: Record<string, unknown> | null;
 };
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
 
 function readStringField(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -262,6 +286,7 @@ function isDecisionPackageShape(payload: RouteResponsePayload): payload is Decis
 
 function normalizeRouteResponse(payload: RouteResponsePayload): NormalizedRoutePayload {
   const packagePayload = isWrappedDecisionPackage(payload) ? payload.decision_package : payload;
+  const decisionPayload = isDecisionPackageShape(packagePayload) ? packagePayload : null;
   const rawPayload = packagePayload as Record<string, unknown>;
   const certifiedSetPayload = Array.isArray(rawPayload.certified_set)
     ? (rawPayload.certified_set as RouteOption[])
@@ -276,29 +301,33 @@ function normalizeRouteResponse(payload: RouteResponsePayload): NormalizedRouteP
       artifacts_endpoint: packagePayload.artifacts_endpoint ?? null,
       provenance_endpoint: packagePayload.provenance_endpoint ?? null,
       selected_certificate: packagePayload.selected_certificate ?? packagePayload.selected.certification ?? null,
+      certificate_summary:
+        (rawPayload.certificate_summary as RouteResponse['certificate_summary'] | null | undefined) ?? null,
       voi_stop_summary: packagePayload.voi_stop_summary ?? null,
       artifact_pointers:
         (rawPayload.artifact_pointers as Record<string, string | null> | null | undefined) ?? null,
-      preference_state:
-        (rawPayload.preference_state as Record<string, unknown> | null | undefined) ?? null,
+      preference_state: (rawPayload.preference_state as PreferenceState | null | undefined) ?? null,
       preference_query_trace:
-        (rawPayload.preference_query_trace as Record<string, unknown> | null | undefined) ?? null,
+        (rawPayload.preference_query_trace as PreferenceQueryTrace | null | undefined) ?? null,
       action_trace_summary:
-        (rawPayload.action_trace_summary as Record<string, unknown> | null | undefined) ?? null,
-      witness_summary: (rawPayload.witness_summary as Record<string, unknown> | null | undefined) ?? null,
+        (rawPayload.action_trace_summary as ActionTraceSummary | null | undefined) ?? null,
+      witness_summary: (rawPayload.witness_summary as WitnessSummary | null | undefined) ?? null,
       world_support_summary:
-        (rawPayload.world_support_summary as Record<string, unknown> | null | undefined) ?? null,
+        (rawPayload.world_support_summary as WorldSupportSummary | null | undefined) ?? null,
       terminal_type: readStringField(rawPayload.terminal_type),
       selected_certificate_basis: readStringField(rawPayload.selected_certificate_basis),
+      proof_context:
+        (rawPayload.proof_context as DecisionProofContext | null | undefined) ??
+        (decisionPayload ? (decisionPayload.proof_context as DecisionProofContext | null | undefined) : null) ??
+        null,
       certified_set: certifiedSetPayload,
       certified_set_summary:
         (rawPayload.certified_set_summary as Record<string, unknown> | null | undefined) ?? null,
-      preference_summary: (rawPayload.preference_summary as Record<string, unknown> | null | undefined) ?? null,
+      preference_summary: (rawPayload.preference_summary as PreferenceSummary | null | undefined) ?? null,
       support_summary: (rawPayload.support_summary as Record<string, unknown> | null | undefined) ?? null,
       abstention_summary: (rawPayload.abstention_summary as Record<string, unknown> | null | undefined) ?? null,
     };
   }
-  const decisionPayload = isDecisionPackageShape(packagePayload) ? packagePayload : null;
   const selected =
     packagePayload.selected ?? decisionPayload?.recommended_route ?? decisionPayload?.certified_set?.[0] ?? null;
   const candidates = packagePayload.candidates ?? decisionPayload?.certified_set ?? (selected ? [selected] : []);
@@ -311,42 +340,48 @@ function normalizeRouteResponse(payload: RouteResponsePayload): NormalizedRouteP
     artifacts_endpoint: packagePayload.artifacts_endpoint ?? null,
     provenance_endpoint: packagePayload.provenance_endpoint ?? null,
     selected_certificate: packagePayload.selected_certificate ?? selected?.certification ?? null,
+    certificate_summary:
+      (rawPayload.certificate_summary as RouteResponse['certificate_summary'] | null | undefined) ??
+      (decisionPayload ? (decisionPayload.certificate_summary as RouteResponse['certificate_summary'] | null | undefined) : null) ??
+      null,
     voi_stop_summary: packagePayload.voi_stop_summary ?? null,
     artifact_pointers:
       (rawPayload.artifact_pointers as Record<string, string | null> | null | undefined) ?? null,
     preference_state:
-      (rawPayload.preference_state as Record<string, unknown> | null | undefined) ??
-      (decisionPayload ? (decisionPayload.preference_state as Record<string, unknown> | null | undefined) : null) ??
+      (rawPayload.preference_state as PreferenceState | null | undefined) ??
+      (decisionPayload ? (decisionPayload.preference_state as PreferenceState | null | undefined) : null) ??
       null,
     preference_query_trace:
-      (rawPayload.preference_query_trace as Record<string, unknown> | null | undefined) ??
+      (rawPayload.preference_query_trace as PreferenceQueryTrace | null | undefined) ??
       (decisionPayload
-        ? (decisionPayload.preference_query_trace as Record<string, unknown> | null | undefined)
+        ? (decisionPayload.preference_query_trace as PreferenceQueryTrace | null | undefined)
         : null) ??
       null,
     action_trace_summary:
-      (rawPayload.action_trace_summary as Record<string, unknown> | null | undefined) ??
-      (decisionPayload ? (decisionPayload.action_trace_summary as Record<string, unknown> | null | undefined) : null) ??
+      (rawPayload.action_trace_summary as ActionTraceSummary | null | undefined) ??
+      (decisionPayload ? (decisionPayload.action_trace_summary as ActionTraceSummary | null | undefined) : null) ??
       null,
     witness_summary:
-      (rawPayload.witness_summary as Record<string, unknown> | null | undefined) ??
-      (decisionPayload ? (decisionPayload.witness_summary as Record<string, unknown> | null | undefined) : null) ??
+      (rawPayload.witness_summary as WitnessSummary | null | undefined) ??
+      (decisionPayload ? (decisionPayload.witness_summary as WitnessSummary | null | undefined) : null) ??
       null,
     world_support_summary:
-      (rawPayload.world_support_summary as Record<string, unknown> | null | undefined) ??
-      (decisionPayload
-        ? (decisionPayload.world_support_summary as Record<string, unknown> | null | undefined)
-        : null) ??
+      (rawPayload.world_support_summary as WorldSupportSummary | null | undefined) ??
+      (decisionPayload ? (decisionPayload.world_support_summary as WorldSupportSummary | null | undefined) : null) ??
       null,
     terminal_type: readStringField(rawPayload.terminal_type),
     selected_certificate_basis: readStringField(rawPayload.selected_certificate_basis),
+    proof_context:
+      (rawPayload.proof_context as DecisionProofContext | null | undefined) ??
+      (decisionPayload ? (decisionPayload.proof_context as DecisionProofContext | null | undefined) : null) ??
+      null,
     certified_set: certifiedSetPayload ?? (decisionPayload ? (decisionPayload.certified_set ?? null) : null) ?? null,
     certified_set_summary:
       (rawPayload.certified_set_summary as Record<string, unknown> | null | undefined) ??
       null,
     preference_summary:
-      (rawPayload.preference_summary as Record<string, unknown> | null | undefined) ??
-      (decisionPayload ? (decisionPayload.preference_summary as Record<string, unknown> | null | undefined) : null) ??
+      (rawPayload.preference_summary as PreferenceSummary | null | undefined) ??
+      (decisionPayload ? (decisionPayload.preference_summary as PreferenceSummary | null | undefined) : null) ??
       null,
     support_summary:
       (rawPayload.support_summary as Record<string, unknown> | null | undefined) ??
@@ -357,6 +392,19 @@ function normalizeRouteResponse(payload: RouteResponsePayload): NormalizedRouteP
       (decisionPayload ? (decisionPayload.abstention_summary as Record<string, unknown> | null | undefined) : null) ??
       null,
   };
+}
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
 }
 
 function inferComputeRecoveryHints(message: string): string[] {
@@ -849,6 +897,45 @@ const ACADEMIC_COMPARISON_PROFILE_LABELS: Record<AcademicComparisonProfile, stri
   academic_tchebycheff: 'academic augmented Tchebycheff',
   academic_vikor: 'academic VIKOR',
 };
+
+const PROOF_DEMO_PRESETS: ProofDemoPreset[] = [
+  {
+    id: 'safe_singleton',
+    title: 'Safe Singleton',
+    subtitle: 'Low-variance canonical route request',
+    focus: 'Use this to inspect a likely singleton-friendly proof run with stable support and a clean V0/A/B/C dashboard.',
+  },
+  {
+    id: 'certified_set',
+    title: 'Certified Set',
+    subtitle: 'Balanced ambiguity, richer frontier',
+    focus: 'Use this when you want a broader frontier and a higher chance of inspecting certified-set proof artifacts instead of a singleton-only path.',
+  },
+  {
+    id: 'support_abstention',
+    title: 'Support Abstention',
+    subtitle: 'Stress support and governance warnings',
+    focus: 'Use this to inspect support/governance warnings and typed-abstention-friendly settings under harsher weather, incident, and uncertainty assumptions.',
+  },
+  {
+    id: 'preference_sensitive',
+    title: 'Preference Sensitive',
+    subtitle: 'Balanced weights and preference pressure',
+    focus: 'Use this to inspect the preference panel and route-selection ambiguity when the weight trade-offs are nearly balanced.',
+  },
+  {
+    id: 'collapse_prone',
+    title: 'Collapse Prone',
+    subtitle: 'Low alternative budget search stress',
+    focus: 'Use this to inspect DCCS/search-completeness pressure with an intentionally smaller alternative budget.',
+  },
+  {
+    id: 'hot_rerun',
+    title: 'Hot Rerun',
+    subtitle: 'Repeat the same request to inspect reuse',
+    focus: 'Apply this preset, compute once, then rerun the same request to inspect cold/hot provenance and reuse-oriented proof links.',
+  },
+];
 
 const LOCALE_STORAGE_KEY = 'ui_locale_v1';
 
@@ -1434,6 +1521,9 @@ export default function Page() {
   const [autoReliabilityProfile, setAutoReliabilityProfile] = useState(true);
   const [smartComputeElapsedMs, setSmartComputeElapsedMs] = useState<number | null>(null);
   const [routeRunMeta, setRouteRunMeta] = useState<RouteRunMeta | null>(null);
+  const [preferenceSyncPending, setPreferenceSyncPending] = useState(false);
+  const [preferenceSyncError, setPreferenceSyncError] = useState<string | null>(null);
+  const [activeProofDemoPresetId, setActiveProofDemoPresetId] = useState<ProofDemoPresetId | null>(null);
 
   const [routeNames, setRouteNames] = useState<Record<string, string>>({});
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
@@ -2755,6 +2845,143 @@ export default function Page() {
     clearComputed();
   }, [clearComputed, markTutorialAction]);
 
+  const activeProofDemoPreset = useMemo(
+    () => PROOF_DEMO_PRESETS.find((preset) => preset.id === activeProofDemoPresetId) ?? null,
+    [activeProofDemoPresetId],
+  );
+
+  const applyProofDemoPreset = useCallback(
+    (presetId: ProofDemoPresetId) => {
+      const canonicalWindow = defaultDepartureWindow();
+      dutySyncSourceRef.current = 'text';
+      clearComputed();
+      setOrigin(TUTORIAL_CANONICAL_ORIGIN);
+      setDestination(TUTORIAL_CANONICAL_DESTINATION);
+      setTutorialDraftOrigin(null);
+      setTutorialDraftDestination(null);
+      setTutorialDragDraftOrigin(null);
+      setTutorialDragDraftDestination(null);
+      setManagedStop(null);
+      setSelectedPinId(null);
+      setFocusPinRequest(null);
+      setDutyStopsText('');
+      setDutySyncError(null);
+      setDepWindowStartLocal(canonicalWindow.start);
+      setDepWindowEndLocal(canonicalWindow.end);
+      setDepStepMinutes(60);
+      setDepEarliestArrivalLocal('');
+      setDepLatestArrivalLocal('');
+      setVehicleType('rigid_hgv');
+      setScenarioMode('no_sharing');
+      setWeights({ time: 60, money: 20, co2: 20 });
+      setAdvancedParams(DEFAULT_ADVANCED_PARAMS);
+      setComputeMode('pareto_stream');
+      setShowStopOverlay(true);
+      setShowIncidentOverlay(true);
+      setShowSegmentTooltips(true);
+      setShowBaselineOverlay(true);
+      setShowSmartAlternativesOverlay(true);
+
+      switch (presetId) {
+        case 'safe_singleton':
+          setWeights({ time: 70, money: 20, co2: 10 });
+          setAdvancedParams({
+            ...DEFAULT_ADVANCED_PARAMS,
+            maxAlternatives: '16',
+            optimizationMode: 'expected_value',
+            riskAversion: '0.8',
+            stochasticEnabled: false,
+            weatherEnabled: false,
+            incidentSimulationEnabled: false,
+            terrainProfile: 'flat',
+          });
+          break;
+        case 'certified_set':
+          setScenarioMode('partial_sharing');
+          setWeights({ time: 55, money: 25, co2: 20 });
+          setComputeMode('pareto_json');
+          setAdvancedParams({
+            ...DEFAULT_ADVANCED_PARAMS,
+            maxAlternatives: '24',
+            optimizationMode: 'robust',
+            riskAversion: '1.4',
+            stochasticEnabled: true,
+            stochasticSigma: '0.10',
+            stochasticSamples: '40',
+            weatherEnabled: true,
+            weatherProfile: 'rain',
+            weatherIntensity: '0.6',
+          });
+          break;
+        case 'support_abstention':
+          setScenarioMode('full_sharing');
+          setWeights({ time: 40, money: 30, co2: 30 });
+          setComputeMode('pareto_json');
+          setAdvancedParams({
+            ...DEFAULT_ADVANCED_PARAMS,
+            maxAlternatives: '10',
+            optimizationMode: 'robust',
+            riskAversion: '2.2',
+            stochasticEnabled: true,
+            stochasticSigma: '0.14',
+            stochasticSamples: '35',
+            weatherEnabled: true,
+            weatherProfile: 'storm',
+            weatherIntensity: '1.0',
+            incidentSimulationEnabled: true,
+            incidentClosureRatePer100km: '0.18',
+            incidentClosureDelayS: '1800',
+            incidentAccidentRatePer100km: '0.55',
+          });
+          break;
+        case 'preference_sensitive':
+          setWeights({ time: 34, money: 33, co2: 33 });
+          setComputeMode('pareto_json');
+          setAdvancedParams({
+            ...DEFAULT_ADVANCED_PARAMS,
+            maxAlternatives: '24',
+            optimizationMode: 'expected_value',
+            riskAversion: '1.0',
+            stochasticEnabled: false,
+          });
+          break;
+        case 'collapse_prone':
+          setScenarioMode('partial_sharing');
+          setWeights({ time: 68, money: 20, co2: 12 });
+          setAdvancedParams({
+            ...DEFAULT_ADVANCED_PARAMS,
+            maxAlternatives: '4',
+            optimizationMode: 'expected_value',
+            paretoMethod: 'dominance',
+            stochasticEnabled: false,
+            weatherEnabled: false,
+            incidentSimulationEnabled: false,
+          });
+          break;
+        case 'hot_rerun':
+          setScenarioMode('partial_sharing');
+          setWeights({ time: 60, money: 20, co2: 20 });
+          setComputeMode('pareto_json');
+          setAdvancedParams({
+            ...DEFAULT_ADVANCED_PARAMS,
+            maxAlternatives: '14',
+            optimizationMode: 'expected_value',
+            riskAversion: '1.0',
+            stochasticEnabled: false,
+            weatherEnabled: false,
+            incidentSimulationEnabled: false,
+          });
+          break;
+        default:
+          break;
+      }
+
+      setActiveProofDemoPresetId(presetId);
+      setFitAllRequestNonce((prev) => prev + 1);
+    },
+    [clearComputed],
+  );
+
   const selectRouteFromChart = useCallback(
     (routeId: string) => {
       setSelectedId(routeId);
@@ -3733,6 +3960,174 @@ export default function Page() {
     if (!selectedId) return null;
     return paretoRoutes.find((route) => route.id === selectedId) ?? null;
   }, [paretoRoutes, selectedId]);
+  const handlePreferenceChange = useCallback(
+    (nextPreferenceState: PreferenceState, nextSelectedRouteId?: string | null) => {
+      const compatibleRouteIds = nextPreferenceState.compatible_set_summary?.route_ids ?? [];
+      const resolvedSelectedRouteId =
+        nextSelectedRouteId ??
+        compatibleRouteIds[0] ??
+        selectedRoute?.id ??
+        null;
+      const previousRouteRunMeta = routeRunMeta;
+      const previousSelectedId = selectedId;
+      const runtimeCandidateRoutes =
+        selectedRoute != null
+          ? [selectedRoute, ...paretoRoutes.filter((route) => route.id !== selectedRoute.id)]
+          : paretoRoutes;
+
+      setRouteRunMeta((prev) => {
+        if (!prev) return prev;
+        const nextQueryHistory = nextPreferenceState.query_history ?? [];
+        const nextShrinkageTrace = nextPreferenceState.shrinkage_trace ?? [];
+        const nextQueryCount =
+          nextPreferenceState.query_count ?? nextQueryHistory.length ?? 0;
+        const latestQuery = nextQueryHistory.length
+          ? nextQueryHistory[nextQueryHistory.length - 1]
+          : null;
+        const latestShrinkage = nextShrinkageTrace.length
+          ? nextShrinkageTrace[nextShrinkageTrace.length - 1]
+          : null;
+        const nextQuerySelectionReason =
+          latestShrinkage?.query_reason ??
+          latestQuery?.reason ??
+          (latestQuery ? `Latest query type: ${latestQuery.query_type}` : null) ??
+          (nextQueryCount > 0 ? null : prev.preference_query_trace?.query_selection_reason ?? null);
+        const nextTargetedChallengerRouteId =
+          latestQuery?.query_type === 'pairwise'
+            ? latestQuery.challenger_route_id
+            : nextQueryCount > 0
+              ? null
+              : prev.preference_query_trace?.targeted_challenger_route_id ?? null;
+        const nextPreferenceQueryTrace: PreferenceQueryTrace = {
+          ...(prev.preference_query_trace ?? {}),
+          selected_route_id:
+            resolvedSelectedRouteId ??
+            prev.preference_query_trace?.selected_route_id ??
+            selectedRoute?.id ??
+            null,
+          selected_certificate_basis:
+            prev.preference_query_trace?.selected_certificate_basis ??
+            prev.preference_summary?.selected_certificate_basis ??
+            prev.selected_certificate_basis ??
+            null,
+          terminal_type: nextPreferenceState.terminal_type ?? prev.preference_query_trace?.terminal_type ?? null,
+          query_count: nextQueryCount,
+          query_history: nextQueryHistory,
+          shrinkage_trace: nextShrinkageTrace,
+          compatible_set_summary: nextPreferenceState.compatible_set_summary ?? null,
+          derived_invariants: nextPreferenceState.derived_invariants ?? null,
+          contradiction_record: nextPreferenceState.contradiction_record ?? null,
+          preference_irrelevance_proven:
+            nextPreferenceState.preference_irrelevance_proven ?? false,
+          no_query_reason: nextPreferenceState.no_query_reason ?? null,
+          no_preference_query_reason: nextPreferenceState.no_preference_query_reason ?? null,
+          targeted_challenger_route_id: nextTargetedChallengerRouteId,
+          query_selection_reason: nextQuerySelectionReason,
+        };
+        const nextPreferenceSummary: PreferenceSummary = {
+          ...(prev.preference_summary ?? {}),
+          selected_certificate_basis:
+            prev.preference_summary?.selected_certificate_basis ??
+            prev.selected_certificate_basis ??
+            null,
+          preference_state: nextPreferenceState,
+          compatible_set_summary: nextPreferenceState.compatible_set_summary ?? null,
+          derived_invariants: nextPreferenceState.derived_invariants ?? null,
+          contradiction_record: nextPreferenceState.contradiction_record ?? null,
+          preference_irrelevance_proven:
+            nextPreferenceState.preference_irrelevance_proven ?? false,
+          no_query_reason: nextPreferenceState.no_query_reason ?? null,
+          no_preference_query_reason: nextPreferenceState.no_preference_query_reason ?? null,
+          targeted_challenger_route_id: nextTargetedChallengerRouteId,
+          query_selection_reason: nextQuerySelectionReason,
+          query_count: nextQueryCount,
+        };
+
+        return {
+          ...prev,
+          preference_state: nextPreferenceState,
+          preference_query_trace: nextPreferenceQueryTrace,
+          preference_summary: nextPreferenceSummary,
+        };
+      });
+
+      setSelectedId(resolvedSelectedRouteId);
+      setPreferenceSyncError(null);
+      if (!routeRunMeta || runtimeCandidateRoutes.length === 0) {
+        return;
+      }
+
+      const supportSummary = routeRunMeta.support_summary ?? null;
+      const worldSupportSummary = routeRunMeta.world_support_summary ?? null;
+      const supportFlagRaw =
+        (supportSummary && typeof supportSummary === 'object'
+          ? (supportSummary as Record<string, unknown>).support_flag
+          : undefined) ??
+        (worldSupportSummary && typeof worldSupportSummary === 'object'
+          ? (worldSupportSummary as Record<string, unknown>).support_flag
+          : undefined) ??
+        routeRunMeta.proof_context?.support_flag;
+      const supportReasonRaw =
+        (supportSummary && typeof supportSummary === 'object'
+          ? (supportSummary as Record<string, unknown>).support_reason
+          : undefined) ??
+        (worldSupportSummary && typeof worldSupportSummary === 'object'
+          ? (worldSupportSummary as Record<string, unknown>).support_reason
+          : undefined) ??
+        routeRunMeta.proof_context?.out_of_support_reason;
+      const preferenceRuntimePayload: PreferenceRuntimeUpdateRequest = {
+        candidate_routes: runtimeCandidateRoutes,
+        selected_route_id: resolvedSelectedRouteId,
+        selected_certificate_basis:
+          routeRunMeta.selected_certificate_basis ??
+          routeRunMeta.preference_summary?.selected_certificate_basis ??
+          null,
+        pipeline_mode: routeRunMeta.pipeline_mode ?? 'dccs_refc',
+        support_flag: typeof supportFlagRaw === 'boolean' ? supportFlagRaw : null,
+        support_reason: typeof supportReasonRaw === 'string' ? supportReasonRaw : null,
+        preference_state: nextPreferenceState,
+      };
+
+      setPreferenceSyncPending(true);
+      void (async () => {
+        try {
+          const runtimeResponse = await postJSON<PreferenceRuntimeUpdateResponse>(
+            '/api/route/preference',
+            preferenceRuntimePayload,
+          );
+          setRouteRunMeta((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  selected_certificate_basis:
+                    runtimeResponse.selected_certificate_basis ?? prev.selected_certificate_basis,
+                  terminal_type: runtimeResponse.terminal_type ?? prev.terminal_type,
+                  preference_state: runtimeResponse.preference_state,
+                  preference_query_trace: runtimeResponse.preference_query_trace,
+                  preference_summary: runtimeResponse.preference_summary,
+                }
+              : prev,
+          );
+          setSelectedId(
+            runtimeResponse.selected_route_id ??
+              resolvedSelectedRouteId ??
+              previousSelectedId ??
+              null,
+          );
+          setPreferenceSyncError(null);
+        } catch (error) {
+          setRouteRunMeta(previousRouteRunMeta);
+          setSelectedId(previousSelectedId);
+          setPreferenceSyncError(
+            error instanceof Error ? error.message : 'Failed to sync the preference runtime.',
+          );
+        } finally {
+          setPreferenceSyncPending(false);
+        }
+      })();
+    },
+    [paretoRoutes, routeRunMeta, selectedId, selectedRoute],
+  );
   const academicReferenceRoute = useMemo(() => {
     if (!academicReferenceId) return null;
     return paretoRoutes.find((route) => route.id === academicReferenceId) ?? null;
@@ -5994,6 +6389,8 @@ export default function Page() {
       startTransition(() => {
         setParetoRoutes(finalRoutes);
       });
+      setPreferenceSyncPending(false);
+      setPreferenceSyncError(null);
       setRouteRunMeta({
         run_id: normalizedPayload.run_id ?? null,
         pipeline_mode: normalizedPayload.pipeline_mode,
@@ -6002,6 +6399,7 @@ export default function Page() {
         provenance_endpoint: normalizedPayload.provenance_endpoint ?? null,
         selected_certificate:
           normalizedPayload.selected_certificate ?? normalizedPayload.selected?.certification ?? null,
+        certificate_summary: normalizedPayload.certificate_summary ?? null,
         voi_stop_summary: normalizedPayload.voi_stop_summary ?? null,
         artifact_pointers: normalizedPayload.artifact_pointers ?? null,
         preference_state: normalizedPayload.preference_state ?? null,
@@ -6011,6 +6409,7 @@ export default function Page() {
         world_support_summary: normalizedPayload.world_support_summary ?? null,
         terminal_type: normalizedPayload.terminal_type ?? null,
         selected_certificate_basis: normalizedPayload.selected_certificate_basis ?? null,
+        proof_context: normalizedPayload.proof_context ?? null,
         certified_set: normalizedPayload.certified_set ?? null,
         certified_set_summary: normalizedPayload.certified_set_summary ?? null,
         preference_summary: normalizedPayload.preference_summary ?? null,
@@ -7554,6 +7953,29 @@ export default function Page() {
   }
 
   const m = selectedRoute?.metrics ?? null;
+  const hasDecisionOutcomeCard = Boolean(
+    routeRunMeta?.terminal_type ||
+    routeRunMeta?.abstention_summary ||
+    routeRunMeta?.support_summary ||
+    routeRunMeta?.world_support_summary ||
+    routeRunMeta?.selected_certificate_basis ||
+    routeRunMeta?.action_trace_summary ||
+    routeRunMeta?.witness_summary ||
+    routeRunMeta?.run_id,
+  );
+  const hasProofDashboard = Boolean(
+    routeRunMeta?.run_id ||
+    routeRunMeta?.manifest_endpoint ||
+    routeRunMeta?.artifacts_endpoint ||
+    routeRunMeta?.provenance_endpoint ||
+    routeRunMeta?.artifact_pointers ||
+    routeRunMeta?.selected_certificate ||
+    selectedRoute ||
+    baselineComparison ||
+    googleBaselineComparison ||
+    mathSelectionComparison ||
+    hasDecisionOutcomeCard,
+  );
   const terrainSummary = selectedRoute?.terrain_summary ?? null;
   const terrainBadgeLabel =
     terrainSummary?.source === 'dem_real'
@@ -7975,6 +8397,43 @@ export default function Page() {
                     </button>
                   </div>
                 </div>
+
+                <div className="setupActionGroup u-mt12">
+                  <div className="setupActionGroup__head">
+                    <div>
+                      <div className="setupActionGroup__title">Proof Demo Presets</div>
+                      <div className="setupActionGroup__hint">
+                        Canonical request presets for proof-dashboard inspection cases.
+                      </div>
+                    </div>
+                    <FieldInfo text="Demo presets only prefill existing request knobs. They do not fabricate outcomes, so the backend still determines whether the run ends as a singleton, certified set, or typed abstention." />
+                  </div>
+                  <div className="actionGrid u-mt12">
+                    {PROOF_DEMO_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className="secondary"
+                        onClick={() => applyProofDemoPreset(preset.id)}
+                        disabled={busy}
+                        aria-pressed={activeProofDemoPresetId === preset.id}
+                        title={preset.subtitle}
+                      >
+                        {preset.title}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="baselineComparePanel__epicNote u-mt10">
+                    {activeProofDemoPreset
+                      ? `${activeProofDemoPreset.title}: ${activeProofDemoPreset.subtitle}.`
+                      : 'Choose a preset to load a proof-focused request configuration before computing.'}
+                  </div>
+                  <div className="baselineComparePanel__tradeoff">
+                    {activeProofDemoPreset
+                      ? `Focus: ${activeProofDemoPreset.focus}`
+                      : 'Each preset is tuned to make one proof surface easier to inspect: singleton, certified-set, support abstention, preference pressure, collapse-prone search, or hot-rerun reuse.'}
+                  </div>
+                </div>
               </CollapsibleCard>
 
               <PinManager
@@ -8260,38 +8719,74 @@ export default function Page() {
               <div data-tutorial-action="selected.panel_click">
               <div className="metrics">
                 <div className="metric">
-                  <div className="metric__label">Distance</div>
+                  <div className="metric__label">
+                    {inlineMetricLabel('Distance', {
+                      definition: 'Total route distance for the currently selected route.',
+                      direction: 'Lower is usually better when distance is a cost to minimize.',
+                      unit: 'kilometers',
+                    })}
+                  </div>
                   <div className="metric__value">
                     {formatNumber(m.distance_km, locale, { maximumFractionDigits: 2 })} km
                   </div>
                 </div>
                 <div className="metric">
-                  <div className="metric__label">Duration</div>
+                  <div className="metric__label">
+                    {inlineMetricLabel('Duration', {
+                      definition: 'Total travel time for the currently selected route.',
+                      direction: 'Lower is usually better because shorter routes arrive sooner.',
+                      unit: 'minutes',
+                    })}
+                  </div>
                   <div className="metric__value">
                     {formatNumber(m.duration_s / 60, locale, { maximumFractionDigits: 1 })} min
                   </div>
                 </div>
                 <div className="metric">
-                  <div className="metric__label">£ (proxy)</div>
+                  <div className="metric__label">
+                    {inlineMetricLabel('£ (proxy)', {
+                      definition: 'Proxy monetary cost used by the current route scoring and comparison surfaces.',
+                      direction: 'Lower is usually better because lower cost improves the route objective.',
+                      unit: 'currency units',
+                    })}
+                  </div>
                   <div className="metric__value">
                     {formatNumber(m.monetary_cost, locale, { maximumFractionDigits: 2 })}
                   </div>
                 </div>
                 <div className="metric">
-                  <div className="metric__label">CO2</div>
+                  <div className="metric__label">
+                    {inlineMetricLabel('CO2', {
+                      definition: 'Estimated route emissions for the currently selected route.',
+                      direction: 'Lower is usually better because less CO2 is emitted.',
+                      unit: 'kilograms CO2',
+                    })}
+                  </div>
                   <div className="metric__value">
                     {formatNumber(m.emissions_kg, locale, { maximumFractionDigits: 3 })} kg
                   </div>
                 </div>
                 <div className="metric">
-                  <div className="metric__label">Avg speed</div>
+                  <div className="metric__label">
+                    {inlineMetricLabel('Avg speed', {
+                      definition: 'Average speed implied by the selected route duration and distance.',
+                      direction: 'Context only; higher speed is not automatically better without safety and realism context.',
+                      unit: 'kilometers per hour',
+                    })}
+                  </div>
                   <div className="metric__value">
                     {formatNumber(m.avg_speed_kmh, locale, { maximumFractionDigits: 1 })} km/h
                   </div>
                 </div>
                 {selectedLabel && (
                   <div className="metric">
-                    <div className="metric__label">Route</div>
+                    <div className="metric__label">
+                      {inlineMetricLabel('Route', {
+                        definition: 'Human-readable label for the currently selected route.',
+                        direction: 'Context only; this names the selected route rather than scoring it.',
+                        unit: 'route label',
+                      })}
+                    </div>
                     <div className="metric__value">
                       {selectedLabel}
                       {selectedRoute?.is_knee ? ' (knee)' : ''}
@@ -8305,7 +8800,17 @@ export default function Page() {
                     {terrainBadgeLabel}
                   </span>
                   <span className="terrainBadgeMeta">
-                    Coverage {(terrainSummary.coverage_ratio * 100).toFixed(1)}% | Confidence{' '}
+                    {inlineMetricLabel('Coverage', {
+                      definition: 'Terrain support coverage share for the selected route summary.',
+                      direction: 'Higher is better because more of the route has terrain support coverage.',
+                      unit: 'percent terrain coverage',
+                    })}{' '}
+                    {(terrainSummary.coverage_ratio * 100).toFixed(1)}% |{' '}
+                    {inlineMetricLabel('Confidence', {
+                      definition: 'Confidence score attached to the terrain support summary for the selected route.',
+                      direction: 'Higher is better because the terrain summary is more reliable.',
+                      unit: 'percent confidence',
+                    })}{' '}
                     {(terrainSummary.confidence * 100).toFixed(0)}%
                   </span>
                 </div>
@@ -8393,6 +8898,7 @@ export default function Page() {
                 locale={locale}
                 route={selectedRoute}
                 terminalType={routeRunMeta?.terminal_type ?? null}
+                proofContext={routeRunMeta?.proof_context ?? null}
                 selectedCertificateBasis={
                   routeRunMeta?.selected_certificate_basis ??
                   (routeRunMeta?.preference_summary?.selected_certificate_basis as string | null | undefined) ??
@@ -8403,12 +8909,27 @@ export default function Page() {
                 preferenceState={routeRunMeta?.preference_state ?? null}
                 preferenceQueryTrace={routeRunMeta?.preference_query_trace ?? null}
                 supportSummary={routeRunMeta?.support_summary ?? null}
+                worldSupportSummary={routeRunMeta?.world_support_summary ?? null}
                 preferenceSummary={routeRunMeta?.preference_summary ?? null}
                 abstentionSummary={routeRunMeta?.abstention_summary ?? null}
                 artifactPointers={routeRunMeta?.artifact_pointers ?? null}
+                witnessSummary={routeRunMeta?.witness_summary ?? null}
                 routeManifestEndpoint={routeRunMeta?.manifest_endpoint ?? null}
                 routeArtifactsEndpoint={routeRunMeta?.artifacts_endpoint ?? null}
                 routeProvenanceEndpoint={routeRunMeta?.provenance_endpoint ?? null}
+              />
+
+              <PreferenceElicitationPanel
+                locale={locale}
+                selectedRoute={selectedRoute}
+                candidateRoutes={paretoRoutes}
+                preferenceState={routeRunMeta?.preference_state ?? null}
+                preferenceQueryTrace={routeRunMeta?.preference_query_trace ?? null}
+                preferenceSummary={routeRunMeta?.preference_summary ?? null}
+                proofContext={routeRunMeta?.proof_context ?? null}
+                syncPending={preferenceSyncPending}
+                syncError={preferenceSyncError}
+                onPreferenceChange={handlePreferenceChange}
               />
 
               <RouteCertificationPanel
@@ -8416,12 +8937,17 @@ export default function Page() {
                 route={selectedRoute}
                 runId={routeRunMeta?.run_id ?? null}
                 pipelineMode={routeRunMeta?.pipeline_mode}
+                terminalType={routeRunMeta?.terminal_type ?? null}
                 selectedCertificateBasis={routeRunMeta?.selected_certificate_basis ?? null}
                 selectedCertificate={routeRunMeta?.selected_certificate ?? selectedRoute?.certification ?? null}
+                certificateSummary={routeRunMeta?.certificate_summary ?? null}
                 voiStopSummary={routeRunMeta?.voi_stop_summary ?? null}
                 actionTraceSummary={routeRunMeta?.action_trace_summary ?? null}
                 witnessSummary={routeRunMeta?.witness_summary ?? null}
                 worldSupportSummary={routeRunMeta?.world_support_summary ?? null}
+                supportSummary={routeRunMeta?.support_summary ?? null}
+                artifactPointers={routeRunMeta?.artifact_pointers ?? null}
+                routeArtifactsEndpoint={routeRunMeta?.artifacts_endpoint ?? null}
                 onOpenRunInspector={openRunInspectorForRun}
               />
 
@@ -8478,19 +9004,43 @@ export default function Page() {
                   ) : (
                     <div className="baselineKpiGrid">
                       <div className={`baselineKpi ${mathSelectionComparison.durationPct >= 0 ? 'isPositive' : 'isNegative'}`}>
-                        <div className="baselineKpi__label">ETA vs academic</div>
+                        <div className="baselineKpi__label">
+                          {inlineMetricLabel('ETA vs academic', {
+                            definition: 'ETA difference between the active selection profile and the unchanged academic comparator profile on the same Pareto set.',
+                            direction: 'Higher positive percentages are better because the active profile is faster than the academic comparator.',
+                            unit: 'percent ETA improvement vs academic comparator',
+                          })}
+                        </div>
                         <div className="baselineKpi__meta">{mathSelectionComparison.durationPct.toFixed(1)}%</div>
                       </div>
                       <div className={`baselineKpi ${mathSelectionComparison.costPct >= 0 ? 'isPositive' : 'isNegative'}`}>
-                        <div className="baselineKpi__label">Cost vs academic</div>
+                        <div className="baselineKpi__label">
+                          {inlineMetricLabel('Cost vs academic', {
+                            definition: 'Cost difference between the active selection profile and the unchanged academic comparator profile on the same Pareto set.',
+                            direction: 'Higher positive percentages are better because the active profile costs less than the academic comparator.',
+                            unit: 'percent cost improvement vs academic comparator',
+                          })}
+                        </div>
                         <div className="baselineKpi__meta">{mathSelectionComparison.costPct.toFixed(1)}%</div>
                       </div>
                       <div className={`baselineKpi ${mathSelectionComparison.co2Pct >= 0 ? 'isPositive' : 'isNegative'}`}>
-                        <div className="baselineKpi__label">CO2 vs academic</div>
+                        <div className="baselineKpi__label">
+                          {inlineMetricLabel('CO2 vs academic', {
+                            definition: 'Emissions difference between the active selection profile and the unchanged academic comparator profile on the same Pareto set.',
+                            direction: 'Higher positive percentages are better because the active profile emits less CO2 than the academic comparator.',
+                            unit: 'percent CO2 improvement vs academic comparator',
+                          })}
+                        </div>
                         <div className="baselineKpi__meta">{mathSelectionComparison.co2Pct.toFixed(1)}%</div>
                       </div>
                       <div className={`baselineKpi ${mathSelectionComparison.distancePct >= 0 ? 'isPositive' : 'isNegative'}`}>
-                        <div className="baselineKpi__label">Distance vs academic</div>
+                        <div className="baselineKpi__label">
+                          {inlineMetricLabel('Distance vs academic', {
+                            definition: 'Distance difference between the active selection profile and the unchanged academic comparator profile on the same Pareto set.',
+                            direction: 'Higher positive percentages are better because the active profile is shorter than the academic comparator.',
+                            unit: 'percent distance improvement vs academic comparator',
+                          })}
+                        </div>
                         <div className="baselineKpi__meta">{mathSelectionComparison.distancePct.toFixed(1)}%</div>
                       </div>
                     </div>
@@ -8633,6 +9183,117 @@ export default function Page() {
               </div>
             </CollapsibleCard>
           )}
+
+          {!m && hasDecisionOutcomeCard ? (
+            <CollapsibleCard
+              title="Decision Outcome"
+              hint={SIDEBAR_SECTION_HINTS.selectedRoute}
+              className="selectedRouteCard"
+              isOpen={tutorialSectionControl.selectedRoute?.isOpen}
+              lockToggle={tutorialSectionControl.selectedRoute?.lockToggle}
+              tutorialLocked={tutorialSectionControl.selectedRoute?.tutorialLocked}
+            >
+              <div className="baselineComparePanel__epicNote">
+                No route geometry is available for display. The panels below reflect the terminal decision and support state returned by the backend.
+              </div>
+
+              <DecisionStateSummary
+                locale={locale}
+                route={selectedRoute}
+                terminalType={routeRunMeta?.terminal_type ?? null}
+                proofContext={routeRunMeta?.proof_context ?? null}
+                selectedCertificateBasis={
+                  routeRunMeta?.selected_certificate_basis ??
+                  (routeRunMeta?.preference_summary?.selected_certificate_basis as string | null | undefined) ??
+                  null
+                }
+                certifiedSet={routeRunMeta?.certified_set ?? null}
+                certifiedSetSummary={routeRunMeta?.certified_set_summary ?? null}
+                preferenceState={routeRunMeta?.preference_state ?? null}
+                preferenceQueryTrace={routeRunMeta?.preference_query_trace ?? null}
+                supportSummary={routeRunMeta?.support_summary ?? null}
+                worldSupportSummary={routeRunMeta?.world_support_summary ?? null}
+                preferenceSummary={routeRunMeta?.preference_summary ?? null}
+                abstentionSummary={routeRunMeta?.abstention_summary ?? null}
+                artifactPointers={routeRunMeta?.artifact_pointers ?? null}
+                witnessSummary={routeRunMeta?.witness_summary ?? null}
+                routeManifestEndpoint={routeRunMeta?.manifest_endpoint ?? null}
+                routeArtifactsEndpoint={routeRunMeta?.artifacts_endpoint ?? null}
+                routeProvenanceEndpoint={routeRunMeta?.provenance_endpoint ?? null}
+              />
+
+              <PreferenceElicitationPanel
+                locale={locale}
+                selectedRoute={selectedRoute}
+                candidateRoutes={routeRunMeta?.certified_set ?? paretoRoutes}
+                preferenceState={routeRunMeta?.preference_state ?? null}
+                preferenceQueryTrace={routeRunMeta?.preference_query_trace ?? null}
+                preferenceSummary={routeRunMeta?.preference_summary ?? null}
+                proofContext={routeRunMeta?.proof_context ?? null}
+                syncPending={preferenceSyncPending}
+                syncError={preferenceSyncError}
+                onPreferenceChange={handlePreferenceChange}
+              />
+
+              <RouteCertificationPanel
+                locale={locale}
+                route={selectedRoute}
+                runId={routeRunMeta?.run_id ?? null}
+                pipelineMode={routeRunMeta?.pipeline_mode}
+                terminalType={routeRunMeta?.terminal_type ?? null}
+                selectedCertificateBasis={routeRunMeta?.selected_certificate_basis ?? null}
+                selectedCertificate={routeRunMeta?.selected_certificate ?? selectedRoute?.certification ?? null}
+                certificateSummary={routeRunMeta?.certificate_summary ?? null}
+                voiStopSummary={routeRunMeta?.voi_stop_summary ?? null}
+                actionTraceSummary={routeRunMeta?.action_trace_summary ?? null}
+                witnessSummary={routeRunMeta?.witness_summary ?? null}
+                worldSupportSummary={routeRunMeta?.world_support_summary ?? null}
+                supportSummary={routeRunMeta?.support_summary ?? null}
+                artifactPointers={routeRunMeta?.artifact_pointers ?? null}
+                routeArtifactsEndpoint={routeRunMeta?.artifacts_endpoint ?? null}
+                onOpenRunInspector={openRunInspectorForRun}
+              />
+            </CollapsibleCard>
+          ) : null}
+
+          {hasProofDashboard ? (
+            <CollapsibleCard
+              title="Proof Dashboard"
+              hint="Aggregates proof slices, demo-oriented artifact links, and reviewer-facing bundle navigation."
+              className="selectedRouteCard"
+            >
+              <ProofDashboardPanel
+                locale={locale}
+                runId={routeRunMeta?.run_id ?? null}
+                pipelineMode={routeRunMeta?.pipeline_mode ?? null}
+                terminalType={routeRunMeta?.terminal_type ?? null}
+                selectedRoute={selectedRoute}
+                selectedRouteLabel={selectedLabel}
+                manifestEndpoint={routeRunMeta?.manifest_endpoint ?? null}
+                artifactsEndpoint={routeRunMeta?.artifacts_endpoint ?? null}
+                provenanceEndpoint={routeRunMeta?.provenance_endpoint ?? null}
+                artifactPointers={routeRunMeta?.artifact_pointers ?? null}
+                selectedCertificate={routeRunMeta?.selected_certificate ?? selectedRoute?.certification ?? null}
+                selectedCertificateBasis={
+                  routeRunMeta?.selected_certificate_basis ??
+                  routeRunMeta?.preference_summary?.selected_certificate_basis ??
+                  null
+                }
+                actionTraceSummary={routeRunMeta?.action_trace_summary ?? null}
+                witnessSummary={routeRunMeta?.witness_summary ?? null}
+                worldSupportSummary={routeRunMeta?.world_support_summary ?? null}
+                supportSummary={routeRunMeta?.support_summary ?? null}
+                candidateCount={latestCandidateCount ?? undefined}
+                baselineComparison={baselineComparison}
+                baselineMeta={baselineMeta}
+                orsComparison={googleBaselineComparison}
+                orsMeta={googleBaselineMeta}
+                academicComparisonLabel={ACADEMIC_COMPARISON_PROFILE_LABELS[academicComparisonProfile]}
+                academicComparison={mathSelectionComparison}
+                onOpenRunInspector={openRunInspectorForRun}
+              />
+            </CollapsibleCard>
+          ) : null}
 
           <ScenarioTimeLapse
             route={selectedRoute}

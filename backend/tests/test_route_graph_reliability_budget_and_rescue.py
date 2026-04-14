@@ -242,6 +242,66 @@ def test_route_graph_candidate_routes_scales_initial_state_budget_with_hops(
     assert captured["max_state_budget"] == 640000
 
 
+def test_route_graph_candidate_routes_clamps_override_to_hop_floor(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_feasibility(**_: Any) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "reason_code": "ok",
+            "origin_node_id": "a",
+            "destination_node_id": "b",
+        }
+
+    def _fake_yen_with_stats(*, max_hops: int, max_state_budget: int, **_: Any):
+        captured["max_hops"] = int(max_hops)
+        captured["max_state_budget"] = int(max_state_budget)
+        return [], {
+            "explored_states": 17,
+            "generated_candidates": 0,
+            "no_path_reason": "path_search_exhausted",
+            "termination_reason": "search deadline exceeded",
+            "first_error": "",
+        }
+
+    monkeypatch.setattr(settings, "route_graph_edge_length_estimate_m", 75.0)
+    monkeypatch.setattr(settings, "route_graph_hops_safety_factor", 1.8)
+    monkeypatch.setattr(settings, "route_graph_max_state_budget", 100000)
+    monkeypatch.setattr(settings, "route_graph_state_budget_per_hop", 300)
+    monkeypatch.setattr(settings, "route_graph_state_budget_retry_cap", 500000)
+    monkeypatch.setattr(routing_graph, "load_route_graph", lambda: _toy_graph())
+    monkeypatch.setattr(routing_graph, "route_graph_od_feasibility", _fake_feasibility)
+    monkeypatch.setattr(routing_graph, "yen_k_shortest_paths_with_stats", _fake_yen_with_stats)
+
+    origin_lat, origin_lon = 51.5000, -0.1300
+    destination_lat, destination_lon = 51.7200, -0.1300
+    expected_hop_floor = routing_graph._route_graph_hop_floor(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+    )
+
+    routes, diag = routing_graph.route_graph_candidate_routes(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+        max_paths=4,
+        max_hops_override=180,
+        scenario_edge_modifiers={},
+    )
+
+    assert expected_hop_floor > 180
+    assert routes == []
+    assert diag.effective_hops_floor == expected_hop_floor
+    assert diag.effective_max_hops == expected_hop_floor
+    assert diag.effective_state_budget_initial == min(500000, expected_hop_floor * 300)
+    assert diag.effective_state_budget == min(500000, expected_hop_floor * 300)
+    assert captured["max_hops"] == expected_hop_floor
+    assert captured["max_state_budget"] == min(500000, expected_hop_floor * 300)
+
+
 def test_collect_candidate_routes_runs_reduced_state_rescue_pass(monkeypatch) -> None:
     calls: list[dict[str, Any]] = []
 
@@ -471,6 +531,65 @@ def test_select_ranked_candidate_routes_prefilter_limits_expensive_redundant_fal
     assert sum(1 for label in selected_labels if label and ":via:" in label) == 1
 
 
+def test_select_ranked_candidate_routes_prefilter_prices_long_corridor_fallbacks_from_observed_cost(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "route_candidate_alternatives_max", 24)
+    monkeypatch.setattr(settings, "route_candidate_prefilter_multiplier", 2)
+
+    routes = [
+        _make_ranked_route(duration_s=100.0, lon_seed=0.0, road_class="motorway"),
+        _make_fallback_route(
+            coordinates=[[-1.9000, 52.5000], [-1.8500, 52.5200], [-1.7800, 52.5600]],
+            segment_distances_m=[12_000.0, 20_000.0],
+            segment_durations_s=[40.0, 61.0],
+            source_label="fallback:alternatives:long_corridor_fallback",
+            observed_refine_cost_ms=24.0,
+        ),
+        _make_fallback_route(
+            coordinates=[[-1.9050, 52.5000], [-1.8300, 52.5150], [-1.7300, 52.5550]],
+            segment_distances_m=[11_500.0, 20_500.0],
+            segment_durations_s=[39.0, 63.0],
+            source_label="fallback:via:1:long_corridor_fallback",
+            observed_refine_cost_ms=24.0,
+        ),
+        _make_fallback_route(
+            coordinates=[[-1.9100, 52.5000], [-1.7900, 52.5050], [-1.6800, 52.5450]],
+            segment_distances_m=[11_000.0, 21_000.0],
+            segment_durations_s=[39.0, 64.0],
+            source_label="fallback:via:2:long_corridor_fallback",
+            observed_refine_cost_ms=220.0,
+        ),
+        _make_fallback_route(
+            coordinates=[[-1.9150, 52.5000], [-1.8350, 52.5300], [-1.7600, 52.5750]],
+            segment_distances_m=[10_500.0, 21_500.0],
+            segment_durations_s=[40.0, 64.0],
+            source_label="fallback:exclude:motorway:long_corridor_fallback",
+            observed_refine_cost_ms=22.0,
+        ),
+        _make_fallback_route(
+            coordinates=[[-1.9200, 52.5000], [-1.7650, 52.5100], [-1.6500, 52.5400]],
+            segment_distances_m=[10_000.0, 22_000.0],
+            segment_durations_s=[40.0, 65.0],
+            source_label="fallback:via:3:long_corridor_fallback",
+            observed_refine_cost_ms=240.0,
+        ),
+    ]
+
+    selected = main_module._select_ranked_candidate_routes(routes, max_routes=2)
+    selected_labels = [
+        main_module._selected_route_source_label(main_module._candidate_source_labels(route))
+        for route in selected
+    ]
+
+    assert len(selected) == 4
+    assert "fallback:alternatives:long_corridor_fallback" in selected_labels
+    assert "fallback:exclude:motorway:long_corridor_fallback" in selected_labels
+    assert "fallback:via:1:long_corridor_fallback" in selected_labels
+    assert "fallback:via:2:long_corridor_fallback" not in selected_labels
+    assert sum(1 for label in selected_labels if label and ":via:" in label) == 1
+
+
 def test_collect_candidate_routes_skips_baseline_rerun_when_separability_not_enforced(monkeypatch) -> None:
     calls: list[dict[str, Any]] = []
 
@@ -524,6 +643,8 @@ def test_settings_accept_route_graph_retry_cap_eight_million() -> None:
 
 def test_collect_candidate_routes_uses_reduced_initial_for_long_corridor(monkeypatch) -> None:
     calls: list[dict[str, Any]] = []
+    origin = LatLng(lat=54.9783, lon=-1.6178)
+    destination = LatLng(lat=53.0027, lon=-2.1794)
 
     async def _ok_status() -> tuple[bool, str]:
         return True, "ok"
@@ -554,8 +675,8 @@ def test_collect_candidate_routes_uses_reduced_initial_for_long_corridor(monkeyp
     routes, _warnings, _spec_count, _diag = asyncio.run(
         main_module._collect_candidate_routes(
             osrm=_NoopOSRM(),
-            origin=LatLng(lat=54.9783, lon=-1.6178),
-            destination=LatLng(lat=53.0027, lon=-2.1794),
+            origin=origin,
+            destination=destination,
             max_routes=6,
             cache_key=None,
             scenario_edge_modifiers={"duration_multiplier": 1.1},
@@ -563,9 +684,34 @@ def test_collect_candidate_routes_uses_reduced_initial_for_long_corridor(monkeyp
         )
     )
 
+    corridor_distance_km = main_module._od_haversine_km(origin, destination)
+    scaled_hops = int(
+        math.ceil(
+            max(1.0, corridor_distance_km)
+            * max(0.1, float(settings.route_graph_hops_per_km))
+            * max(1.0, float(settings.route_graph_hops_detour_factor))
+        )
+    )
+    expected_hops = max(
+        900,
+        min(
+            int(settings.route_graph_max_hops_cap),
+            max(
+                scaled_hops,
+                routing_graph._route_graph_hop_floor(
+                    origin_lat=float(origin.lat),
+                    origin_lon=float(origin.lon),
+                    destination_lat=float(destination.lat),
+                    destination_lon=float(destination.lon),
+                ),
+            ),
+        ),
+    )
+
     assert routes
     assert calls
     assert calls[0].get("use_transition_state") is False
+    assert calls[0].get("max_hops_override") == expected_hops
 
 
 def test_collect_candidate_routes_uses_reduced_initial_for_medium_long_corridor(monkeypatch) -> None:
@@ -617,6 +763,8 @@ def test_collect_candidate_routes_uses_reduced_initial_for_medium_long_corridor(
 
 def test_route_graph_k_raw_search_uses_reduced_initial_for_medium_long_corridor(monkeypatch) -> None:
     calls: list[dict[str, Any]] = []
+    origin = LatLng(lat=52.4862, lon=-1.8904)
+    destination = LatLng(lat=53.4808, lon=-2.2426)
 
     async def _graph_routes_once(**kwargs: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
         calls.append(dict(kwargs))
@@ -637,8 +785,8 @@ def test_route_graph_k_raw_search_uses_reduced_initial_for_medium_long_corridor(
 
     routes, _diag, meta = asyncio.run(
         main_module._route_graph_k_raw_search(
-            origin=LatLng(lat=52.4862, lon=-1.8904),
-            destination=LatLng(lat=53.4808, lon=-2.2426),
+            origin=origin,
+            destination=destination,
             max_alternatives=6,
             scenario_edge_modifiers={"duration_multiplier": 1.1},
             start_node_id="a",
@@ -646,9 +794,34 @@ def test_route_graph_k_raw_search_uses_reduced_initial_for_medium_long_corridor(
         )
     )
 
+    corridor_distance_km = main_module._od_haversine_km(origin, destination)
+    scaled_hops = int(
+        math.ceil(
+            max(1.0, corridor_distance_km)
+            * max(0.1, float(settings.route_graph_hops_per_km))
+            * max(1.0, float(settings.route_graph_hops_detour_factor))
+        )
+    )
+    expected_hops = max(
+        900,
+        min(
+            int(settings.route_graph_max_hops_cap),
+            max(
+                scaled_hops,
+                routing_graph._route_graph_hop_floor(
+                    origin_lat=float(origin.lat),
+                    origin_lon=float(origin.lon),
+                    destination_lat=float(destination.lat),
+                    destination_lon=float(destination.lon),
+                ),
+            ),
+        ),
+    )
+
     assert routes
     assert len(calls) == 1
     assert calls[0].get("use_transition_state") is False
+    assert calls[0].get("max_hops_override") is None
     assert meta.get("graph_supplemental_probe_attempted") is False
 
 
@@ -707,6 +880,8 @@ def test_route_graph_k_raw_search_keeps_graph_search_for_supported_stressed_long
     monkeypatch,
 ) -> None:
     calls: list[dict[str, Any]] = []
+    origin = LatLng(lat=51.5074, lon=-0.1278)
+    destination = LatLng(lat=52.4862, lon=-1.8904)
 
     async def _graph_routes_once(**kwargs: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics]:
         calls.append(dict(kwargs))
@@ -726,8 +901,8 @@ def test_route_graph_k_raw_search_keeps_graph_search_for_supported_stressed_long
 
     routes, diag, meta = asyncio.run(
         main_module._route_graph_k_raw_search(
-            origin=LatLng(lat=51.5074, lon=-0.1278),
-            destination=LatLng(lat=52.4862, lon=-1.8904),
+            origin=origin,
+            destination=destination,
             max_alternatives=6,
             scenario_edge_modifiers={"duration_multiplier": 1.05},
             start_node_id="a",
@@ -743,8 +918,33 @@ def test_route_graph_k_raw_search_keeps_graph_search_for_supported_stressed_long
         )
     )
 
+    corridor_distance_km = main_module._od_haversine_km(origin, destination)
+    scaled_hops = int(
+        math.ceil(
+            max(1.0, corridor_distance_km)
+            * max(0.1, float(settings.route_graph_hops_per_km))
+            * max(1.0, float(settings.route_graph_hops_detour_factor))
+        )
+    )
+    expected_hops = max(
+        900,
+        min(
+            int(settings.route_graph_max_hops_cap),
+            max(
+                scaled_hops,
+                routing_graph._route_graph_hop_floor(
+                    origin_lat=float(origin.lat),
+                    origin_lon=float(origin.lon),
+                    destination_lat=float(destination.lat),
+                    destination_lon=float(destination.lon),
+                ),
+            ),
+        ),
+    )
+
     assert routes
     assert len(calls) == 1
+    assert calls[0].get("max_hops_override") == expected_hops
     assert diag.no_path_reason == ""
     assert meta.get("graph_long_corridor_stress_probe") is True
     assert meta.get("graph_retry_attempted") is False
@@ -2020,6 +2220,15 @@ def test_compute_direct_route_pipeline_recovers_long_corridor_k_raw_with_osrm_fa
     assert result["candidate_diag"].raw_count == 2
     assert "routing_graph_long_corridor_k_raw_fallback" in " ".join(result["warnings"])
     assert "routing_graph_long_corridor_toll_exclusion_prioritized" in " ".join(result["warnings"])
+    artifacts = result["extra_json_artifacts"]
+    preference_state = artifacts["preference_state.json"]
+    preference_trace = artifacts["preference_query_trace.json"]
+    support_summary = artifacts["world_support_summary.json"]
+    assert preference_state["compatible_set_summary"]["compatible_set_size"] == len(result["candidates"])
+    assert preference_trace["query_count"] == 0
+    assert preference_trace["selected_route_id"] == result["selected"].id
+    assert support_summary["support_flag"] is True
+    assert support_summary["support_state"]["support_flag"] is True
 
 
 def test_compute_direct_route_pipeline_recovers_support_aware_k_raw_with_osrm_fallback(
@@ -2760,7 +2969,18 @@ def test_compute_direct_route_pipeline_applies_supplemental_diversity_rescue_on_
     dccs_summary = result["extra_json_artifacts"]["dccs_summary.json"]
     assert dccs_summary["supplemental_challenger_activated"] is True
     assert dccs_summary["supplemental_selected_count"] == 1
+    assert dccs_summary["candidate_criticality_ranking_trace_present"] is True
+    assert dccs_summary["search_deficiency_trace_present"] is True
+    assert dccs_summary["forecast_trace_present"] is True
+    assert "criticality_score" in dccs_summary["criticality_rank_term_keys"]
+    assert 0.0 <= dccs_summary["false_safe_prune_rate"] <= 1.0
+    assert 0.0 <= dccs_summary["anti_collapse_success_rate"] <= 1.0
+    assert 0.0 <= dccs_summary["certificate_critical_hit_rate"] <= 1.0
+    assert 0.0 <= dccs_summary["time_preserving_challenger_coverage"] <= 1.0
+    assert 0.0 <= dccs_summary["dominance_likely_challenger_coverage"] <= 1.0
     dccs_rows = result["extra_jsonl_artifacts"]["dccs_candidates.jsonl"]
+    assert any("criticality_score" in row.get("score_terms", {}) for row in dccs_rows)
+    assert any("search_completeness_contribution" in row.get("score_terms", {}) for row in dccs_rows)
     rescue_rows = [row for row in dccs_rows if row.get("supplemental_diversity_rescue")]
     assert rescue_rows
     assert any(
@@ -3369,6 +3589,147 @@ def test_compute_direct_route_pipeline_reserves_two_challenger_slots_for_family_
     assert dccs_summary["batches"][1]["selected_count"] == 2
 
 
+def test_compute_direct_route_pipeline_preserves_family_rich_rescue_budget_after_three_bootstrap_refinements(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "route_dccs_bootstrap_count", 3)
+    raw_a = _make_ranked_route(duration_s=4_620.0, lon_seed=0.00, road_class="motorway")
+    raw_b = _make_ranked_route(duration_s=4_760.0, lon_seed=0.22, road_class="primary")
+    raw_c = _make_ranked_route(duration_s=4_910.0, lon_seed=0.45, road_class="secondary")
+    raw_d = _make_ranked_route(duration_s=4_140.0, lon_seed=0.70, road_class="trunk")
+    raw_e = _make_ranked_route(duration_s=4_280.0, lon_seed=0.98, road_class="motorway")
+    raw_f = _make_ranked_route(duration_s=4_990.0, lon_seed=1.24, road_class="primary")
+
+    async def _fake_scenario_context_from_od(**_: Any) -> dict[str, Any]:
+        return {"bucket": "clear"}
+
+    async def _fake_scenario_candidate_modifiers_async(**_: Any) -> dict[str, Any]:
+        return {}
+
+    def _fake_feasibility(**_: Any) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "reason_code": "ok",
+            "origin_node_id": "a",
+            "destination_node_id": "b",
+        }
+
+    async def _fake_k_raw_search(**_: Any) -> tuple[list[dict[str, Any]], GraphCandidateDiagnostics, dict[str, Any]]:
+        return (
+            [dict(raw_a), dict(raw_b), dict(raw_c), dict(raw_d), dict(raw_e), dict(raw_f)],
+            GraphCandidateDiagnostics(
+                explored_states=28,
+                generated_paths=8,
+                emitted_paths=6,
+                candidate_budget=8,
+            ),
+            {
+                "graph_retry_attempted": False,
+                "graph_retry_state_budget": 0,
+                "graph_retry_outcome": "not_applicable",
+                "graph_rescue_attempted": False,
+                "graph_rescue_mode": "not_applicable",
+                "graph_rescue_state_budget": 0,
+                "graph_rescue_outcome": "not_applicable",
+                "graph_search_ms_initial": 11.0,
+                "graph_search_ms_retry": 0.0,
+                "graph_search_ms_rescue": 0.0,
+            },
+        )
+
+    async def _fake_refine_graph_candidate_batch(**kwargs: Any):
+        selected_records = list(kwargs.get("selected_records", []))
+        raw_routes_by_id = dict(kwargs.get("raw_graph_routes_by_id", {}))
+        observed = {str(record.candidate_id): 8.0 for record in selected_records}
+        refined_routes = [dict(raw_routes_by_id[str(record.candidate_id)]) for record in selected_records]
+        return refined_routes, [], observed, len(selected_records), 15.0
+
+    async def _unexpected_iter_candidate_fetches(**_: Any):
+        raise AssertionError("supplemental diversity rescue should not probe before the preserved reserve is needed")
+        yield  # pragma: no cover
+
+    async def _unexpected_fetch_local_ors_baseline_seed(**_: Any):
+        raise AssertionError("local ORS rescue should not be used in this path")
+
+    def _fake_build_options(routes: list[dict[str, Any]], **_: Any):
+        options: list[RouteOption] = []
+        for index, route in enumerate(routes):
+            route_id = f"route_{index}"
+            route["_built_option_id"] = route_id
+            coords = [
+                (float(point[0]), float(point[1]))
+                for point in route["geometry"]["coordinates"]
+            ]
+            duration_s = float(route["duration"])
+            options.append(
+                RouteOption(
+                    id=route_id,
+                    geometry=GeoJSONLineString(type="LineString", coordinates=coords),
+                    metrics=RouteMetrics(
+                        distance_km=float(route["distance"]) / 1000.0,
+                        duration_s=duration_s,
+                        monetary_cost=205.0 + (duration_s / 200.0),
+                        emissions_kg=118.0 + (duration_s / 500.0),
+                        avg_speed_kmh=69.0,
+                    ),
+                )
+            )
+        return options, [], main_module.TerrainDiagnostics()
+
+    monkeypatch.setattr(main_module, "refresh_live_runtime_route_caches", lambda **_: None)
+    monkeypatch.setattr(main_module, "_scenario_context_from_od", _fake_scenario_context_from_od)
+    monkeypatch.setattr(main_module, "_scenario_candidate_modifiers_async", _fake_scenario_candidate_modifiers_async)
+    monkeypatch.setattr(main_module, "route_graph_od_feasibility", _fake_feasibility)
+    monkeypatch.setattr(main_module, "_route_graph_k_raw_search", _fake_k_raw_search)
+    monkeypatch.setattr(main_module, "_refine_graph_candidate_batch", _fake_refine_graph_candidate_batch)
+    monkeypatch.setattr(main_module, "_iter_candidate_fetches", _unexpected_iter_candidate_fetches)
+    monkeypatch.setattr(main_module, "_fetch_local_ors_baseline_seed", _unexpected_fetch_local_ors_baseline_seed)
+    monkeypatch.setattr(main_module, "_build_options", _fake_build_options)
+    monkeypatch.setattr(main_module, "_strict_frontier_options", lambda options, **_: list(options)[:2])
+    monkeypatch.setattr(main_module, "_finalize_pareto_options", lambda options, **_: list(options))
+    monkeypatch.setattr(main_module, "_pick_best_option", lambda options, **_: min(list(options), key=lambda item: item.metrics.duration_s))
+    monkeypatch.setattr(main_module, "_should_hydrate_priority_route_options", lambda req: False)
+    monkeypatch.setattr(
+        main_module,
+        "_route_selection_score_map",
+        lambda options, **_: {str(option.id): float(option.metrics.duration_s) for option in options},
+    )
+
+    req = RouteRequest(
+        origin=LatLng(lat=51.59, lon=-2.99),
+        destination=LatLng(lat=51.45, lon=-2.58),
+        vehicle_type="rigid_hgv",
+        scenario_mode="no_sharing",
+        max_alternatives=5,
+        search_budget=5,
+    )
+
+    result = asyncio.run(
+        main_module._compute_direct_route_pipeline(
+            req=req,
+            osrm=_NoopOSRM(),
+            ors=_NoopORS(),
+            max_alternatives=5,
+            pipeline_mode="dccs",
+            run_seed=20260330,
+        )
+    )
+
+    candidate_diag = result["candidate_diag"]
+    assert candidate_diag.leftover_challenger_activated is False
+    assert candidate_diag.supplemental_challenger_activated is False
+    assert candidate_diag.selected_candidate_count == 3
+    dccs_summary = result["extra_json_artifacts"]["dccs_summary.json"]
+    assert dccs_summary["search_budget_used"] == 3
+    assert dccs_summary["leftover_challenger_activated"] is False
+    assert dccs_summary["supplemental_challenger_activated"] is False
+    assert dccs_summary["batches"][0]["selected_count"] == 3
+    assert len(dccs_summary["batches"]) == 1
+    dccs_rows = result["extra_jsonl_artifacts"]["dccs_candidates.jsonl"]
+    assert not any(bool(row.get("leftover_budget_challenger")) for row in dccs_rows)
+    assert not any(bool(row.get("supplemental_diversity_rescue")) for row in dccs_rows)
+
+
 def test_compute_direct_route_pipeline_dccs_refc_spends_full_initial_budget_without_reserved_rescue_slots(
     monkeypatch,
 ) -> None:
@@ -3601,6 +3962,34 @@ def test_graph_route_candidate_payload_recovers_fallback_mechanism_signals() -> 
     assert payload_via["mechanism_descriptor"]["speed_variability"] > 0.0
     assert payload_toll_excluded["mechanism_descriptor"]["shape_bend_density"] > 0.0
     assert payload_via["mechanism_descriptor"] != payload_toll_excluded["mechanism_descriptor"]
+
+
+def test_graph_route_candidate_payload_marks_long_corridor_fallback_stage() -> None:
+    route = _make_fallback_route(
+        coordinates=[
+            [-1.90, 52.50],
+            [-1.78, 52.58],
+            [-1.55, 52.74],
+            [-1.24, 52.92],
+        ],
+        segment_distances_m=[8_000.0, 22_000.0, 18_000.0],
+        segment_durations_s=[900.0, 1_020.0, 1_620.0],
+        source_label="fallback:via:2:long_corridor_fallback",
+    )
+    vehicle = main_module.resolve_vehicle_profile("rigid_hgv")
+
+    payload = main_module._graph_route_candidate_payload(
+        route,
+        origin=LatLng(lat=52.50, lon=-1.90),
+        destination=LatLng(lat=52.90, lon=-1.33),
+        vehicle=vehicle,
+        cost_toggles=main_module.CostToggles(),
+    )
+
+    assert payload["candidate_source_stage"] == "long_corridor_fallback"
+    assert payload["candidate_source_engine"] == "osrm"
+    assert payload["candidate_source_label"] == "fallback:via:2:long_corridor_fallback"
+    assert payload["seed_observed_refine_cost_ms"] == pytest.approx(19.0, rel=0.0, abs=1e-6)
 
 
 def test_candidate_corridor_key_distinguishes_fallback_source_and_shape() -> None:

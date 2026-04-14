@@ -47,9 +47,13 @@ from .calibration_loader import (
 )
 from .carbon_model import apply_scope_emissions_adjustment, resolve_carbon_price
 from .certification_cache import (
+    certification_cache_checkpoint_stats,
     certification_cache_stats,
+    checkpoint_certification_cache,
     clear_certification_cache,
+    clear_certification_cache_checkpoint,
     get_cached_certification,
+    restore_checkpointed_certification_cache,
     set_cached_certification,
 )
 from .k_raw_cache import clear_k_raw_cache, get_cached_k_raw, k_raw_cache_stats, set_cached_k_raw
@@ -58,6 +62,7 @@ from .decision_critical import (
     DCCSConfig,
     DCCSCandidateRecord,
     DCCSResult,
+    _dccs_gate_metrics,
     build_dccs_summary_breadcrumbs,
     build_candidate_ledger,
     record_refine_outcome,
@@ -72,6 +77,9 @@ from .evidence_certification import (
     _route_perturbed_objectives,
     active_evidence_families,
     annotate_world_manifest_cache_reuse,
+    build_competitor_fragility_artifact_payload,
+    build_route_fragility_artifact_payload,
+    build_sampled_world_manifest_artifact_payload,
     compute_certificate,
     compute_fragility_maps,
     evaluate_world_bundle,
@@ -87,6 +95,7 @@ from .experiment_store import (
     list_experiments,
     update_experiment,
 )
+from .flip_radius import build_structured_adversarial_budget
 from .fuel_energy_model import segment_energy_and_emissions
 from .incident_simulator import simulate_incident_events
 from .logging_utils import log_event
@@ -105,8 +114,13 @@ from .models import (
     BatchParetoRequest,
     BatchParetoResponse,
     BatchParetoResult,
+    _build_preference_summary,
+    _build_abstention_summary,
+    _build_certified_set_summary,
+    _merge_support_summary,
     CostToggles,
     CustomVehicleListResponse,
+    DecisionPackage,
     DepartureOptimizeCandidate,
     DepartureOptimizeRequest,
     DepartureOptimizeResponse,
@@ -138,7 +152,6 @@ from .models import (
     RouteRequest,
     RouteBaselineResponse,
     RouteCertificationSummary,
-    RouteResponse,
     ScenarioCompareDelta,
     ScenarioCompareRequest,
     ScenarioCompareResponse,
@@ -158,6 +171,19 @@ from .models import (
 )
 from .abstention import AbstentionRecord, build_abstention_record
 from .preference_model import build_preference_state
+from .preference_queries import (
+    PairwisePreferenceQuery,
+    RatioPreferenceQuery,
+    ThresholdPreferenceQuery,
+    TimeGuardPreferenceQuery,
+    VetoPreferenceQuery,
+)
+from .preference_runtime import (
+    PreferenceRuntimeUpdateRequest,
+    PreferenceRuntimeUpdateResponse,
+    apply_preference_runtime_update,
+)
+from .preference_update import append_preference_query
 from .multileg_engine import compose_multileg_route_options
 from .objectives_emissions import route_emissions_kg
 from .objectives_selection import normalise_weights
@@ -195,8 +221,12 @@ from .route_option_cache import (
 )
 from .route_state_cache import (
     CachedRouteState,
+    checkpoint_route_state_cache,
     clear_route_state_cache,
+    clear_route_state_cache_checkpoint,
     get_cached_route_state,
+    restore_checkpointed_route_state_cache,
+    route_state_cache_checkpoint_stats,
     route_state_cache_stats,
     set_cached_route_state,
 )
@@ -224,7 +254,10 @@ from .run_store import (
     artifact_dir_for_run,
     artifact_path_for_name,
     artifact_paths_for_run,
+    build_route_artifact_provenance,
+    build_route_artifact_provenance_context,
     list_artifact_paths_for_run,
+    payload_schema_version_for_artifact,
     write_csv_artifact,
     write_json_artifact,
     write_jsonl_artifact,
@@ -264,16 +297,29 @@ from .vehicles import (
 from .voi_controller import (
     VOIConfig,
     VOIControllerState,
+    build_voi_action_score_row,
+    build_controller_state_literal_fields,
+    build_voi_metric_snapshot,
     build_action_menu,
+    classify_voi_hindsight_necessity,
+    compute_voi_realized_metric_deltas,
     compute_search_completeness_metrics,
     enrich_controller_state_for_actioning,
     credible_evidence_uncertainty,
     credible_search_uncertainty,
+    predicted_certified_set_contraction,
+    predicted_delta_radius_or_flip_budget,
+    predicted_preference_shrinkage,
     refresh_controller_state_after_action,
+    voi_artifact_metric_semantics,
 )
 from .voi_dccs_cache import (
+    checkpoint_voi_dccs_cache,
     clear_voi_dccs_cache,
+    clear_voi_dccs_cache_checkpoint,
     get_cached_voi_dccs,
+    restore_checkpointed_voi_dccs_cache,
+    voi_dccs_cache_checkpoint_stats,
     set_cached_voi_dccs,
     voi_dccs_cache_stats,
 )
@@ -333,6 +379,36 @@ def require_user_access(request: Request) -> None:
 
 def require_admin_access(request: Request) -> None:
     require_role(request, "admin")
+
+
+def _proxy_audit_world_bundle_manifest(
+    world_manifest_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(world_manifest_payload, Mapping):
+        return {}
+    normalized_manifest = build_sampled_world_manifest_artifact_payload(world_manifest_payload)
+    proxy_only_worlds = normalized_manifest.get("proxy_only_worlds", [])
+    audit_worlds = normalized_manifest.get("audit_worlds", [])
+    proxy_only_world_count = (
+        len(proxy_only_worlds)
+        if isinstance(proxy_only_worlds, Sequence) and not isinstance(proxy_only_worlds, (str, bytes))
+        else int(normalized_manifest.get("world_count", 0))
+    )
+    audit_world_count = (
+        len(audit_worlds)
+        if isinstance(audit_worlds, Sequence) and not isinstance(audit_worlds, (str, bytes))
+        else int(normalized_manifest.get("audit_world_count", 0))
+    )
+    return {
+        **normalized_manifest,
+        "proxy_world_count": proxy_only_world_count,
+        "audit_world_count": audit_world_count,
+        "audit_propensity_version": str(
+            normalized_manifest.get("audit_propensity_version")
+            or normalized_manifest.get("calibration_policy_version")
+            or ""
+        ),
+    }
 
 
 UserAccessDep = Annotated[None, Depends(require_user_access)]
@@ -1643,6 +1719,9 @@ async def get_cache_stats() -> dict[str, dict[str, int]]:
     return {
         "route_cache": route_cache_stats(),
         "hot_rerun_route_cache_checkpoint": route_cache_checkpoint_stats(),
+        "hot_rerun_certification_cache_checkpoint": certification_cache_checkpoint_stats(),
+        "hot_rerun_route_state_cache_checkpoint": route_state_cache_checkpoint_stats(),
+        "hot_rerun_voi_dccs_cache_checkpoint": voi_dccs_cache_checkpoint_stats(),
         "certification_cache": certification_cache_stats(),
         "k_raw_cache": k_raw_cache_stats(),
         "route_option_cache": route_option_cache_stats(),
@@ -1664,12 +1743,16 @@ async def delete_cache(
             raise HTTPException(status_code=400, detail="invalid_cache_scope")
         if selected_scope in {"full", "thesis_cold"}:
             clear_route_cache_checkpoint()
+            clear_certification_cache_checkpoint()
+            clear_route_state_cache_checkpoint()
+            clear_voi_dccs_cache_checkpoint()
         elif selected_scope == "hot_rerun_cold_source":
             checkpoint_route_cache()
+            checkpoint_certification_cache()
+            checkpoint_route_state_cache()
+            checkpoint_voi_dccs_cache()
         cleared = clear_route_cache()
-        cleared_certifications = 0
-        if selected_scope != "hot_rerun_cold_source":
-            cleared_certifications = clear_certification_cache()
+        cleared_certifications = clear_certification_cache()
         cleared_route_state = clear_route_state_cache()
         cleared_voi_dccs = clear_voi_dccs_cache()
         cleared_k_raw = 0
@@ -1707,16 +1790,53 @@ async def restore_hot_rerun_cache(_: AdminAccessDep = None) -> dict[str, int]:
     t0 = time.perf_counter()
     has_error = False
     try:
-        restored = restore_checkpointed_route_cache(clear_first=False)
-        checkpoint_stats = route_cache_checkpoint_stats()
+        restored_route_cache = restore_checkpointed_route_cache(clear_first=False)
+        route_checkpoint_stats = route_cache_checkpoint_stats()
+        restored_certifications = restore_checkpointed_certification_cache(clear_first=False)
+        certification_checkpoint_stats = certification_cache_checkpoint_stats()
+        restored_route_state = restore_checkpointed_route_state_cache(clear_first=False)
+        route_state_checkpoint_stats = route_state_cache_checkpoint_stats()
+        restored_voi_dccs = restore_checkpointed_voi_dccs_cache(clear_first=False)
+        voi_dccs_checkpoint_stats = voi_dccs_cache_checkpoint_stats()
+        restored = (
+            int(restored_route_cache)
+            + int(restored_certifications)
+            + int(restored_route_state)
+            + int(restored_voi_dccs)
+        )
         log_event(
             "hot_rerun_route_cache_restore",
-            restored=restored,
-            checkpoint_size=int(checkpoint_stats.get("size", 0)),
+            restored=int(restored),
+            restored_route_cache=int(restored_route_cache),
+            checkpoint_size=(
+                int(route_checkpoint_stats.get("size", 0))
+                + int(certification_checkpoint_stats.get("size", 0))
+                + int(route_state_checkpoint_stats.get("size", 0))
+                + int(voi_dccs_checkpoint_stats.get("size", 0))
+            ),
+            certification_checkpoint_size=int(certification_checkpoint_stats.get("size", 0)),
+            certification_restored=int(restored_certifications),
+            route_state_checkpoint_size=int(route_state_checkpoint_stats.get("size", 0)),
+            route_state_restored=int(restored_route_state),
+            voi_dccs_checkpoint_size=int(voi_dccs_checkpoint_stats.get("size", 0)),
+            voi_dccs_restored=int(restored_voi_dccs),
         )
         return {
-            "restored": restored,
-            "checkpoint_size": int(checkpoint_stats.get("size", 0)),
+            "restored": int(restored),
+            "checkpoint_size": (
+                int(route_checkpoint_stats.get("size", 0))
+                + int(certification_checkpoint_stats.get("size", 0))
+                + int(route_state_checkpoint_stats.get("size", 0))
+                + int(voi_dccs_checkpoint_stats.get("size", 0))
+            ),
+            "restored_route_cache": int(restored_route_cache),
+            "route_checkpoint_size": int(route_checkpoint_stats.get("size", 0)),
+            "certification_checkpoint_size": int(certification_checkpoint_stats.get("size", 0)),
+            "restored_certification_cache": int(restored_certifications),
+            "route_state_checkpoint_size": int(route_state_checkpoint_stats.get("size", 0)),
+            "restored_route_state_cache": int(restored_route_state),
+            "voi_dccs_checkpoint_size": int(voi_dccs_checkpoint_stats.get("size", 0)),
+            "restored_voi_dccs_cache": int(restored_voi_dccs),
         }
     except Exception:
         has_error = True
@@ -1867,7 +1987,10 @@ def _validate_osrm_geometry(route: dict[str, Any]) -> list[tuple[float, float]]:
 DRIVER_TIME_COST_WEIGHT: float = 0.35
 MAX_GEOMETRY_POINTS: int = 1200
 MAX_CANDIDATE_FETCH_CONCURRENCY: int = 6
-CANDIDATE_CACHE_SCHEMA_VERSION: int = 3
+CANDIDATE_CACHE_SCHEMA_VERSION: int = 4
+GRAPH_K_RAW_CACHE_KEY_SCHEMA_VERSION = "graph_k_raw_cache_key_v1"
+ROUTE_STATE_CACHE_KEY_SCHEMA_VERSION = "route_state_cache_key_v2"
+VOI_DCCS_CACHE_KEY_SCHEMA_VERSION = "voi_dccs_cache_key_v2"
 ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
@@ -2053,6 +2176,215 @@ def _annotate_route_candidate_meta(
     if math.isfinite(merged_cost_ms):
         candidate_meta["observed_refine_cost_ms"] = round(float(merged_cost_ms), 6)
     route["_candidate_meta"] = candidate_meta
+
+
+def _apply_runtime_preference_query_action(
+    *,
+    chosen_action: Mapping[str, Any],
+    preference_state: Any,
+    options: Sequence[RouteOption],
+    selection_score_map: Mapping[str, float] | None,
+    selected_route_id: str | None,
+    utility_weights: tuple[float, float, float],
+) -> tuple[Any, dict[str, Any]]:
+    state = (
+        preference_state.model_copy(deep=True)
+        if hasattr(preference_state, "model_copy")
+        else copy.deepcopy(preference_state)
+    )
+    chosen_payload = dict(chosen_action)
+    metadata = chosen_payload.get("metadata")
+    metadata = dict(metadata) if isinstance(metadata, Mapping) else {}
+    option_by_id = {
+        str(option.id).strip(): option
+        for option in options
+        if str(option.id).strip()
+    }
+    route_ids: list[str] = []
+    for key in ("route_ids", "frontier_route_ids"):
+        raw_value = metadata.get(key)
+        if isinstance(raw_value, Sequence) and not isinstance(raw_value, (str, bytes, bytearray)):
+            for item in raw_value:
+                route_id = str(item).strip()
+                if route_id and route_id not in route_ids:
+                    route_ids.append(route_id)
+    raw_target = str(chosen_payload.get("target") or "").strip()
+    if "|" in raw_target:
+        for item in raw_target.split(":", 1)[0].split("|"):
+            route_id = str(item).strip()
+            if route_id and route_id not in route_ids:
+                route_ids.append(route_id)
+    route_ids = [route_id for route_id in route_ids if route_id in option_by_id]
+    if len(route_ids) < 2:
+        route_ids = [
+            route_id
+            for route_id in option_by_id
+            if route_id in getattr(getattr(state, "compatible_set_summary", None), "route_ids", []) or True
+        ][:2]
+    if len(route_ids) < 2:
+        return state, {
+            "preference_query_skipped": True,
+            "preference_query_skip_reason": "insufficient_runtime_route_ids",
+        }
+
+    wt, wm, we = normalise_weights(*utility_weights)
+
+    def _route_score(route_id: str) -> float:
+        raw_score = None if selection_score_map is None else selection_score_map.get(route_id)
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError):
+            score = float("nan")
+        if math.isfinite(score):
+            return score
+        option = option_by_id[route_id]
+        return normalized_weighted_utility(
+            duration_s=float(option.metrics.duration_s),
+            monetary_cost=float(option.metrics.monetary_cost),
+            emissions_kg=float(option.metrics.emissions_kg),
+            distance_km=float(option.metrics.distance_km),
+            utility_weights=utility_weights,
+        )
+
+    ranked_route_ids = sorted(route_ids, key=lambda route_id: (_route_score(route_id), route_id))
+    preferred_route_id = ranked_route_ids[0]
+    rejected_route_id = ranked_route_ids[1]
+    if selected_route_id and selected_route_id in route_ids:
+        preferred_route_id = str(selected_route_id)
+        rejected_route_id = next(
+            (route_id for route_id in ranked_route_ids if route_id != preferred_route_id),
+            rejected_route_id,
+        )
+
+    compatible_summary = getattr(state, "compatible_set_summary", None)
+    compatible_route_ids = list(getattr(compatible_summary, "route_ids", []) or route_ids)
+    before_size = max(
+        1,
+        int(getattr(compatible_summary, "compatible_set_size", 0) or len(compatible_route_ids) or len(route_ids)),
+    )
+    before_volume_proxy = max(
+        0.0,
+        float(getattr(compatible_summary, "compatible_set_volume_proxy", 1.0) or 0.0),
+    )
+    after_size = max(1, before_size - 1)
+    shrink_fraction = min(1.0, 1.0 / max(1, before_size))
+    after_volume_proxy = round(
+        max(0.0, before_volume_proxy * (1.0 - shrink_fraction)),
+        6,
+    )
+    query_reason = str(
+        chosen_payload.get("reason")
+        or metadata.get("query_focus")
+        or chosen_payload.get("kind")
+        or "preference_query"
+    ).strip() or "preference_query"
+    preferred_option = option_by_id[preferred_route_id]
+    primary_metric_name = max(
+        (
+            ("duration_s", wt),
+            ("monetary_cost", wm),
+            ("emissions_kg", we),
+        ),
+        key=lambda item: (item[1], item[0]),
+    )[0]
+    if primary_metric_name == "duration_s":
+        secondary_metric_name = "monetary_cost"
+    elif primary_metric_name == "monetary_cost":
+        secondary_metric_name = "emissions_kg"
+    else:
+        secondary_metric_name = "duration_s"
+
+    chosen_kind = str(chosen_payload.get("kind") or "").strip()
+    if chosen_kind == "preference_pairwise_route_query":
+        query = PairwisePreferenceQuery(
+            preferred_route_id=preferred_route_id,
+            challenger_route_id=rejected_route_id,
+            reason=query_reason,
+            weight_hint={"time": wt, "money": wm, "co2": we},
+        )
+    elif chosen_kind == "preference_tradeoff_threshold_query":
+        query = ThresholdPreferenceQuery(
+            route_id=preferred_route_id,
+            metric_name=primary_metric_name,
+            threshold_value=float(getattr(preferred_option.metrics, primary_metric_name)),
+            direction="lte",
+            reason=query_reason,
+        )
+    elif chosen_kind == "preference_ratio_query":
+        denominator_value = max(
+            1e-9,
+            float(getattr(preferred_option.metrics, secondary_metric_name)),
+        )
+        query = RatioPreferenceQuery(
+            route_id=preferred_route_id,
+            numerator_metric=primary_metric_name,
+            denominator_metric=secondary_metric_name,
+            minimum_ratio=max(
+                0.0,
+                float(getattr(preferred_option.metrics, primary_metric_name)) / denominator_value,
+            ),
+            reason=query_reason,
+        )
+    elif chosen_kind == "preference_veto_query":
+        query = VetoPreferenceQuery(
+            route_id=rejected_route_id,
+            veto_name="preference_dominated_route",
+            active=True,
+            reason=query_reason,
+        )
+    elif chosen_kind == "preference_time_guard_query":
+        preferred_duration_s = max(1.0, float(preferred_option.metrics.duration_s))
+        query = TimeGuardPreferenceQuery(
+            route_id=preferred_route_id,
+            max_travel_time_s=preferred_duration_s,
+            preserve_time_budget_s=max(0.0, preferred_duration_s * 0.95),
+            reason=query_reason,
+        )
+    else:
+        return state, {
+            "preference_query_skipped": True,
+            "preference_query_skip_reason": "unsupported_preference_action_kind",
+        }
+
+    updated_state = append_preference_query(
+        state,
+        query,
+        before_size=before_size,
+        after_size=after_size,
+        before_volume_proxy=before_volume_proxy,
+        after_volume_proxy=after_volume_proxy,
+        target_route_id=rejected_route_id,
+        query_reason=query_reason,
+        preference_irrelevance=after_size <= 1,
+    )
+    surviving_route_ids = [
+        route_id
+        for route_id in compatible_route_ids
+        if route_id != rejected_route_id
+    ]
+    if preferred_route_id not in surviving_route_ids:
+        surviving_route_ids.insert(0, preferred_route_id)
+    updated_state.compatible_set_summary.possible_best_route_ids = surviving_route_ids
+    updated_state.compatible_set_summary.compatible_set_size = after_size
+    updated_state.compatible_set_summary.compatible_set_volume_proxy = after_volume_proxy
+    if after_size <= 1:
+        updated_state.preference_irrelevance_proven = True
+        updated_state.compatible_set_summary.necessary_best_route_ids = [preferred_route_id]
+        updated_state.compatible_set_summary.possible_best_route_ids = [preferred_route_id]
+        updated_state.compatible_set_summary.necessary_best_prob = (
+            1.0 if bool(updated_state.compatible_set_summary.support_flag) else 0.0
+        )
+        updated_state.compatible_set_summary.possible_best_prob = 1.0
+    updated_state.no_query_reason = None
+    return updated_state, {
+        "preference_query_skipped": False,
+        "preference_query": query.model_dump(mode="json"),
+        "preference_query_type": query.query_type,
+        "preferred_route_id": preferred_route_id,
+        "targeted_challenger_route_id": rejected_route_id,
+        "query_selection_reason": query_reason,
+        "executed_preference_route_ids": [preferred_route_id, rejected_route_id],
+    }
 
 
 def _ndjson_line(event: dict[str, Any]) -> bytes:
@@ -5087,6 +5419,77 @@ def _route_option_signature(option: RouteOption) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _stable_option_order_key(option: RouteOption) -> tuple[str, str]:
+    return (_route_option_signature(option), str(option.id))
+
+
+def _evidence_snapshot_manifest_route_payloads(
+    current_options: Sequence[RouteOption],
+) -> list[dict[str, Any]]:
+    route_payloads: list[dict[str, Any]] = []
+    for option in current_options:
+        provenance = option.evidence_provenance
+        active_family_names: list[str] = []
+        families: list[dict[str, Any]] = []
+        if provenance is not None:
+            active_family_names = sorted(
+                str(family).strip()
+                for family in provenance.active_families
+                if str(family).strip()
+            )
+            families = sorted(
+                [family.model_dump(mode="json") for family in provenance.families],
+                key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), default=str),
+            )
+        route_payloads.append(
+            {
+                "route_id": option.id,
+                "route_signature": _route_option_signature(option),
+                "active_families": active_family_names,
+                "families": families,
+            }
+        )
+    route_payloads.sort(
+        key=lambda row: (
+            str(row.get("route_signature") or ""),
+            str(row.get("route_id") or ""),
+        )
+    )
+    return route_payloads
+
+
+def _build_evidence_snapshot_manifest_payload(
+    *,
+    current_options: Sequence[RouteOption],
+    run_seed: int,
+    pipeline_mode: str,
+) -> dict[str, Any]:
+    route_payloads = _evidence_snapshot_manifest_route_payloads(current_options)
+    payload = {
+        "schema_version": "1.0.0",
+        "run_seed": int(run_seed),
+        "pipeline_mode": str(pipeline_mode),
+        "routes": route_payloads,
+    }
+    hash_payload = {
+        "schema_version": payload["schema_version"],
+        "run_seed": payload["run_seed"],
+        "pipeline_mode": payload["pipeline_mode"],
+        "routes": [
+            {
+                "route_signature": str(row.get("route_signature") or ""),
+                "active_families": list(row.get("active_families") or []),
+                "families": list(row.get("families") or []),
+            }
+            for row in route_payloads
+        ],
+    }
+    payload["snapshot_hash"] = hashlib.sha1(
+        json.dumps(hash_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
 def _pair_refined_routes_to_options_by_signature(
     refined_routes: Sequence[dict[str, Any]],
     current_options: Sequence[RouteOption],
@@ -5427,9 +5830,10 @@ def _graph_refine_route_cache_key(
     terrain_profile: Any | None = None,
     departure_time_utc: datetime | None = None,
     scenario_cache_token: str | None = None,
+    candidate_scope_token: str | None = None,
 ) -> str:
     payload = {
-        "schema_version": "graph_refine_v3",
+        "schema_version": "graph_refine_v4",
         "origin": {"lat": round(float(origin.lat), 6), "lon": round(float(origin.lon), 6)},
         "destination": {"lat": round(float(destination.lat), 6), "lon": round(float(destination.lon), 6)},
         "alternatives": alternatives,
@@ -5448,10 +5852,33 @@ def _graph_refine_route_cache_key(
         "terrain_profile": _cache_key_component(terrain_profile),
         "departure_time_utc": departure_time_utc.isoformat() if departure_time_utc else None,
         "scenario_cache_token": str(scenario_cache_token or "").strip() or None,
+        "candidate_scope_token": str(candidate_scope_token or "").strip() or None,
     }
     return hashlib.sha1(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
+
+
+def _refine_candidate_scope_token(
+    *,
+    candidate_id: str | None,
+    raw_route: Mapping[str, Any],
+) -> str | None:
+    raw_route_dict = dict(raw_route)
+    try:
+        route_signature = _route_signature(raw_route_dict)
+    except OSRMError:
+        route_signature = ""
+    stable_scope = (
+        _graph_family_signature(raw_route_dict)
+        or route_signature
+        or stable_candidate_id(raw_route_dict)
+    )
+    stable_scope_text = str(stable_scope or "").strip()
+    if stable_scope_text:
+        return stable_scope_text
+    candidate_text = str(candidate_id or "").strip()
+    return candidate_text or None
 
 
 def _cache_key_component(value: Any) -> Any:
@@ -5470,6 +5897,174 @@ def _cache_key_component(value: Any) -> Any:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_cache_key_component(item) for item in value]
     return str(value)
+
+
+def _stable_cache_key_digest(payload: Mapping[str, Any]) -> str:
+    return hashlib.sha1(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _graph_k_raw_cache_key(
+    *,
+    origin: LatLng,
+    destination: LatLng,
+    max_alternatives: int,
+    scenario_edge_modifiers: Mapping[str, Any] | None,
+    start_node_id: str | None,
+    goal_node_id: str | None,
+    ambiguity_context_available: bool,
+    ambiguity_strength: float,
+    support_ratio: float,
+    source_entropy: float,
+    nominal_margin_proxy: float,
+    objective_spread: float,
+    low_ambiguity_fast_path: bool,
+    long_corridor_stress_probe: bool,
+    skip_initial_graph_search: bool,
+    allow_supported_ambiguity_fast_fallback: bool,
+    candidate_path_count: int,
+    corridor_family_count: int,
+    support_rich_short_haul_fast_path: bool,
+    support_rich_short_haul_graph_probe: bool,
+    max_paths: int,
+    configured_state_budget: int,
+    initial_max_hops_override: int | None,
+    reliability_corridor_threshold_km: float,
+    long_corridor_threshold_km: float,
+    reliability_corridor: bool,
+    long_corridor: bool,
+    reduced_initial_enabled: bool,
+    initial_search_timeout_ms: int,
+    retry_search_timeout_ms: int,
+    rescue_search_timeout_ms: int,
+) -> str:
+    payload = {
+        "schema_version": GRAPH_K_RAW_CACHE_KEY_SCHEMA_VERSION,
+        "origin": [round(float(origin.lat), 6), round(float(origin.lon), 6)],
+        "destination": [round(float(destination.lat), 6), round(float(destination.lon), 6)],
+        "max_alternatives": int(max_alternatives),
+        "scenario_edge_modifiers": _cache_key_component(scenario_edge_modifiers or {}),
+        "start_node_id": str(start_node_id or ""),
+        "goal_node_id": str(goal_node_id or ""),
+        "ambiguity_context_available": bool(ambiguity_context_available),
+        "ambiguity_strength": round(float(ambiguity_strength), 6),
+        "od_ambiguity_support_ratio": round(float(support_ratio), 6),
+        "od_ambiguity_source_entropy": round(float(source_entropy), 6),
+        "od_nominal_margin_proxy": round(float(nominal_margin_proxy), 6),
+        "od_objective_spread": round(float(objective_spread), 6),
+        "low_ambiguity_fast_path": bool(low_ambiguity_fast_path),
+        "long_corridor_stress_probe": bool(long_corridor_stress_probe),
+        "skip_initial_graph_search": bool(skip_initial_graph_search),
+        "allow_supported_ambiguity_fast_fallback": bool(allow_supported_ambiguity_fast_fallback),
+        "od_candidate_path_count": int(candidate_path_count),
+        "od_corridor_family_count": int(corridor_family_count),
+        "support_rich_short_haul_fast_path": bool(support_rich_short_haul_fast_path),
+        "support_rich_short_haul_graph_probe": bool(support_rich_short_haul_graph_probe),
+        "search_shape": {
+            "max_paths": int(max_paths),
+            "configured_state_budget": int(configured_state_budget),
+            "initial_max_hops_override": initial_max_hops_override,
+            "reliability_corridor_threshold_km": round(float(reliability_corridor_threshold_km), 3),
+            "long_corridor_threshold_km": round(float(long_corridor_threshold_km), 3),
+            "reliability_corridor": bool(reliability_corridor),
+            "long_corridor": bool(long_corridor),
+            "reduced_initial_enabled": bool(reduced_initial_enabled),
+            "route_dccs_bootstrap_count": int(settings.route_dccs_bootstrap_count),
+            "route_graph_skip_initial_search_long_corridor": bool(
+                settings.route_graph_skip_initial_search_long_corridor
+            ),
+            "route_graph_skip_initial_search_reliability_low_ambiguity": bool(
+                settings.route_graph_skip_initial_search_reliability_low_ambiguity
+            ),
+            "route_graph_skip_retry_rescue_reliability_corridor": bool(
+                settings.route_graph_skip_retry_rescue_reliability_corridor
+            ),
+            "route_graph_skip_supplemental_probe_low_ambiguity": bool(
+                settings.route_graph_skip_supplemental_probe_low_ambiguity
+            ),
+            "route_graph_search_initial_timeout_ms": int(initial_search_timeout_ms),
+            "route_graph_search_retry_timeout_ms": int(retry_search_timeout_ms),
+            "route_graph_search_rescue_timeout_ms": int(rescue_search_timeout_ms),
+        },
+    }
+    return _stable_cache_key_digest(payload)
+
+
+def _build_route_state_cache_key(
+    *,
+    refined_route_signatures: Sequence[str],
+    refined_route_evidence_fingerprint: Sequence[Mapping[str, Any]],
+    ambiguity_context: Mapping[str, Any] | None,
+    vehicle_type: str,
+    scenario_mode: Any,
+    cost_toggles: Any,
+    terrain_profile: Any,
+    stochastic: Any,
+    emissions_context: Any,
+    weather: Any,
+    incident_simulation: Any,
+    departure_time_utc: datetime | None,
+    weights: Sequence[float],
+    pipeline_mode: str,
+    route_state_cache_profile: Mapping[str, Any],
+    risk_aversion: float,
+    optimization_mode: Any,
+    pareto_method: Any,
+    epsilon: float | None,
+    max_alternatives: int,
+) -> str:
+    normalized_fingerprint = sorted(
+        [
+            {
+                "route_signature": str(
+                    item.get("route_signature") or item.get("route_id") or ""
+                ),
+                "evidence_provenance": _cache_key_component(item.get("evidence_provenance")),
+                "evidence_tensor": _cache_key_component(item.get("evidence_tensor")),
+            }
+            for item in refined_route_evidence_fingerprint
+        ],
+        key=lambda item: (
+            str(item.get("route_signature") or ""),
+            json.dumps(
+                item.get("evidence_provenance"),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ),
+            json.dumps(
+                item.get("evidence_tensor"),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ),
+        ),
+    )
+    payload = {
+        "schema_version": ROUTE_STATE_CACHE_KEY_SCHEMA_VERSION,
+        "refined_route_signatures": sorted(str(signature) for signature in refined_route_signatures),
+        "refined_route_evidence_fingerprint": normalized_fingerprint,
+        "ambiguity_context": _cache_key_component(ambiguity_context),
+        "vehicle_type": str(vehicle_type),
+        "scenario_mode": str(scenario_mode),
+        "cost_toggles": _cache_key_component(cost_toggles),
+        "terrain_profile": _cache_key_component(terrain_profile),
+        "stochastic": _cache_key_component(stochastic),
+        "emissions_context": _cache_key_component(emissions_context),
+        "weather": _cache_key_component(weather),
+        "incident_simulation": _cache_key_component(incident_simulation),
+        "departure_time_utc": departure_time_utc.isoformat() if departure_time_utc else None,
+        "weights": tuple(float(weight) for weight in weights),
+        "pipeline_mode": str(pipeline_mode),
+        "route_state_cache_profile": _cache_key_component(route_state_cache_profile),
+        "risk_aversion": float(risk_aversion),
+        "optimization_mode": str(optimization_mode),
+        "pareto_method": str(pareto_method),
+        "epsilon": float(epsilon) if epsilon is not None else None,
+        "max_alternatives": int(max_alternatives),
+    }
+    return _stable_cache_key_digest(payload)
 
 
 def _committed_refresh_route_state_cache_key(
@@ -5491,6 +6086,74 @@ def _committed_refresh_route_state_cache_key(
     ).hexdigest()
 
 
+def _voi_dccs_cache_key(
+    *,
+    remaining_candidates: Sequence[Mapping[str, Any]],
+    frontier_payloads: Sequence[Mapping[str, Any]],
+    refined_payloads: Sequence[Mapping[str, Any]],
+    remaining_search_budget: int,
+) -> str:
+    def _stable_voi_candidate_signature(candidate: Mapping[str, Any]) -> str:
+        stable_signature = str(
+            candidate.get("candidate_signature")
+            or candidate.get("route_signature")
+            or candidate.get("signature")
+            or ""
+        ).strip()
+        if stable_signature:
+            return stable_signature
+        candidate_dict = dict(candidate)
+        candidate_signature_basis = {
+            key: value
+            for key, value in candidate_dict.items()
+            if key not in {"candidate_id", "route_id", "id", "option_id"}
+        }
+        stable_scope = (
+            _graph_family_signature(candidate_dict)
+            or (
+                stable_candidate_id(candidate_signature_basis)
+                if candidate_signature_basis
+                else ""
+            )
+            or candidate.get("candidate_id")
+        )
+        return str(stable_scope or "").strip()
+
+    def _stable_voi_route_signature(route: Mapping[str, Any]) -> str:
+        signature = str(route.get("route_signature") or route.get("signature") or "").strip()
+        if signature:
+            return signature
+        route_dict = dict(route)
+        try:
+            return str(_route_signature(route_dict))
+        except OSRMError:
+            return str(route.get("route_id") or route.get("id") or route.get("option_id") or "")
+
+    payload = {
+        "schema_version": VOI_DCCS_CACHE_KEY_SCHEMA_VERSION,
+        "remaining_candidate_signatures": sorted(
+            _stable_voi_candidate_signature(candidate)
+            for candidate in remaining_candidates
+        ),
+        "frontier": [
+            {
+                "route_signature": _stable_voi_route_signature(route),
+                "objective_vector": [round(float(value), 6) for value in _route_objective_vector(route)],
+            }
+            for route in sorted(
+                frontier_payloads,
+                key=_stable_voi_route_signature,
+            )
+        ],
+        "refined_route_signatures": sorted(
+            _stable_voi_route_signature(route)
+            for route in refined_payloads
+        ),
+        "remaining_search_budget": int(remaining_search_budget),
+    }
+    return _stable_cache_key_digest(payload)
+
+
 def _legacy_candidate_cache_context(
     *,
     origin: LatLng,
@@ -5508,7 +6171,7 @@ def _legacy_candidate_cache_context(
     allow_supported_ambiguity_fast_fallback: bool,
 ) -> dict[str, Any] | None:
     normalized_policy = str(refinement_policy or "").strip().lower()
-    if normalized_policy not in {"first_n", "random_n", "corridor_uniform"}:
+    if normalized_policy not in {"dccs", "first_n", "random_n", "corridor_uniform"}:
         return None
     context: dict[str, Any] = {
         "refinement_policy": normalized_policy,
@@ -5526,6 +6189,18 @@ def _legacy_candidate_cache_context(
             allow_supported_ambiguity_fast_fallback=allow_supported_ambiguity_fast_fallback,
         ),
     }
+    if normalized_policy == "dccs":
+        context.update(
+            {
+                "od_ambiguity_index": round(float(od_ambiguity_index or 0.0), 6),
+                "od_engine_disagreement_prior": round(float(od_engine_disagreement_prior or 0.0), 6),
+                "od_hard_case_prior": round(float(od_hard_case_prior or 0.0), 6),
+                "od_ambiguity_support_ratio": round(float(od_ambiguity_support_ratio or 0.0), 6),
+                "od_ambiguity_source_entropy": round(float(od_ambiguity_source_entropy or 0.0), 6),
+                "od_candidate_path_count": int(od_candidate_path_count or 0),
+                "od_corridor_family_count": int(od_corridor_family_count or 0),
+            }
+        )
     if normalized_policy == "corridor_uniform":
         context["support_rich_short_haul_fast_fallback"] = _support_rich_short_haul_fast_fallback_eligible(
             origin=origin,
@@ -6104,11 +6779,13 @@ def _select_ranked_candidate_routes(
             diversity_multiplier = 1.0 + (0.18 * family_count) + (0.12 * corridor_count)
             fallback_bucket_penalty = 0.0
             fallback_cost_penalty = 0.0
-            if source_stage == "direct_k_raw_fallback":
+            if source_stage in {"direct_k_raw_fallback", "long_corridor_fallback"}:
                 bucket_key = (source_stage, source_bucket)
                 bucket_count = source_bucket_counts.get(bucket_key, 0)
+                via_bucket_penalty_weight = 0.22 if source_stage == "direct_k_raw_fallback" else 0.18
+                fallback_bucket_penalty_weight = 0.10 if source_stage == "direct_k_raw_fallback" else 0.08
                 if source_bucket == "via":
-                    fallback_bucket_penalty = 0.22 * bucket_count
+                    fallback_bucket_penalty = via_bucket_penalty_weight * bucket_count
                 elif source_bucket in {
                     "alternatives",
                     "exclude_toll",
@@ -6116,12 +6793,15 @@ def _select_ranked_candidate_routes(
                     "exclude_trunk",
                     "exclude_other",
                     "ors_seed",
+                    "fallback_family",
                 }:
-                    fallback_bucket_penalty = 0.10 * bucket_count
-                if observed_refine_cost_ms > 60.0:
+                    fallback_bucket_penalty = fallback_bucket_penalty_weight * bucket_count
+                cost_threshold_ms = 60.0 if source_stage == "direct_k_raw_fallback" else 45.0
+                fallback_cost_cap = 0.18 if source_stage == "direct_k_raw_fallback" else 0.16
+                if observed_refine_cost_ms > cost_threshold_ms:
                     fallback_cost_penalty = min(
-                        0.18,
-                        max(0.0, observed_refine_cost_ms - 60.0) / 500.0,
+                        fallback_cost_cap,
+                        max(0.0, observed_refine_cost_ms - cost_threshold_ms) / 500.0,
                     )
             blended_score = duration_s * (
                 diversity_multiplier + fallback_bucket_penalty + fallback_cost_penalty
@@ -7626,7 +8306,7 @@ def _pick_best_option(
                 optimization_mode=optimization_mode,
                 risk_aversion=risk_aversion,
             ),
-            option.id,
+            _stable_option_order_key(option),
         )
         if tie_break < best_tuple:
             best = option
@@ -7885,6 +8565,70 @@ def _as_float_or_zero(value: Any) -> float:
     return float(parsed)
 
 
+def _live_voi_replay_oracle_summary(
+    action_trace: Sequence[Mapping[str, Any]],
+    *,
+    initial_certificate: float | None,
+    final_certificate: float | None,
+    stop_reason: str | None,
+) -> dict[str, Any] | None:
+    action_count = 0
+    replay_regret = 0.0
+    modalities: list[str] = []
+    for entry in action_trace:
+        if not isinstance(entry, Mapping):
+            continue
+        chosen_action = (
+            entry.get("chosen_action")
+            if isinstance(entry.get("chosen_action"), Mapping)
+            else None
+        )
+        if chosen_action is None:
+            continue
+        action_count += 1
+        chosen_q = _as_float_or_zero(chosen_action.get("q_score"))
+        feasible_actions = [
+            candidate
+            for candidate in (
+                item if isinstance(item, Mapping) else None
+                for item in (entry.get("feasible_actions") or [])
+            )
+            if candidate is not None
+        ]
+        best_q = max(
+            (_as_float_or_zero(candidate.get("q_score")) for candidate in feasible_actions),
+            default=chosen_q,
+        )
+        replay_regret += max(0.0, best_q - chosen_q)
+        modality = str(
+            chosen_action.get("action_modality")
+            or chosen_action.get("kind")
+            or chosen_action.get("action_id")
+            or ""
+        ).strip()
+        if modality:
+            modalities.append(modality)
+    if action_count <= 0:
+        return None
+    modality_switch_count = sum(
+        1
+        for previous, current in zip(modalities, modalities[1:], strict=False)
+        if previous != current
+    )
+    initial_value = float(initial_certificate) if initial_certificate is not None and math.isfinite(float(initial_certificate)) else None
+    final_value = float(final_certificate) if final_certificate is not None and math.isfinite(float(final_certificate)) else None
+    stop_reason_text = str(stop_reason or "").strip() or None
+    return {
+        "action_count": action_count,
+        "initial_certificate": round(initial_value, 6) if initial_value is not None else None,
+        "final_certificate": round(final_value, 6) if final_value is not None else None,
+        "stop_reason": stop_reason_text,
+        "replay_regret": round(replay_regret, 6),
+        "modality_switch_count": modality_switch_count,
+        "modality_switch_observed": bool(modality_switch_count > 0),
+    }
+
+
 def _route_graph_search_support_confidence(
     *,
     od_ambiguity_support_ratio: float | None,
@@ -8122,9 +8866,18 @@ def _process_resource_snapshot() -> dict[str, Any]:
             "rss_bytes": int(getattr(memory, "rss", 0)),
             "vms_bytes": int(getattr(memory, "vms", 0)),
         }
-        for attr in ("peak_wset", "peak_pagefile", "peak_rss"):
+        peak_aliases = {
+            "peak_wset": "peak_rss_bytes",
+            "peak_rss": "peak_rss_bytes",
+            "peak_pagefile": "peak_vms_bytes",
+            "peak_vms": "peak_vms_bytes",
+        }
+        for attr, alias in peak_aliases.items():
             if hasattr(memory, attr):
-                payload[f"{attr}_bytes"] = int(getattr(memory, attr))
+                value = int(getattr(memory, attr))
+                payload[f"{attr}_bytes"] = value
+                if value > int(payload.get(alias, 0) or 0):
+                    payload[alias] = value
         return payload
     except Exception:
         return _process_resource_snapshot_windows()
@@ -8170,11 +8923,19 @@ def _process_resource_snapshot_windows() -> dict[str, Any]:
         )
         if not ok:
             return {}
+        peak_rss_bytes = int(counters.PeakWorkingSetSize)
+        peak_pagefile_bytes = int(counters.PeakPagefileUsage)
+        peak_vms_bytes = max(
+            peak_pagefile_bytes,
+            int(counters.PrivateUsage or counters.PagefileUsage),
+        )
         return {
             "rss_bytes": int(counters.WorkingSetSize),
             "vms_bytes": int(counters.PrivateUsage or counters.PagefileUsage),
-            "peak_wset_bytes": int(counters.PeakWorkingSetSize),
-            "peak_pagefile_bytes": int(counters.PeakPagefileUsage),
+            "peak_wset_bytes": peak_rss_bytes,
+            "peak_pagefile_bytes": peak_pagefile_bytes,
+            "peak_rss_bytes": peak_rss_bytes,
+            "peak_vms_bytes": peak_vms_bytes,
             "private_bytes": int(counters.PrivateUsage),
             "page_fault_count": int(counters.PageFaultCount),
         }
@@ -8761,8 +9522,23 @@ async def _collect_candidate_routes(
     )
     initial_max_hops_override: int | None = None
     if long_corridor:
-        scaled_hops = int(math.ceil(max(1.0, corridor_distance_km) * 8.5))
-        initial_max_hops_override = max(900, min(int(settings.route_graph_max_hops_cap), scaled_hops))
+        scaled_hops = int(
+            math.ceil(
+                max(1.0, corridor_distance_km)
+                * max(0.1, float(settings.route_graph_hops_per_km))
+                * max(1.0, float(settings.route_graph_hops_detour_factor))
+            )
+        )
+        physical_hop_floor = int(
+            math.ceil(
+                ((max(0.001, corridor_distance_km) * 1000.0) / max(1.0, float(settings.route_graph_edge_length_estimate_m)))
+                * max(0.1, float(settings.route_graph_hops_safety_factor))
+            )
+        )
+        initial_max_hops_override = max(
+            900,
+            min(int(settings.route_graph_max_hops_cap), max(scaled_hops, physical_hop_floor)),
+        )
     initial_search_timeout_ms = max(0, int(settings.route_graph_search_initial_timeout_ms))
     retry_search_timeout_ms = max(0, int(settings.route_graph_search_retry_timeout_ms))
     rescue_search_timeout_ms = max(0, int(settings.route_graph_search_rescue_timeout_ms))
@@ -11658,6 +12434,45 @@ def _resolve_pipeline_mode(requested_mode: str | None) -> str:
     return env_mode
 
 
+def _resolve_route_request_pipeline_mode(
+    *,
+    requested_mode: str | None,
+    waypoint_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    effective_pipeline_mode = _resolve_pipeline_mode(requested_mode)
+    if effective_pipeline_mode == "legacy":
+        return effective_pipeline_mode, {
+            "reason_code": "legacy_pipeline_live_route_disabled",
+            "message": (
+                "Live /route no longer supports pipeline_mode=legacy; "
+                "use /route/baseline or /route/baseline/ors for ablation, replay, "
+                "and historical comparison flows."
+            ),
+            "warnings": [],
+            "requested_pipeline_mode": str(requested_mode or "").strip() or None,
+            "effective_pipeline_mode": effective_pipeline_mode,
+            "supported_live_pipeline_modes": ["dccs", "dccs_refc", "voi"],
+            "baseline_endpoints": ["/route/baseline", "/route/baseline/ors"],
+            "waypoint_count": int(waypoint_count),
+        }
+    if int(waypoint_count) > 0:
+        return effective_pipeline_mode, {
+            "reason_code": "waypoints_not_supported_on_live_route",
+            "message": (
+                "Waypoint requests are not supported on live /route; "
+                "use /route/baseline or /route/baseline/ors for waypoint ablation, "
+                "replay, and historical comparison flows."
+            ),
+            "warnings": [],
+            "requested_pipeline_mode": str(requested_mode or "").strip() or None,
+            "effective_pipeline_mode": effective_pipeline_mode,
+            "supported_live_pipeline_modes": ["dccs", "dccs_refc", "voi"],
+            "baseline_endpoints": ["/route/baseline", "/route/baseline/ors"],
+            "waypoint_count": int(waypoint_count),
+        }
+    return effective_pipeline_mode, None
+
+
 def _resolve_pipeline_seed(req: RouteRequest) -> int:
     if req.pipeline_seed is not None:
         return int(req.pipeline_seed)
@@ -11763,7 +12578,7 @@ def _refc_certification_frontier_options(
         list(options),
         key=lambda option: (
             float(selection_score_map.get(option.id, float("inf"))),
-            str(option.id),
+            _stable_option_order_key(option),
         ),
     )
     strict_ids = set(strict_route_ids)
@@ -12317,18 +13132,275 @@ def _route_option_certification_payload(option: RouteOption) -> dict[str, Any]:
     }
 
 
-def _global_certification_cache_payload(
+_CERTIFICATION_CACHE_ROUTE_KEYS: tuple[str, ...] = (
+    "objective_vector",
+    "distance_km",
+    "weather_summary",
+    "scenario_summary",
+    "terrain_summary",
+    "uncertainty",
+    "evidence_tensor",
+    "evidence_provenance",
+)
+_CERTIFICATION_CACHE_VOLATILE_KEYS: frozenset[str] = frozenset(
+    {
+        "route_id",
+        "id",
+        "freshness_timestamp_utc",
+        "recorded_at",
+        "recorded_at_utc",
+        "generated_at",
+        "generated_at_utc",
+        "created_at",
+        "created_at_utc",
+        "updated_at",
+        "updated_at_utc",
+        "observed_at",
+        "observed_at_utc",
+        "started_at_utc",
+        "ready_at_utc",
+    }
+)
+_CERTIFICATION_CACHE_CONTEXT_KEYS: tuple[str, ...] = (
+    "world_count_policy",
+    "selected_certificate_basis",
+    "certificate_basis",
+    "support_flag",
+    "support_status",
+    "support_bin",
+    "out_of_support_reason",
+    "multi_fidelity_certificate_basis",
+    "positivity_ok",
+    "weak_overlap_detected",
+    "correction_path_estimator",
+    "single_frontier_certificate_cap_applied",
+    "single_frontier_requires_full_stress",
+)
+
+
+def _semantic_certification_cache_component(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return _semantic_certification_cache_component(value.model_dump(mode="json"))
+    if is_dataclass(value):
+        return _semantic_certification_cache_component(asdict(value))
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        for key in sorted((str(item) for item in value.keys())):
+            if key in _CERTIFICATION_CACHE_VOLATILE_KEYS:
+                continue
+            item = _semantic_certification_cache_component(value.get(key))
+            normalized[key] = item
+        return normalized
+    if isinstance(value, tuple):
+        return [_semantic_certification_cache_component(item) for item in value]
+    if isinstance(value, list):
+        normalized_items = [_semantic_certification_cache_component(item) for item in value]
+        if all(isinstance(item, Mapping) for item in normalized_items):
+            return sorted(
+                normalized_items,
+                key=lambda item: json.dumps(
+                    item,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ),
+            )
+        return normalized_items
+    if isinstance(value, float):
+        return round(float(value), 6)
+    return value
+
+
+def _semantic_certification_cache_route_payload(
+    *,
+    route_signature: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    normalized_payload = {
+        "route_id": route_signature,
+        "id": route_signature,
+        "route_signature": route_signature,
+    }
+    for key in _CERTIFICATION_CACHE_ROUTE_KEYS:
+        if key not in payload:
+            continue
+        normalized_payload[key] = _semantic_certification_cache_component(payload.get(key))
+    return normalized_payload
+
+
+def _normalized_certification_cache_context(
+    ambiguity_context: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    context = dict(ambiguity_context or {})
+    normalized: dict[str, Any] = {}
+    for key in _CERTIFICATION_CACHE_CONTEXT_KEYS:
+        if key not in context:
+            continue
+        normalized[key] = _semantic_certification_cache_component(context.get(key))
+    return normalized
+
+
+def _remap_cache_route_ids(value: Any, route_id_map: Mapping[str, str]) -> Any:
+    if isinstance(value, Mapping):
+        out: dict[Any, Any] = {}
+        for key, item in value.items():
+            normalized_key: Any = key
+            if isinstance(key, str):
+                normalized_key = route_id_map.get(key, key)
+            out[normalized_key] = _remap_cache_route_ids(item, route_id_map)
+        return out
+    if isinstance(value, list):
+        return [_remap_cache_route_ids(item, route_id_map) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_remap_cache_route_ids(item, route_id_map) for item in value)
+    if isinstance(value, str):
+        return route_id_map.get(value, value)
+    return value
+
+
+def _normalized_certification_cache_route_payloads(
+    *,
+    frontier_signatures: Mapping[str, str],
+    route_payloads: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized_payloads: list[dict[str, Any]] = []
+    for raw_payload in route_payloads:
+        payload = dict(raw_payload)
+        route_id = str(payload.get("route_id") or payload.get("id") or "").strip()
+        route_signature = str(
+            frontier_signatures.get(route_id)
+            or payload.get("route_signature")
+            or route_id
+        ).strip()
+        remapped_payload = _remap_cache_route_ids(payload, {route_id: route_signature})
+        normalized_payload = _semantic_certification_cache_route_payload(
+            route_signature=route_signature,
+            payload=remapped_payload,
+        )
+        normalized_payloads.append(normalized_payload)
+    normalized_payloads.sort(
+        key=lambda payload: str(
+            payload.get("route_signature")
+            or payload.get("route_id")
+            or payload.get("id")
+            or ""
+        )
+    )
+    return normalized_payloads
+
+
+def _remap_cached_certification_payload_for_frontier(
     *,
     certificate_result: CertificateResult,
     fragility_result: FragilityResult,
     world_manifest_payload: Mapping[str, Any] | None,
     active_families: Sequence[str],
+    frontier_signatures: Mapping[str, str],
+    selected_route_id: str,
 ) -> tuple[CertificateResult, FragilityResult, dict[str, Any], list[str]]:
     manifest_payload = (
         copy.deepcopy(dict(world_manifest_payload))
         if isinstance(world_manifest_payload, Mapping)
         else copy.deepcopy(dict(certificate_result.world_manifest))
     )
+    cached_signature_map_raw = manifest_payload.get("_cache_frontier_signatures")
+    cached_signature_map = (
+        {
+            str(route_id): str(signature)
+            for route_id, signature in dict(cached_signature_map_raw).items()
+            if str(route_id).strip() and str(signature).strip()
+        }
+        if isinstance(cached_signature_map_raw, Mapping)
+        else {}
+    )
+    current_signature_to_route_id = {
+        str(signature): str(route_id)
+        for route_id, signature in dict(frontier_signatures).items()
+        if str(route_id).strip() and str(signature).strip()
+    }
+    route_id_map = {
+        old_route_id: current_signature_to_route_id[signature]
+        for old_route_id, signature in cached_signature_map.items()
+        if signature in current_signature_to_route_id
+    }
+    if not route_id_map:
+        manifest_payload["_cache_frontier_signatures"] = {
+            str(route_id): str(signature)
+            for route_id, signature in dict(frontier_signatures).items()
+            if str(route_id).strip() and str(signature).strip()
+        }
+        return (
+            certificate_result,
+            fragility_result,
+            manifest_payload,
+            list(active_families),
+        )
+
+    remapped_manifest_payload = _remap_cache_route_ids(manifest_payload, route_id_map)
+    remapped_manifest_payload["_cache_frontier_signatures"] = {
+        str(route_id): str(signature)
+        for route_id, signature in dict(frontier_signatures).items()
+        if str(route_id).strip() and str(signature).strip()
+    }
+
+    remapped_certificate = CertificateResult(
+        winner_id=route_id_map.get(str(certificate_result.winner_id), str(certificate_result.winner_id)),
+        certificate={
+            route_id_map.get(str(route_id), str(route_id)): float(value)
+            for route_id, value in dict(certificate_result.certificate).items()
+        },
+        threshold=float(certificate_result.threshold),
+        certified=bool(certificate_result.certified),
+        selected_route_id=route_id_map.get(
+            str(certificate_result.selected_route_id),
+            str(selected_route_id),
+        ),
+        route_scores=_remap_cache_route_ids(copy.deepcopy(certificate_result.route_scores), route_id_map),
+        world_manifest=copy.deepcopy(remapped_manifest_payload),
+        selector_config=copy.deepcopy(certificate_result.selector_config),
+    )
+    remapped_fragility = FragilityResult(
+        route_fragility_map=_remap_cache_route_ids(copy.deepcopy(fragility_result.route_fragility_map), route_id_map),
+        competitor_fragility_breakdown=_remap_cache_route_ids(
+            copy.deepcopy(fragility_result.competitor_fragility_breakdown),
+            route_id_map,
+        ),
+        value_of_refresh=_remap_cache_route_ids(copy.deepcopy(fragility_result.value_of_refresh), route_id_map),
+        route_fragility_details=_remap_cache_route_ids(
+            copy.deepcopy(fragility_result.route_fragility_details),
+            route_id_map,
+        ),
+        evidence_snapshot_manifest=_remap_cache_route_ids(
+            copy.deepcopy(fragility_result.evidence_snapshot_manifest),
+            route_id_map,
+        ),
+    )
+    return (
+        remapped_certificate,
+        remapped_fragility,
+        remapped_manifest_payload,
+        list(active_families),
+    )
+
+
+def _global_certification_cache_payload(
+    *,
+    certificate_result: CertificateResult,
+    fragility_result: FragilityResult,
+    world_manifest_payload: Mapping[str, Any] | None,
+    active_families: Sequence[str],
+    frontier_signatures: Mapping[str, str],
+) -> tuple[CertificateResult, FragilityResult, dict[str, Any], list[str]]:
+    manifest_payload = (
+        copy.deepcopy(dict(world_manifest_payload))
+        if isinstance(world_manifest_payload, Mapping)
+        else copy.deepcopy(dict(certificate_result.world_manifest))
+    )
+    manifest_payload["_cache_frontier_signatures"] = {
+        str(route_id): str(signature)
+        for route_id, signature in dict(frontier_signatures).items()
+        if str(route_id).strip() and str(signature).strip()
+    }
     compact_certificate = CertificateResult(
         winner_id=certificate_result.winner_id,
         certificate=copy.deepcopy(certificate_result.certificate),
@@ -12356,7 +13428,7 @@ def _global_certification_cache_payload(
     )
 
 
-CERTIFICATION_CACHE_VERSION = "refc_margin_refresh_v4"
+CERTIFICATION_CACHE_VERSION = "refc_margin_refresh_v6"
 
 
 def _certification_cache_key(
@@ -12376,17 +13448,27 @@ def _certification_cache_key(
     ambiguity_context: Mapping[str, Any] | None,
     force_single_frontier_full_stress_requested_worlds: bool = False,
 ) -> str:
-    normalized_context = {
-        key: _cache_key_component(value)
-        for key, value in dict(ambiguity_context or {}).items()
-    }
+    normalized_context = _normalized_certification_cache_context(ambiguity_context)
+    normalized_route_payloads = _normalized_certification_cache_route_payloads(
+        frontier_signatures=frontier_signatures,
+        route_payloads=route_payloads,
+    )
+    normalized_frontier_signatures = sorted(
+        str(signature)
+        for signature in dict(frontier_signatures).values()
+        if str(signature).strip()
+    )
+    normalized_selected_route_signature = str(
+        frontier_signatures.get(str(selected_route_id), "")
+        or normalized_route_payloads[0].get("route_signature", "")
+        or selected_route_id
+    ).strip()
     cache_payload = {
         "cache_version": CERTIFICATION_CACHE_VERSION,
-        "frontier_route_ids": [str(route_id) for route_id in frontier_route_ids],
-        "frontier_signatures": {str(key): str(value) for key, value in frontier_signatures.items()},
-        "route_payloads": list(route_payloads),
+        "frontier_route_signatures": normalized_frontier_signatures,
+        "route_payloads": normalized_route_payloads,
         "evidence_snapshot_hash": str(evidence_snapshot_hash or ""),
-        "selected_route_id": str(selected_route_id),
+        "selected_route_signature": normalized_selected_route_signature,
         "run_seed": int(run_seed),
         "world_count": int(world_count),
         "threshold": float(threshold),
@@ -13648,7 +14730,7 @@ async def _refine_graph_candidate_batch(
             6,
         )
 
-    def _refine_cache_key(spec: CandidateFetchSpec) -> str:
+    def _refine_cache_key(spec: CandidateFetchSpec, *, candidate_scope_token: str | None = None) -> str:
         return _graph_refine_route_cache_key(
             origin=origin,
             destination=destination,
@@ -13661,6 +14743,7 @@ async def _refine_graph_candidate_batch(
             terrain_profile=terrain_profile,
             departure_time_utc=departure_time_utc,
             scenario_cache_token=scenario_cache_token,
+            candidate_scope_token=candidate_scope_token,
         )
 
     async def _refine_selected_record(
@@ -13705,7 +14788,11 @@ async def _refine_graph_candidate_batch(
             alternatives=False,
             via=via if via else None,
         )
-        cache_key = _refine_cache_key(spec)
+        candidate_scope_token = _refine_candidate_scope_token(
+            candidate_id=str(record.candidate_id or "").strip() or None,
+            raw_route=raw_route,
+        )
+        cache_key = _refine_cache_key(spec, candidate_scope_token=candidate_scope_token)
         _touch_route_cache_runtime(cache_key_value=cache_key)
         cached = get_cached_routes(cache_key)
         if cached is not None:
@@ -14087,8 +15174,23 @@ async def _route_graph_k_raw_search(
     )
     initial_max_hops_override: int | None = None
     if long_corridor:
-        scaled_hops = int(math.ceil(max(1.0, corridor_distance_km) * 8.5))
-        initial_max_hops_override = max(900, min(int(settings.route_graph_max_hops_cap), scaled_hops))
+        scaled_hops = int(
+            math.ceil(
+                max(1.0, corridor_distance_km)
+                * max(0.1, float(settings.route_graph_hops_per_km))
+                * max(1.0, float(settings.route_graph_hops_detour_factor))
+            )
+        )
+        physical_hop_floor = int(
+            math.ceil(
+                ((max(0.001, corridor_distance_km) * 1000.0) / max(1.0, float(settings.route_graph_edge_length_estimate_m)))
+                * max(0.1, float(settings.route_graph_hops_safety_factor))
+            )
+        )
+        initial_max_hops_override = max(
+            900,
+            min(int(settings.route_graph_max_hops_cap), max(scaled_hops, physical_hop_floor)),
+        )
     initial_search_timeout_ms = max(0, int(settings.route_graph_search_initial_timeout_ms))
     retry_search_timeout_ms = max(0, int(settings.route_graph_search_retry_timeout_ms))
     rescue_search_timeout_ms = max(0, int(settings.route_graph_search_rescue_timeout_ms))
@@ -14117,61 +15219,39 @@ async def _route_graph_k_raw_search(
             >= float(settings.route_dccs_preemptive_comparator_min_hard_case)
         )
     )
-    cache_key = hashlib.sha1(
-        json.dumps(
-            {
-                "origin": [round(float(origin.lat), 6), round(float(origin.lon), 6)],
-                "destination": [round(float(destination.lat), 6), round(float(destination.lon), 6)],
-                "max_alternatives": int(max_alternatives),
-                "scenario_edge_modifiers": scenario_edge_modifiers or {},
-                "start_node_id": str(start_node_id or ""),
-                "goal_node_id": str(goal_node_id or ""),
-                "ambiguity_context_available": bool(ambiguity_context_available),
-                "ambiguity_strength": round(ambiguity_strength, 6),
-                "od_ambiguity_support_ratio": round(support_ratio, 6),
-                "od_ambiguity_source_entropy": round(source_entropy, 6),
-                "od_nominal_margin_proxy": round(nominal_margin_proxy, 6),
-                "od_objective_spread": round(objective_spread, 6),
-                "low_ambiguity_fast_path": bool(low_ambiguity_fast_path),
-                "long_corridor_stress_probe": bool(long_corridor_stress_probe),
-                "skip_initial_graph_search": bool(skip_initial_graph_search),
-                "allow_supported_ambiguity_fast_fallback": bool(allow_supported_ambiguity_fast_fallback),
-                "od_candidate_path_count": int(candidate_path_count),
-                "od_corridor_family_count": int(corridor_family_count),
-                "support_rich_short_haul_fast_path": bool(support_rich_short_haul_fast_path),
-                "support_rich_short_haul_graph_probe": bool(support_rich_short_haul_graph_probe),
-                "search_shape": {
-                    "max_paths": int(max_paths),
-                    "configured_state_budget": int(configured_state_budget),
-                    "initial_max_hops_override": initial_max_hops_override,
-                    "reliability_corridor_threshold_km": round(float(reliability_corridor_threshold_km), 3),
-                    "long_corridor_threshold_km": round(float(long_corridor_threshold_km), 3),
-                    "reliability_corridor": bool(reliability_corridor),
-                    "long_corridor": bool(long_corridor),
-                    "reduced_initial_enabled": bool(reduced_initial_enabled),
-                    "route_dccs_bootstrap_count": int(settings.route_dccs_bootstrap_count),
-                    "route_graph_skip_initial_search_long_corridor": bool(
-                        settings.route_graph_skip_initial_search_long_corridor
-                    ),
-                    "route_graph_skip_initial_search_reliability_low_ambiguity": bool(
-                        settings.route_graph_skip_initial_search_reliability_low_ambiguity
-                    ),
-                    "route_graph_skip_retry_rescue_reliability_corridor": bool(
-                        settings.route_graph_skip_retry_rescue_reliability_corridor
-                    ),
-                    "route_graph_skip_supplemental_probe_low_ambiguity": bool(
-                        settings.route_graph_skip_supplemental_probe_low_ambiguity
-                    ),
-                    "route_graph_search_initial_timeout_ms": int(initial_search_timeout_ms),
-                    "route_graph_search_retry_timeout_ms": int(retry_search_timeout_ms),
-                    "route_graph_search_rescue_timeout_ms": int(rescue_search_timeout_ms),
-                },
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    cache_key = _graph_k_raw_cache_key(
+        origin=origin,
+        destination=destination,
+        max_alternatives=max_alternatives,
+        scenario_edge_modifiers=scenario_edge_modifiers,
+        start_node_id=start_node_id,
+        goal_node_id=goal_node_id,
+        ambiguity_context_available=ambiguity_context_available,
+        ambiguity_strength=ambiguity_strength,
+        support_ratio=support_ratio,
+        source_entropy=source_entropy,
+        nominal_margin_proxy=nominal_margin_proxy,
+        objective_spread=objective_spread,
+        low_ambiguity_fast_path=low_ambiguity_fast_path,
+        long_corridor_stress_probe=long_corridor_stress_probe,
+        skip_initial_graph_search=skip_initial_graph_search,
+        allow_supported_ambiguity_fast_fallback=allow_supported_ambiguity_fast_fallback,
+        candidate_path_count=candidate_path_count,
+        corridor_family_count=corridor_family_count,
+        support_rich_short_haul_fast_path=support_rich_short_haul_fast_path,
+        support_rich_short_haul_graph_probe=support_rich_short_haul_graph_probe,
+        max_paths=max_paths,
+        configured_state_budget=configured_state_budget,
+        initial_max_hops_override=initial_max_hops_override,
+        reliability_corridor_threshold_km=reliability_corridor_threshold_km,
+        long_corridor_threshold_km=long_corridor_threshold_km,
+        reliability_corridor=reliability_corridor,
+        long_corridor=long_corridor,
+        reduced_initial_enabled=reduced_initial_enabled,
+        initial_search_timeout_ms=initial_search_timeout_ms,
+        retry_search_timeout_ms=retry_search_timeout_ms,
+        rescue_search_timeout_ms=rescue_search_timeout_ms,
+    )
     cached_k_raw = get_cached_k_raw(cache_key)
     if cached_k_raw is not None:
         cached_routes, cached_diag, cached_meta = cached_k_raw
@@ -14678,20 +15758,34 @@ async def _compute_direct_route_pipeline(
     _stage_finished("preflight", preflight_started)
     precheck_kwargs = _candidate_precheck_diag_kwargs(precheck)
     if not bool(precheck.get("ok")):
-        message = _route_graph_precheck_warning(precheck)
-        warnings.append(message)
-        raise HTTPException(
-            status_code=422,
-            detail=_strict_error_detail(
-                reason_code=str(precheck.get("reason_code", "routing_graph_unavailable")),
-                message=str(precheck.get("message", "Graph feasibility check failed.")),
-                warnings=warnings,
-                extra={
-                    "stage": "collecting_candidates",
-                    "stage_detail": "route_graph_precheck_failed",
-                },
-            ),
+        reason_code = normalize_reason_code(
+            str(precheck.get("reason_code", "routing_graph_unavailable")).strip(),
+            default="routing_graph_unavailable",
         )
+        message = _route_graph_precheck_warning(precheck)
+        timeout_degraded_continue = (
+            reason_code in {"routing_graph_precheck_timeout", "routing_graph_deferred_load"}
+            and not _precheck_timeout_fail_closed_enabled()
+        )
+        if timeout_degraded_continue:
+            precheck_kwargs["precheck_gate_action"] = "degraded_continue"
+            warnings.append(message)
+        else:
+            warnings.append(message)
+            raise HTTPException(
+                status_code=422,
+                detail=_strict_error_detail(
+                    reason_code=reason_code,
+                    message=str(precheck.get("message", "Graph feasibility check failed.")),
+                    warnings=warnings,
+                    extra={
+                        "stage": "collecting_candidates",
+                        "stage_detail": "route_graph_precheck_failed",
+                    },
+                ),
+            )
+    else:
+        precheck_kwargs["precheck_gate_action"] = "ok"
     start_node_id = str(precheck.get("origin_node_id", "")).strip() or None
     goal_node_id = str(precheck.get("destination_node_id", "")).strip() or None
 
@@ -15324,46 +16418,54 @@ async def _compute_direct_route_pipeline(
 
     def _route_state_cache_key() -> str:
         route_state_cache_profile = _route_state_cache_profile(req=req, pipeline_mode=pipeline_mode)
+
+        def _stable_route_state_signature(route: Mapping[str, Any]) -> str:
+            signature = str(route.get("route_signature") or route.get("signature") or "").strip()
+            if signature:
+                return signature
+            try:
+                return str(_route_signature(route))
+            except OSRMError:
+                return str(route.get("route_id") or route.get("id") or route.get("option_id") or "")
+
         refined_route_evidence_fingerprint = [
             {
+                "route_signature": _stable_route_state_signature(route),
                 "route_id": str(route.get("route_id") or route.get("id") or route.get("option_id") or ""),
                 "evidence_provenance": _cache_key_component(route.get("evidence_provenance")),
                 "evidence_tensor": _cache_key_component(route.get("evidence_tensor")),
             }
             for route in sorted(
                 refined_routes,
-                key=lambda item: str(item.get("route_id") or item.get("id") or item.get("option_id") or ""),
+                key=_stable_route_state_signature,
             )
         ]
-        payload = {
-            "refined_route_signatures": sorted(refined_route_signatures),
-            "refined_route_evidence_fingerprint": refined_route_evidence_fingerprint,
-            "ambiguity_context": _cache_key_component(request_ambiguity_context),
-            "vehicle_type": str(req.vehicle_type),
-            "scenario_mode": str(req.scenario_mode),
-            "cost_toggles": _cache_key_component(req.cost_toggles),
-            "terrain_profile": _cache_key_component(req.terrain_profile),
-            "stochastic": _cache_key_component(req.stochastic),
-            "emissions_context": _cache_key_component(req.emissions_context),
-            "weather": _cache_key_component(req.weather),
-            "incident_simulation": _cache_key_component(req.incident_simulation),
-            "departure_time_utc": req.departure_time_utc.isoformat() if req.departure_time_utc else None,
-            "weights": (
+        return _build_route_state_cache_key(
+            refined_route_signatures=refined_route_signatures,
+            refined_route_evidence_fingerprint=refined_route_evidence_fingerprint,
+            ambiguity_context=request_ambiguity_context,
+            vehicle_type=str(req.vehicle_type),
+            scenario_mode=str(req.scenario_mode),
+            cost_toggles=req.cost_toggles,
+            terrain_profile=req.terrain_profile,
+            stochastic=req.stochastic,
+            emissions_context=req.emissions_context,
+            weather=req.weather,
+            incident_simulation=req.incident_simulation,
+            departure_time_utc=req.departure_time_utc,
+            weights=(
                 float(req.weights.time),
                 float(req.weights.money),
                 float(req.weights.co2),
             ),
-            "pipeline_mode": str(pipeline_mode),
-            "route_state_cache_profile": route_state_cache_profile,
-            "risk_aversion": float(req.risk_aversion),
-            "optimization_mode": str(req.optimization_mode),
-            "pareto_method": str(req.pareto_method),
-            "epsilon": float(req.epsilon) if req.epsilon is not None else None,
-            "max_alternatives": int(max_alternatives),
-        }
-        return hashlib.sha1(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        ).hexdigest()
+            pipeline_mode=str(pipeline_mode),
+            route_state_cache_profile=route_state_cache_profile,
+            risk_aversion=float(req.risk_aversion),
+            optimization_mode=str(req.optimization_mode),
+            pareto_method=str(req.pareto_method),
+            epsilon=float(req.epsilon) if req.epsilon is not None else None,
+            max_alternatives=int(max_alternatives),
+        )
 
     def _update_option_build_reuse_rate() -> None:
         total_cache_events = int(option_build_runtime.get("cache_hits", 0)) + int(
@@ -15774,10 +16876,28 @@ async def _compute_direct_route_pipeline(
             if isinstance(raw_candidate, Mapping) and isinstance(raw_candidate.get("mechanism_descriptor"), Mapping)
             else {}
         )
+        raw_candidate_dict = dict(raw_candidate) if isinstance(raw_candidate, Mapping) else {}
+        raw_candidate_signature_basis = {
+            key: value
+            for key, value in raw_candidate_dict.items()
+            if key not in {"candidate_id", "route_id", "id", "option_id"}
+        }
+        route_signature = _route_option_signature(option)
+        candidate_signature = (
+            str(raw_candidate_dict.get("candidate_signature") or "").strip()
+            or (
+                stable_candidate_id(raw_candidate_signature_basis)
+                if raw_candidate_signature_basis
+                else ""
+            )
+            or route_signature
+        )
         return {
             "candidate_id": candidate_ids[0] if candidate_ids else option.id,
+            "candidate_signature": candidate_signature,
             "route_id": option.id,
             "id": option.id,
+            "route_signature": route_signature,
             "graph_path": list(raw_candidate.get("graph_path", [])) if isinstance(raw_candidate, Mapping) else [],
             "graph_length_km": float(
                 raw_candidate.get("graph_length_km", option.metrics.distance_km)
@@ -15949,7 +17069,8 @@ async def _compute_direct_route_pipeline(
             and reserve_diversity_rescue_slots >= 2
             and len(raw_candidate_payloads) >= 6
             and raw_candidate_corridor_count >= 4
-            and len(refined_routes) < 3
+            and len(refined_routes)
+            <= max(3, int(getattr(settings, "route_dccs_bootstrap_count", 3) or 3))
         ):
             # Preserve the reserved two-slot family-rich budget until the
             # supplemental rescue lane has a chance to probe for collapse.
@@ -16398,8 +17519,68 @@ async def _compute_direct_route_pipeline(
             option_candidate_ids_map=option_candidate_ids,
             selection_score_map=selection_score_map,
             allow_collapse=True,
-        )
+    )
     evidence_base_options = list(options)
+    runtime_preference_state: Any | None = None
+
+    def _current_runtime_preference_state() -> Any:
+        nonlocal runtime_preference_state
+        support_flag = True
+        support_reason: str | None = None
+        if isinstance(world_manifest_payload, Mapping):
+            support_flag = bool(world_manifest_payload.get("support_flag", True))
+            raw_support_reason = str(world_manifest_payload.get("support_reason") or "").strip()
+            support_reason = raw_support_reason or None
+        frontier_route_ids = [option.id for option in strict_frontier]
+        if runtime_preference_state is None:
+            runtime_preference_state = build_preference_state(
+                route_ids=frontier_route_ids,
+                weights={
+                    "time": float(req.weights.time),
+                    "money": float(req.weights.money),
+                    "co2": float(req.weights.co2),
+                },
+                support_flag=support_flag,
+                support_reason=support_reason,
+            )
+            return runtime_preference_state
+
+        compatible_summary = getattr(runtime_preference_state, "compatible_set_summary", None)
+        if compatible_summary is not None:
+            compatible_summary.route_ids = list(frontier_route_ids)
+            compatible_summary.support_flag = support_flag
+            compatible_summary.support_reason = support_reason
+            route_id_set = set(frontier_route_ids)
+            compatible_summary.necessary_best_route_ids = [
+                route_id
+                for route_id in list(compatible_summary.necessary_best_route_ids or [])
+                if route_id in route_id_set
+            ]
+            compatible_summary.possible_best_route_ids = [
+                route_id
+                for route_id in list(compatible_summary.possible_best_route_ids or [])
+                if route_id in route_id_set
+            ]
+            if getattr(runtime_preference_state, "query_count", 0) > 0:
+                if getattr(runtime_preference_state, "preference_irrelevance_proven", False) and selected.id in route_id_set:
+                    compatible_summary.compatible_set_size = 1
+                    compatible_summary.necessary_best_route_ids = [selected.id]
+                    compatible_summary.possible_best_route_ids = [selected.id]
+                    compatible_summary.necessary_best_prob = 1.0 if support_flag else 0.0
+                    compatible_summary.possible_best_prob = 1.0
+                else:
+                    compatible_summary.compatible_set_size = max(
+                        1,
+                        min(
+                            int(compatible_summary.compatible_set_size or len(frontier_route_ids) or 1),
+                            max(1, len(frontier_route_ids)),
+                        ),
+                    )
+                    if not compatible_summary.possible_best_route_ids and selected.id in route_id_set:
+                        compatible_summary.possible_best_route_ids = [selected.id]
+        if hasattr(runtime_preference_state, "no_query_reason") and getattr(runtime_preference_state, "query_count", 0) > 0:
+            runtime_preference_state.no_query_reason = None
+        return runtime_preference_state
 
     def _paired_refined_options_for_state(
         current_options: Sequence[RouteOption],
@@ -16425,32 +17606,11 @@ async def _compute_direct_route_pipeline(
         }
 
     def _evidence_snapshot_manifest_payload(current_options: Sequence[RouteOption]) -> dict[str, Any]:
-        route_payloads: list[dict[str, Any]] = []
-        for option in current_options:
-            provenance = option.evidence_provenance
-            families = []
-            active_family_names: list[str] = []
-            if provenance is not None:
-                active_family_names = list(provenance.active_families)
-                for family in provenance.families:
-                    families.append(family.model_dump(mode="json"))
-            route_payloads.append(
-                {
-                    "route_id": option.id,
-                    "active_families": active_family_names,
-                    "families": families,
-                }
-            )
-        payload = {
-            "schema_version": "1.0.0",
-            "run_seed": int(run_seed),
-            "pipeline_mode": pipeline_mode,
-            "routes": route_payloads,
-        }
-        payload["snapshot_hash"] = hashlib.sha1(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        ).hexdigest()
-        return payload
+        return _build_evidence_snapshot_manifest_payload(
+            current_options=current_options,
+            run_seed=int(run_seed),
+            pipeline_mode=pipeline_mode,
+        )
 
     force_single_frontier_full_stress_requested_worlds = False
 
@@ -16557,6 +17717,7 @@ async def _compute_direct_route_pipeline(
                     fragility_result=fragility_result,
                     world_manifest_payload=world_manifest_payload,
                     active_families=active_families,
+                    frontier_signatures=frontier_signature_map,
                 )
                 certification_cache[cache_key] = cached_payload
                 certification_runtime["cache_store_attempts"] = int(
@@ -16575,18 +17736,30 @@ async def _compute_direct_route_pipeline(
                     certification_runtime["shortcut_count"] = int(certification_runtime.get("shortcut_count", 0)) + 1
             else:
                 certificate_result, fragility_result, world_manifest_payload, cached_families = global_cached
-                active_families = list(cached_families)
+                (
+                    certificate_result,
+                    fragility_result,
+                    world_manifest_payload,
+                    active_families,
+                ) = _remap_cached_certification_payload_for_frontier(
+                    certificate_result=certificate_result,
+                    fragility_result=fragility_result,
+                    world_manifest_payload=world_manifest_payload,
+                    active_families=cached_families,
+                    frontier_signatures=frontier_signature_map,
+                    selected_route_id=selected.id,
+                )
                 if isinstance(world_manifest_payload, Mapping):
                     world_manifest_payload = annotate_world_manifest_cache_reuse(
                         world_manifest_payload,
                         cache_reuse_origin="global",
                     )
-                    certification_cache[cache_key] = (
-                        certificate_result,
-                        fragility_result,
-                        world_manifest_payload,
-                        list(active_families),
-                    )
+                certification_cache[cache_key] = (
+                    certificate_result,
+                    fragility_result,
+                    world_manifest_payload,
+                    list(active_families),
+                )
                 certification_runtime["cache_hits"] = int(certification_runtime.get("cache_hits", 0)) + 1
                 certification_runtime["cache_hits_global"] = int(certification_runtime.get("cache_hits_global", 0)) + 1
                 if isinstance(world_manifest_payload, Mapping) and str(world_manifest_payload.get("status") or "").strip() == "single_frontier_shortcut":
@@ -16800,10 +17973,18 @@ async def _compute_direct_route_pipeline(
                         world_manifest_dict.get("hard_case_stress_pack_count", 0)
                     ),
                 },
-                copy.deepcopy(fragility_snapshot.route_fragility_map),
-                copy.deepcopy(fragility_snapshot.competitor_fragility_breakdown),
+                build_route_fragility_artifact_payload(
+                    certificate_snapshot,
+                    fragility_snapshot,
+                    selected_route_id=selected_route_id,
+                ),
+                build_competitor_fragility_artifact_payload(
+                    certificate_snapshot,
+                    fragility_snapshot,
+                    selected_route_id=selected_route_id,
+                ),
                 copy.deepcopy(fragility_snapshot.value_of_refresh),
-                copy.deepcopy(world_manifest_dict),
+                build_sampled_world_manifest_artifact_payload(world_manifest_dict),
             )
         return (
             {
@@ -17055,6 +18236,7 @@ async def _compute_direct_route_pipeline(
                 else dict(controller_state.certificate)
             )
             controller_selected_source_context = _controller_selected_source_context()
+            controller_state_literal_fields = _current_controller_state_literal_fields()
             return refresh_controller_state_after_action(
                 controller_state,
                 dccs=challenger_dccs,
@@ -17099,7 +18281,146 @@ async def _compute_direct_route_pipeline(
                     "refc_stress_world_fraction": float((world_manifest_payload or {}).get("stress_world_fraction") or 0.0),
                 },
                 action_trace=list(action_trace),
+                literal_state_fields=controller_state_literal_fields,
             )
+
+        def _current_voi_projection_bundle() -> tuple[dict[str, Any], Any]:
+            if pipeline_mode != "voi" or certificate_result is None or fragility_result is None:
+                return {}, None
+            projection_states = project_refc_scaffold_states(
+                certificate_result,
+                fragility_result,
+                frontier_route_ids=[option.id for option in strict_frontier],
+                selected_route_id=selected.id,
+            )
+            preference_state = _current_runtime_preference_state()
+            (
+                projection_states["flip_radius_state"],
+                projection_states["decision_region_state"],
+            ) = _apply_structured_adversarial_budget_channels(
+                flip_radius_state=projection_states.get("flip_radius_state"),
+                decision_region_state=projection_states.get("decision_region_state"),
+                preference_state=preference_state,
+                search_completeness_gap=search_completeness_gap,
+            )
+            return projection_states, preference_state
+
+        def _current_controller_state_literal_fields() -> dict[str, Any]:
+            projection_states, preference_state = _current_voi_projection_bundle()
+            if not projection_states:
+                return build_controller_state_literal_fields()
+            controller_world_manifest = _proxy_audit_world_bundle_manifest(world_manifest_payload)
+            selected_certificate_basis = str(
+                controller_world_manifest.get("selected_certificate_basis", "empirical")
+            )
+            controller_support_flag = bool(controller_world_manifest.get("support_flag", True))
+            controller_support_reason = (
+                str(controller_world_manifest.get("support_reason") or "").strip() or None
+            )
+            controller_support_state = build_world_support_state(
+                support_score=float(1.0 if controller_support_flag else 0.0),
+                support_ratio=float(controller_world_manifest.get("world_reuse_rate", 0.0)),
+                support_bin=str(
+                    controller_world_manifest.get(
+                        "support_bin",
+                        "supported" if controller_support_flag else "unsupported",
+                    )
+                ),
+                calibration_bin=str(
+                    controller_world_manifest.get("calibration_bin", selected_certificate_basis)
+                ),
+                support_source="world_manifest" if controller_world_manifest else "route_runtime",
+                out_of_support_reason=(
+                    None
+                    if controller_support_flag
+                    else controller_support_reason or "support_flag_false"
+                ),
+                provenance={
+                    "selected_route_id": selected.id,
+                    "pipeline_mode": pipeline_mode,
+                    "selected_certificate_basis": selected_certificate_basis,
+                },
+            )
+            controller_world_bundle_summary = build_world_bundle_summary(
+                manifest=controller_world_manifest,
+                support_state=controller_support_state,
+            )
+            controller_world_support_summary = {
+                "selected_certificate_basis": selected_certificate_basis,
+                "support_flag": controller_support_state.support_flag,
+                "support_reason": controller_support_state.out_of_support_reason,
+                "support_state": controller_support_state.as_dict(),
+                "world_bundle_summary": controller_world_bundle_summary.as_dict(),
+            }
+            return build_controller_state_literal_fields(
+                winner_confidence_state=projection_states.get("winner_confidence_state"),
+                pairwise_gap_states=projection_states.get("pairwise_gap_states"),
+                flip_radius_state=projection_states.get("flip_radius_state"),
+                certified_set_state=projection_states.get("certified_set_state"),
+                preference_state=preference_state,
+                world_support_summary=controller_world_support_summary,
+                decision_region_state=projection_states.get("decision_region_state"),
+                selected_certificate_value=float(
+                    (certificate_result.certificate or {}).get(selected.id, 0.0)
+                ),
+            )
+
+        def _current_voi_surface_snapshot() -> dict[str, float]:
+            projection_states, preference_state = _current_voi_projection_bundle()
+            if not projection_states:
+                return build_voi_metric_snapshot()
+            return build_voi_metric_snapshot(
+                flip_radius_state=projection_states.get("flip_radius_state"),
+                preference_state=preference_state,
+                certified_set_state=projection_states.get("certified_set_state"),
+            )
+
+        def _last_voi_surface_fields() -> dict[str, Any]:
+            if not action_trace:
+                return {
+                    "last_predicted_delta_radius_or_flip_budget": 0.0,
+                    "last_realized_delta_radius_or_flip_budget": 0.0,
+                    "last_predicted_preference_shrinkage": 0.0,
+                    "last_realized_preference_shrinkage": 0.0,
+                    "last_predicted_certified_set_contraction": 0.0,
+                    "last_realized_certified_set_contraction": 0.0,
+                    "last_hindsight_necessity_label": "unknown",
+                }
+            last_entry = action_trace[-1]
+            chosen_action_payload = (
+                last_entry.get("chosen_action")
+                if isinstance(last_entry.get("chosen_action"), Mapping)
+                else None
+            )
+            return {
+                "last_predicted_delta_radius_or_flip_budget": round(
+                    float((chosen_action_payload or {}).get("predicted_delta_radius_or_flip_budget", 0.0)),
+                    6,
+                ),
+                "last_realized_delta_radius_or_flip_budget": round(
+                    float(last_entry.get("realized_delta_radius_or_flip_budget", 0.0) or 0.0),
+                    6,
+                ),
+                "last_predicted_preference_shrinkage": round(
+                    float((chosen_action_payload or {}).get("predicted_preference_shrinkage", 0.0)),
+                    6,
+                ),
+                "last_realized_preference_shrinkage": round(
+                    float(last_entry.get("realized_preference_shrinkage", 0.0) or 0.0),
+                    6,
+                ),
+                "last_predicted_certified_set_contraction": round(
+                    float((chosen_action_payload or {}).get("predicted_certified_set_contraction", 0.0)),
+                    6,
+                ),
+                "last_realized_certified_set_contraction": round(
+                    float(last_entry.get("realized_certified_set_contraction", 0.0) or 0.0),
+                    6,
+                ),
+                "last_hindsight_necessity_label": str(
+                    last_entry.get("hindsight_necessity_label") or "unknown"
+                ),
+            }
 
         def _challenger_dccs_for_iteration(
             *,
@@ -17108,34 +18429,12 @@ async def _compute_direct_route_pipeline(
             refined_payloads: Sequence[Mapping[str, Any]],
             remaining_search_budget: int,
         ) -> Any:
-            cache_key = hashlib.sha1(
-                json.dumps(
-                    {
-                        "remaining_candidate_ids": sorted(
-                            str(candidate.get("candidate_id") or "")
-                            for candidate in remaining_candidates
-                        ),
-                        "frontier": [
-                            {
-                                "route_id": str(route.get("route_id") or route.get("id") or ""),
-                                "objective_vector": [
-                                    round(float(value), 6)
-                                    for value in _route_objective_vector(route)
-                                ],
-                            }
-                            for route in frontier_payloads
-                        ],
-                        "refined_route_ids": sorted(
-                            str(route.get("route_id") or route.get("id") or "")
-                            for route in refined_payloads
-                        ),
-                        "remaining_search_budget": int(remaining_search_budget),
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    default=str,
-                ).encode("utf-8")
-            ).hexdigest()
+            cache_key = _voi_dccs_cache_key(
+                remaining_candidates=remaining_candidates,
+                frontier_payloads=frontier_payloads,
+                refined_payloads=refined_payloads,
+                remaining_search_budget=remaining_search_budget,
+            )
             voi_dccs_runtime["last_cache_key"] = cache_key
             cached = voi_dccs_local_cache.get(cache_key)
             if cached is not None:
@@ -17217,6 +18516,7 @@ async def _compute_direct_route_pipeline(
                 winner_id=selected.id,
             )
             controller_selected_source_context = _controller_selected_source_context()
+            controller_state_literal_fields = _current_controller_state_literal_fields()
             controller_state = VOIControllerState(
                 iteration_index=len(action_trace),
                 frontier=frontier_payloads,
@@ -17273,6 +18573,7 @@ async def _compute_direct_route_pipeline(
                 },
                 near_tie_mass=near_tie_mass,
                 certificate_margin=certificate_margin_value,
+                **controller_state_literal_fields,
             )
             search_metrics = compute_search_completeness_metrics(
                 controller_state,
@@ -17355,6 +18656,7 @@ async def _compute_direct_route_pipeline(
                 controller_state_rows.append(
                     {
                         **controller_state.as_dict(),
+                        **_last_voi_surface_fields(),
                         "frontier_route_ids": [option.id for option in strict_frontier],
                         "world_count": int(current_world_count),
                         "forced_refreshed_families": sorted(forced_refreshed_families),
@@ -17401,6 +18703,7 @@ async def _compute_direct_route_pipeline(
                 controller_state_rows.append(
                     {
                         **controller_state.as_dict(),
+                        **_last_voi_surface_fields(),
                         "frontier_route_ids": [option.id for option in strict_frontier],
                         "world_count": int(current_world_count),
                         "forced_refreshed_families": sorted(forced_refreshed_families),
@@ -17413,20 +18716,12 @@ async def _compute_direct_route_pipeline(
             feasible_actions = [action for action in actions if action.kind != "stop"]
             for action in actions:
                 action_score_rows.append(
-                    {
-                        "iteration": len(action_trace),
-                        "action_id": action.action_id,
-                        "kind": action.kind,
-                        "target": action.target,
-                        "cost_search": action.cost_search,
-                        "cost_evidence": action.cost_evidence,
-                        "predicted_delta_certificate": round(float(action.predicted_delta_certificate), 6),
-                        "predicted_delta_margin": round(float(action.predicted_delta_margin), 6),
-                        "predicted_delta_frontier": round(float(action.predicted_delta_frontier), 6),
-                        "q_score": round(float(action.q_score), 6),
-                        "selected_route_id": selected.id,
-                        "selected_certificate": round(float(selected_cert_value), 6),
-                    }
+                    build_voi_action_score_row(
+                        iteration=len(action_trace),
+                        action=action,
+                        selected_route_id=selected.id,
+                        selected_certificate=float(selected_cert_value),
+                    )
                 )
             if not feasible_actions:
                 stop_reason = (
@@ -17437,6 +18732,7 @@ async def _compute_direct_route_pipeline(
                 )
                 break
             chosen_action = feasible_actions[0]
+            before_voi_surface_snapshot = _current_voi_surface_snapshot()
             best_rejected_action_payload = feasible_actions[1].as_dict() if len(feasible_actions) > 1 else None
             trace_entry = {
                 "iteration": len(action_trace),
@@ -17604,6 +18900,12 @@ async def _compute_direct_route_pipeline(
                     current_evidence_uncertainty - previous_evidence_uncertainty,
                     6,
                 )
+                action_trace[-1].update(
+                    compute_voi_realized_metric_deltas(
+                        before_voi_surface_snapshot,
+                        _current_voi_surface_snapshot(),
+                    )
+                )
                 action_trace[-1]["realized_productive"] = bool(
                     (current_selected_cert_value - previous_certificate_value) > 1e-9
                     or (len(strict_frontier) - len(previous_frontier_ids)) > 0
@@ -17611,6 +18913,13 @@ async def _compute_direct_route_pipeline(
                     or (float(selection_score_map.get(selected.id, 0.0)) - previous_selected_score) < -1e-9
                     or action_trace[-1]["realized_runner_up_gap_delta"] > 1e-9
                     or action_trace[-1]["realized_evidence_uncertainty_delta"] < -1e-9
+                    or action_trace[-1]["realized_delta_radius_or_flip_budget"] > 1e-9
+                    or action_trace[-1]["realized_preference_shrinkage"] > 1e-9
+                    or action_trace[-1]["realized_certified_set_contraction"] > 1e-9
+                )
+                action_trace[-1]["hindsight_necessity_label"] = classify_voi_hindsight_necessity(
+                    chosen_action=action_trace[-1].get("chosen_action"),
+                    realized_fields=action_trace[-1],
                 )
                 if (
                     current_selected_cert_value >= certificate_threshold
@@ -17691,6 +19000,12 @@ async def _compute_direct_route_pipeline(
                     current_evidence_uncertainty - previous_evidence_uncertainty,
                     6,
                 )
+                action_trace[-1].update(
+                    compute_voi_realized_metric_deltas(
+                        before_voi_surface_snapshot,
+                        _current_voi_surface_snapshot(),
+                    )
+                )
                 action_trace[-1]["realized_productive"] = bool(
                     (current_selected_cert_value - previous_certificate_value) > 1e-9
                     or (len(strict_frontier) - len(previous_frontier_ids)) > 0
@@ -17698,6 +19013,130 @@ async def _compute_direct_route_pipeline(
                     or (float(selection_score_map.get(selected.id, 0.0)) - previous_selected_score) < -1e-9
                     or action_trace[-1]["realized_runner_up_gap_delta"] > 1e-9
                     or action_trace[-1]["realized_evidence_uncertainty_delta"] < -1e-9
+                    or action_trace[-1]["realized_delta_radius_or_flip_budget"] > 1e-9
+                    or action_trace[-1]["realized_preference_shrinkage"] > 1e-9
+                    or action_trace[-1]["realized_certified_set_contraction"] > 1e-9
+                )
+                action_trace[-1]["hindsight_necessity_label"] = classify_voi_hindsight_necessity(
+                    chosen_action=action_trace[-1].get("chosen_action"),
+                    realized_fields=action_trace[-1],
+                )
+                if (
+                    current_selected_cert_value >= certificate_threshold
+                    and certified_no_gain_streak >= 1
+                    and not credible_evidence_uncertainty(
+                        controller_state,
+                        fragility=fragility_result,
+                        config=voi_config,
+                        current_certificate=float(current_selected_cert_value),
+                    )
+                ):
+                    stop_reason = "certified"
+                    break
+                continue
+
+            if str(chosen_action.kind).startswith("preference_"):
+                previous_frontier_ids = {option.id for option in strict_frontier}
+                previous_selected_id = selected.id
+                previous_certificate_value = float(selected_cert_value)
+                previous_selected_score = float(selection_score_map.get(selected.id, 0.0))
+                previous_selection_score_map = dict(selection_score_map)
+                previous_controller_state = controller_state
+                runtime_preference_state = _current_runtime_preference_state()
+                runtime_preference_state, preference_diag = _apply_runtime_preference_query_action(
+                    chosen_action=chosen_action.as_dict(),
+                    preference_state=runtime_preference_state,
+                    options=strict_frontier,
+                    selection_score_map=selection_score_map,
+                    selected_route_id=selected.id,
+                    utility_weights=(
+                        float(req.weights.time),
+                        float(req.weights.money),
+                        float(req.weights.co2),
+                    ),
+                )
+                action_trace[-1].update(preference_diag)
+                evidence_used += max(1, int(chosen_action.cost_evidence))
+                controller_state = _post_action_controller_state()
+                _update_certified_no_gain_streak(
+                    previous_selected_id=previous_selected_id,
+                    previous_certificate_value=previous_certificate_value,
+                    previous_frontier_ids=previous_frontier_ids,
+                )
+                current_selected_cert_value = (
+                    float(certificate_result.certificate.get(selected.id, 0.0))
+                    if certificate_result is not None
+                    else float(selected_cert_value)
+                )
+                action_trace[-1]["realized_certificate_before"] = round(previous_certificate_value, 6)
+                action_trace[-1]["realized_certificate_after"] = round(current_selected_cert_value, 6)
+                action_trace[-1]["realized_certificate_delta"] = round(
+                    current_selected_cert_value - previous_certificate_value,
+                    6,
+                )
+                action_trace[-1]["realized_frontier_gain"] = int(len(strict_frontier) - len(previous_frontier_ids))
+                action_trace[-1]["realized_selected_route_changed"] = bool(selected.id != previous_selected_id)
+                action_trace[-1]["realized_selected_score_delta"] = round(
+                    float(selection_score_map.get(selected.id, 0.0)) - previous_selected_score,
+                    6,
+                )
+                action_trace[-1]["realized_runner_up_gap_before"] = round(
+                    _runner_up_gap_from_score_map(
+                        previous_selection_score_map,
+                        selected_route_id=previous_selected_id,
+                    ),
+                    6,
+                )
+                action_trace[-1]["realized_runner_up_gap_after"] = round(
+                    _runner_up_gap_from_score_map(selection_score_map, selected_route_id=selected.id),
+                    6,
+                )
+                action_trace[-1]["realized_runner_up_gap_delta"] = round(
+                    action_trace[-1]["realized_runner_up_gap_after"] - action_trace[-1]["realized_runner_up_gap_before"],
+                    6,
+                )
+                previous_evidence_uncertainty = round(
+                    max(
+                        0.0,
+                        _as_float_or_zero(previous_controller_state.top_refresh_gain)
+                        + _as_float_or_zero(previous_controller_state.top_fragility_mass),
+                    ),
+                    6,
+                )
+                current_evidence_uncertainty = round(
+                    max(
+                        0.0,
+                        _as_float_or_zero(controller_state.top_refresh_gain)
+                        + _as_float_or_zero(controller_state.top_fragility_mass),
+                    ),
+                    6,
+                )
+                action_trace[-1]["realized_evidence_uncertainty_before"] = previous_evidence_uncertainty
+                action_trace[-1]["realized_evidence_uncertainty_after"] = current_evidence_uncertainty
+                action_trace[-1]["realized_evidence_uncertainty_delta"] = round(
+                    current_evidence_uncertainty - previous_evidence_uncertainty,
+                    6,
+                )
+                action_trace[-1].update(
+                    compute_voi_realized_metric_deltas(
+                        before_voi_surface_snapshot,
+                        _current_voi_surface_snapshot(),
+                    )
+                )
+                action_trace[-1]["realized_productive"] = bool(
+                    (current_selected_cert_value - previous_certificate_value) > 1e-9
+                    or (len(strict_frontier) - len(previous_frontier_ids)) > 0
+                    or selected.id != previous_selected_id
+                    or (float(selection_score_map.get(selected.id, 0.0)) - previous_selected_score) < -1e-9
+                    or action_trace[-1]["realized_runner_up_gap_delta"] > 1e-9
+                    or action_trace[-1]["realized_evidence_uncertainty_delta"] < -1e-9
+                    or action_trace[-1]["realized_delta_radius_or_flip_budget"] > 1e-9
+                    or action_trace[-1]["realized_preference_shrinkage"] > 1e-9
+                    or action_trace[-1]["realized_certified_set_contraction"] > 1e-9
+                )
+                action_trace[-1]["hindsight_necessity_label"] = classify_voi_hindsight_necessity(
+                    chosen_action=action_trace[-1].get("chosen_action"),
+                    realized_fields=action_trace[-1],
                 )
                 if (
                     current_selected_cert_value >= certificate_threshold
@@ -17790,6 +19229,12 @@ async def _compute_direct_route_pipeline(
                     current_evidence_uncertainty - previous_evidence_uncertainty,
                     6,
                 )
+                action_trace[-1].update(
+                    compute_voi_realized_metric_deltas(
+                        before_voi_surface_snapshot,
+                        _current_voi_surface_snapshot(),
+                    )
+                )
                 action_trace[-1]["realized_productive"] = bool(
                     (current_selected_cert_value - previous_certificate_value) > 1e-9
                     or (len(strict_frontier) - len(previous_frontier_ids)) > 0
@@ -17797,6 +19242,13 @@ async def _compute_direct_route_pipeline(
                     or (float(selection_score_map.get(selected.id, 0.0)) - previous_selected_score) < -1e-9
                     or action_trace[-1]["realized_runner_up_gap_delta"] > 1e-9
                     or action_trace[-1]["realized_evidence_uncertainty_delta"] < -1e-9
+                    or action_trace[-1]["realized_delta_radius_or_flip_budget"] > 1e-9
+                    or action_trace[-1]["realized_preference_shrinkage"] > 1e-9
+                    or action_trace[-1]["realized_certified_set_contraction"] > 1e-9
+                )
+                action_trace[-1]["hindsight_necessity_label"] = classify_voi_hindsight_necessity(
+                    chosen_action=action_trace[-1].get("chosen_action"),
+                    realized_fields=action_trace[-1],
                 )
                 if (
                     current_selected_cert_value >= certificate_threshold
@@ -17825,6 +19277,18 @@ async def _compute_direct_route_pipeline(
         if certificate_result is not None
         else None
     )
+    terminal_chosen_action_payload = (
+        action_trace[-1].get("chosen_action")
+        if action_trace and isinstance(action_trace[-1].get("chosen_action"), Mapping)
+        else None
+    )
+    terminal_hindsight_necessity_label = classify_voi_hindsight_necessity(
+        chosen_action=terminal_chosen_action_payload,
+        realized_fields=action_trace[-1] if action_trace else {},
+        stop_reason=stop_reason,
+    )
+    if action_trace:
+        action_trace[-1]["hindsight_necessity_label"] = terminal_hindsight_necessity_label
     if pipeline_mode == "voi":
         best_rejected_action = None
         best_rejected_q = None
@@ -17850,6 +19314,19 @@ async def _compute_direct_route_pipeline(
             search_completeness_score=search_completeness_score,
             search_completeness_gap=search_completeness_gap,
             credible_search_uncertainty=credible_search_uncertainty_flag,
+        )
+        controller_state_rows.append(
+            {
+                **controller_state.as_dict(),
+                **_last_voi_surface_fields(),
+                "frontier_route_ids": [option.id for option in strict_frontier],
+                "world_count": int(current_world_count),
+                "forced_refreshed_families": sorted(forced_refreshed_families),
+                "certified_no_gain_streak": certified_no_gain_streak,
+                "credible_search_uncertainty": credible_search_uncertainty_flag,
+                "credible_evidence_uncertainty": credible_evidence_uncertainty_flag,
+                "feasible_actions": [],
+            }
         )
     else:
         voi_stop_summary = None
@@ -18036,6 +19513,15 @@ async def _compute_direct_route_pipeline(
     challenger_hits = int(
         round((challenger_hit_rate or 0.0) * float(max(1, refined_count)))
     )
+    selected_candidate_records = [
+        record
+        for record in candidate_records_by_id.values()
+        if record.decision == "refine"
+    ]
+    dccs_gate_summary = _dccs_gate_metrics(
+        list(candidate_records_by_id.values()),
+        selected=selected_candidate_records,
+    )
     selected_candidate_ids = option_candidate_ids.get(selected.id, [])
     selected_primary_candidate = (
         raw_candidate_by_id.get(selected_candidate_ids[0], {})
@@ -18122,6 +19608,7 @@ async def _compute_direct_route_pipeline(
         "leftover_challenger_budget_used": int(leftover_challenger_state.get("budget_used", 0)),
         "batches": dccs_batches,
     }
+    dccs_summary.update(dccs_gate_summary)
     dccs_summary.update(build_dccs_summary_breadcrumbs(list(candidate_records_by_id.values())))
     evidence_snapshot_manifest = _evidence_snapshot_manifest_payload(strict_frontier)
     evidence_snapshot_hash = str(evidence_snapshot_manifest.get("snapshot_hash") or "")
@@ -18270,6 +19757,21 @@ async def _compute_direct_route_pipeline(
     initial_sampled_world_manifest = copy.deepcopy(
         initial_certificate_artifacts["sampled_world_manifest"]
     )
+    initial_certificate_value = (
+        _as_float_or_zero(initial_certificate_summary.get("selected_certificate", 0.0))
+        if pipeline_mode == "voi"
+        else None
+    )
+    replay_oracle_summary_payload = (
+        _live_voi_replay_oracle_summary(
+            action_trace,
+            initial_certificate=initial_certificate_value,
+            final_certificate=float(final_selected_certificate or 0.0),
+            stop_reason=stop_reason,
+        )
+        if pipeline_mode == "voi"
+        else None
+    )
 
     voi_stop_certificate_payload = (
         {
@@ -18291,6 +19793,30 @@ async def _compute_direct_route_pipeline(
             "credible_search_uncertainty": credible_search_uncertainty_flag,
             "credible_evidence_uncertainty": credible_evidence_uncertainty_flag,
             "stop_reason": stop_reason,
+            "predicted_delta_radius_or_flip_budget": predicted_delta_radius_or_flip_budget(
+                terminal_chosen_action_payload
+            ),
+            "realized_delta_radius_or_flip_budget": round(
+                float((action_trace[-1] if action_trace else {}).get("realized_delta_radius_or_flip_budget", 0.0) or 0.0),
+                6,
+            ),
+            "predicted_preference_shrinkage": predicted_preference_shrinkage(
+                terminal_chosen_action_payload
+            ),
+            "realized_preference_shrinkage": round(
+                float((action_trace[-1] if action_trace else {}).get("realized_preference_shrinkage", 0.0) or 0.0),
+                6,
+            ),
+            "predicted_certified_set_contraction": predicted_certified_set_contraction(
+                terminal_chosen_action_payload
+            ),
+            "realized_certified_set_contraction": round(
+                float((action_trace[-1] if action_trace else {}).get("realized_certified_set_contraction", 0.0) or 0.0),
+                6,
+            ),
+            "hindsight_necessity_label": terminal_hindsight_necessity_label,
+            "replay_oracle_summary": replay_oracle_summary_payload,
+            "metric_semantics": voi_artifact_metric_semantics(),
             "action_trace": action_trace,
             "best_rejected_action": best_rejected_action_payload,
             "ambiguity_summary": {
@@ -18312,12 +19838,68 @@ async def _compute_direct_route_pipeline(
             "selected_route_id": selected.id,
         }
     )
+    world_manifest_dict = dict(world_manifest_payload or {})
+    selected_certificate_basis = str(
+        world_manifest_dict.get("selected_certificate_basis", "empirical")
+    )
+    support_flag = bool(world_manifest_dict.get("support_flag", True))
+    support_reason = str(world_manifest_dict.get("support_reason", "")).strip() or None
+    support_state = build_world_support_state(
+        support_score=float(1.0 if support_flag else 0.0),
+        support_ratio=float(world_manifest_dict.get("world_reuse_rate", 0.0)),
+        support_bin=str(
+            world_manifest_dict.get("support_bin", "supported" if support_flag else "unsupported")
+        ),
+        calibration_bin=str(
+            world_manifest_dict.get("calibration_bin", selected_certificate_basis)
+        ),
+        support_source="world_manifest" if world_manifest_dict else "route_runtime",
+        out_of_support_reason=None if support_flag else support_reason or "support_flag_false",
+        provenance={
+            "selected_route_id": selected.id,
+            "pipeline_mode": pipeline_mode,
+            "selected_certificate_basis": selected_certificate_basis,
+        },
+    )
+    preference_state = _current_runtime_preference_state()
+    preference_query_trace = _build_preference_query_trace_payload(
+        preference_state=preference_state,
+        selected_route_id=selected.id,
+        selected_certificate_basis=selected_certificate_basis,
+        pipeline_mode=pipeline_mode,
+        support_flag=support_state.support_flag,
+        support_reason=support_state.out_of_support_reason,
+    )
+    world_support_summary = {
+        "schema_version": "world-support-summary-v1",
+        "selected_route_id": selected.id,
+        "selected_certificate_basis": selected_certificate_basis,
+        "support_flag": support_state.support_flag,
+        "support_reason": support_state.out_of_support_reason,
+        "support_state": support_state.as_dict(),
+        "world_count": int(world_manifest_dict.get("world_count") or 0),
+        "unique_world_count": int(
+            world_manifest_dict.get("unique_world_count")
+            or world_manifest_dict.get("world_count")
+            or 0
+        ),
+        "world_reuse_rate": float(world_manifest_dict.get("world_reuse_rate") or 0.0),
+        "support_bin": support_state.support_bin,
+        "calibration_bin": support_state.calibration_bin,
+        "active_families": (
+            list(selected_certificate.active_families) if selected_certificate is not None else []
+        ),
+        "provenance": {
+            "selected_route_id": selected.id,
+            "pipeline_mode": pipeline_mode,
+            "selected_certificate_basis": selected_certificate_basis,
+        },
+    }
     refc_scaffold_artifacts: dict[str, dict[str, Any]] = {}
     if pipeline_mode in {"dccs_refc", "voi"}:
-        certificate_payload = (
+        base_certificate_summary = (
             selected_certificate.model_dump(mode="json") if selected_certificate is not None else None
         )
-        world_manifest_dict = dict(world_manifest_payload or {})
         route_certificates = dict(certificate_result.certificate if certificate_result is not None else {})
         selected_certificate_value = float(route_certificates.get(selected.id, 0.0))
         route_fragility = (
@@ -18347,7 +19929,7 @@ async def _compute_direct_route_pipeline(
         support_reason = str(world_manifest_dict.get("support_reason", "")).strip() or None
         terminal_type = (
             "typed_abstention"
-            if voi_stop_summary is not None and not bool(voi_stop_summary.certified)
+            if (not support_flag) or (voi_stop_summary is not None and not bool(voi_stop_summary.certified))
             else ("certified_set" if len(strict_frontier) > 1 else "certified_singleton")
         )
         frontier_route_ids = [option.id for option in strict_frontier]
@@ -18380,7 +19962,7 @@ async def _compute_direct_route_pipeline(
             },
         )
         world_bundle_summary = build_world_bundle_summary(
-            manifest=world_manifest_dict,
+            manifest=_proxy_audit_world_bundle_manifest(world_manifest_payload) or world_manifest_dict,
             support_state=support_state,
         )
         refc_projection_states = project_refc_scaffold_states(
@@ -18395,36 +19977,31 @@ async def _compute_direct_route_pipeline(
         decision_region_state = refc_projection_states["decision_region_state"]
         certificate_witness = refc_projection_states["certificate_witness"]
         certified_set_state = refc_projection_states["certified_set_state"]
-        preference_state = build_preference_state(
-            route_ids=frontier_route_ids,
-            weights={
-                "time": float(req.weights.time),
-                "money": float(req.weights.money),
-                "co2": float(req.weights.co2),
-            },
-            support_flag=support_flag,
-            support_reason=support_reason,
-        )
+        preference_state = _current_runtime_preference_state()
         preference_state.terminal_type = (
             "abstained" if terminal_type == "typed_abstention" else "certified"
         )
-        preference_query_trace = {
-            "schema_version": "preference-query-trace-v1",
-            "selected_route_id": selected.id,
-            "selected_certificate_basis": world_manifest_dict.get("selected_certificate_basis", "empirical"),
-            "terminal_type": preference_state.terminal_type,
-            "query_count": int(preference_state.query_count),
-            "query_history": [query.model_dump(mode="json") for query in preference_state.query_history],
-            "shrinkage_trace": [trace.model_dump(mode="json") for trace in preference_state.shrinkage_trace],
-            "compatible_set_summary": preference_state.compatible_set_summary.model_dump(mode="json"),
-            "derived_invariants": dict(preference_state.derived_invariants),
-            "provenance": {
-                "selected_route_id": selected.id,
-                "pipeline_mode": pipeline_mode,
-                "support_flag": support_flag,
-                "support_reason": support_reason,
-            },
-        }
+        (
+            refc_projection_states["flip_radius_state"],
+            refc_projection_states["decision_region_state"],
+        ) = _apply_structured_adversarial_budget_channels(
+            flip_radius_state=refc_projection_states.get("flip_radius_state"),
+            decision_region_state=refc_projection_states.get("decision_region_state"),
+            preference_state=preference_state,
+            search_completeness_gap=search_completeness_gap,
+        )
+        flip_radius_state = refc_projection_states["flip_radius_state"]
+        decision_region_state = refc_projection_states["decision_region_state"]
+        preference_query_trace = _build_preference_query_trace_payload(
+            preference_state=preference_state,
+            selected_route_id=selected.id,
+            selected_certificate_basis=world_manifest_dict.get(
+                "selected_certificate_basis", "empirical"
+            ),
+            pipeline_mode=pipeline_mode,
+            support_flag=support_flag,
+            support_reason=support_reason,
+        )
         normalized_duration_component, normalized_monetary_component, normalized_emissions_component = (
             normalized_objective_components(
                 duration_s=float(selected.metrics.duration_s),
@@ -18480,6 +20057,8 @@ async def _compute_direct_route_pipeline(
             "schema_version": "world-support-summary-v1",
             "selected_route_id": selected.id,
             "selected_certificate_basis": world_manifest_dict.get("selected_certificate_basis", "empirical"),
+            "support_flag": support_flag,
+            "support_reason": support_reason,
             "support_state": support_state.as_dict(),
             "world_bundle_summary": world_bundle_summary.as_dict(),
             "scenario_summary": (
@@ -18515,36 +20094,102 @@ async def _compute_direct_route_pipeline(
                 ),
             },
         )
+        certificate_summary = _build_certificate_summary_payload(
+            selected=selected,
+            selected_certificate=selected_certificate,
+            terminal_type=terminal_type,
+            world_manifest=world_manifest_dict,
+            world_support_summary=world_support_summary,
+            winner_confidence_state=winner_confidence_state,
+            pairwise_gap_states=pairwise_gap_states,
+            flip_radius_state=flip_radius_state,
+            decision_region_state=decision_region_state,
+            preference_state=preference_state,
+            selector_config=certificate_result.selector_config if certificate_result is not None else None,
+            base_summary=base_certificate_summary,
+        )
+        decision_package_abstention = (
+            build_abstention_record(
+                stop_reason=getattr(voi_stop_summary, "stop_reason", None),
+                support_flag=support_flag,
+                support_reason=support_reason,
+                credible_search_uncertainty=bool(
+                    getattr(voi_stop_summary, "credible_search_uncertainty", False)
+                ),
+                credible_evidence_uncertainty=bool(top_fragility_families),
+                search_completeness_score=getattr(voi_stop_summary, "search_completeness_score", None),
+                search_completeness_gap=getattr(voi_stop_summary, "search_completeness_gap", None),
+                evidence_family=top_fragility_families[0] if top_fragility_families else None,
+                active_families=list(selected_certificate.active_families)
+                if selected_certificate is not None
+                else [],
+                top_fragility_families=top_fragility_families,
+                detail={
+                    "support_guard": "support_flag_false_forces_terminal_downgrade",
+                }
+                if not support_flag
+                else None,
+            )
+            if terminal_type == "typed_abstention"
+            else None
+        )
+        scenario_summary_payload = (
+            selected.scenario_summary.model_dump(mode="json")
+            if selected.scenario_summary is not None
+            else None
+        )
+        artifact_preference_summary, artifact_support_summary = _build_route_artifact_summaries(
+            preference_state=preference_state,
+            world_support_summary=world_support_summary,
+            pipeline_mode=pipeline_mode,
+            selected_certificate_basis=world_manifest_dict.get(
+                "selected_certificate_basis", "empirical"
+            ),
+            support_flag=support_flag,
+            support_reason=support_reason,
+            support_state=support_state,
+            world_bundle_summary=world_bundle_summary,
+            scenario_summary=scenario_summary_payload,
+            risk_summary=risk_summary,
+            abstention=decision_package_abstention,
+            selected_certificate=selected_certificate,
+        )
+        artifact_decision_certified_set_summary = _normalize_public_certified_set_summary(
+            terminal_type=terminal_type,
+            selected_route_id=selected.id,
+            candidate_route_ids=[option.id for option in display_candidates],
+            certified_set_summary=certified_set_state.as_dict(),
+        )
         refc_scaffold_artifacts = {
             "decision_package.json": {
                 "schema_version": "1.0.0",
                 "terminal_type": terminal_type,
                 "selected_route_id": selected.id,
-                "recommended_route": selected.model_dump(mode="json"),
-                "certified_set": [
-                    {
-                        "route_id": option.id,
-                        "certificate": float(route_certificates.get(option.id, 0.0)),
-                        "selected": option.id == selected.id,
-                    }
-                    for option in strict_frontier
-                ],
+                "recommended_route": (
+                    selected.model_dump(mode="json") if terminal_type == "certified_singleton" else None
+                ),
+                "certified_set": (
+                    [
+                        {
+                            "route_id": option.id,
+                            "certificate": float(route_certificates.get(option.id, 0.0)),
+                            "selected": option.id == selected.id,
+                        }
+                        for option in strict_frontier
+                    ]
+                    if terminal_type == "certified_set"
+                    else []
+                ),
                 "frontier_summary": {
                     "frontier_route_ids": frontier_route_ids,
                     "frontier_count": len(frontier_route_ids),
                     "selected_route_id": selected.id,
                     "selected_certificate": selected_certificate_value,
                 },
-                "certificate_summary": certificate_payload
-                or {
-                    "winner_id": certificate_result.winner_id if certificate_result is not None else selected.id,
-                    "selected_route_id": selected.id,
-                    "certificate": route_certificates,
-                    "threshold": float(
-                        certificate_result.threshold if certificate_result is not None else certificate_threshold
-                    ),
-                    "certified": bool(selected_certificate_value >= float(certificate_threshold)),
-                },
+                "certificate_summary": certificate_summary,
+                "fixed_weight_certificate_state": dict(
+                    certificate_summary.get("fixed_weight_certificate_state", {})
+                ),
                 "stability_summary": {
                     "selected_certificate": selected_certificate_value,
                     "certificate_threshold": float(certificate_threshold),
@@ -18564,35 +20209,25 @@ async def _compute_direct_route_pipeline(
                     "certified_set_state": certified_set_state.as_dict(),
                 },
                 "preference_summary": {
-                    "selected_certificate_basis": world_manifest_dict.get(
-                        "selected_certificate_basis", "empirical"
-                    ),
-                    "pipeline_mode": pipeline_mode,
-                    "preference_state": preference_state.model_dump(mode="json"),
-                    "compatible_set_summary": preference_state.compatible_set_summary.model_dump(mode="json"),
-                    "derived_invariants": dict(preference_state.derived_invariants),
-                    "query_count": int(preference_state.query_count),
+                    **artifact_preference_summary,
                 },
                 "support_summary": {
-                    "support_flag": support_flag,
-                    "support_reason": support_reason,
-                    "world_count": int(world_manifest_dict.get("world_count", 0)),
-                    "unique_world_count": int(world_manifest_dict.get("unique_world_count", 0)),
-                    "world_reuse_rate": float(world_manifest_dict.get("world_reuse_rate", 0.0)),
-                    "support_state": support_state.as_dict(),
-                    "world_bundle_summary": world_bundle_summary.as_dict(),
-                    "scenario_summary": (
-                        selected.scenario_summary.model_dump(mode="json")
-                        if selected.scenario_summary is not None
-                        else None
-                    ),
-                    "risk_summary": risk_summary.as_dict(),
+                    **artifact_support_summary,
+                },
+                "certified_set_summary": {
+                    **artifact_decision_certified_set_summary,
                 },
                 "abstention_summary": {
-                    "reason_code": getattr(voi_stop_summary, "stop_reason", None)
-                    if terminal_type == "typed_abstention"
-                    else None,
-                    "message": None,
+                    "reason_code": (
+                        decision_package_abstention.reason_code
+                        if decision_package_abstention is not None
+                        else None
+                    ),
+                    "message": (
+                        decision_package_abstention.message
+                        if decision_package_abstention is not None
+                        else None
+                    ),
                 },
                 "action_trace_summary": {
                     "stop_reason": getattr(voi_stop_summary, "stop_reason", None),
@@ -18817,6 +20452,7 @@ async def _compute_direct_route_pipeline(
                 "pipeline_mode": pipeline_mode,
                 "selected_route_id": selected.id,
                 "actions": action_trace,
+                "replay_oracle_summary": replay_oracle_summary_payload,
             },
             "voi_stop_certificate.json": voi_stop_certificate_payload,
             "final_route_trace.json": final_route_trace,
@@ -18839,6 +20475,9 @@ async def _compute_direct_route_pipeline(
                     "predicted_delta_certificate",
                     "predicted_delta_margin",
                     "predicted_delta_frontier",
+                    "predicted_delta_radius_or_flip_budget",
+                    "predicted_preference_shrinkage",
+                    "predicted_certified_set_contraction",
                     "q_score",
                     "selected_route_id",
                     "selected_certificate",
@@ -18854,9 +20493,39 @@ def _route_terminal_fields(
     selected_certificate: RouteCertificationSummary | None,
     voi_stop_summary: VoiStopSummary | None,
     strict_frontier: Sequence[RouteOption],
+    support_flag: bool | None = None,
+    support_reason: str | None = None,
 ) -> tuple[list[RouteOption], AbstentionRecord | None]:
     certified_set: list[RouteOption] = []
     abstention: AbstentionRecord | None = None
+
+    if support_flag is False:
+        stop_reason = str(getattr(voi_stop_summary, "stop_reason", "")).strip()
+        abstention = build_abstention_record(
+            stop_reason=stop_reason or "support_flag_false",
+            support_flag=False,
+            support_reason=support_reason or "out_of_support_world_model",
+            credible_search_uncertainty=bool(getattr(voi_stop_summary, "credible_search_uncertainty", False)),
+            credible_evidence_uncertainty=bool(
+                selected_certificate is not None and bool(selected_certificate.top_fragility_families)
+            ),
+            search_completeness_score=getattr(voi_stop_summary, "search_completeness_score", None),
+            search_completeness_gap=getattr(voi_stop_summary, "search_completeness_gap", None),
+            evidence_family=(
+                None
+                if selected_certificate is None or not selected_certificate.top_fragility_families
+                else str(selected_certificate.top_fragility_families[0])
+            ),
+            budget_channel="search/evidence" if "budget" in stop_reason else None,
+            active_families=list(selected_certificate.active_families) if selected_certificate is not None else [],
+            top_fragility_families=(
+                list(selected_certificate.top_fragility_families) if selected_certificate is not None else []
+            ),
+            detail={
+                "support_guard": "support_flag_false_forces_terminal_downgrade",
+            },
+        )
+        return [], abstention
 
     if voi_stop_summary is not None and bool(voi_stop_summary.certified):
         if len(strict_frontier) > 1:
@@ -18927,14 +20596,795 @@ def _route_terminal_fields(
     return [], abstention
 
 
-@app.post("/route", response_model=RouteResponse)
+def _artifact_field(record: Any, field_name: str, default: Any = None) -> Any:
+    if isinstance(record, Mapping):
+        value = record.get(field_name, default)
+    else:
+        value = getattr(record, field_name, default)
+    return default if value is None else value
+
+
+def _replace_structured_adversarial_budget_on_state(state: Any, budget: Any) -> Any:
+    if state is None:
+        return None
+    if is_dataclass(state):
+        return replace(state, structured_adversarial_budget=budget)
+    if isinstance(state, Mapping):
+        updated = dict(state)
+        updated["structured_adversarial_budget"] = (
+            budget.as_dict() if hasattr(budget, "as_dict") else dict(budget)
+        )
+        return updated
+    return state
+
+
+def _apply_structured_adversarial_budget_channels(
+    *,
+    flip_radius_state: Any,
+    decision_region_state: Any,
+    preference_state: Any,
+    search_completeness_gap: float | None = None,
+) -> tuple[Any, Any]:
+    if flip_radius_state is None and decision_region_state is None:
+        return flip_radius_state, decision_region_state
+
+    base_budget = _artifact_field(
+        decision_region_state if decision_region_state is not None else flip_radius_state,
+        "structured_adversarial_budget",
+        None,
+    )
+    base_evidence_channel = _artifact_field(base_budget, "evidence_channel", {})
+    base_evidence_details = _artifact_field(base_evidence_channel, "details", {})
+    if not isinstance(base_evidence_details, Mapping):
+        base_evidence_details = {}
+
+    compatible_set_summary = getattr(preference_state, "compatible_set_summary", None)
+    if hasattr(compatible_set_summary, "model_dump"):
+        compatible_payload = compatible_set_summary.model_dump(mode="json")
+    elif isinstance(compatible_set_summary, Mapping):
+        compatible_payload = dict(compatible_set_summary)
+    else:
+        compatible_payload = {}
+
+    necessary_best_probability = _as_float_or_zero(
+        compatible_payload.get("necessary_best_prob", 0.0)
+    )
+    possible_best_probability = max(
+        necessary_best_probability,
+        _as_float_or_zero(compatible_payload.get("possible_best_prob", 1.0)),
+    )
+    preference_budget = (
+        max(0.0, possible_best_probability - necessary_best_probability)
+        if compatible_payload
+        else None
+    )
+    search_deficiency_budget = (
+        None
+        if search_completeness_gap is None
+        else max(0.0, float(search_completeness_gap))
+    )
+
+    structured_budget = build_structured_adversarial_budget(
+        evidence_budget=_artifact_field(base_evidence_channel, "budget", None),
+        evidence_driver=(
+            _artifact_field(base_evidence_channel, "driver", None)
+            or _artifact_field(flip_radius_state, "dominant_fragility_family", None)
+        ),
+        evidence_source_metric=(
+            _artifact_field(base_evidence_channel, "source_metric", None)
+            or "evidence_family_radii"
+        ),
+        evidence_details={
+            **dict(base_evidence_details),
+            "minimum_flip_budget": _artifact_field(
+                flip_radius_state, "minimum_flip_budget", None
+            ),
+            "dominant_fragility_family": _artifact_field(
+                flip_radius_state, "dominant_fragility_family", None
+            ),
+        },
+        preference_budget=preference_budget,
+        preference_driver=_artifact_field(
+            decision_region_state, "most_fragile_preference_direction", None
+        ),
+        preference_source_metric="possible_best_minus_necessary_best_probability",
+        preference_details={
+            "necessary_best_probability": round(necessary_best_probability, 6),
+            "possible_best_probability": round(possible_best_probability, 6),
+            "compatible_set_size": int(
+                compatible_payload.get("compatible_set_size", 0) or 0
+            ),
+            "query_count": int(getattr(preference_state, "query_count", 0) or 0),
+        },
+        search_deficiency_budget=search_deficiency_budget,
+        search_deficiency_driver=(
+            "search_deficiency_gap" if search_completeness_gap is not None else None
+        ),
+        search_deficiency_source_metric="search_completeness_gap",
+        search_deficiency_details={
+            "search_completeness_gap": (
+                None
+                if search_completeness_gap is None
+                else round(float(search_completeness_gap), 6)
+            ),
+        },
+        provenance={
+            "selected_route_id": _artifact_field(
+                flip_radius_state,
+                "route_id",
+                _artifact_field(decision_region_state, "route_id", None),
+            ),
+            "nearest_certificate_boundary": _artifact_field(
+                decision_region_state, "nearest_certificate_boundary", None
+            ),
+        },
+    )
+    return (
+        _replace_structured_adversarial_budget_on_state(flip_radius_state, structured_budget),
+        _replace_structured_adversarial_budget_on_state(
+            decision_region_state, structured_budget
+        ),
+    )
+
+
+def _build_preference_query_trace_payload(
+    *,
+    preference_state: Any,
+    selected_route_id: str,
+    selected_certificate_basis: str,
+    pipeline_mode: str,
+    support_flag: bool | None = None,
+    support_reason: str | None = None,
+    existing_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    existing = dict(existing_payload or {})
+    compact_summary = _build_preference_summary(
+        preference_state=preference_state,
+        selected_certificate_basis=selected_certificate_basis,
+        pipeline_mode=pipeline_mode,
+    )
+    shrinkage_trace = [
+        trace.model_dump(mode="json") if hasattr(trace, "model_dump") else dict(trace)
+        for trace in _artifact_field(preference_state, "shrinkage_trace", [])
+        if hasattr(trace, "model_dump") or isinstance(trace, Mapping)
+    ]
+    last_trace = shrinkage_trace[-1] if shrinkage_trace else {}
+    payload = {
+        "schema_version": "preference-query-trace-v1",
+        "selected_route_id": selected_route_id,
+        "selected_certificate_basis": selected_certificate_basis,
+        "terminal_type": _artifact_field(preference_state, "terminal_type", "open"),
+        "query_count": int(compact_summary.get("query_count", 0) or 0),
+        "query_history": [
+            query.model_dump(mode="json") if hasattr(query, "model_dump") else dict(query)
+            for query in _artifact_field(preference_state, "query_history", [])
+            if hasattr(query, "model_dump") or isinstance(query, Mapping)
+        ],
+        "shrinkage_trace": shrinkage_trace,
+        "compatible_set_summary": compact_summary.get("compatible_set_summary", {}),
+        "derived_invariants": compact_summary.get("derived_invariants", {}),
+        "contradiction_record": compact_summary.get("contradiction_record", {}),
+        "preference_irrelevance_proven": bool(
+            compact_summary.get("preference_irrelevance_proven", False)
+        ),
+        "no_query_reason": compact_summary.get("no_query_reason"),
+        "no_preference_query_reason": compact_summary.get("no_preference_query_reason")
+        or compact_summary.get("no_query_reason"),
+        "targeted_challenger_route_id": last_trace.get("target_route_id")
+        or compact_summary.get("targeted_challenger_route_id"),
+        "query_selection_reason": last_trace.get("query_reason")
+        or compact_summary.get("query_selection_reason"),
+        "provenance": {
+            "selected_route_id": selected_route_id,
+            "pipeline_mode": pipeline_mode,
+            "support_flag": support_flag,
+            "support_reason": support_reason,
+        },
+    }
+    payload.update(existing)
+    payload.setdefault("contradiction_record", compact_summary.get("contradiction_record", {}))
+    payload.setdefault(
+        "preference_irrelevance_proven",
+        bool(compact_summary.get("preference_irrelevance_proven", False)),
+    )
+    payload.setdefault("no_query_reason", compact_summary.get("no_query_reason"))
+    payload.setdefault(
+        "no_preference_query_reason",
+        compact_summary.get("no_preference_query_reason") or compact_summary.get("no_query_reason"),
+    )
+    payload.setdefault(
+        "targeted_challenger_route_id",
+        last_trace.get("target_route_id") or compact_summary.get("targeted_challenger_route_id"),
+    )
+    payload.setdefault(
+        "query_selection_reason",
+        last_trace.get("query_reason") or compact_summary.get("query_selection_reason"),
+    )
+    return payload
+
+
+def _build_route_artifact_summaries(
+    *,
+    preference_state: Any,
+    world_support_summary: Mapping[str, Any] | None,
+    pipeline_mode: str,
+    selected_certificate_basis: str | None,
+    support_flag: bool | None,
+    support_reason: str | None,
+    support_state: Any,
+    world_bundle_summary: Any,
+    scenario_summary: Mapping[str, Any] | None,
+    risk_summary: Any,
+    abstention: AbstentionRecord | None,
+    selected_certificate: RouteCertificationSummary | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    preference_summary = _build_preference_summary(
+        preference_state=preference_state,
+        selected_certificate_basis=selected_certificate_basis,
+        pipeline_mode=pipeline_mode,
+    )
+    preference_summary["preference_state"] = (
+        preference_state.model_dump(mode="json")
+        if hasattr(preference_state, "model_dump")
+        else dict(preference_state)
+        if isinstance(preference_state, Mapping)
+        else {}
+    )
+
+    artifact_support_summary = _merge_support_summary(
+        support_summary={
+            "support_flag": support_flag,
+            "support_reason": support_reason,
+            "world_count": _artifact_field(world_bundle_summary, "world_count", 0),
+            "unique_world_count": _artifact_field(world_bundle_summary, "unique_world_count", 0),
+            "world_reuse_rate": _artifact_field(world_bundle_summary, "world_reuse_rate", 0.0),
+            "support_state": (
+                support_state.as_dict()
+                if hasattr(support_state, "as_dict")
+                else dict(support_state)
+                if isinstance(support_state, Mapping)
+                else {}
+            ),
+            "world_bundle_summary": (
+                world_bundle_summary.as_dict()
+                if hasattr(world_bundle_summary, "as_dict")
+                else dict(world_bundle_summary)
+                if isinstance(world_bundle_summary, Mapping)
+                else {}
+            ),
+            "scenario_summary": dict(scenario_summary) if isinstance(scenario_summary, Mapping) else None,
+            "risk_summary": (
+                risk_summary.as_dict()
+                if hasattr(risk_summary, "as_dict")
+                else dict(risk_summary)
+                if isinstance(risk_summary, Mapping)
+                else {}
+            ),
+        },
+        world_support_summary=world_support_summary,
+        abstention=abstention,
+        selected_certificate=selected_certificate,
+    )
+    return preference_summary, artifact_support_summary
+
+
+def _normalize_public_certified_set_summary(
+    *,
+    terminal_type: str,
+    selected_route_id: str,
+    candidate_route_ids: Sequence[str],
+    certified_set_summary: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    payload = copy.deepcopy(dict(certified_set_summary or {}))
+    if terminal_type == "certified_set":
+        payload.setdefault("terminal_type", terminal_type)
+        payload.setdefault("not_applicable_reason", None)
+        return payload
+
+    excluded_route_ids = list(candidate_route_ids)
+    if terminal_type == "certified_singleton":
+        excluded_route_ids = [route_id for route_id in candidate_route_ids if route_id != selected_route_id]
+
+    payload.update(
+        {
+            "member_route_ids": [],
+            "excluded_route_ids": excluded_route_ids,
+            "certified": False,
+            "set_size": 0,
+            "terminal_type": terminal_type,
+            "not_applicable_reason": (
+                "singleton_terminal" if terminal_type == "certified_singleton" else "abstention_terminal"
+            ),
+            "selected_route_id": selected_route_id,
+        }
+    )
+    payload.setdefault("exclusion_basis", [])
+
+    witness = payload.get("witness")
+    witness_payload = dict(witness) if isinstance(witness, Mapping) else {}
+    witness_payload.setdefault("route_id", selected_route_id)
+    payload["witness"] = witness_payload
+    return payload
+
+
+def _threshold_sensitivity_axes_payload(
+    *,
+    certificate_threshold: float,
+    world_manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    manifest = dict(world_manifest or {})
+    requested_world_count = _as_int_or_zero(
+        manifest.get("requested_world_count", manifest.get("world_count", 0))
+    )
+    effective_world_count = _as_int_or_zero(
+        manifest.get("effective_world_count", manifest.get("world_count", requested_world_count))
+    )
+    return {
+        "certificate_threshold": {
+            "configured_value": round(float(certificate_threshold), 6),
+            "request_field": "certificate_threshold",
+            "semantics": "direct_certificate_acceptance_threshold",
+        },
+        "fast_path_max_ambiguity": {
+            "configured_value": round(float(settings.route_graph_fast_path_max_ambiguity), 6),
+            "config_field": "route_graph_fast_path_max_ambiguity",
+            "env_field": "ROUTE_GRAPH_FAST_PATH_MAX_AMBIGUITY",
+            "semantics": "low_ambiguity_fast_path_threshold",
+        },
+        "certified_set_cap": {
+            "configured_value": int(settings.route_refc_low_ambiguity_world_cap),
+            "is_alias": True,
+            "config_field": "route_refc_low_ambiguity_world_cap",
+            "env_alias": "ROUTE_REFC_CERTIFIED_SET_CAP",
+            "mapped_env_field": "ROUTE_REFC_LOW_AMBIGUITY_WORLD_CAP",
+            "truthful_semantics": "low_ambiguity_adaptive_refc_world_count_cap",
+            "directly_caps_certified_set_cardinality": False,
+            "active_world_count_policy": str(manifest.get("world_count_policy", "configured")),
+            "requested_world_count": requested_world_count,
+            "effective_world_count": effective_world_count,
+        },
+    }
+
+
+def _build_certificate_summary_payload(
+    *,
+    selected: RouteOption,
+    selected_certificate: RouteCertificationSummary | None,
+    terminal_type: str,
+    world_manifest: Mapping[str, Any] | None = None,
+    world_support_summary: Mapping[str, Any] | None = None,
+    winner_confidence_state: Any | None = None,
+    pairwise_gap_states: Sequence[Any] | None = None,
+    flip_radius_state: Any | None = None,
+    decision_region_state: Any | None = None,
+    preference_state: Any | None = None,
+    selector_config: Mapping[str, Any] | None = None,
+    base_summary: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    summary = dict(base_summary or {})
+    manifest = dict(world_manifest or {})
+    support_payload = dict(world_support_summary or {})
+    support_state = support_payload.get("support_state", {})
+    support_state = dict(support_state) if isinstance(support_state, Mapping) else {}
+    world_bundle_summary = support_payload.get("world_bundle_summary", {})
+    world_bundle_summary = dict(world_bundle_summary) if isinstance(world_bundle_summary, Mapping) else {}
+    probabilistic_world_bundle = world_bundle_summary.get("probabilistic_world_bundle", {})
+    probabilistic_world_bundle = (
+        dict(probabilistic_world_bundle) if isinstance(probabilistic_world_bundle, Mapping) else {}
+    )
+    audit_world_bundle = world_bundle_summary.get("audit_world_bundle", {})
+    audit_world_bundle = dict(audit_world_bundle) if isinstance(audit_world_bundle, Mapping) else {}
+
+    selected_certificate_value = _as_float_or_zero(
+        selected_certificate.certificate if selected_certificate is not None else summary.get("selected_certificate", 0.0)
+    )
+    empirical_certificate = _as_float_or_zero(
+        manifest.get("single_frontier_empirical_certificate", selected_certificate_value)
+    )
+    certificate_lcb = _as_float_or_zero(
+        _artifact_field(winner_confidence_state, "lower_bound", selected_certificate_value)
+    )
+    certificate_ucb = _as_float_or_zero(
+        _artifact_field(winner_confidence_state, "upper_bound", selected_certificate_value)
+    )
+
+    pairwise_gap_lower_bounds = [
+        _as_float_or_zero(_artifact_field(row, "pairwise_gap_lower_bound", 0.0))
+        for row in list(pairwise_gap_states or [])
+    ]
+    minimum_pairwise_gap_lcb = min(pairwise_gap_lower_bounds) if pairwise_gap_lower_bounds else 0.0
+
+    compatible_set_summary = getattr(preference_state, "compatible_set_summary", None)
+    if hasattr(compatible_set_summary, "model_dump"):
+        compatible_payload = compatible_set_summary.model_dump(mode="json")
+    elif isinstance(compatible_set_summary, Mapping):
+        compatible_payload = dict(compatible_set_summary)
+    else:
+        compatible_payload = {}
+    necessary_best_probability = _as_float_or_zero(compatible_payload.get("necessary_best_prob", 0.0))
+    possible_best_probability = max(
+        necessary_best_probability,
+        _as_float_or_zero(compatible_payload.get("possible_best_prob", 1.0)),
+    )
+
+    selected_certificate_basis = str(
+        support_payload.get("selected_certificate_basis")
+        or manifest.get("selected_certificate_basis")
+        or ("selected_certificate" if selected_certificate is not None else "empirical")
+    )
+    support_flag_raw = support_payload.get("support_flag")
+    if support_flag_raw is None:
+        support_flag_raw = support_state.get("support_flag")
+    if support_flag_raw is None:
+        support_flag_raw = manifest.get("support_flag")
+    support_flag = bool(True if support_flag_raw is None else support_flag_raw)
+    out_of_support_reason = str(
+        support_state.get("out_of_support_reason")
+        or support_payload.get("support_reason")
+        or manifest.get("out_of_support_reason")
+        or manifest.get("support_reason")
+        or ""
+    ).strip() or None
+    if support_flag:
+        out_of_support_reason = None
+
+    explicit_multi_fidelity_basis = str(
+        support_payload.get("multi_fidelity_basis")
+        or manifest.get("multi_fidelity_certificate_basis")
+        or ""
+    ).strip()
+    probabilistic_world_count = _as_int_or_zero(
+        probabilistic_world_bundle.get("world_count", manifest.get("world_count", 0))
+    )
+    audit_world_count = _as_int_or_zero(
+        audit_world_bundle.get("audit_world_count", audit_world_bundle.get("world_count", 0))
+    )
+    if explicit_multi_fidelity_basis:
+        multi_fidelity_basis = explicit_multi_fidelity_basis
+    elif audit_world_count > 0 and probabilistic_world_count > 0:
+        multi_fidelity_basis = "partially_audited"
+    elif audit_world_count > 0:
+        multi_fidelity_basis = "fully_audited"
+    elif probabilistic_world_count > 0:
+        multi_fidelity_basis = "probabilistic_worlds_only"
+    else:
+        multi_fidelity_basis = "unknown"
+
+    selector_payload = dict(selector_config or {})
+    summary_selector_config = summary.get("selector_config")
+    if not selector_payload and isinstance(summary_selector_config, Mapping):
+        selector_payload = dict(summary_selector_config)
+    fixed_weight_selector_weights = [
+        round(float(value), 6)
+        for value in list(selector_payload.get("selector_weights", []))
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+    fixed_weight_certificate_state: dict[str, Any] = {
+        "state_source": "selector_config",
+        "objective_order": ["time", "money", "co2"],
+        "selector_weights": fixed_weight_selector_weights,
+        "threshold": round(
+            _as_float_or_zero(
+                selector_payload.get(
+                    "threshold",
+                    selected_certificate.threshold
+                    if selected_certificate is not None
+                    else summary.get("certificate_threshold", 0.0),
+                )
+            ),
+            6,
+        ),
+        "winner_route_id": str(
+            summary.get("winner_route_id")
+            or (selected_certificate.route_id if selected_certificate is not None else selected.id)
+        ),
+        "selected_route_id": str(summary.get("selected_route_id") or selected.id),
+        "selected_certificate": round(selected_certificate_value, 6),
+        "certified": bool(selected_certificate.certified) if selected_certificate is not None else False,
+        "selected_certificate_basis": selected_certificate_basis,
+    }
+    if selector_payload.get("optimization_mode") is not None:
+        fixed_weight_certificate_state["optimization_mode"] = str(selector_payload["optimization_mode"])
+
+    summary.update(
+        {
+            "winner_route_id": str(
+                summary.get("winner_route_id")
+                or (selected_certificate.route_id if selected_certificate is not None else selected.id)
+            ),
+            "selected_route_id": str(summary.get("selected_route_id") or selected.id),
+            "selected_certificate": round(selected_certificate_value, 6),
+            "empirical_certificate": round(empirical_certificate, 6),
+            "certificate_lcb": round(certificate_lcb, 6),
+            "certificate_ucb": round(certificate_ucb, 6),
+            "minimum_pairwise_gap_lcb": round(minimum_pairwise_gap_lcb, 6),
+            "necessary_best_probability": round(necessary_best_probability, 6),
+            "possible_best_probability": round(possible_best_probability, 6),
+            "selected_certificate_basis": selected_certificate_basis,
+            "multi_fidelity_basis": multi_fidelity_basis,
+            "support_flag": support_flag,
+            "out_of_support_reason": out_of_support_reason,
+            "terminal_type": terminal_type,
+            "fixed_weight_certificate_state": fixed_weight_certificate_state,
+            "threshold_sensitivity_axes": _threshold_sensitivity_axes_payload(
+                certificate_threshold=(
+                    selected_certificate.threshold
+                    if selected_certificate is not None
+                    else _as_float_or_zero(summary.get("certificate_threshold", 0.0))
+                ),
+                world_manifest=manifest,
+            ),
+        }
+    )
+    structured_adversarial_budget = _artifact_field(
+        decision_region_state,
+        "structured_adversarial_budget",
+        _artifact_field(flip_radius_state, "structured_adversarial_budget", None),
+    )
+    if structured_adversarial_budget is not None:
+        summary["structured_adversarial_budget"] = (
+            structured_adversarial_budget.as_dict()
+            if hasattr(structured_adversarial_budget, "as_dict")
+            else dict(structured_adversarial_budget)
+            if isinstance(structured_adversarial_budget, Mapping)
+            else structured_adversarial_budget
+        )
+    return summary
+
+
+def _assemble_decision_package(
+    *,
+    selected: RouteOption,
+    candidates: Sequence[RouteOption],
+    run_id: str,
+    pipeline_mode: str,
+    manifest_endpoint: str,
+    artifacts_endpoint: str,
+    provenance_endpoint: str,
+    selected_certificate: RouteCertificationSummary | None,
+    voi_stop_summary: VoiStopSummary | None,
+    preference_state: Any,
+    preference_query_trace: Mapping[str, Any] | None,
+    world_support_summary: Mapping[str, Any] | None,
+    world_manifest: Mapping[str, Any] | None = None,
+    winner_confidence_state: Any | None = None,
+    pairwise_gap_states: Sequence[Any] | None = None,
+    selector_config: Mapping[str, Any] | None = None,
+    certified_set: Sequence[RouteOption],
+    certified_set_summary: Mapping[str, Any] | None = None,
+    abstention: AbstentionRecord | None,
+    flip_radius_state: Any | None = None,
+    decision_region_state: Any | None = None,
+    certificate_witness: Any | None = None,
+) -> DecisionPackage:
+    raw_certified_set = list(certified_set)
+    selected_certificate_basis = "selected_certificate" if selected_certificate is not None else None
+    support_summary = _merge_support_summary(
+        support_summary=None,
+        world_support_summary=world_support_summary,
+        abstention=abstention,
+        selected_certificate=selected_certificate,
+    )
+    if abstention is not None:
+        terminal_type = "typed_abstention"
+        public_selected = None
+        public_recommended = None
+        public_certified_set: list[RouteOption] = []
+    elif len(raw_certified_set) > 1:
+        terminal_type = "certified_set"
+        public_selected = None
+        public_recommended = None
+        public_certified_set = raw_certified_set
+    else:
+        terminal_type = "certified_singleton"
+        public_selected = selected
+        public_recommended = selected
+        public_certified_set = []
+
+    certificate_summary = _build_certificate_summary_payload(
+        selected=selected,
+        selected_certificate=selected_certificate,
+        terminal_type=terminal_type,
+        world_manifest=world_manifest,
+        world_support_summary=world_support_summary,
+        winner_confidence_state=winner_confidence_state,
+        pairwise_gap_states=pairwise_gap_states,
+        flip_radius_state=flip_radius_state,
+        decision_region_state=decision_region_state,
+        preference_state=preference_state,
+        selector_config=selector_config,
+        base_summary=(
+            selected_certificate.model_dump(mode="json")
+            if selected_certificate is not None
+            else None
+        ),
+    )
+    witness_summary = {
+        "route_id": _artifact_field(certificate_witness, "route_id", selected.id),
+        "selected_certificate_basis": selected_certificate_basis,
+    }
+    if certificate_witness is not None:
+        witness_summary.update(
+            {
+                "witness_size": _artifact_field(certificate_witness, "witness_size", 0),
+                "active_challenger_ids": list(
+                    _artifact_field(certificate_witness, "active_challenger_ids", [])
+                ),
+                "active_evidence_families": list(
+                    _artifact_field(certificate_witness, "active_evidence_families", [])
+                ),
+                "support_flag": _artifact_field(certificate_witness, "support_flag", None),
+            }
+        )
+
+    preference_query_payload = _build_preference_query_trace_payload(
+        preference_state=preference_state,
+        selected_route_id=selected.id,
+        selected_certificate_basis=selected_certificate_basis
+        or ("selected_certificate" if selected_certificate is not None else "empirical"),
+        pipeline_mode=pipeline_mode,
+        support_flag=support_summary.get("support_flag")
+        if isinstance(support_summary, Mapping)
+        else None,
+        support_reason=support_summary.get("support_reason")
+        if isinstance(support_summary, Mapping)
+        else None,
+        existing_payload=preference_query_trace,
+    )
+    if isinstance(certified_set_summary, Mapping) and certified_set_summary:
+        public_certified_set_summary = copy.deepcopy(dict(certified_set_summary))
+    elif terminal_type == "certified_set":
+        member_route_ids = [route.id for route in raw_certified_set]
+        excluded_route_ids = [route.id for route in candidates if route.id not in member_route_ids]
+        support_flag_value = support_summary.get("support_flag") if isinstance(support_summary, Mapping) else None
+        if support_flag_value is None and isinstance(support_summary, Mapping):
+            support_flag_value = support_summary.get("supported")
+        support_flag = bool(support_flag_value) if support_flag_value is not None else False
+        public_certified_set_summary = {
+            "member_route_ids": member_route_ids,
+            "excluded_route_ids": excluded_route_ids,
+            "exclusion_basis": [
+                "frontier_selection",
+                "outside_routes_excluded"
+                if excluded_route_ids
+                else "no_outside_routes_excluded",
+                "explicit_certified_set_summary_missing",
+            ],
+            "certified": bool(
+                selected_certificate is not None
+                and selected_certificate.certified
+                and len(member_route_ids) > 1
+                and support_flag
+            ),
+            "threshold": (
+                float(selected_certificate.threshold) if selected_certificate is not None else 0.0
+            ),
+            "support_flag": support_flag,
+            "set_size": len(member_route_ids),
+            "terminal_type": terminal_type,
+            "not_applicable_reason": None,
+            "witness": {
+                "route_id": selected.id,
+                "active_challenger_ids": [
+                    route_id for route_id in member_route_ids if route_id != selected.id
+                ],
+                "support_flag": support_flag,
+                "summary_status": "synthesized_without_explicit_certified_set_summary",
+            },
+        }
+    else:
+        public_certified_set_summary = _build_certified_set_summary(
+            selected=selected,
+            candidates=list(candidates),
+            certified_set=raw_certified_set,
+            selected_certificate=selected_certificate,
+            support_summary=support_summary,
+            terminal_type=terminal_type,
+        )
+
+    certified_set_summary_payload = _normalize_public_certified_set_summary(
+        terminal_type=terminal_type,
+        selected_route_id=selected.id,
+        candidate_route_ids=[route.id for route in candidates],
+        certified_set_summary=public_certified_set_summary,
+    )
+
+    return DecisionPackage(
+        terminal_type=terminal_type,
+        selected=public_selected,
+        candidates=list(candidates),
+        recommended_route=public_recommended,
+        certified_set=public_certified_set,
+        abstention=abstention,
+        frontier_summary={
+            "candidate_count": len(candidates),
+            "selected_route_id": selected.id,
+        },
+        selected_certificate=selected_certificate,
+        certificate_summary=certificate_summary,
+        fixed_weight_certificate_state=(
+            dict(certificate_summary.get("fixed_weight_certificate_state", {}))
+            if isinstance(certificate_summary, Mapping)
+            else {}
+        ),
+        stability_summary=(
+            {}
+            if selected_certificate is None
+            else {
+                "certificate": selected_certificate.certificate,
+                "threshold": selected_certificate.threshold,
+                "minimum_pairwise_gap_lcb": min(
+                    (
+                        float(_artifact_field(row, "pairwise_gap_lower_bound", 0.0))
+                        for row in (pairwise_gap_states or [])
+                    ),
+                    default=0.0,
+                ),
+                "minimum_flip_budget": _artifact_field(
+                    flip_radius_state,
+                    "minimum_flip_budget",
+                    None,
+                ),
+                "nearest_certificate_boundary": _artifact_field(
+                    decision_region_state,
+                    "nearest_certificate_boundary",
+                    None,
+                ),
+                "nearest_threat_axis": _artifact_field(
+                    decision_region_state,
+                    "nearest_threat_axis",
+                    None,
+                ),
+            }
+        ),
+        winner_confidence_state=winner_confidence_state,
+        pairwise_gap_states=list(pairwise_gap_states or []),
+        flip_radius_state=flip_radius_state,
+        decision_region_state=decision_region_state,
+        certificate_witness=certificate_witness,
+        preference_summary=_build_preference_summary(
+            preference_state=preference_state,
+            selected_certificate_basis=selected_certificate_basis,
+            pipeline_mode=pipeline_mode,
+        ),
+        preference_state=preference_state,
+        preference_query_trace=preference_query_payload,
+        support_summary=support_summary,
+        world_support_summary=dict(world_support_summary or {}),
+        abstention_summary=_build_abstention_summary(
+            abstention=abstention,
+            abstention_summary=None,
+            terminal_type=terminal_type,
+        ),
+        certified_set_summary=certified_set_summary_payload,
+        action_trace_summary={
+            "pipeline_mode": pipeline_mode,
+            "selected_candidate_count": len(candidates),
+        },
+        witness_summary=witness_summary,
+        artifact_pointers={
+            "manifest_endpoint": manifest_endpoint or "",
+            "artifacts_endpoint": artifacts_endpoint or "",
+            "provenance_endpoint": provenance_endpoint or "",
+        },
+        selected_certificate_basis=selected_certificate_basis,
+        run_id=run_id,
+        pipeline_mode=pipeline_mode,  # type: ignore[arg-type]
+        manifest_endpoint=manifest_endpoint,
+        artifacts_endpoint=artifacts_endpoint,
+        provenance_endpoint=provenance_endpoint,
+        voi_stop_summary=voi_stop_summary,
+    )
+
+
+@app.post("/route", response_model=DecisionPackage)
 async def compute_route(
     req: RouteRequest,
     response: Response,
     osrm: OSRMDep,
     ors: ORSDep,
     _: UserAccessDep,
-) -> RouteResponse:
+) -> DecisionPackage:
     request_id = str(uuid.uuid4())
     t0 = time.perf_counter()
     has_error = False
@@ -18951,14 +21401,23 @@ async def compute_route(
         1,
         min(requested_alternatives, int(settings.route_candidate_alternatives_max)),
     )
-    effective_pipeline_mode = _resolve_pipeline_mode(req.pipeline_mode)
+    effective_pipeline_mode, pipeline_mode_error = _resolve_route_request_pipeline_mode(
+        requested_mode=req.pipeline_mode,
+        waypoint_count=len(req.waypoints or []),
+    )
     actual_pipeline_mode = effective_pipeline_mode
-    legacy_mode_warning: str | None = None
-    if req.waypoints and effective_pipeline_mode != "legacy":
-        actual_pipeline_mode = "legacy"
-        legacy_mode_warning = (
-            "VOI pipeline currently supports single-leg OD requests only; using legacy routing for waypoint requests."
+    if pipeline_mode_error is not None:
+        _record_expected_calls_blocked(
+            reason_code=str(pipeline_mode_error.get("reason_code", "route_pipeline_mode_not_available")),
+            stage="route_request_validation",
+            detail=str(
+                pipeline_mode_error.get(
+                    "message",
+                    "The requested pipeline mode is not available on live /route.",
+                )
+            ),
         )
+        raise HTTPException(status_code=422, detail=pipeline_mode_error)
     run_seed = _resolve_pipeline_seed(req)
     log_event(
         "route_request_started",
@@ -18986,80 +21445,49 @@ async def compute_route(
         extra_text_artifacts: dict[str, str] | None = None
         selected_certificate: RouteCertificationSummary | None = None
         voi_stop_summary: VoiStopSummary | None = None
-        legacy_strict_frontier: list[RouteOption] | None = None
+        direct_result: dict[str, Any] | None = None
+        world_manifest_dict: dict[str, Any] = {}
+        world_support_summary: dict[str, Any] = {}
+        winner_confidence_state: Any | None = None
+        pairwise_gap_states: list[Any] = []
+        flip_radius_state: Any | None = None
+        decision_region_state: Any | None = None
+        certificate_witness: Any | None = None
+        preference_state: Any = None
+        preference_query_trace: dict[str, Any] = {}
+        certified_set_summary: dict[str, Any] = {}
+        strict_frontier: list[RouteOption] = []
         route_cache_runtime: dict[str, Any] = {}
         route_option_cache_runtime: dict[str, Any] = {}
         collect_candidates_elapsed_ms = 0.0
-        pareto_selection_elapsed_ms = 0.0
         evidence_validation_elapsed_ms = 0.0
         collect_started = time.perf_counter()
         try:
-            if actual_pipeline_mode == "legacy":
-                options, warnings, candidate_fetches, terrain_diag, candidate_diag = await asyncio.wait_for(
-                    _collect_route_options_with_diagnostics(
-                        osrm=osrm,
-                        origin=req.origin,
-                        destination=req.destination,
-                        waypoints=req.waypoints,
-                        max_alternatives=route_alternatives,
-                        vehicle_type=req.vehicle_type,
-                        scenario_mode=req.scenario_mode,
-                        cost_toggles=req.cost_toggles,
-                        terrain_profile=req.terrain_profile,
-                        stochastic=req.stochastic,
-                        emissions_context=req.emissions_context,
-                        weather=req.weather,
-                        incident_simulation=req.incident_simulation,
-                        departure_time_utc=req.departure_time_utc,
-                        pareto_method=req.pareto_method,
-                        epsilon=req.epsilon,
-                        optimization_mode=req.optimization_mode,
-                        risk_aversion=req.risk_aversion,
-                        utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
-                        option_prefix="route",
-                        route_cache_runtime_out=route_cache_runtime,
-                        route_option_cache_runtime_out=route_option_cache_runtime,
-                        refinement_policy=str(req.refinement_policy or "").strip().lower(),
-                        search_budget=int(req.search_budget or 0),
-                        run_seed=int(run_seed),
-                        od_ambiguity_index=req.od_ambiguity_index,
-                        od_engine_disagreement_prior=req.od_engine_disagreement_prior,
-                        od_hard_case_prior=req.od_hard_case_prior,
-                        od_ambiguity_support_ratio=getattr(req, "od_ambiguity_support_ratio", None),
-                        od_ambiguity_source_entropy=getattr(req, "od_ambiguity_source_entropy", None),
-                        od_candidate_path_count=getattr(req, "od_candidate_path_count", None),
-                        od_corridor_family_count=getattr(req, "od_corridor_family_count", None),
-                        allow_supported_ambiguity_fast_fallback=True,
-                    ),
-                    timeout=timeout_s,
-                )
-                collect_candidates_elapsed_ms = (time.perf_counter() - collect_started) * 1000.0
-            else:
-                direct_result = await asyncio.wait_for(
-                    _compute_direct_route_pipeline(
-                        req=req,
-                        osrm=osrm,
-                        ors=ors,
-                        max_alternatives=route_alternatives,
-                        pipeline_mode=actual_pipeline_mode,
-                        run_seed=run_seed,
-                    ),
-                    timeout=timeout_s,
-                )
-                options = list(direct_result["candidates"])
-                warnings = list(direct_result["warnings"])
-                candidate_fetches = int(direct_result["candidate_fetches"])
-                terrain_diag = direct_result["terrain_diag"]
-                candidate_diag = direct_result["candidate_diag"]
-                selected = direct_result["selected"]
-                pareto_options = list(direct_result["candidates"])
-                selected_certificate = direct_result.get("selected_certificate")
-                voi_stop_summary = direct_result.get("voi_stop_summary")
-                extra_json_artifacts = direct_result.get("extra_json_artifacts")
-                extra_jsonl_artifacts = direct_result.get("extra_jsonl_artifacts")
-                extra_csv_artifacts = direct_result.get("extra_csv_artifacts")
-                extra_text_artifacts = direct_result.get("extra_text_artifacts")
-                collect_candidates_elapsed_ms = (time.perf_counter() - collect_started) * 1000.0
+            direct_result = await asyncio.wait_for(
+                _compute_direct_route_pipeline(
+                    req=req,
+                    osrm=osrm,
+                    ors=ors,
+                    max_alternatives=route_alternatives,
+                    pipeline_mode=actual_pipeline_mode,
+                    run_seed=run_seed,
+                ),
+                timeout=timeout_s,
+            )
+            options = list(direct_result["candidates"])
+            warnings = list(direct_result["warnings"])
+            candidate_fetches = int(direct_result["candidate_fetches"])
+            terrain_diag = direct_result["terrain_diag"]
+            candidate_diag = direct_result["candidate_diag"]
+            selected = direct_result["selected"]
+            pareto_options = list(direct_result["candidates"])
+            selected_certificate = direct_result.get("selected_certificate")
+            voi_stop_summary = direct_result.get("voi_stop_summary")
+            extra_json_artifacts = direct_result.get("extra_json_artifacts")
+            extra_jsonl_artifacts = direct_result.get("extra_jsonl_artifacts")
+            extra_csv_artifacts = direct_result.get("extra_csv_artifacts")
+            extra_text_artifacts = direct_result.get("extra_text_artifacts")
+            collect_candidates_elapsed_ms = (time.perf_counter() - collect_started) * 1000.0
         except asyncio.TimeoutError:
             _record_expected_calls_blocked(
                 reason_code="route_compute_timeout",
@@ -19098,9 +21526,6 @@ async def compute_route(
                 ),
             ) from None
 
-        if legacy_mode_warning is not None and legacy_mode_warning not in warnings:
-            warnings.append(legacy_mode_warning)
-
         if not options:
             strict_detail = _strict_failure_detail_from_outcome(
                 warnings=warnings,
@@ -19126,59 +21551,6 @@ async def compute_route(
                     warnings=warnings,
                 ),
             )
-
-        if actual_pipeline_mode == "legacy":
-            pareto_started = time.perf_counter()
-            legacy_strict_frontier = _strict_frontier_options(
-                options,
-                max_alternatives=route_alternatives,
-                pareto_method=req.pareto_method,
-                epsilon=req.epsilon,
-                optimization_mode=req.optimization_mode,
-                risk_aversion=req.risk_aversion,
-            )
-            if not legacy_strict_frontier:
-                raise HTTPException(
-                    status_code=422,
-                    detail=_strict_error_detail(
-                        reason_code="epsilon_infeasible",
-                        message="No routes satisfy epsilon constraints for this request.",
-                        warnings=warnings,
-                    ),
-                )
-            pareto_options = _finalize_pareto_options(
-                options,
-                max_alternatives=route_alternatives,
-                pareto_method=req.pareto_method,
-                epsilon=req.epsilon,
-                optimization_mode=req.optimization_mode,
-                risk_aversion=req.risk_aversion,
-            )
-            if not pareto_options:
-                raise HTTPException(
-                    status_code=422,
-                    detail=_strict_error_detail(
-                        reason_code="epsilon_infeasible",
-                        message="No routes satisfy epsilon constraints for this request.",
-                        warnings=warnings,
-                    ),
-            )
-            pareto_selection_elapsed_ms = (time.perf_counter() - pareto_started) * 1000.0
-
-            selected = _pick_best_option(
-                legacy_strict_frontier,
-                w_time=req.weights.time,
-                w_money=req.weights.money,
-                w_co2=req.weights.co2,
-                optimization_mode=req.optimization_mode,
-                risk_aversion=req.risk_aversion,
-            )
-            if all(option.id != selected.id for option in pareto_options):
-                pareto_options = [
-                    selected,
-                    *[option for option in pareto_options if option.id != selected.id],
-                ][:route_alternatives]
-            selected_certificate = selected.certification
 
         evidence_validation_started = time.perf_counter()
         evidence_validation = _validate_route_options_evidence(pareto_options)
@@ -19209,27 +21581,125 @@ async def compute_route(
         extra_json_artifacts = extra_json_artifacts or {}
         extra_jsonl_artifacts = extra_jsonl_artifacts or {}
         extra_json_artifacts["evidence_validation.json"] = evidence_validation
-        if actual_pipeline_mode == "legacy":
-            extra_jsonl_artifacts["strict_frontier.jsonl"] = _strict_frontier_rows_from_options(
-                list(legacy_strict_frontier or pareto_options),
-                selected_id=selected.id,
-                evidence_snapshot_hash="",
+        decision_package_artifact = (
+            extra_json_artifacts.get("decision_package.json")
+            if isinstance(extra_json_artifacts.get("decision_package.json"), Mapping)
+            else {}
+        )
+        world_support_summary = dict(
+            direct_result.get("world_support_summary")
+            if isinstance(direct_result, Mapping)
+            and isinstance(direct_result.get("world_support_summary"), Mapping)
+            else (
+                extra_json_artifacts.get("world_support_summary.json")
+                if isinstance(extra_json_artifacts.get("world_support_summary.json"), Mapping)
+                else {}
             )
-            extra_json_artifacts["final_route_trace.json"] = _legacy_final_route_trace(
-                selected=selected,
-                frontier_options=list(legacy_strict_frontier or pareto_options),
-                candidate_fetches=candidate_fetches,
-                candidate_diag=candidate_diag,
-                run_seed=int(run_seed),
-                stage_timings_ms={
-                    "collecting_candidates": collect_candidates_elapsed_ms,
-                    "pareto_selection": pareto_selection_elapsed_ms,
-                    "evidence_validation": evidence_validation_elapsed_ms,
-                    "total": (time.perf_counter() - t0) * 1000.0,
-                },
-                route_cache_runtime=route_cache_runtime,
-                route_option_cache_runtime=route_option_cache_runtime,
+        )
+        world_manifest_dict = dict(
+            direct_result.get("world_manifest")
+            if isinstance(direct_result, Mapping)
+            and isinstance(direct_result.get("world_manifest"), Mapping)
+            else {}
+        )
+        winner_confidence_state = (
+            direct_result.get("winner_confidence_state")
+            if isinstance(direct_result, Mapping)
+            else None
+        )
+        if winner_confidence_state is None and isinstance(
+            extra_json_artifacts.get("winner_confidence_state.json"), Mapping
+        ):
+            winner_confidence_state = extra_json_artifacts.get("winner_confidence_state.json")
+        pairwise_gap_payload = (
+            direct_result.get("pairwise_gap_states")
+            if isinstance(direct_result, Mapping)
+            else None
+        )
+        if pairwise_gap_payload is None and isinstance(
+            extra_json_artifacts.get("pairwise_gap_state.json"), Mapping
+        ):
+            pairwise_gap_payload = extra_json_artifacts["pairwise_gap_state.json"].get(
+                "pairwise_gap_states"
             )
+        pairwise_gap_states = list(pairwise_gap_payload or [])
+        flip_radius_state = (
+            direct_result.get("flip_radius_state")
+            if isinstance(direct_result, Mapping)
+            else None
+        )
+        if flip_radius_state is None and isinstance(
+            extra_json_artifacts.get("flip_radius_summary.json"), Mapping
+        ):
+            flip_radius_state = extra_json_artifacts.get("flip_radius_summary.json")
+        decision_region_state = (
+            direct_result.get("decision_region_state")
+            if isinstance(direct_result, Mapping)
+            else None
+        )
+        if decision_region_state is None and isinstance(
+            extra_json_artifacts.get("decision_region_summary.json"), Mapping
+        ):
+            decision_region_state = extra_json_artifacts.get("decision_region_summary.json")
+        certificate_witness = (
+            direct_result.get("certificate_witness")
+            if isinstance(direct_result, Mapping)
+            else None
+        )
+        if certificate_witness is None and isinstance(
+            extra_json_artifacts.get("certificate_witness.json"), Mapping
+        ):
+            certificate_witness = extra_json_artifacts.get("certificate_witness.json")
+        preference_state = (
+            direct_result.get("preference_state") if isinstance(direct_result, Mapping) else None
+        )
+        if preference_state is None and isinstance(
+            extra_json_artifacts.get("preference_state.json"), Mapping
+        ):
+            preference_state = extra_json_artifacts.get("preference_state.json")
+        preference_query_trace = dict(
+            direct_result.get("preference_query_trace")
+            if isinstance(direct_result, Mapping)
+            and isinstance(direct_result.get("preference_query_trace"), Mapping)
+            else (
+                extra_json_artifacts.get("preference_query_trace.json")
+                if isinstance(extra_json_artifacts.get("preference_query_trace.json"), Mapping)
+                else {}
+            )
+        )
+        certified_set_summary = dict(
+            direct_result.get("certified_set_summary")
+            if isinstance(direct_result, Mapping)
+            and isinstance(direct_result.get("certified_set_summary"), Mapping)
+            else (
+                extra_json_artifacts.get("certified_set_summary.json")
+                if isinstance(extra_json_artifacts.get("certified_set_summary.json"), Mapping)
+                else (
+                    decision_package_artifact.get("certified_set_summary")
+                    if isinstance(decision_package_artifact.get("certified_set_summary"), Mapping)
+                    else {}
+                )
+            )
+        )
+        strict_frontier = list(
+            direct_result.get("strict_frontier")
+            if isinstance(direct_result, Mapping)
+            and isinstance(direct_result.get("strict_frontier"), Sequence)
+            else []
+        )
+        if not strict_frontier:
+            strict_frontier = list(pareto_options)
+        if not world_manifest_dict and isinstance(decision_package_artifact, Mapping):
+            support_summary_payload = decision_package_artifact.get("support_summary")
+            if isinstance(support_summary_payload, Mapping):
+                world_manifest_dict = {
+                    "selected_certificate_basis": decision_package_artifact.get(
+                        "selected_certificate_basis"
+                    ),
+                    "world_count": support_summary_payload.get("world_count"),
+                    "unique_world_count": support_summary_payload.get("unique_world_count"),
+                    "world_reuse_rate": support_summary_payload.get("world_reuse_rate"),
+                }
 
         log_event(
             "route_request",
@@ -19328,16 +21798,45 @@ async def compute_route(
             extra_text_artifacts=extra_text_artifacts,
         )
 
+        support_state_payload = (
+            dict(world_support_summary.get("support_state", {}))
+            if isinstance(world_support_summary, Mapping)
+            and isinstance(world_support_summary.get("support_state"), Mapping)
+            else {}
+        )
+        support_flag = world_support_summary.get("support_flag") if isinstance(world_support_summary, Mapping) else None
+        if support_flag is None:
+            support_flag = support_state_payload.get("support_flag")
+        support_reason = (
+            world_support_summary.get("support_reason") if isinstance(world_support_summary, Mapping) else None
+        )
+        if support_reason is None:
+            support_reason = support_state_payload.get("out_of_support_reason")
+        if preference_state is None:
+            frontier_route_ids = [option.id for option in strict_frontier] or [option.id for option in pareto_options]
+            preference_state = build_preference_state(
+                route_ids=frontier_route_ids or [selected.id],
+                weights={
+                    "time": float(req.weights.time),
+                    "money": float(req.weights.money),
+                    "co2": float(req.weights.co2),
+                },
+                support_flag=support_flag,
+                support_reason=str(support_reason).strip() or None if support_reason is not None else None,
+            )
+
         certified_set, abstention = _route_terminal_fields(
             selected_certificate=selected_certificate,
             voi_stop_summary=voi_stop_summary,
             strict_frontier=strict_frontier,
+            support_flag=support_flag,
+            support_reason=str(support_reason).strip() or None if support_reason is not None else None,
         )
-        route_response = RouteResponse(
+        return _assemble_decision_package(
             selected=selected,
             candidates=pareto_options,
             run_id=str(route_run["run_id"]),
-            pipeline_mode=actual_pipeline_mode,  # type: ignore[arg-type]
+            pipeline_mode=str(actual_pipeline_mode),
             manifest_endpoint=str(route_run["manifest_endpoint"]),
             artifacts_endpoint=str(route_run["artifacts_endpoint"]),
             provenance_endpoint=str(route_run["provenance_endpoint"]),
@@ -19346,12 +21845,17 @@ async def compute_route(
             preference_state=preference_state,
             preference_query_trace=preference_query_trace,
             world_support_summary=world_support_summary,
+            world_manifest=world_manifest_dict,
+            winner_confidence_state=winner_confidence_state,
+            pairwise_gap_states=pairwise_gap_states,
+            selector_config=None,
+            flip_radius_state=flip_radius_state,
+            decision_region_state=decision_region_state,
+            certificate_witness=certificate_witness,
             certified_set=certified_set,
+            certified_set_summary=certified_set_summary,
             abstention=abstention,
         )
-        if abstention is not None:
-            route_response.certified_set = []
-        return route_response
     except HTTPException as e:
         has_error = True
         detail_obj = e.detail if isinstance(e.detail, dict) else None
@@ -19399,6 +21903,23 @@ async def compute_route(
         )
         reset_live_call_trace(trace_token)
         _record_endpoint_metric("route", t0, error=has_error)
+
+
+@app.post("/route/preference", response_model=PreferenceRuntimeUpdateResponse)
+async def update_route_preference_runtime(
+    req: PreferenceRuntimeUpdateRequest,
+    _: UserAccessDep,
+) -> PreferenceRuntimeUpdateResponse:
+    try:
+        return apply_preference_runtime_update(req)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason_code": "preference_runtime_invalid_update",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @app.post("/route/baseline", response_model=RouteBaselineResponse)
@@ -20800,6 +23321,31 @@ def _route_routes_geojson(
     return {"type": "FeatureCollection", "features": features}
 
 
+def _route_json_artifact_payload(
+    payload: dict[str, Any] | list[Any],
+    *,
+    artifact_name: str,
+    provenance_context: Mapping[str, Any],
+) -> dict[str, Any] | list[Any]:
+    if not isinstance(payload, Mapping):
+        return payload
+    enriched = dict(payload)
+    existing_provenance = (
+        dict(enriched.get("artifact_provenance"))
+        if isinstance(enriched.get("artifact_provenance"), Mapping)
+        else {}
+    )
+    enriched["artifact_provenance"] = {
+        **existing_provenance,
+        **build_route_artifact_provenance(
+            artifact_name,
+            context=provenance_context,
+            payload_schema_version=payload_schema_version_for_artifact(artifact_name, enriched),
+        ),
+    }
+    return enriched
+
+
 def _write_route_run_bundle(
     *,
     req: RouteRequest,
@@ -20819,6 +23365,35 @@ def _write_route_run_bundle(
     extra_text_artifacts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     run_id = str(uuid.uuid4())
+    sampled_world_manifest_payload = (
+        dict((extra_json_artifacts or {}).get("sampled_world_manifest.json"))
+        if isinstance((extra_json_artifacts or {}).get("sampled_world_manifest.json"), Mapping)
+        else None
+    )
+    world_support_summary_payload = (
+        dict((extra_json_artifacts or {}).get("world_support_summary.json"))
+        if isinstance((extra_json_artifacts or {}).get("world_support_summary.json"), Mapping)
+        else None
+    )
+    final_route_trace_payload = (
+        dict((extra_json_artifacts or {}).get("final_route_trace.json"))
+        if isinstance((extra_json_artifacts or {}).get("final_route_trace.json"), Mapping)
+        else None
+    )
+    decision_package_payload = (
+        dict((extra_json_artifacts or {}).get("decision_package.json"))
+        if isinstance((extra_json_artifacts or {}).get("decision_package.json"), Mapping)
+        else None
+    )
+    route_provenance_context = build_route_artifact_provenance_context(
+        run_id=run_id,
+        pipeline_mode=pipeline_mode,
+        run_seed=run_seed,
+        decision_package=decision_package_payload,
+        world_support_summary=world_support_summary_payload,
+        final_route_trace=final_route_trace_payload,
+        sampled_world_manifest=sampled_world_manifest_payload,
+    )
     manifest_payload = {
         "schema_version": "1.0.0",
         "type": "route_compute",
@@ -20851,7 +23426,15 @@ def _write_route_run_bundle(
         "warnings": list(warnings),
         "candidate_diagnostics": candidate_diag.__dict__,
     }
-    write_json_artifact(run_id, "results.json", results_payload)
+    write_json_artifact(
+        run_id,
+        "results.json",
+        _route_json_artifact_payload(
+            results_payload,
+            artifact_name="results.json",
+            provenance_context=route_provenance_context,
+        ),
+    )
     results_rows = _route_results_csv_rows(req, candidates, selected_id=selected.id)
     write_csv_artifact(
         run_id,
@@ -20876,7 +23459,11 @@ def _write_route_run_bundle(
     write_json_artifact(
         run_id,
         "routes.geojson",
-        _route_routes_geojson(req, candidates, selected_id=selected.id),
+        _route_json_artifact_payload(
+            _route_routes_geojson(req, candidates, selected_id=selected.id),
+            artifact_name="routes.geojson",
+            provenance_context=route_provenance_context,
+        ),
     )
     write_csv_artifact(
         run_id,
@@ -20896,7 +23483,15 @@ def _write_route_run_bundle(
     )
 
     for artifact_name, payload in (extra_json_artifacts or {}).items():
-        write_json_artifact(run_id, artifact_name, payload)
+        write_json_artifact(
+            run_id,
+            artifact_name,
+            _route_json_artifact_payload(
+                payload,
+                artifact_name=artifact_name,
+                provenance_context=route_provenance_context,
+            ),
+        )
     for artifact_name, rows in (extra_jsonl_artifacts or {}).items():
         write_jsonl_artifact(run_id, artifact_name, rows)
     for artifact_name, payload in (extra_csv_artifacts or {}).items():
@@ -20922,8 +23517,17 @@ def _write_route_run_bundle(
         "candidate_count": len(candidates),
         "warning_count": len(warnings),
         "duration_ms": round(float(duration_ms), 3),
+        "artifact_provenance_context": route_provenance_context,
     }
-    write_json_artifact(run_id, "metadata.json", metadata_payload)
+    write_json_artifact(
+        run_id,
+        "metadata.json",
+        _route_json_artifact_payload(
+            metadata_payload,
+            artifact_name="metadata.json",
+            provenance_context=route_provenance_context,
+        ),
+    )
 
     provenance_events = [
         provenance_event(
@@ -21437,6 +24041,7 @@ async def batch_pareto(req: BatchParetoRequest, osrm: OSRMDep, _: UserAccessDep)
         metadata_payload = {
             "run_id": run_id,
             "schema_version": "1.0.0",
+            "type": "batch_pareto",
             "manifest_endpoint": f"/runs/{run_id}/manifest",
             "artifacts_endpoint": f"/runs/{run_id}/artifacts",
             "provenance_endpoint": f"/runs/{run_id}/provenance",

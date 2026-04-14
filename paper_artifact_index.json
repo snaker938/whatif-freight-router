@@ -1,53 +1,388 @@
 {
   "schema_version": "paper_artifact_index.v1",
   "status": "current_checked_local_slice",
-  "scope": "Current reviewer-facing headline table and figure source artifacts backed by checked local thesis bundles.",
+  "scope": "Current checked local paper table and figure source artifact inventory, including reviewer-facing headline surfaces and supporting non-headline paper surfaces backed by checked local thesis bundles.",
   "notes": [
     "This index is conservative. It only lists checked local artifact files that exist in the repository workspace.",
-    "Entries in this slice point to CSV or JSON source artifacts and do not imply that every headline surface already has a checked rendered PDF or SVG export.",
-    "The quickstart command block at docs/reviewer_quickstart.md#headline-table-and-figure-commands directly materializes the four focused-VOI table and figure surfaces indexed in this file. The additional report-table entries below are checked source anchors that currently require direct bundle inspection rather than that narrow export block."
+    "Headline surfaces in this slice, plus the indexed focused-VOI and latest-checked-campaign cohort/support-bin composition tables, now have checked SVG, PDF, print-ready HTML, co-packaged CSV/JSON source companions, and co-packaged JSON provenance companions under out/headline_exports/current_checked/. The same reviewer-package boundary now also carries checked local companion bundles for the full-suite verdict, the broad-cold runtime-observability lane, threshold-sensitivity lane, optional-stopping lane, perturbation lane, and public-transfer lane under out/headline_exports/current_checked/.",
+    "Checked local companion bundles now exist for the threshold_sensitivity, broad_cold_proof runtime-observability, optional_stopping_coverage, perturbation_flip_radius, and public_transfer suite roles. The threshold bundle backs the one-factor-at-a-time sweep surfaces for certificate threshold, fast-path threshold, and certified-set cap; the broad-cold bundle backs the runtime quantiles, action-family budget-share surfaces, and stage-timing surfaces; the optional-stopping bundle backs the route-level CS method/delta, validity, and lane-size proof surfaces; the perturbation bundle backs the real-lane and exact-synthetic flip-radius proof surfaces; and the public-transfer bundle backs both the leave-one-corridor-family-out and leave-one-weather-regime-out transfer slices. These checked bundles prove the evaluator surfaces exist, but they do not by themselves close the corresponding G11 or P14 gates unless the emitted metrics are green.",
+    "The quickstart command sections at docs/reviewer_quickstart.md#focused-voi-headline-table-and-figure-commands, docs/reviewer_quickstart.md#focused-voi-additional-table-commands, docs/reviewer_quickstart.md#latest-checked-campaign-table-and-figure-commands, docs/reviewer_quickstart.md#checked-full-suite-verdict-companion, docs/reviewer_quickstart.md#checked-threshold-sensitivity-lane, docs/reviewer_quickstart.md#checked-optional-stopping-coverage-lane, docs/reviewer_quickstart.md#checked-perturbation-flip-radius-lane, docs/reviewer_quickstart.md#checked-public-transfer-lane, docs/reviewer_quickstart.md#checked-runtime-observability-lane, and docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands now give one documented command block for every indexed headline table and figure source surface in this slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables, the runtime-observability reviewer surfaces, and the checked reviewer-package companion bundles.",
+    "The index now distinguishes reviewer-facing headline surfaces from supporting non-headline paper surfaces while keeping all entries in one machine-readable artifact-path ledger.",
+    "The checked focused-VOI bundle at backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/ now also carries additively backfilled index.json and index.md as bundle-level inspection entrypoints for artifact presence and export-status checks only. Those files do not create new table or figure surfaces and do not imply committed PDF or SVG renders.",
+    "The focused-VOI checked bundle indexed here was additively refreshed on 2026-04-11, but its evaluation_manifest.json still records headline_seed_repeat_required=true, configured_seed_count=1, and status=single_seed_only. This local index does not treat that slice as repeated-seed headline evidence.",
+    "A newer checked full-suite assessment bundle exists as full_suite_curated_latest_20260411. The reviewer export helper now stages a checked local companion copy under out/headline_exports/current_checked/full_suite_curated_latest_20260411/ and indexes that local copy as a reviewer-package companion bundle.",
+    "That companion now records the current full-suite verdict directly: publishability_verdict.json reports publishable_on_current_evidence=false and adoption_claim_supported=false, with fairness_failure_count=0, sample_size_failure_count=0, optional_stopping_gate_failure_count=0, perturbation_gate_failure_count=0, hot_rerun_all_green=false, and publishability_blockers = [hot_rerun_reuse_gates_not_all_green, dccs_hard_gates_not_all_green, refine_cost_forecast_gates_not_all_green, voi_hard_gates_not_all_green]. Its sample-size companion records the maintained row-count requirements for preference proof, optional-stopping coverage, perturbation / flip-radius, and proxy-audit calibration from direct observed counts rather than synthesized lower bounds.",
+    "The latest checked campaign-backed reviewer slice still includes a failed baseline_fairness_audit.json surface. That older campaign-backed fairness failure remains relevant to the local reviewer package, but it should not be confused with the newer full-suite assessment, which reports fairness_failure_count=0 while still remaining non-publishable because hot_rerun_all_green=false and the suite-level blocker list remains non-empty. The fairness slice is explicit as older campaign evidence, while the broader suite-level publication verdict now comes from the newer full-suite companion bundle."
+  ],
+  "inventory_sections": [
+    {
+      "section_id": "headline_surfaces",
+      "title": "Reviewer-facing headline paper surfaces",
+      "surface_ids": [
+        "table.focused_voi.variant_summary",
+        "table.focused_voi.cohort_summary",
+        "table.latest_checked_campaign.summary_and_metrics",
+        "figure.focused_voi.certificate_vs_variant",
+        "figure.focused_voi.runtime_vs_variant",
+        "figure.latest_checked_campaign.gain_vs_v0",
+        "figure.latest_checked_campaign.run_validity",
+        "figure.latest_checked_campaign.baseline_smoke",
+        "figure.latest_checked_campaign.certificate_margin_vs_variant",
+        "figure.latest_checked_campaign.ambiguity_alignment_vs_variant",
+        "figure.latest_checked_campaign.cohort_composition",
+        "figure.latest_checked_campaign.performance_vs_variant",
+        "figure.latest_checked_campaign.runtime_distribution_vs_variant",
+        "figure.latest_checked_campaign.runtime_breakdown_vs_variant",
+        "figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage",
+        "table.latest_checked_campaign.runtime_observability_summary",
+        "table.latest_checked_campaign.runtime_action_observability_summary",
+        "table.latest_checked_campaign.runtime_stage_quantiles",
+        "figure.latest_checked_campaign.controller_refresh_split_vs_variant",
+        "figure.latest_checked_campaign.hard_case_transfer_vs_variant",
+        "figure.latest_checked_campaign.win_rate_vs_variant",
+        "figure.latest_checked_campaign.startup_and_warmup"
+      ]
+    },
+    {
+      "section_id": "supporting_non_headline_surfaces",
+      "title": "Supporting non-headline paper surfaces",
+      "surface_ids": [
+        "table.focused_voi.cohort_support_composition",
+        "table.latest_checked_campaign.cohort_support_composition",
+        "table.latest_checked_campaign.runtime_observability_summary",
+        "table.latest_checked_campaign.runtime_action_observability_summary",
+        "lane.latest_checked_campaign.baseline_fairness_audit",
+        "table.focused_voi.aggregate_variant_evidence",
+        "table.focused_voi.preference_burden_summary",
+        "table.focused_voi.preference_burden_by_cohort"
+      ]
+    },
+    {
+      "section_id": "reviewer_package_companions",
+      "title": "Reviewer-package companion bundles",
+      "surface_ids": [
+        "bundle.full_suite_curated_latest_20260411.verdict_bundle",
+        "bundle.full_suite_curated_latest_20260411.threshold_sensitivity_bundle",
+        "bundle.full_suite_curated_latest_20260411.optional_stopping_bundle",
+        "bundle.full_suite_curated_latest_20260411.perturbation_bundle",
+        "bundle.full_suite_curated_latest_20260411.public_transfer_bundle",
+        "bundle.full_suite_curated_latest_20260411.hot_rerun_bundle"
+      ]
+    }
   ],
   "surfaces": [
     {
+      "surface_id": "bundle.full_suite_curated_latest_20260411.verdict_bundle",
+      "surface_type": "bundle",
+      "title": "Checked full-suite publishability/adoption verdict companion bundle",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/index.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/index.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_assessment.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/headline_seed_claims_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/headline_seed_claims_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas_lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/universal_baseline_audit.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/universal_baseline_audit.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/suite_sources.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/suite_progress.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.md"
+      ],
+      "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411",
+      "export_formats_available": [
+        "json",
+        "md",
+        "csv"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#checked-full-suite-verdict-companion",
+      "status_note": "Backs the current checked suite-level publishability/adoption judgment inside the maintained reviewer package. This companion copies the checked full-suite assessment bundle into out/headline_exports/current_checked/full_suite_curated_latest_20260411/ and currently preserves `publishable_on_current_evidence = false`, `adoption_claim_supported = false`, `sample_size_failure_count = 0`, `optional_stopping_gate_failure_count = 0`, `perturbation_gate_failure_count = 0`, and the blocker list `hot_rerun_reuse_gates_not_all_green`, `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, `voi_hard_gates_not_all_green` together with the lane publishability summary, sample-size gates, headline-seed claim summary, failure atlas, failure-atlas lane metadata, universal baseline audit, lane artifact-generation summary, and the copied OSRM/ORS baseline identity manifests. The canonical `G11.17-G11.21`, `G11.54`, and `G11.55` readings live in the copied `lane_publishability_summary.*` and `sample_size_gate_summary.*` files."
+    },
+    {
+      "surface_id": "bundle.full_suite_curated_latest_20260411.threshold_sensitivity_bundle",
+      "surface_type": "bundle",
+      "title": "Checked threshold-sensitivity lane companion bundle",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/index.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/index.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_report.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/cohort_composition.json"
+      ],
+      "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_threshold_sensitivity",
+      "export_formats_available": [
+        "json",
+        "md",
+        "csv"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#checked-threshold-sensitivity-lane",
+      "status_note": "Backs the checked threshold-sensitivity evaluator lane inside the maintained reviewer package. The copied lane metadata records role=threshold_sensitivity and the one-factor-at-a-time sweep axes for certificate threshold, low-ambiguity fast-path threshold, and certified-set cap. This companion proves the lane exists and emits its summary/report/plot surfaces; it does not by itself close the corresponding G11 or P14 gates."
+    },
+    {
+      "surface_id": "bundle.full_suite_curated_latest_20260411.optional_stopping_bundle",
+      "surface_type": "bundle",
+      "title": "Checked optional-stopping coverage lane companion bundle",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/index.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/index.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_metrics.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/cohort_composition.json"
+      ],
+      "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_optional_stopping_coverage",
+      "export_formats_available": [
+        "json",
+        "md",
+        "csv"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#checked-optional-stopping-coverage-lane",
+      "status_note": "Backs the checked optional-stopping evaluator lane inside the maintained reviewer package. The copied lane metadata records role=optional_stopping_coverage, focus=refc, and the maintained `G11.54` lane-size contract (`samples >= 30000`). The lane companion proves the evaluator artifacts exist locally, while the canonical `G11.17-G11.19` and `G11.54` gate readings live in the copied full-suite `lane_publishability_summary.*` and `sample_size_gate_summary.*` files."
+    },
+    {
+      "surface_id": "bundle.full_suite_curated_latest_20260411.perturbation_bundle",
+      "surface_type": "bundle",
+      "title": "Checked perturbation / flip-radius lane companion bundle",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/index.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/index.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_metrics.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/cohort_composition.json"
+      ],
+      "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_perturbation_flip_radius",
+      "export_formats_available": [
+        "json",
+        "md",
+        "csv"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#checked-perturbation-flip-radius-lane",
+      "status_note": "Backs the checked perturbation / flip-radius evaluator lane inside the maintained reviewer package. The copied lane metadata records role=perturbation_flip_radius and the maintained `G11.55` compound lane-size contract (`>= 30` real rows and `>= 500` exact synthetic worlds). The lane companion proves the evaluator artifacts exist locally, while the canonical `G11.20`, `G11.21`, and `G11.55` gate readings live in the copied full-suite `lane_publishability_summary.*` and `sample_size_gate_summary.*` files."
+    },
+    {
+      "surface_id": "bundle.full_suite_curated_latest_20260411.public_transfer_bundle",
+      "surface_type": "bundle",
+      "title": "Checked public-transfer lane companion bundle",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/index.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/index.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/cohort_composition.json"
+      ],
+      "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_public_transfer",
+      "export_formats_available": [
+        "json",
+        "md",
+        "csv"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#checked-public-transfer-lane",
+      "status_note": "Backs the checked public-transfer evaluator lane inside the maintained reviewer package. The copied lane metadata records both the leave-one-corridor-family-out transfer slice and the leave-one-weather-regime-out holdout slice. This companion proves those transfer-generalization surfaces exist locally, and the current checked lane metadata records `row_count = 52`, which clears the maintained `G11.52` minimum row count of `50`."
+    },
+    {
+      "surface_id": "bundle.full_suite_curated_latest_20260411.hot_rerun_bundle",
+      "surface_type": "bundle",
+      "title": "Checked hot-rerun pair-benchmark runtime-observability companion bundle",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/index.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/index.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/baseline_smoke_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/baseline_smoke_summary.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_gate.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_gate.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_report.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_vs_cold_comparison.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_vs_cold_comparison.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_vs_cold_comparison.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/lane_metadata.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/metadata.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/methods_appendix.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/results.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_metrics.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_metrics.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_plots.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_report.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_summary.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_summary_by_cohort.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_summary_by_cohort.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_summary_by_cohort.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_results.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/thesis_results.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/cohort_composition.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/cohort_composition.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/od_corpus.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/od_corpus.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/od_corpus.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/od_corpus_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/od_corpus_summary.summary.md"
+      ],
+      "origin_bundle_path": "backend/out/artifacts/full_suite_curated_latest_20260411_hot_rerun_pair_hot",
+      "export_formats_available": [
+        "json",
+        "md",
+        "csv"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#checked-hot-rerun-benchmark-companion",
+      "status_note": "Backs the checked hot-rerun pair-benchmark bundle inside the maintained reviewer package. The copied bundle exposes runtime-observability and reuse surfaces including hot-rerun gate checks, hot-versus-cold comparison rows, lane metadata, thesis metrics, thesis plots, and thesis report artifacts. This staged companion is sourced from the repo-local `backend/out/artifacts/full_suite_curated_latest_20260411_hot_rerun_pair_hot/` bundle, whose copied `hot_rerun_gate.json` currently records `all_green = true` with populated `controller_reuse_reporting`. It is a separate runtime-observability proof surface and does not override the full-suite verdict companion, which still records `hot_rerun_reuse_gates_not_all_green` in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`."
+    },
+    {
       "surface_id": "table.focused_voi.variant_summary",
       "surface_type": "table",
-      "title": "Focused VOI variant summary table",
+      "title": "Focused VOI certification-facing variant summary table",
       "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
       "source_files": [
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.csv",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
       ],
-      "rendered_outputs": [],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.focused_voi.variant_summary.svg",
+        "out/headline_exports/current_checked/table.focused_voi.variant_summary.pdf",
+        "out/headline_exports/current_checked/table.focused_voi.variant_summary.print.html"
+      ],
       "export_formats_available": [
         "csv",
-        "json"
+        "json",
+        "svg",
+        "pdf",
+        "html"
       ],
-      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
-      "status_note": "Checked local CSV and JSON sources exist. No committed PDF or SVG render is claimed for this slice."
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Checked local CSV and JSON sources exist. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.variant_summary.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.variant_summary.provenance.json"
+      ]
     },
     {
       "surface_id": "table.focused_voi.cohort_summary",
       "surface_type": "table",
-      "title": "Focused VOI cohort summary table",
+      "title": "Focused VOI certification-facing cohort summary table",
       "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
       "source_files": [
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.csv",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.json",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/cohort_composition.json"
       ],
-      "rendered_outputs": [],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.focused_voi.cohort_summary.svg",
+        "out/headline_exports/current_checked/table.focused_voi.cohort_summary.pdf",
+        "out/headline_exports/current_checked/table.focused_voi.cohort_summary.print.html"
+      ],
       "export_formats_available": [
         "csv",
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Checked local cohort-level CSV and JSON sources exist. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.cohort_summary.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.cohort_summary.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.focused_voi.cohort_support_composition",
+      "surface_type": "table",
+      "title": "Focused VOI certification-facing cohort/support-bin composition table",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/cohort_composition.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.focused_voi.cohort_support_composition.svg",
+        "out/headline_exports/current_checked/table.focused_voi.cohort_support_composition.pdf",
+        "out/headline_exports/current_checked/table.focused_voi.cohort_support_composition.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the explicit focused-VOI cohort/support-bin composition table for the maintained reviewer package. Counts come directly from cohort_composition.json and preserve lane-total plus per-variant row counts across cohort and support-bin families. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.cohort_support_composition.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.cohort_support_composition.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "lane.latest_checked_campaign.baseline_fairness_audit",
+      "surface_type": "lane_metadata",
+      "title": "Latest checked campaign baseline-fairness audit lane metadata",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_lane_metadata.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [],
+      "export_formats_available": [
         "json"
       ],
-      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
-      "status_note": "Checked local cohort-level CSV and JSON sources exist. This slice does not claim a committed rendered figure."
+      "quickstart_reference": "docs/reviewer_quickstart.md#latest-checked-campaign-table-and-figure-commands",
+      "status_note": "Names the checked baseline-fairness audit lane for the maintained headline OSRM/ORS comparison slice. The lane verifies matched OD, departure, vehicle, restrictions, and route-feasibility context through baseline_fairness_audit.json. The current checked slice is not green: the lane status is failed because the preserved OSRM comparator uses car.lua while ORS uses driving-hgv, the checked OSRM surface does not preserve a matched freight-restriction contract, and four cardiff_bath comparison rows fail route_evidence_ok with routing_graph_disconnected_od."
     },
     {
       "surface_id": "table.focused_voi.aggregate_variant_evidence",
       "surface_type": "table",
-      "title": "Focused VOI aggregate variant evidence table",
+      "title": "Focused VOI certification-facing aggregate variant evidence table",
       "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
       "source_files": [
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.csv",
@@ -55,68 +390,765 @@
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_metrics.json",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
       ],
-      "rendered_outputs": [],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.focused_voi.aggregate_variant_evidence.svg",
+        "out/headline_exports/current_checked/table.focused_voi.aggregate_variant_evidence.pdf",
+        "out/headline_exports/current_checked/table.focused_voi.aggregate_variant_evidence.print.html"
+      ],
       "export_formats_available": [
         "csv",
-        "json"
+        "json",
+        "svg",
+        "pdf",
+        "html"
       ],
-      "quickstart_reference": "docs/reviewer_quickstart.md#current-checked-reviewer-bundle",
-      "status_note": "Backs the later focused-VOI aggregate variant evidence table in docs/thesis-codebase-report.md around line 2561. Checked local summary and metrics artifacts exist. No committed PDF or SVG render is claimed for this slice."
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the later focused-VOI aggregate variant evidence table in docs/thesis-codebase-report.md around line 2561. Checked local summary and metrics artifacts exist, and the export helper now stages a checked SVG, PDF, print-ready HTML, source companion, and provenance companion for this surface. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.aggregate_variant_evidence.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.aggregate_variant_evidence.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.focused_voi.preference_burden_summary",
+      "surface_type": "table",
+      "title": "Focused VOI certification-facing preference-burden summary table",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.csv",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_summary.svg",
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_summary.pdf",
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_summary.print.html"
+      ],
+      "export_formats_available": [
+        "csv",
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Indexes the focused-VOI single-bundle preference-burden aggregate source surface in thesis_summary.*. The maintained fields are median_preference_query_count, p90_preference_query_count, max_preference_query_count, preference_certification_success_rate, and the budget-utilization proxies used in the current checked bundle. The current checked focused-VOI bundle now carries populated burden rows with zero query counts on the available rows, and the export helper stages a checked SVG, PDF, print-ready HTML, source companion, and provenance companion for this surface. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_summary.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_summary.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.focused_voi.preference_burden_by_cohort",
+      "surface_type": "table",
+      "title": "Focused VOI certification-facing preference-burden by-cohort table",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.csv",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.svg",
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.pdf",
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.print.html"
+      ],
+      "export_formats_available": [
+        "csv",
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Indexes the focused-VOI cohort-split preference-burden source surface in thesis_summary_by_cohort.* for slices such as preference_sensitive when present. The maintained fields are median_preference_query_count, p90_preference_query_count, max_preference_query_count, preference_certification_success_rate, and the available budget-utilization proxies. The current checked focused-VOI bundle now carries populated burden rows with zero query counts on the available rows, and the export helper stages a checked SVG, PDF, print-ready HTML, source companion, and provenance companion for this surface. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.latest_checked_campaign.runtime_observability_summary",
+      "surface_type": "table",
+      "title": "Latest checked campaign runtime-observability summary table",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_observability_summary.svg",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_observability_summary.pdf",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_observability_summary.print.html"
+      ],
+      "export_formats_available": [
+        "csv",
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the runtime-observability summary for the staged full-suite broad-cold proof bundle. It reports the checked runtime quantiles, p90 RSS/VMS plus max RSS/VMS memory surfaces, search/evidence budget-utilization proxies, and the available low-ambiguity fast-path rates from the full-suite lane summary. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_observability_summary.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_observability_summary.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.latest_checked_campaign.runtime_action_observability_summary",
+      "surface_type": "table",
+      "title": "Latest checked campaign runtime-action observability summary table",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_summary.csv",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_action_observability_summary.svg",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_action_observability_summary.pdf",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_action_observability_summary.print.html"
+      ],
+      "export_formats_available": [
+        "csv",
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs The runtime-action observability summary for the staged full-suite broad-cold proof bundle. It reports the checked runtime mean, search/evidence budget-used and budget-utilization proxies, action-family budget shares, VOI action-family counts, exact fast-path precision/recall with denominators, and the available low-ambiguity fast-path rates from the full-suite lane summary. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_action_observability_summary.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_action_observability_summary.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.latest_checked_campaign.runtime_stage_quantiles",
+      "surface_type": "table",
+      "title": "Latest checked campaign runtime stage quantiles table",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_stage_quantiles.svg",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_stage_quantiles.pdf",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_stage_quantiles.print.html"
+      ],
+      "export_formats_available": [
+        "csv",
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the per-stage runtime p50/p90/p95 proof surface for the staged full-suite broad-cold proof bundle. It aggregates stage timings from thesis_results.json into a reviewer-readable quantile table. The checked bundle does not persist artifact-generation time, so that metric is not claimed here. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_stage_quantiles.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.runtime_stage_quantiles.provenance.json"
+      ]
     },
     {
       "surface_id": "table.latest_checked_campaign.summary_and_metrics",
       "surface_type": "table",
-      "title": "Latest checked campaign summary and metrics table",
+      "title": "Latest checked campaign certification-facing summary and metrics table",
       "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
       "source_files": [
         "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_report.md",
         "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
         "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.csv",
         "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.json",
-        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json"
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json"
       ],
-      "rendered_outputs": [],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.summary_and_metrics.svg",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.summary_and_metrics.pdf",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.summary_and_metrics.print.html"
+      ],
       "export_formats_available": [
         "md",
         "csv",
-        "json"
+        "json",
+        "svg",
+        "pdf",
+        "html"
       ],
-      "quickstart_reference": "docs/reviewer_quickstart.md#notes",
-      "status_note": "Backs the latest checked campaign summary-and-metrics table in docs/thesis-codebase-report.md around line 2487. Checked local campaign markdown, JSON, and tranche summary artifacts exist. No committed PDF or SVG render is claimed for this slice."
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the latest checked campaign summary-and-metrics table in docs/thesis-codebase-report.md around line 2487. Checked local campaign markdown, JSON, tranche summary artifacts, preserved OSRM/ORS baseline identity manifests, and an explicit baseline fairness audit exist. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.summary_and_metrics.source.csv"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.summary_and_metrics.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.runtime_distribution_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign runtime-distribution-versus-variant figure source",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/evaluation_manifest.json"
+      ],
+      "source_selector": "$.runtime_distribution_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_distribution_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_distribution_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_distribution_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the runtime p50/p90/p95 and max RSS/VMS observability metrics cited in the staged full-suite broad-cold proof bundle. The checked local source is plot-ready JSON from the full-suite lane bundle, additively enriched from row-level thesis_results.json where the staged summary bundle predates the max-memory field. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_distribution_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_distribution_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.runtime_breakdown_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign runtime-breakdown-versus-variant figure source",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_plots.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/evaluation_manifest.json"
+      ],
+      "source_selector": "$.performance_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_breakdown_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_breakdown_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_breakdown_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the per-stage runtime breakdown and runtime-utilization proxy metrics in the staged full-suite broad-cold proof bundle. The checked local source is plot-ready JSON from the full-suite lane bundle. It surfaces stage timings, runtime-per-candidate style metrics, p90 RSS/VMS plus max RSS/VMS memory fields, search/evidence budget-utilization proxies, exact fast-path precision/recall denominators, and the available low-ambiguity fast-path rate/fallback metrics. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_breakdown_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_breakdown_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage",
+      "surface_type": "figure",
+      "title": "Latest checked campaign runtime-stage-quantiles-versus-stage figure source",
+      "bundle_path": "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof",
+      "source_files": [
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/evaluation_manifest.json"
+      ],
+      "source_selector": "$.runtime_stage_quantiles_vs_stage",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the per-stage runtime p50/p90/p95 proof surface for the staged full-suite broad-cold proof bundle. It aggregates stage timings from thesis_results.json into a reviewer-readable stage-quantile figure. The checked bundle does not persist artifact-generation time, so that metric is not claimed here. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "table.latest_checked_campaign.cohort_support_composition",
+      "surface_type": "table",
+      "title": "Latest checked campaign certification-facing cohort/support-bin composition table",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/cohort_composition.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/results.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.cohort_support_composition.svg",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.cohort_support_composition.pdf",
+        "out/headline_exports/current_checked/table.latest_checked_campaign.cohort_support_composition.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the explicit latest checked campaign cohort/support-bin composition table for the maintained reviewer package. Cohort counts come from cohort_composition.json, while support-bin counts are derived from checked results.json support_richness rows when the checked campaign composition artifact preserves cohort counts only. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.cohort_support_composition.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/table.latest_checked_campaign.cohort_support_composition.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.gain_vs_v0",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing delta-versus-V0 figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json"
+      ],
+      "source_selector": "$.gain_vs_v0",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.gain_vs_v0.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.gain_vs_v0.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.gain_vs_v0.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the gain-versus-V0 metrics cited in docs/thesis-codebase-report.md around lines 2499 and 2502, including the certificate-availability-gain-versus-V0 submetric. This selector remains V0-relative only and does not claim adjacent non-V0 metrics from those report lines. The checked local source is plot-ready JSON from the latest checked campaign tranche, with attached OSRM/ORS baseline identity manifests and an explicit baseline fairness audit. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.gain_vs_v0.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.gain_vs_v0.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.run_validity",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing run-validity figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json"
+      ],
+      "source_selector": "$.run_validity",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.run_validity.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.run_validity.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.run_validity.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the run-validity metrics cited in docs/thesis-codebase-report.md around line 2502. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.run_validity.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.run_validity.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.baseline_smoke",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing baseline-smoke figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json"
+      ],
+      "source_selector": "$.baseline_smoke",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.baseline_smoke.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.baseline_smoke.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.baseline_smoke.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the baseline-smoke metrics cited in docs/thesis-codebase-report.md around line 2503. The checked local source is plot-ready JSON from the latest checked campaign tranche, with attached OSRM/ORS baseline identity manifests and an explicit baseline fairness audit. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.baseline_smoke.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.baseline_smoke.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.certificate_margin_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing certificate-margin-versus-variant figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json"
+      ],
+      "source_selector": "$.certificate_margin_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.certificate_margin_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.certificate_margin_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.certificate_margin_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the certificate-margin and runner-up-gap metrics cited in docs/thesis-codebase-report.md around line 2500. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.certificate_margin_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.certificate_margin_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.ambiguity_alignment_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing ambiguity-alignment-versus-variant figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json"
+      ],
+      "source_selector": "$.ambiguity_alignment_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.ambiguity_alignment_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.ambiguity_alignment_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.ambiguity_alignment_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the ambiguity-alignment metrics cited in docs/thesis-codebase-report.md around line 2501. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.ambiguity_alignment_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.ambiguity_alignment_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.cohort_composition",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing cohort-composition figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json"
+      ],
+      "source_selector": "$.cohort_composition",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.cohort_composition.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.cohort_composition.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.cohort_composition.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the cohort-composition metrics cited in docs/thesis-codebase-report.md around line 2504. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.cohort_composition.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.cohort_composition.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.performance_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing performance-versus-variant figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json"
+      ],
+      "source_selector": "$.performance_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.performance_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.performance_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.performance_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the REFC unique-world-count, stress-world-fraction, warmup-amortized, and ambiguity-prior-realized-correlation metrics cited in docs/thesis-codebase-report.md around lines 2500-2503. It does not claim the requested-world, effective-world, world-count-efficiency, or startup-overhead metrics from those adjacent report lines. The checked local source is plot-ready JSON from the latest checked campaign tranche, with attached OSRM/ORS baseline identity manifests and an explicit baseline fairness audit for the baseline-comparison slice. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.performance_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.performance_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.controller_refresh_split_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing controller-refresh-split-versus-variant figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json"
+      ],
+      "source_selector": "$.controller_refresh_split_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.controller_refresh_split_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.controller_refresh_split_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.controller_refresh_split_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the refresh-fallback-activation and empirical-vs-raw refresh-disagreement metrics cited in docs/thesis-codebase-report.md around lines 2500-2501. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.controller_refresh_split_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.controller_refresh_split_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.hard_case_transfer_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing hard-case-transfer-versus-variant figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json"
+      ],
+      "source_selector": "$.hard_case_transfer_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.hard_case_transfer_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.hard_case_transfer_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.hard_case_transfer_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs the broad hard-case certificate-selectivity metrics cited in docs/thesis-codebase-report.md around line 2501. The checked local source is plot-ready JSON from the latest checked campaign tranche, with attached OSRM/ORS baseline identity manifests and an explicit baseline fairness audit for the baseline-comparison slice. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.hard_case_transfer_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.hard_case_transfer_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.win_rate_vs_variant",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing baseline-comparison-rate-versus-variant figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/osrm_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/ors_baseline_identity_manifest.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json"
+      ],
+      "source_selector": "$.win_rate_vs_variant",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.win_rate_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.win_rate_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.win_rate_vs_variant.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs only the weighted-win-rate-versus-best-baseline metric cited in docs/thesis-codebase-report.md around line 2500. It does not claim the separate dominance-win-rate metrics from that report line. The checked local source is plot-ready JSON from the latest checked campaign tranche, with attached OSRM/ORS baseline identity manifests and an explicit baseline fairness audit. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.win_rate_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.win_rate_vs_variant.provenance.json"
+      ]
+    },
+    {
+      "surface_id": "figure.latest_checked_campaign.startup_and_warmup",
+      "surface_type": "figure",
+      "title": "Latest checked campaign certification-facing startup-and-warmup figure source",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_plots.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json"
+      ],
+      "source_selector": "$.startup_and_warmup",
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.startup_and_warmup.svg",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.startup_and_warmup.pdf",
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.startup_and_warmup.print.html"
+      ],
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "Backs only the startup-overhead component timings underlying the global startup-overhead metric cited in docs/thesis-codebase-report.md around line 2500. It does not claim the separately cited warmup-amortized metric from that report line. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.startup_and_warmup.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.latest_checked_campaign.startup_and_warmup.provenance.json"
+      ]
     },
     {
       "surface_id": "figure.focused_voi.certificate_vs_variant",
       "surface_type": "figure",
-      "title": "Focused VOI certificate versus variant figure source",
+      "title": "Focused VOI certification-facing certificate versus variant figure source",
       "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
       "source_files": [
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_plots.json",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json"
       ],
       "source_selector": "$.certificate_vs_variant",
-      "rendered_outputs": [],
-      "export_formats_available": [
-        "json"
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.focused_voi.certificate_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.focused_voi.certificate_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.focused_voi.certificate_vs_variant.print.html"
       ],
-      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
-      "status_note": "The checked local source is plot-ready JSON. No committed PDF or SVG render is claimed for this slice."
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "The checked local source is plot-ready JSON. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.focused_voi.certificate_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.focused_voi.certificate_vs_variant.provenance.json"
+      ]
     },
     {
       "surface_id": "figure.focused_voi.runtime_vs_variant",
       "surface_type": "figure",
-      "title": "Focused VOI runtime versus variant figure source",
+      "title": "Focused VOI certification-facing runtime versus variant figure source",
       "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
       "source_files": [
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_plots.json",
         "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json"
       ],
       "source_selector": "$.runtime_vs_variant",
-      "rendered_outputs": [],
-      "export_formats_available": [
-        "json"
+      "rendered_outputs": [
+        "out/headline_exports/current_checked/figure.focused_voi.runtime_vs_variant.svg",
+        "out/headline_exports/current_checked/figure.focused_voi.runtime_vs_variant.pdf",
+        "out/headline_exports/current_checked/figure.focused_voi.runtime_vs_variant.print.html"
       ],
-      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
-      "status_note": "The checked local source is plot-ready JSON. No committed PDF or SVG render is claimed for this slice."
+      "export_formats_available": [
+        "json",
+        "svg",
+        "pdf",
+        "html"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
+      "status_note": "The checked local source is plot-ready JSON. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "packaged_source_companions": [
+        "out/headline_exports/current_checked/figure.focused_voi.runtime_vs_variant.source.json"
+      ],
+      "packaged_provenance_companions": [
+        "out/headline_exports/current_checked/figure.focused_voi.runtime_vs_variant.provenance.json"
+      ]
     }
   ]
 }

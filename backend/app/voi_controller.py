@@ -18,6 +18,21 @@ from .replay_oracle import summarize_replay_oracle_trace
 # Frazier, Powell, Dayanik, "The Knowledge-Gradient Policy for Correlated
 # Normal Beliefs", https://doi.org/10.1287/ijoc.1080.0314 .
 
+_PREFERENCE_ACTION_MODALITY_BY_KIND: dict[str, str] = {
+    "preference_pairwise_route_query": "pairwise_route_query",
+    "preference_tradeoff_threshold_query": "tradeoff_threshold_query",
+    "preference_ratio_query": "ratio_query",
+    "preference_veto_query": "veto_query",
+    "preference_time_guard_query": "time_guard_query",
+}
+_PREFERENCE_ACTION_KINDS = frozenset(_PREFERENCE_ACTION_MODALITY_BY_KIND)
+_HOOK_REQUIRED_ACTION_KINDS = frozenset({
+    "refine_top1_dccs",
+    "refine_topk_dccs",
+    "refresh_top1_vor",
+    "increase_stochastic_samples",
+})
+
 
 def _as_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -38,6 +53,8 @@ def _action_family_for_kind(kind: str) -> str:
         return "search"
     if kind in {"refresh_top1_vor", "increase_stochastic_samples"}:
         return "evidence"
+    if kind in _PREFERENCE_ACTION_KINDS:
+        return "preference"
     if kind == "stop":
         return "terminal"
     return "unknown"
@@ -52,9 +69,15 @@ def _action_modality_for_kind(kind: str) -> str:
         return "refresh"
     if kind == "increase_stochastic_samples":
         return "resample"
+    if kind in _PREFERENCE_ACTION_KINDS:
+        return _PREFERENCE_ACTION_MODALITY_BY_KIND[kind]
     if kind == "stop":
         return "stop"
     return kind or "unknown"
+
+
+def _action_requires_hooks(kind: str) -> bool:
+    return kind in _HOOK_REQUIRED_ACTION_KINDS
 
 
 def _route_id(route: Mapping[str, Any] | DCCSCandidateRecord) -> str:
@@ -604,6 +627,91 @@ def _recent_productive_refine_route_change(
     return False
 
 
+def _recent_harmful_frontier_only_refine_probe(
+    state: "VOIControllerState",
+    *,
+    max_depth: int = 1,
+    minimum_certificate_drop: float = 0.01,
+) -> bool:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    inspected = 0
+    for raw_entry in reversed(trace):
+        if inspected >= max_depth:
+            break
+        if not isinstance(raw_entry, Mapping):
+            continue
+        chosen_action = raw_entry.get("chosen_action")
+        kind = ""
+        if isinstance(chosen_action, Mapping):
+            kind = str(chosen_action.get("kind", "")).strip()
+        if not kind:
+            kind = str(raw_entry.get("kind", "")).strip()
+        if kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+            return False
+        if not bool(raw_entry.get("realized_productive", False)):
+            return False
+        realized_frontier_gain = max(0.0, _as_float(raw_entry.get("realized_frontier_gain")))
+        if realized_frontier_gain <= 0.0:
+            return False
+        if bool(raw_entry.get("realized_selected_route_changed", False)):
+            return False
+        realized_selected_route_improvement = max(
+            0.0,
+            _as_float(raw_entry.get("realized_selected_route_improvement")),
+        )
+        if realized_selected_route_improvement > 1e-9:
+            return False
+        realized_certificate_delta = _as_float(raw_entry.get("realized_certificate_delta"))
+        if realized_certificate_delta > -max(1e-9, _as_float(minimum_certificate_drop)):
+            return False
+        realized_runner_up_gap_delta = _as_float(raw_entry.get("realized_runner_up_gap_delta"))
+        if realized_runner_up_gap_delta > 1e-9:
+            return False
+        return True
+    return False
+
+
+def _recent_productive_frontier_only_refine_probe(
+    state: "VOIControllerState",
+    *,
+    max_depth: int = 1,
+    minimum_certificate_gain: float = 0.01,
+) -> bool:
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    inspected = 0
+    for raw_entry in reversed(trace):
+        if inspected >= max_depth:
+            break
+        if not isinstance(raw_entry, Mapping):
+            continue
+        chosen_action = raw_entry.get("chosen_action")
+        kind = ""
+        if isinstance(chosen_action, Mapping):
+            kind = str(chosen_action.get("kind", "")).strip()
+        if not kind:
+            kind = str(raw_entry.get("kind", "")).strip()
+        if kind not in {"refine_top1_dccs", "refine_topk_dccs"}:
+            return False
+        if not bool(raw_entry.get("realized_productive", False)):
+            return False
+        realized_frontier_gain = max(0.0, _as_float(raw_entry.get("realized_frontier_gain")))
+        if realized_frontier_gain <= 0.0:
+            return False
+        if bool(raw_entry.get("realized_selected_route_changed", False)):
+            return False
+        realized_selected_route_improvement = max(
+            0.0,
+            _as_float(raw_entry.get("realized_selected_route_improvement")),
+        )
+        if realized_selected_route_improvement > 1e-9:
+            return False
+        realized_certificate_delta = _as_float(raw_entry.get("realized_certificate_delta"))
+        if realized_certificate_delta < max(1e-9, _as_float(minimum_certificate_gain)):
+            return False
+        return True
+    return False
+
+
 def _actual_refc_world_count(state: "VOIControllerState") -> float:
     context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
     return max(
@@ -713,6 +821,9 @@ class VOIConfig:
     lambda_certificate: float = 0.60
     lambda_margin: float = 0.25
     lambda_frontier: float = 0.15
+    lambda_radius_or_flip_budget: float = 0.02
+    lambda_unresolved_mass: float = 0.02
+    lambda_preference_ambiguity: float = 0.02
     epsilon: float = 1e-9
     near_tie_threshold: float = 0.03
     search_completeness_threshold: float = 0.84
@@ -740,7 +851,19 @@ class VOIAction:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["predicted_winner_lcb_gain"] = predicted_winner_lcb_gain(self)
+        payload["predicted_gap_lcb_gain"] = predicted_gap_lcb_gain(self)
+        payload["predicted_radius_or_flip_budget_gain"] = predicted_radius_or_flip_budget_gain(self)
+        payload["predicted_unresolved_mass_reduction"] = predicted_unresolved_mass_reduction(self)
+        payload["predicted_preference_ambiguity_reduction"] = (
+            predicted_preference_ambiguity_reduction(self)
+        )
+        payload["predicted_boundary_contraction"] = predicted_boundary_contraction(self)
+        payload["predicted_delta_radius_or_flip_budget"] = predicted_delta_radius_or_flip_budget(self)
+        payload["predicted_preference_shrinkage"] = predicted_preference_shrinkage(self)
+        payload["predicted_certified_set_contraction"] = predicted_certified_set_contraction(self)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -760,6 +883,27 @@ class VOIControllerState:
     ambiguity_context: dict[str, Any] = field(default_factory=dict)
     near_tie_mass: float = 0.0
     certificate_margin: float = 0.0
+    certificate_lcb: float = 0.0
+    certificate_ucb: float = 0.0
+    necessary_best_probability: float = 0.0
+    possible_best_probability: float = 1.0
+    minimum_pairwise_gap_lcb: float = 0.0
+    deterministic_local_flip_radius: float = 0.0
+    probabilistic_flip_radius: float = 0.0
+    minimum_flip_budget: float = 0.0
+    certified_set_size: int = 0
+    weight_set_volume: float = 1.0
+    weight_set_shrinkage: float = 0.0
+    preference_irrelevance_proven: bool = False
+    no_preference_query_reason: str | None = None
+    unresolved_possible_frontier_mass: float = 0.0
+    unresolved_possible_winner_mass: float = 0.0
+    unresolved_certificate_critical_mass: float = 0.0
+    support_flag: bool = True
+    out_of_support_reason: str | None = None
+    proxy_only_fraction: float = 1.0
+    audit_propensity_summary: dict[str, Any] = field(default_factory=dict)
+    active_certificate_boundary_summary: dict[str, Any] = field(default_factory=dict)
     support_richness: float = 0.0
     ambiguity_pressure: float = 0.0
     search_completeness_score: float = 1.0
@@ -782,7 +926,7 @@ class VOIControllerState:
     last_action_modality: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "iteration_index": self.iteration_index,
             "frontier": list(self.frontier),
             "certificate": dict(self.certificate),
@@ -798,6 +942,27 @@ class VOIControllerState:
             "ambiguity_context": dict(self.ambiguity_context),
             "near_tie_mass": self.near_tie_mass,
             "certificate_margin": self.certificate_margin,
+            "certificate_lcb": self.certificate_lcb,
+            "certificate_ucb": self.certificate_ucb,
+            "necessary_best_probability": self.necessary_best_probability,
+            "possible_best_probability": self.possible_best_probability,
+            "minimum_pairwise_gap_lcb": self.minimum_pairwise_gap_lcb,
+            "deterministic_local_flip_radius": self.deterministic_local_flip_radius,
+            "probabilistic_flip_radius": self.probabilistic_flip_radius,
+            "minimum_flip_budget": self.minimum_flip_budget,
+            "certified_set_size": self.certified_set_size,
+            "weight_set_volume": self.weight_set_volume,
+            "weight_set_shrinkage": self.weight_set_shrinkage,
+            "preference_irrelevance_proven": bool(self.preference_irrelevance_proven),
+            "no_preference_query_reason": self.no_preference_query_reason,
+            "unresolved_possible_frontier_mass": self.unresolved_possible_frontier_mass,
+            "unresolved_possible_winner_mass": self.unresolved_possible_winner_mass,
+            "unresolved_certificate_critical_mass": self.unresolved_certificate_critical_mass,
+            "support_flag": bool(self.support_flag),
+            "out_of_support_reason": self.out_of_support_reason,
+            "proxy_only_fraction": self.proxy_only_fraction,
+            "audit_propensity_summary": dict(self.audit_propensity_summary),
+            "active_certificate_boundary_summary": dict(self.active_certificate_boundary_summary),
             "support_richness": self.support_richness,
             "ambiguity_pressure": self.ambiguity_pressure,
             "search_completeness_score": self.search_completeness_score,
@@ -819,6 +984,8 @@ class VOIControllerState:
             "last_action_family": self.last_action_family,
             "last_action_modality": self.last_action_modality,
         }
+        payload.update(_surface_voi_artifact_fields(action_trace=self.action_trace))
+        return payload
 
 
 @dataclass(frozen=True)
@@ -826,6 +993,7 @@ class VOIActionHooks:
     refine: Callable[[VOIControllerState, VOIAction], VOIControllerState] | None = None
     refresh: Callable[[VOIControllerState, VOIAction], VOIControllerState] | None = None
     resample: Callable[[VOIControllerState, VOIAction], VOIControllerState] | None = None
+    preference: Callable[[VOIControllerState, VOIAction], VOIControllerState] | None = None
 
 
 @dataclass(frozen=True)
@@ -848,12 +1016,695 @@ class VOIStopCertificate:
     terminal_action_kind: str | None = None
     terminal_action_family: str | None = None
     terminal_action_modality: str | None = None
+    predicted_winner_lcb_gain: float = 0.0
+    realized_certificate_delta: float = 0.0
+    predicted_gap_lcb_gain: float = 0.0
+    realized_runner_up_gap_delta: float = 0.0
+    predicted_delta_radius_or_flip_budget: float = 0.0
+    realized_delta_radius_or_flip_budget: float = 0.0
+    predicted_preference_shrinkage: float = 0.0
+    realized_preference_shrinkage: float = 0.0
+    predicted_certified_set_contraction: float = 0.0
+    realized_certified_set_contraction: float = 0.0
+    hindsight_necessity_label: str = "unknown"
+    metric_semantics: dict[str, str] = field(default_factory=dict)
     replay_oracle_summary: dict[str, Any] | None = None
     iteration_count: int = 0
     controller_state: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+_VOI_ARTIFACT_METRIC_SEMANTICS = {
+    "predicted_winner_lcb_gain": (
+        "controller-side predicted certificate lift; realized values use signed realized_certificate_delta"
+    ),
+    "predicted_gap_lcb_gain": (
+        "controller-side predicted runner-up gap lift; realized values use signed realized_runner_up_gap_delta"
+    ),
+    "predicted_delta_radius_or_flip_budget": (
+        "conservative robustness proxy derived from controller-local search or fragility signals; "
+        "realized deltas use minimum_flip_budget when available, otherwise deterministic_local_flip_radius, "
+        "otherwise probabilistic_flip_radius"
+    ),
+    "predicted_preference_shrinkage": (
+        "controller-side expected contraction of compatible_set_volume_proxy; realized values use the same volume proxy"
+    ),
+    "predicted_certified_set_contraction": (
+        "controller-side strict-frontier contraction proxy; realized values use CertifiedSetState.set_size contraction"
+    ),
+    "hindsight_necessity_label": (
+        "conservative post-hoc label derived from observed productive deltas and final stop reason, not a full counterfactual proof"
+    ),
+}
+
+
+def voi_artifact_metric_semantics() -> dict[str, str]:
+    return dict(_VOI_ARTIFACT_METRIC_SEMANTICS)
+
+
+def _surface_voi_artifact_fields(
+    *,
+    action_trace: Sequence[Mapping[str, Any]] | None,
+    chosen_action: VOIAction | Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    latest_entry: Mapping[str, Any] = {}
+    if action_trace:
+        candidate_entry = action_trace[-1]
+        if isinstance(candidate_entry, Mapping):
+            latest_entry = candidate_entry
+    effective_chosen_action = chosen_action
+    if effective_chosen_action is None:
+        trace_action = latest_entry.get("chosen_action")
+        if isinstance(trace_action, Mapping):
+            effective_chosen_action = trace_action
+    hindsight_necessity_label = str(latest_entry.get("hindsight_necessity_label") or "").strip()
+    if not hindsight_necessity_label:
+        hindsight_necessity_label = classify_voi_hindsight_necessity(
+            chosen_action=effective_chosen_action,
+            realized_fields=latest_entry,
+        )
+    return {
+        "predicted_winner_lcb_gain": predicted_winner_lcb_gain(effective_chosen_action),
+        "realized_certificate_delta": (
+            _rounded_controller_state_value(latest_entry.get("realized_certificate_delta")) or 0.0
+        ),
+        "predicted_gap_lcb_gain": predicted_gap_lcb_gain(effective_chosen_action),
+        "realized_runner_up_gap_delta": (
+            _rounded_controller_state_value(latest_entry.get("realized_runner_up_gap_delta")) or 0.0
+        ),
+        "predicted_delta_radius_or_flip_budget": predicted_delta_radius_or_flip_budget(
+            effective_chosen_action
+        ),
+        "realized_delta_radius_or_flip_budget": _as_voi_metric(
+            latest_entry.get("realized_delta_radius_or_flip_budget")
+        ),
+        "predicted_preference_shrinkage": predicted_preference_shrinkage(
+            effective_chosen_action
+        ),
+        "realized_preference_shrinkage": _as_voi_metric(
+            latest_entry.get("realized_preference_shrinkage")
+        ),
+        "predicted_certified_set_contraction": predicted_certified_set_contraction(
+            effective_chosen_action
+        ),
+        "realized_certified_set_contraction": _as_voi_metric(
+            latest_entry.get("realized_certified_set_contraction")
+        ),
+        "hindsight_necessity_label": hindsight_necessity_label or "unknown",
+        "metric_semantics": voi_artifact_metric_semantics(),
+    }
+
+
+def _action_kind_value(action: VOIAction | Mapping[str, Any] | None) -> str:
+    if isinstance(action, VOIAction):
+        return str(action.kind)
+    if isinstance(action, Mapping):
+        return str(action.get("kind", ""))
+    return ""
+
+
+def _action_metadata_value(action: VOIAction | Mapping[str, Any] | None) -> Mapping[str, Any]:
+    if isinstance(action, VOIAction):
+        return action.metadata if isinstance(action.metadata, Mapping) else {}
+    if isinstance(action, Mapping):
+        metadata = action.get("metadata")
+        return metadata if isinstance(metadata, Mapping) else {}
+    return {}
+
+
+def _action_scalar_value(
+    action: VOIAction | Mapping[str, Any] | None,
+    field_name: str,
+) -> float | None:
+    if isinstance(action, VOIAction):
+        value = getattr(action, field_name, None)
+    elif isinstance(action, Mapping):
+        value = action.get(field_name)
+    else:
+        value = None
+    if value is None:
+        return None
+    return max(0.0, _as_float(value))
+
+
+def _as_voi_metric(value: float | None) -> float:
+    return round(max(0.0, _as_float(value)), 6)
+
+
+def predicted_delta_radius_or_flip_budget(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_delta_radius_or_flip_budget")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    metadata = _action_metadata_value(action)
+    kind = _action_kind_value(action)
+    if kind in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return _as_voi_metric(
+            (0.06 * _clamp01(metadata.get("mean_flip_probability")))
+            + (0.04 * _clamp01(metadata.get("normalized_mechanism_gap")))
+            + (0.02 * _clamp01(metadata.get("normalized_overlap_reduction")))
+        )
+    if kind == "refresh_top1_vor":
+        return _as_voi_metric(
+            (0.12 * _clamp01(metadata.get("route_fragility")))
+            + (0.08 * _clamp01(metadata.get("normalized_competitor_pressure")))
+            + (0.10 * max(0.0, _as_float(metadata.get("empirical_refresh_certificate_uplift"))))
+        )
+    if kind == "increase_stochastic_samples":
+        return _as_voi_metric(
+            0.06
+            * max(
+                _clamp01(metadata.get("near_tie_mass")),
+                _clamp01(metadata.get("stress_world_fraction")),
+                _clamp01(metadata.get("top_fragility_mass")),
+            )
+        )
+    return 0.0
+
+
+def predicted_preference_shrinkage(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_preference_shrinkage")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    metadata = _action_metadata_value(action)
+    kind = _action_kind_value(action)
+    preference_signal = _clamp01(metadata.get("preference_signal"))
+    possible_best_signal = _clamp01(metadata.get("possible_best_signal"))
+    necessary_best_signal = _clamp01(metadata.get("necessary_best_signal"))
+    objective_signal = _clamp01(metadata.get("objective_signal"))
+    mechanism_signal = _clamp01(metadata.get("mechanism_signal"))
+    time_guard_signal = _clamp01(metadata.get("time_guard_signal"))
+    frontier_pressure = _clamp01(metadata.get("frontier_pressure"))
+    if kind == "preference_pairwise_route_query":
+        return _as_voi_metric(
+            (0.35 * preference_signal)
+            + (0.22 * possible_best_signal)
+            + (0.18 * necessary_best_signal)
+            + (0.08 * frontier_pressure)
+        )
+    if kind == "preference_tradeoff_threshold_query":
+        return _as_voi_metric(
+            (0.30 * preference_signal)
+            + (0.20 * objective_signal)
+            + (0.16 * necessary_best_signal)
+            + (0.08 * frontier_pressure)
+        )
+    if kind == "preference_ratio_query":
+        return _as_voi_metric(
+            (0.26 * preference_signal)
+            + (0.20 * possible_best_signal)
+            + (0.12 * objective_signal)
+            + (0.08 * frontier_pressure)
+        )
+    if kind == "preference_veto_query":
+        return _as_voi_metric(
+            (0.28 * necessary_best_signal)
+            + (0.18 * mechanism_signal)
+            + (0.10 * preference_signal)
+        )
+    if kind == "preference_time_guard_query":
+        return _as_voi_metric(
+            (0.30 * time_guard_signal)
+            + (0.16 * necessary_best_signal)
+            + (0.10 * preference_signal)
+        )
+    return 0.0
+
+
+def predicted_certified_set_contraction(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_certified_set_contraction")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    frontier_proxy = _action_scalar_value(action, "predicted_delta_frontier")
+    return _as_voi_metric(frontier_proxy)
+
+
+def predicted_winner_lcb_gain(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_winner_lcb_gain")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    return _as_voi_metric(_action_scalar_value(action, "predicted_delta_certificate"))
+
+
+def predicted_gap_lcb_gain(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_gap_lcb_gain")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    return _as_voi_metric(_action_scalar_value(action, "predicted_delta_margin"))
+
+
+def predicted_radius_or_flip_budget_gain(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_radius_or_flip_budget_gain")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    return predicted_delta_radius_or_flip_budget(action)
+
+
+def predicted_unresolved_mass_reduction(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_unresolved_mass_reduction")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    predicted_search_completeness = _action_scalar_value(action, "predicted_delta_search_completeness")
+    metadata = _action_metadata_value(action)
+    kind = _action_kind_value(action)
+    if kind in {"refine_top1_dccs", "refine_topk_dccs"}:
+        predicted_search_completeness = max(
+            _as_float(metadata.get("search_completeness_bonus")),
+            _as_float(_action_scalar_value(action, "predicted_delta_frontier")),
+            _as_float(predicted_search_completeness),
+            0.0,
+        )
+    return _as_voi_metric(predicted_search_completeness)
+
+
+def predicted_preference_ambiguity_reduction(
+    action: VOIAction | Mapping[str, Any] | None,
+) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_preference_ambiguity_reduction")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    return predicted_preference_shrinkage(action)
+
+
+def predicted_boundary_contraction(action: VOIAction | Mapping[str, Any] | None) -> float:
+    explicit_value = _action_scalar_value(action, "predicted_boundary_contraction")
+    if explicit_value is not None:
+        return _as_voi_metric(explicit_value)
+    return _as_voi_metric(
+        max(
+            _as_float(_action_scalar_value(action, "predicted_delta_frontier")),
+            predicted_certified_set_contraction(action),
+        )
+    )
+
+
+def build_voi_action_score_row(
+    *,
+    iteration: int,
+    action: VOIAction,
+    selected_route_id: str,
+    selected_certificate: float,
+) -> dict[str, Any]:
+    return {
+        "iteration": int(iteration),
+        "action_id": action.action_id,
+        "kind": action.kind,
+        "target": action.target,
+        "cost_search": int(action.cost_search),
+        "cost_evidence": int(action.cost_evidence),
+        "predicted_delta_certificate": _as_voi_metric(action.predicted_delta_certificate),
+        "predicted_delta_margin": _as_voi_metric(action.predicted_delta_margin),
+        "predicted_delta_frontier": _as_voi_metric(action.predicted_delta_frontier),
+        "predicted_delta_radius_or_flip_budget": predicted_delta_radius_or_flip_budget(action),
+        "predicted_preference_shrinkage": predicted_preference_shrinkage(action),
+        "predicted_certified_set_contraction": predicted_certified_set_contraction(action),
+        "q_score": _as_voi_metric(action.q_score),
+        "selected_route_id": selected_route_id,
+        "selected_certificate": _as_voi_metric(selected_certificate),
+    }
+
+
+def _mapping_or_empty(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _extract_voi_metric_snapshot_value(value: Any, *keys: str) -> float:
+    current = value
+    for key in keys:
+        if current is None:
+            return 0.0
+        if isinstance(current, Mapping):
+            current = current.get(key)
+            continue
+        current = getattr(current, key, None)
+    return max(0.0, _as_float(current))
+
+
+def _extract_controller_state_value(value: Any, *keys: str) -> Any:
+    current = value
+    for key in keys:
+        if current is None:
+            return None
+        if hasattr(current, "model_dump"):
+            current = current.model_dump(mode="json")
+        if isinstance(current, Mapping):
+            current = current.get(key)
+            continue
+        current = getattr(current, key, None)
+    if hasattr(current, "model_dump"):
+        current = current.model_dump(mode="json")
+    return current
+
+
+def _sequence_controller_state_items(value: Any) -> list[Any]:
+    current = value
+    if hasattr(current, "model_dump"):
+        current = current.model_dump(mode="json")
+    if isinstance(current, Sequence) and not isinstance(current, (str, bytes, bytearray)):
+        return list(current)
+    return []
+
+
+def _rounded_controller_state_value(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return round(float(parsed), 6)
+
+
+def build_controller_state_literal_fields(
+    *,
+    winner_confidence_state: Any = None,
+    pairwise_gap_states: Sequence[Any] | None = None,
+    flip_radius_state: Any = None,
+    certified_set_state: Any = None,
+    preference_state: Any = None,
+    world_support_summary: Any = None,
+    decision_region_state: Any = None,
+    selected_certificate_value: float = 0.0,
+) -> dict[str, Any]:
+    selected_certificate = _clamp01(selected_certificate_value)
+    certificate_lcb_raw = _extract_controller_state_value(winner_confidence_state, "lower_bound")
+    certificate_ucb_raw = _extract_controller_state_value(winner_confidence_state, "upper_bound")
+    possible_best_probability_raw = _extract_controller_state_value(
+        preference_state,
+        "compatible_set_summary",
+        "possible_best_prob",
+    )
+    necessary_best_probability = _clamp01(
+        _as_float(
+            _extract_controller_state_value(
+                preference_state,
+                "compatible_set_summary",
+                "necessary_best_prob",
+            )
+        )
+    )
+    possible_best_probability = max(
+        necessary_best_probability,
+        _clamp01(
+            _as_float(1.0 if possible_best_probability_raw is None else possible_best_probability_raw)
+        ),
+    )
+    pairwise_gap_lower_bounds = [
+        _as_float(_extract_controller_state_value(state, "pairwise_gap_lower_bound"))
+        for state in list(pairwise_gap_states or [])
+    ]
+    minimum_pairwise_gap_lcb = min(pairwise_gap_lower_bounds) if pairwise_gap_lower_bounds else 0.0
+    deterministic_local_flip_radius = max(
+        0.0,
+        _as_float(_extract_controller_state_value(flip_radius_state, "deterministic_local_flip_radius")),
+    )
+    probabilistic_flip_radius = max(
+        0.0,
+        _as_float(_extract_controller_state_value(flip_radius_state, "probabilistic_flip_radius")),
+    )
+    minimum_flip_budget = max(
+        0.0,
+        _as_float(_extract_controller_state_value(flip_radius_state, "minimum_flip_budget")),
+    )
+    certified_set_size = max(
+        0,
+        int(round(_as_float(_extract_controller_state_value(certified_set_state, "set_size")))),
+    )
+    weight_set_volume = max(
+        0.0,
+        _as_float(
+            _extract_controller_state_value(
+                preference_state,
+                "compatible_set_summary",
+                "compatible_set_volume_proxy",
+            ),
+            1.0,
+        ),
+    )
+    preference_irrelevance_proven = bool(
+        _extract_controller_state_value(preference_state, "preference_irrelevance_proven")
+    )
+    raw_no_preference_query_reason = str(
+        _extract_controller_state_value(preference_state, "no_query_reason") or ""
+    ).strip()
+    if not raw_no_preference_query_reason and preference_irrelevance_proven:
+        raw_no_preference_query_reason = "preference_irrelevance_proven"
+    no_preference_query_reason = raw_no_preference_query_reason or None
+    latest_shrinkage_trace = None
+    shrinkage_trace = _sequence_controller_state_items(
+        _extract_controller_state_value(preference_state, "shrinkage_trace")
+    )
+    if shrinkage_trace:
+        latest_shrinkage_trace = shrinkage_trace[-1]
+    weight_set_shrinkage = max(
+        0.0,
+        _as_float(_extract_controller_state_value(latest_shrinkage_trace, "realized_shrinkage")),
+    )
+    if weight_set_shrinkage <= 0.0:
+        weight_set_shrinkage = max(
+            0.0,
+            _as_float(_extract_controller_state_value(latest_shrinkage_trace, "predicted_shrinkage")),
+        )
+    if weight_set_shrinkage <= 0.0:
+        weight_set_shrinkage = max(0.0, 1.0 - min(1.0, weight_set_volume))
+    support_state = _extract_controller_state_value(world_support_summary, "support_state")
+    support_flag_raw = _extract_controller_state_value(support_state, "support_flag")
+    if support_flag_raw is None:
+        support_flag_raw = _extract_controller_state_value(world_support_summary, "support_flag")
+    support_flag = True if support_flag_raw is None else bool(support_flag_raw)
+    raw_out_of_support_reason = str(
+        _extract_controller_state_value(support_state, "out_of_support_reason")
+        or _extract_controller_state_value(world_support_summary, "support_reason")
+        or ""
+    ).strip()
+    out_of_support_reason = raw_out_of_support_reason or None
+    proxy_only_fraction = _clamp01(
+        _extract_controller_state_value(
+            world_support_summary,
+            "world_bundle_summary",
+            "multi_fidelity_summary",
+            "proxy_only_fraction",
+        )
+        if _extract_controller_state_value(
+            world_support_summary,
+            "world_bundle_summary",
+            "multi_fidelity_summary",
+            "proxy_only_fraction",
+        )
+        is not None
+        else 1.0
+    )
+    audit_propensity_summary = {
+        "audit_propensity_version": str(
+            _extract_controller_state_value(
+                world_support_summary,
+                "world_bundle_summary",
+                "multi_fidelity_summary",
+                "audit_propensity_version",
+            )
+            or ""
+        ).strip()
+        or "untracked",
+        "minimum_propensity": round(
+            max(
+                0.0,
+                _as_float(
+                    _extract_controller_state_value(
+                        world_support_summary,
+                        "world_bundle_summary",
+                        "multi_fidelity_summary",
+                        "positivity_diagnostics",
+                        "minimum_propensity",
+                    )
+                ),
+            ),
+            6,
+        ),
+        "mean_propensity": round(
+            max(
+                0.0,
+                _as_float(
+                    _extract_controller_state_value(
+                        world_support_summary,
+                        "world_bundle_summary",
+                        "multi_fidelity_summary",
+                        "positivity_diagnostics",
+                        "mean_propensity",
+                    )
+                ),
+            ),
+            6,
+        ),
+        "maximum_propensity": round(
+            max(
+                0.0,
+                _as_float(
+                    _extract_controller_state_value(
+                        world_support_summary,
+                        "world_bundle_summary",
+                        "multi_fidelity_summary",
+                        "positivity_diagnostics",
+                        "maximum_propensity",
+                    )
+                ),
+            ),
+            6,
+        ),
+        "weak_overlap_detected": bool(
+            _extract_controller_state_value(
+                world_support_summary,
+                "world_bundle_summary",
+                "multi_fidelity_summary",
+                "positivity_diagnostics",
+                "weak_overlap_detected",
+            )
+        ),
+        "proxy_correction_active": bool(
+            _extract_controller_state_value(
+                world_support_summary,
+                "world_bundle_summary",
+                "multi_fidelity_summary",
+                "proxy_correction_active",
+            )
+        ),
+    }
+    active_certificate_boundary_summary = {
+        "nearest_certificate_boundary": _extract_controller_state_value(
+            decision_region_state,
+            "nearest_certificate_boundary",
+        ),
+        "active_challenger_id": _extract_controller_state_value(
+            decision_region_state,
+            "active_challenger_id",
+        ),
+        "dominant_evidence_family": _extract_controller_state_value(
+            decision_region_state,
+            "dominant_evidence_family",
+        ),
+        "most_fragile_preference_direction": _extract_controller_state_value(
+            decision_region_state,
+            "most_fragile_preference_direction",
+        ),
+        "nearest_threat_axis": _extract_controller_state_value(
+            decision_region_state,
+            "nearest_threat_axis",
+        ),
+        "minimum_joint_perturbation": _rounded_controller_state_value(
+            _extract_controller_state_value(decision_region_state, "minimum_joint_perturbation")
+        ),
+        "support_flag": bool(
+            _extract_controller_state_value(decision_region_state, "support_flag")
+            if _extract_controller_state_value(decision_region_state, "support_flag") is not None
+            else support_flag
+        ),
+    }
+    certificate_lcb = selected_certificate if certificate_lcb_raw is None else _clamp01(_as_float(certificate_lcb_raw))
+    certificate_ucb = selected_certificate if certificate_ucb_raw is None else _clamp01(_as_float(certificate_ucb_raw))
+    return {
+        "certificate_lcb": round(certificate_lcb, 6),
+        "certificate_ucb": round(certificate_ucb, 6),
+        "necessary_best_probability": round(necessary_best_probability, 6),
+        "possible_best_probability": round(possible_best_probability, 6),
+        "minimum_pairwise_gap_lcb": round(minimum_pairwise_gap_lcb, 6),
+        "deterministic_local_flip_radius": round(deterministic_local_flip_radius, 6),
+        "probabilistic_flip_radius": round(probabilistic_flip_radius, 6),
+        "minimum_flip_budget": round(minimum_flip_budget, 6),
+        "certified_set_size": certified_set_size,
+        "weight_set_volume": round(weight_set_volume, 6),
+        "weight_set_shrinkage": round(weight_set_shrinkage, 6),
+        "preference_irrelevance_proven": bool(preference_irrelevance_proven),
+        "no_preference_query_reason": no_preference_query_reason,
+        "support_flag": bool(support_flag),
+        "out_of_support_reason": out_of_support_reason,
+        "proxy_only_fraction": round(proxy_only_fraction, 6),
+        "audit_propensity_summary": audit_propensity_summary,
+        "active_certificate_boundary_summary": active_certificate_boundary_summary,
+    }
+
+
+def build_voi_metric_snapshot(
+    *,
+    flip_radius_state: Any = None,
+    preference_state: Any = None,
+    certified_set_state: Any = None,
+) -> dict[str, float]:
+    minimum_flip_budget = _extract_voi_metric_snapshot_value(flip_radius_state, "minimum_flip_budget")
+    deterministic_flip_radius = _extract_voi_metric_snapshot_value(
+        flip_radius_state,
+        "deterministic_local_flip_radius",
+    )
+    probabilistic_flip_radius = _extract_voi_metric_snapshot_value(
+        flip_radius_state,
+        "probabilistic_flip_radius",
+    )
+    effective_radius_or_flip_budget = minimum_flip_budget
+    if effective_radius_or_flip_budget <= 0.0:
+        effective_radius_or_flip_budget = deterministic_flip_radius
+    if effective_radius_or_flip_budget <= 0.0:
+        effective_radius_or_flip_budget = probabilistic_flip_radius
+    return {
+        "radius_or_flip_budget": _as_voi_metric(effective_radius_or_flip_budget),
+        "preference_volume_proxy": _as_voi_metric(
+            _extract_voi_metric_snapshot_value(
+                _mapping_or_empty(preference_state).get("compatible_set_summary")
+                if isinstance(preference_state, Mapping)
+                else getattr(preference_state, "compatible_set_summary", None),
+                "compatible_set_volume_proxy",
+            )
+        ),
+        "certified_set_size": int(
+            round(_extract_voi_metric_snapshot_value(certified_set_state, "set_size"))
+        ),
+    }
+
+
+def compute_voi_realized_metric_deltas(
+    before_snapshot: Mapping[str, Any] | None,
+    after_snapshot: Mapping[str, Any] | None,
+) -> dict[str, float]:
+    before = dict(before_snapshot or {})
+    after = dict(after_snapshot or {})
+    before_radius = max(0.0, _as_float(before.get("radius_or_flip_budget")))
+    after_radius = max(0.0, _as_float(after.get("radius_or_flip_budget")))
+    before_preference = max(0.0, _as_float(before.get("preference_volume_proxy")))
+    after_preference = max(0.0, _as_float(after.get("preference_volume_proxy")))
+    before_certified_set = max(0.0, _as_float(before.get("certified_set_size")))
+    after_certified_set = max(0.0, _as_float(after.get("certified_set_size")))
+    return {
+        "realized_delta_radius_or_flip_budget": _as_voi_metric(after_radius - before_radius),
+        "realized_preference_shrinkage": _as_voi_metric(before_preference - after_preference),
+        "realized_certified_set_contraction": _as_voi_metric(before_certified_set - after_certified_set),
+    }
+
+
+def classify_voi_hindsight_necessity(
+    *,
+    chosen_action: VOIAction | Mapping[str, Any] | None,
+    realized_fields: Mapping[str, Any] | None,
+    stop_reason: str | None = None,
+) -> str:
+    if chosen_action is None:
+        return "unknown"
+    realized = dict(realized_fields or {})
+    productive = bool(realized.get("realized_productive"))
+    if not productive:
+        productive = any(
+            (
+                _as_float(realized.get("realized_certificate_delta")) > 1e-9,
+                _as_float(realized.get("realized_runner_up_gap_delta")) > 1e-9,
+                _as_float(realized.get("realized_delta_radius_or_flip_budget")) > 1e-9,
+                _as_float(realized.get("realized_preference_shrinkage")) > 1e-9,
+                _as_float(realized.get("realized_certified_set_contraction")) > 1e-9,
+            )
+        )
+    if str(stop_reason or "").strip() == "certified" and productive:
+        return "plausibly_necessary_for_certification"
+    if productive:
+        return "plausibly_helpful"
+    return "not_needed_observed_nonproductive"
 
 
 def _best_candidate(
@@ -958,10 +1809,223 @@ def _pending_dccs_candidates(
     return _dedupe_pending_dccs_candidates(fallback_pool)
 
 
+def _ranked_preference_candidates(
+    dccs: DCCSResult,
+    *,
+    state: VOIControllerState | None = None,
+) -> list[DCCSCandidateRecord]:
+    pending = _pending_dccs_candidates(dccs, state=state)
+    if pending:
+        return pending
+    return _dedupe_pending_dccs_candidates([*dccs.selected, *dccs.skipped, *dccs.candidate_ledger])
+
+
+def _preference_modalities_seen(state: VOIControllerState) -> set[str]:
+    modalities: set[str] = set()
+    trace = state.action_trace if isinstance(state.action_trace, Sequence) else []
+    for raw_entry in trace:
+        if not isinstance(raw_entry, Mapping):
+            continue
+        chosen_action = raw_entry.get("chosen_action")
+        if not isinstance(chosen_action, Mapping):
+            continue
+        kind = str(chosen_action.get("kind", "")).strip()
+        family = str(chosen_action.get("action_family", "")).strip()
+        modality = str(chosen_action.get("action_modality", "")).strip()
+        if kind in _PREFERENCE_ACTION_KINDS or family == "preference":
+            modalities.add(modality or _action_modality_for_kind(kind))
+    return {item for item in modalities if item}
+
+
+def _frontier_route_ids(state: VOIControllerState) -> list[str]:
+    route_ids: list[str] = []
+    for route in state.frontier:
+        if not isinstance(route, Mapping):
+            continue
+        route_id = _route_id(route)
+        if route_id and route_id not in route_ids:
+            route_ids.append(route_id)
+    return route_ids
+
+
+def _build_preference_action(
+    *,
+    kind: str,
+    target: str,
+    route_ids: Sequence[str],
+    predicted_delta_certificate: float,
+    predicted_delta_margin: float,
+    predicted_delta_frontier: float,
+    preference_signal: float,
+    possible_best_signal: float,
+    necessary_best_signal: float,
+    time_guard_signal: float,
+    metadata: Mapping[str, Any] | None = None,
+) -> VOIAction:
+    return VOIAction(
+        action_id=f"{kind}:{target}",
+        kind=kind,
+        target=target,
+        cost_evidence=1,
+        predicted_delta_certificate=max(0.0, predicted_delta_certificate),
+        predicted_delta_margin=max(0.0, predicted_delta_margin),
+        predicted_delta_frontier=max(0.0, predicted_delta_frontier),
+        preconditions=("evidence_budget_available", "preference_sensitive_frontier"),
+        reason=f"issue_{_action_modality_for_kind(kind)}",
+        metadata={
+            "route_ids": list(route_ids),
+            "preference_signal": round(preference_signal, 6),
+            "possible_best_signal": round(possible_best_signal, 6),
+            "necessary_best_signal": round(necessary_best_signal, 6),
+            "time_guard_signal": round(time_guard_signal, 6),
+            **dict(metadata or {}),
+        },
+    )
+
+
+def _build_preference_actions(
+    *,
+    state: VOIControllerState,
+    dccs: DCCSResult,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    if state.remaining_evidence_budget <= 0:
+        return []
+    if current_certificate >= _as_float(config.certificate_threshold):
+        return []
+    if state.preference_irrelevance_proven or state.no_preference_query_reason == "preference_irrelevance_proven":
+        return []
+    if _preference_modalities_seen(state):
+        return []
+    route_ids = _frontier_route_ids(state)
+    if len(route_ids) < 2:
+        return []
+    candidates = _ranked_preference_candidates(dccs, state=state)
+    if not candidates:
+        return []
+    preference_signal = max(_clamp01(record.preference_query_sensitivity) for record in candidates)
+    possible_best_signal = max(_clamp01(record.changes_possible_best_probability) for record in candidates)
+    necessary_best_signal = max(_clamp01(record.changes_necessary_best_probability) for record in candidates)
+    time_guard_signal = max(_saturating_gain(record.time_regret_gap) for record in candidates)
+    objective_signal = max(_saturating_gain(record.objective_gap) for record in candidates)
+    mechanism_signal = max(_saturating_gain(record.mechanism_gap) for record in candidates)
+    frontier_pressure = max(
+        _clamp01(state.near_tie_mass),
+        _clamp01(state.pending_challenger_mass),
+        _clamp01(state.best_pending_flip_probability),
+        max(0.0, 1.0 - _clamp01(state.frontier_recall_at_budget)),
+    )
+    if max(
+        preference_signal,
+        possible_best_signal,
+        necessary_best_signal,
+        time_guard_signal,
+        frontier_pressure,
+    ) < 0.12:
+        return []
+    pair_target = f"{route_ids[0]}|{route_ids[1]}"
+    common_metadata = {
+        "frontier_route_ids": list(route_ids[:2]),
+        "frontier_pressure": round(frontier_pressure, 6),
+        "objective_signal": round(objective_signal, 6),
+        "mechanism_signal": round(mechanism_signal, 6),
+        "candidate_ids": [record.candidate_id for record in candidates[:2]],
+    }
+    actions = [
+        _build_preference_action(
+            kind="preference_pairwise_route_query",
+            target=pair_target,
+            route_ids=route_ids[:2],
+            predicted_delta_certificate=(0.12 * possible_best_signal) + (0.08 * necessary_best_signal) + (0.05 * frontier_pressure),
+            predicted_delta_margin=(0.24 * possible_best_signal) + (0.18 * preference_signal) + (0.08 * objective_signal),
+            predicted_delta_frontier=0.05 * frontier_pressure,
+            preference_signal=preference_signal,
+            possible_best_signal=possible_best_signal,
+            necessary_best_signal=necessary_best_signal,
+            time_guard_signal=time_guard_signal,
+            metadata={**common_metadata, "query_focus": "pairwise_route_preference"},
+        ),
+        _build_preference_action(
+            kind="preference_tradeoff_threshold_query",
+            target=f"{pair_target}:time_money_threshold",
+            route_ids=route_ids[:2],
+            predicted_delta_certificate=(0.08 * preference_signal) + (0.06 * necessary_best_signal) + (0.05 * objective_signal),
+            predicted_delta_margin=(0.20 * preference_signal) + (0.16 * objective_signal) + (0.08 * frontier_pressure),
+            predicted_delta_frontier=0.04 * objective_signal,
+            preference_signal=preference_signal,
+            possible_best_signal=possible_best_signal,
+            necessary_best_signal=necessary_best_signal,
+            time_guard_signal=time_guard_signal,
+            metadata={**common_metadata, "query_focus": "tradeoff_threshold"},
+        ),
+        _build_preference_action(
+            kind="preference_ratio_query",
+            target=f"{pair_target}:time_money_co2_ratio",
+            route_ids=route_ids[:2],
+            predicted_delta_certificate=(0.07 * preference_signal) + (0.07 * possible_best_signal) + (0.04 * objective_signal),
+            predicted_delta_margin=(0.18 * preference_signal) + (0.14 * possible_best_signal) + (0.08 * frontier_pressure),
+            predicted_delta_frontier=0.03 * objective_signal,
+            preference_signal=preference_signal,
+            possible_best_signal=possible_best_signal,
+            necessary_best_signal=necessary_best_signal,
+            time_guard_signal=time_guard_signal,
+            metadata={**common_metadata, "query_focus": "ratio_preference"},
+        ),
+        _build_preference_action(
+            kind="preference_veto_query",
+            target=f"{pair_target}:veto_guard",
+            route_ids=route_ids[:2],
+            predicted_delta_certificate=(0.09 * necessary_best_signal) + (0.06 * mechanism_signal) + (0.05 * frontier_pressure),
+            predicted_delta_margin=(0.20 * necessary_best_signal) + (0.12 * mechanism_signal) + (0.06 * preference_signal),
+            predicted_delta_frontier=0.02 * mechanism_signal,
+            preference_signal=preference_signal,
+            possible_best_signal=possible_best_signal,
+            necessary_best_signal=necessary_best_signal,
+            time_guard_signal=time_guard_signal,
+            metadata={**common_metadata, "query_focus": "veto_preference"},
+        ),
+        _build_preference_action(
+            kind="preference_time_guard_query",
+            target=f"{pair_target}:time_guard",
+            route_ids=route_ids[:2],
+            predicted_delta_certificate=(0.08 * time_guard_signal) + (0.05 * necessary_best_signal),
+            predicted_delta_margin=(0.22 * time_guard_signal) + (0.10 * frontier_pressure) + (0.06 * preference_signal),
+            predicted_delta_frontier=0.03 * time_guard_signal,
+            preference_signal=preference_signal,
+            possible_best_signal=possible_best_signal,
+            necessary_best_signal=necessary_best_signal,
+            time_guard_signal=time_guard_signal,
+            metadata={**common_metadata, "query_focus": "time_guard"},
+        ),
+    ]
+    return [score_action(action, config=config) for action in actions]
+
+
 def _candidate_group_signature(candidates: Sequence[DCCSCandidateRecord]) -> str:
+    def _stable_candidate_identity(candidate: DCCSCandidateRecord) -> str:
+        digest = hashlib.sha1()
+        stable_parts = [
+            str(candidate.corridor_signature or "").strip(),
+            *[str(node).strip() for node in candidate.graph_path if str(node).strip()],
+            f"{float(candidate.proxy_objective[0]):.6f}",
+            f"{float(candidate.proxy_objective[1]):.6f}",
+            f"{float(candidate.proxy_objective[2]):.6f}",
+            *(
+                f"{key}={float(candidate.mechanism_descriptor[key]):.6f}"
+                for key in sorted(candidate.mechanism_descriptor)
+            ),
+        ]
+        if not any(stable_parts):
+            stable_parts.append(str(candidate.candidate_id))
+        for part in stable_parts:
+            digest.update(part.encode("utf-8"))
+            digest.update(b"\0")
+        return digest.hexdigest()
+
     digest = hashlib.sha1()
-    for candidate in sorted(candidates, key=lambda item: item.candidate_id):
-        digest.update(candidate.candidate_id.encode("utf-8"))
+    for candidate in sorted(candidates, key=_stable_candidate_identity):
+        digest.update(_stable_candidate_identity(candidate).encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -1075,6 +2139,7 @@ def compute_search_completeness_metrics(
     config: VOIConfig | None = None,
 ) -> dict[str, float]:
     cfg = config or VOIConfig()
+    dccs_summary = dccs.summary if isinstance(dccs.summary, Mapping) else {}
     pending = _pending_dccs_candidates(dccs, state=state)
     candidate_pool = [record for record in dccs.candidate_ledger if isinstance(record, DCCSCandidateRecord)]
     selected = [record for record in dccs.selected if isinstance(record, DCCSCandidateRecord)]
@@ -1182,9 +2247,24 @@ def compute_search_completeness_metrics(
     )
     search_completeness_score = _clamp01(1.0 - risk)
     search_completeness_gap = max(0.0, float(cfg.search_completeness_threshold) - search_completeness_score)
+    unresolved_possible_frontier_mass = max(
+        0.0,
+        _as_float(dccs_summary.get("unresolved_possible_frontier_mass")),
+    )
+    unresolved_possible_winner_mass = max(
+        0.0,
+        _as_float(dccs_summary.get("unresolved_possible_winner_mass")),
+    )
+    unresolved_certificate_critical_mass = max(
+        0.0,
+        _as_float(dccs_summary.get("unresolved_certificate_critical_mass")),
+    )
     return {
         "search_completeness_score": round(search_completeness_score, 6),
         "search_completeness_gap": round(search_completeness_gap, 6),
+        "unresolved_possible_frontier_mass": round(unresolved_possible_frontier_mass, 6),
+        "unresolved_possible_winner_mass": round(unresolved_possible_winner_mass, 6),
+        "unresolved_certificate_critical_mass": round(unresolved_certificate_critical_mass, 6),
         "pending_challenger_mass": round(pending_challenger_mass, 6),
         "best_pending_flip_probability": round(best_pending_flip_probability, 6),
         "corridor_family_recall": round(corridor_family_recall, 6),
@@ -2169,6 +3249,18 @@ def _best_refresh_action_entry(actions: Sequence[VOIAction]) -> tuple[int, VOIAc
     )
 
 
+def _best_preference_action_entry(actions: Sequence[VOIAction]) -> tuple[int, VOIAction] | None:
+    return max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in _PREFERENCE_ACTION_KINDS
+        ),
+        key=lambda item: (_as_float(item[1].q_score), -item[0]),
+        default=None,
+    )
+
+
 def _apply_support_rich_certified_refresh_preference(
     actions: Sequence[VOIAction],
     *,
@@ -2353,21 +3445,32 @@ def _apply_strong_winner_side_refresh_preference(
     best_search_index, best_search_action = best_search_entry
     certificate_threshold = _as_float(config.certificate_threshold)
     refresh_metadata = refresh_action.metadata if isinstance(refresh_action.metadata, Mapping) else {}
+    search_metadata = (
+        best_search_action.metadata
+        if isinstance(best_search_action.metadata, Mapping)
+        else {}
+    )
     top_refresh_gain = max(0.0, _as_float(state.top_refresh_gain))
     top_fragility_mass = _clamp01(state.top_fragility_mass)
     competitor_pressure = _clamp01(state.competitor_pressure)
+    dead_refine_refresh_recovery = bool(
+        recent_no_gain_refine_streak > 0
+        and top_refresh_gain >= 0.18
+        and top_fragility_mass >= 0.15
+        and competitor_pressure >= 0.75
+    )
     strong_structured_uncertified_bridge = bool(
         current_certificate < certificate_threshold
         and bool(refresh_metadata.get("structured_refresh_signal"))
         and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.12
-        and _clamp01(best_search_action.metadata.get("normalized_objective_gap")) < 0.08
+        and _clamp01(search_metadata.get("normalized_objective_gap")) < 0.08
     )
     empirical_uncertified_refresh_bridge = bool(
         current_certificate < certificate_threshold
         and bool(refresh_metadata.get("structured_refresh_signal"))
         and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.05
-        and _clamp01(best_search_action.metadata.get("normalized_objective_gap")) < 0.03
-        and _clamp01(best_search_action.metadata.get("normalized_mechanism_gap")) < 0.16
+        and _clamp01(search_metadata.get("normalized_objective_gap")) < 0.03
+        and _clamp01(search_metadata.get("normalized_mechanism_gap")) < 0.16
     )
     post_route_change_uncertified_refresh_bridge = bool(
         current_certificate < certificate_threshold
@@ -2381,10 +3484,25 @@ def _apply_strong_winner_side_refresh_preference(
         and current_certificate >= 0.60
         and _selected_route_uses_cached_direct_fallback(state)
         and bool(refresh_metadata.get("structured_refresh_signal"))
-        and _clamp01(best_search_action.metadata.get("normalized_objective_gap")) < 0.03
+        and _clamp01(search_metadata.get("normalized_objective_gap")) < 0.03
         and max(0.0, _as_float(best_search_action.predicted_delta_frontier)) < 0.08
         and top_refresh_gain >= 0.50
         and top_fragility_mass >= 0.50
+        and competitor_pressure >= 0.95
+    )
+    productive_frontier_probe_refresh_bridge = bool(
+        current_certificate < certificate_threshold
+        and current_certificate >= max(0.60, certificate_threshold - 0.20)
+        and recent_no_gain_refine_streak <= 0
+        and _recent_productive_frontier_only_refine_probe(state)
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and bool(search_metadata.get("certificate_headroom_cap_applied"))
+        and _clamp01(search_metadata.get("normalized_objective_gap")) < 0.05
+        and _clamp01(search_metadata.get("normalized_mechanism_gap")) < 0.16
+        and max(0.0, _as_float(best_search_action.predicted_delta_frontier)) < 0.08
+        and _clamp01(state.pending_challenger_mass) >= 0.55
+        and top_refresh_gain >= 0.30
+        and top_fragility_mass >= 0.45
         and competitor_pressure >= 0.95
     )
     preferred_uncertified_refresh_bridge = bool(
@@ -2392,10 +3510,12 @@ def _apply_strong_winner_side_refresh_preference(
         or empirical_uncertified_refresh_bridge
         or post_route_change_uncertified_refresh_bridge
         or cached_direct_fallback_refresh_bridge
+        or productive_frontier_probe_refresh_bridge
     )
     if (
-        _clamp01(best_search_action.metadata.get("normalized_mechanism_gap")) >= 0.12
+        _clamp01(search_metadata.get("normalized_mechanism_gap")) >= 0.12
         and not preferred_uncertified_refresh_bridge
+        and not dead_refine_refresh_recovery
     ):
         return list(actions)
     if top_refresh_gain < 0.18 or top_fragility_mass < 0.15 or competitor_pressure < 0.75:
@@ -2445,6 +3565,11 @@ def _apply_strong_winner_side_refresh_preference(
     refresh_metadata["winner_side_refresh_preference_cached_direct_fallback_bridge"] = (
         cached_direct_fallback_refresh_bridge
     )
+    refresh_metadata["winner_side_refresh_preference_productive_frontier_probe_bridge"] = (
+        productive_frontier_probe_refresh_bridge
+    )
+    if dead_refine_refresh_recovery:
+        refresh_metadata["winner_side_refresh_preference_dead_refine_recovery"] = True
     updated[refresh_index] = replace(
         refresh_action,
         q_score=_as_float(refresh_action.q_score) + bonus,
@@ -2542,6 +3667,12 @@ def _apply_uncertified_evidence_plateau_preference(
         and top_fragility_mass >= 0.15
         and competitor_pressure >= 0.75
     )
+    recent_no_gain_support_rich_recovery = bool(
+        recent_no_gain_refine_streak >= 1
+        and support_rich_window
+        and supported_fragility_uncertainty
+        and direct_winner_side_signal
+    )
     direct_fallback_probe_stall_count = max(
         plateau_progress_count,
         recent_no_gain_refine_streak,
@@ -2549,6 +3680,20 @@ def _apply_uncertified_evidence_plateau_preference(
     direct_fallback_frontier_probe_plateau = bool(
         direct_fallback_probe_stall_count >= 1
         and _selected_route_uses_cached_direct_fallback(state)
+        and support_rich_window
+        and supported_fragility_uncertainty
+        and state.remaining_search_budget <= 1
+        and len(state.frontier) >= 3
+        and best_evidence_action.kind == "increase_stochastic_samples"
+        and max(0.0, _as_float(best_evidence_action.predicted_delta_certificate)) >= 0.06
+        and direct_winner_side_signal
+        and _clamp01(state.pending_challenger_mass) >= 0.55
+        and _clamp01(state.best_pending_flip_probability) >= 0.95
+        and max(0.0, _as_float(state.certificate_margin)) <= 0.08
+    )
+    frontier_only_probe_recovery = bool(
+        plateau_progress_count >= 1
+        and _recent_harmful_frontier_only_refine_probe(state)
         and support_rich_window
         and supported_fragility_uncertainty
         and state.remaining_search_budget <= 1
@@ -2606,6 +3751,8 @@ def _apply_uncertified_evidence_plateau_preference(
         plateau_progress_count < 2
         and not first_iteration_near_tie_plateau
         and not direct_fallback_frontier_probe_plateau
+        and not frontier_only_probe_recovery
+        and not recent_no_gain_support_rich_recovery
     ):
         return list(actions)
     if top_refresh_gain < 0.18 or top_fragility_mass < 0.15 or competitor_pressure < 0.75:
@@ -2624,6 +3771,11 @@ def _apply_uncertified_evidence_plateau_preference(
     )
     q_gap = max(0.0, search_q - evidence_q)
     plateau_signal = _clamp01(min(1.0, plateau_progress_count / 3.0))
+    if recent_no_gain_support_rich_recovery:
+        plateau_signal = max(
+            plateau_signal,
+            _clamp01(min(1.0, recent_no_gain_refine_streak / 3.0)),
+        )
     if first_iteration_near_tie_plateau:
         plateau_signal = max(
             plateau_signal,
@@ -2657,10 +3809,14 @@ def _apply_uncertified_evidence_plateau_preference(
     evidence_metadata["uncertified_evidence_plateau_progress_count"] = plateau_progress_count
     if first_iteration_near_tie_plateau:
         evidence_metadata["uncertified_evidence_plateau_first_iteration_near_tie"] = True
+    if recent_no_gain_support_rich_recovery:
+        evidence_metadata["uncertified_evidence_plateau_recent_no_gain_recovery"] = True
     if direct_fallback_frontier_probe_plateau:
         evidence_metadata["uncertified_evidence_plateau_direct_fallback_probe_recovery"] = True
         if recent_no_gain_refine_streak > plateau_progress_count:
             evidence_metadata["uncertified_evidence_plateau_direct_fallback_dead_probe_recovery"] = True
+    if frontier_only_probe_recovery:
+        evidence_metadata["uncertified_evidence_plateau_frontier_probe_recovery"] = True
     updated[best_evidence_index] = replace(
         best_evidence_action,
         q_score=evidence_q + bonus,
@@ -2686,10 +3842,14 @@ def _apply_uncertified_evidence_plateau_preference(
         search_metadata["uncertified_evidence_plateau_search_discount_applied"] = True
         if first_iteration_near_tie_plateau:
             search_metadata["uncertified_evidence_plateau_first_iteration_search_discount"] = True
+        if recent_no_gain_support_rich_recovery:
+            search_metadata["uncertified_evidence_plateau_recent_no_gain_discount"] = True
         if direct_fallback_frontier_probe_plateau:
             search_metadata["uncertified_evidence_plateau_direct_fallback_probe_discount"] = True
             if recent_no_gain_refine_streak > plateau_progress_count:
                 search_metadata["uncertified_evidence_plateau_direct_fallback_dead_probe_discount"] = True
+        if frontier_only_probe_recovery:
+            search_metadata["uncertified_evidence_plateau_frontier_probe_discount"] = True
         updated[best_search_index] = replace(
             best_search_action,
             q_score=max(0.0, search_q - search_discount),
@@ -3060,6 +4220,99 @@ def _apply_uncertified_post_evidence_resample_preference(
             q_score=max(0.0, search_q - search_discount),
             metadata=search_metadata,
     )
+    return updated
+
+
+def _apply_uncertified_last_search_token_preference_bridge(
+    actions: Sequence[VOIAction],
+    *,
+    state: VOIControllerState,
+    current_certificate: float,
+    config: VOIConfig,
+) -> list[VOIAction]:
+    certificate_threshold = _as_float(config.certificate_threshold)
+    if current_certificate >= certificate_threshold:
+        return list(actions)
+    if state.remaining_search_budget > 1 or state.remaining_evidence_budget <= 0:
+        return list(actions)
+    if not _support_rich_ambiguity_window(state):
+        return list(actions)
+    if not _selected_route_uses_cached_direct_fallback(state):
+        return list(actions)
+    if _recent_certificate_stalled_search_progress_count(state, max_depth=1) <= 0:
+        return list(actions)
+    best_search_entry = max(
+        (
+            (idx, action)
+            for idx, action in enumerate(actions)
+            if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}
+        ),
+        key=lambda item: item[1].q_score,
+        default=None,
+    )
+    best_preference_entry = _best_preference_action_entry(actions)
+    if best_search_entry is None or best_preference_entry is None:
+        return list(actions)
+    search_index, search_action = best_search_entry
+    preference_index, preference_action = best_preference_entry
+    search_q = max(0.0, _as_float(search_action.q_score))
+    preference_q = max(0.0, _as_float(preference_action.q_score))
+    if preference_q <= 0.0 or search_q <= preference_q:
+        return list(actions)
+    q_gap = max(0.0, search_q - preference_q)
+    if q_gap > 0.12:
+        return list(actions)
+    search_metadata = search_action.metadata if isinstance(search_action.metadata, Mapping) else {}
+    objective_gap = _clamp01(search_metadata.get("normalized_objective_gap"))
+    mechanism_gap = _clamp01(search_metadata.get("normalized_mechanism_gap"))
+    predicted_frontier = max(0.0, _as_float(search_action.predicted_delta_frontier))
+    if objective_gap >= 0.06 or mechanism_gap >= 0.14 or predicted_frontier >= 0.12:
+        return list(actions)
+    preference_shrinkage = predicted_preference_shrinkage(preference_action)
+    if preference_shrinkage < 0.30:
+        return list(actions)
+    preference_metadata = (
+        preference_action.metadata if isinstance(preference_action.metadata, Mapping) else {}
+    )
+    bridge_signal = _clamp01(
+        (0.45 * preference_shrinkage)
+        + (0.22 * _clamp01(preference_metadata.get("possible_best_signal")))
+        + (0.18 * _clamp01(preference_metadata.get("necessary_best_signal")))
+        + (0.15 * _clamp01(preference_metadata.get("frontier_pressure")))
+    )
+    bonus = min(
+        0.14,
+        q_gap + 0.012 + (0.05 * bridge_signal),
+    )
+    if bonus <= 0.0:
+        return list(actions)
+    updated = list(actions)
+    updated_preference_metadata = dict(preference_metadata)
+    updated_preference_metadata["uncertified_last_search_token_preference_bridge_bonus"] = round(
+        bonus,
+        6,
+    )
+    updated_preference_metadata["uncertified_last_search_token_preference_bridge_applied"] = True
+    updated[preference_index] = replace(
+        preference_action,
+        q_score=preference_q + bonus,
+        metadata=updated_preference_metadata,
+    )
+    search_discount = min(0.08, 0.028 + (0.04 * bridge_signal))
+    if search_discount > 0.0:
+        updated_search_metadata = dict(search_metadata)
+        updated_search_metadata["uncertified_last_search_token_preference_bridge_search_discount"] = round(
+            search_discount,
+            6,
+        )
+        updated_search_metadata["uncertified_last_search_token_preference_bridge_search_discount_applied"] = (
+            True
+        )
+        updated[search_index] = replace(
+            search_action,
+            q_score=max(0.0, search_q - search_discount),
+            metadata=updated_search_metadata,
+        )
     return updated
 
 
@@ -3541,7 +4794,7 @@ def _should_stop_uncertified_weak_search_tail(
     if evidence_uncertainty:
         direct_winner_side_evidence_signal = bool(
             max(0.0, _as_float(state.top_refresh_gain)) > 0.0
-            or _clamp01(state.top_fragility_mass) > 0.0
+            or _clamp01(state.top_fragility_mass) > 0.01
             or _clamp01(state.competitor_pressure) > 0.05
         )
         if direct_winner_side_evidence_signal:
@@ -4516,26 +5769,28 @@ def _suppress_saturated_certified_zero_headroom_search_probe(
                 if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
             ]
         return [action for action in actions if action.kind == "stop"]
+    strong_winner_side_signal = bool(
+        max(0.0, _as_float(state.top_refresh_gain)) >= 0.10
+        or _clamp01(state.top_fragility_mass) >= 0.15
+        or _clamp01(state.competitor_pressure) >= 0.75
+    )
+    preserve_search_reopen = bool(
+        objective_gap >= 0.18
+        or predicted_frontier >= 0.18
+        or (objective_gap >= 0.10 and predicted_frontier >= 0.10 and mechanism_gap >= 0.45)
+    )
     if objective_gap >= 0.05 or predicted_frontier >= 0.05:
         if evidence_actions:
-            strong_winner_side_signal = bool(
-                max(0.0, _as_float(state.top_refresh_gain)) >= 0.10
-                or _clamp01(state.top_fragility_mass) >= 0.15
-                or _clamp01(state.competitor_pressure) >= 0.75
-            )
             if not strong_winner_side_signal:
                 return list(actions)
-            preserve_search_reopen = bool(
-                objective_gap >= 0.18
-                or predicted_frontier >= 0.18
-                or (objective_gap >= 0.10 and predicted_frontier >= 0.10 and mechanism_gap >= 0.45)
-            )
             if not preserve_search_reopen:
                 return [
                     action
                     for action in actions
                     if action.kind not in {"refine_top1_dccs", "refine_topk_dccs"}
                 ]
+        elif strong_winner_side_signal and not preserve_search_reopen:
+            return [action for action in actions if action.kind == "stop"]
         return list(actions)
     if any(action.kind in {"refresh_top1_vor", "increase_stochastic_samples"} for action in actions):
         return [
@@ -5394,14 +6649,6 @@ def _cap_action_certificate_headroom(
 def score_action(action: VOIAction, *, config: VOIConfig | None = None) -> VOIAction:
     cfg = config or VOIConfig()
     cost = max(0.0, float(action.cost_search + action.cost_evidence))
-    # Thesis controller heuristic: a deterministic value-per-cost ranking over
-    # certificate gain, margin gain, and frontier gain. This is a transparent
-    # metareasoning surrogate, not a claim of optimal VOI.
-    q_score = (
-        (cfg.lambda_certificate * action.predicted_delta_certificate)
-        + (cfg.lambda_margin * action.predicted_delta_margin)
-        + (cfg.lambda_frontier * action.predicted_delta_frontier)
-    ) / (cost + cfg.epsilon)
     predicted_delta_search_completeness = action.predicted_delta_search_completeness
     if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}:
         predicted_delta_search_completeness = max(
@@ -5411,11 +6658,26 @@ def score_action(action: VOIAction, *, config: VOIConfig | None = None) -> VOIAc
         )
     else:
         predicted_delta_search_completeness = max(0.0, _as_float(predicted_delta_search_completeness))
+    scored_action = replace(action, predicted_delta_search_completeness=predicted_delta_search_completeness)
+    # Thesis controller heuristic: a deterministic value-per-cost ranking over
+    # certificate/winner-LCB gain, gap-LCB gain, boundary contraction, and the
+    # narrower robustness / unresolved-mass / preference-ambiguity lifts that
+    # the action surfaces already expose.
+    q_score = (
+        (cfg.lambda_certificate * predicted_winner_lcb_gain(scored_action))
+        + (cfg.lambda_margin * predicted_gap_lcb_gain(scored_action))
+        + (cfg.lambda_frontier * predicted_boundary_contraction(scored_action))
+        + (cfg.lambda_radius_or_flip_budget * predicted_radius_or_flip_budget_gain(scored_action))
+        + (cfg.lambda_unresolved_mass * predicted_unresolved_mass_reduction(scored_action))
+        + (
+            cfg.lambda_preference_ambiguity
+            * predicted_preference_ambiguity_reduction(scored_action)
+        )
+    ) / (cost + cfg.epsilon)
     return replace(
-        action,
+        scored_action,
         action_family=_action_family_for_kind(action.kind),
         action_modality=_action_modality_for_kind(action.kind),
-        predicted_delta_search_completeness=predicted_delta_search_completeness,
         q_score=float(q_score),
     )
 
@@ -5563,6 +6825,11 @@ def build_action_menu(
             current_certificate < _as_float(cfg.certificate_threshold)
             or evidence_action_support
         )
+    )
+    allow_preference_actions = bool(
+        state.remaining_evidence_budget > 0
+        and current_certificate < _as_float(cfg.certificate_threshold)
+        and len(enriched_state.frontier) >= 2
     )
     recent_no_gain_refine_streak = _recent_no_gain_refine_streak(enriched_state)
     recent_no_gain_controller_streak = _recent_no_gain_controller_streak(enriched_state)
@@ -5739,6 +7006,15 @@ def build_action_menu(
                 config=cfg,
             )
         )
+    if allow_preference_actions:
+        actions.extend(
+            _build_preference_actions(
+                state=enriched_state,
+                dccs=dccs,
+                current_certificate=current_certificate,
+                config=cfg,
+            )
+        )
     evidence_discovery_bridge = _should_offer_evidence_discovery_bridge(
         enriched_state,
         current_certificate=current_certificate,
@@ -5850,6 +7126,12 @@ def build_action_menu(
         config=cfg,
         evidence_uncertainty=evidence_uncertainty,
         supported_fragility_uncertainty=supported_fragility_uncertainty,
+    )
+    actions = _apply_uncertified_last_search_token_preference_bridge(
+        actions,
+        state=enriched_state,
+        current_certificate=current_certificate,
+        config=cfg,
     )
     actions = _apply_uncertified_last_search_token_resample_preference(
         actions,
@@ -6328,6 +7610,18 @@ def _apply_action(
             state,
             remaining_evidence_budget=max(0, state.remaining_evidence_budget - action.cost_evidence),
         ))
+    if action.kind in _PREFERENCE_ACTION_KINDS:
+        if hooks is not None and hooks.preference is not None:
+            return _normalize_updated_state(hooks.preference(state, action))
+        updated_context = dict(state.ambiguity_context)
+        updated_context["last_preference_action_kind"] = action.kind
+        updated_context["last_preference_action_modality"] = _action_modality_for_kind(action.kind)
+        updated_context["last_preference_action_target"] = action.target
+        return _normalize_updated_state(replace(
+            state,
+            ambiguity_context=updated_context,
+            remaining_evidence_budget=max(0, state.remaining_evidence_budget - action.cost_evidence),
+        ))
     return state
 
 
@@ -6428,6 +7722,7 @@ def refresh_controller_state_after_action(
     stochastic_enabled: bool | None = None,
     ambiguity_context: Mapping[str, Any] | None = None,
     action_trace: Sequence[Mapping[str, Any]] | None = None,
+    literal_state_fields: Mapping[str, Any] | None = None,
 ) -> VOIControllerState:
     refreshed_state = replace(
         state,
@@ -6442,6 +7737,7 @@ def refresh_controller_state_after_action(
         refreshed_evidence_families=list(refreshed_evidence_families),
         stochastic_enabled=state.stochastic_enabled if stochastic_enabled is None else bool(stochastic_enabled),
         ambiguity_context=dict(ambiguity_context or state.ambiguity_context or {}),
+        **dict(literal_state_fields or {}),
     )
     return enrich_controller_state_for_actioning(
         refreshed_state,
@@ -6731,7 +8027,7 @@ def _state_snapshot(
     chosen_action: VOIAction | None,
     best_rejected_action: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    return {
+    snapshot = {
         "iteration": state.iteration_index,
         "winner_id": state.winner_id,
         "selected_route_id": state.selected_route_id,
@@ -6744,6 +8040,29 @@ def _state_snapshot(
         "used_evidence_budget": state.used_evidence_budget,
         "near_tie_mass": state.near_tie_mass,
         "certificate_margin": state.certificate_margin,
+        "certificate_lcb": state.certificate_lcb,
+        "certificate_ucb": state.certificate_ucb,
+        "necessary_best_probability": state.necessary_best_probability,
+        "possible_best_probability": state.possible_best_probability,
+        "minimum_pairwise_gap_lcb": state.minimum_pairwise_gap_lcb,
+        "deterministic_local_flip_radius": state.deterministic_local_flip_radius,
+        "probabilistic_flip_radius": state.probabilistic_flip_radius,
+        "minimum_flip_budget": state.minimum_flip_budget,
+        "certified_set_size": state.certified_set_size,
+        "weight_set_volume": state.weight_set_volume,
+        "weight_set_shrinkage": state.weight_set_shrinkage,
+        "preference_irrelevance_proven": bool(state.preference_irrelevance_proven),
+        "no_preference_query_reason": state.no_preference_query_reason,
+        "unresolved_possible_frontier_mass": state.unresolved_possible_frontier_mass,
+        "unresolved_possible_winner_mass": state.unresolved_possible_winner_mass,
+        "unresolved_certificate_critical_mass": state.unresolved_certificate_critical_mass,
+        "support_flag": bool(state.support_flag),
+        "out_of_support_reason": state.out_of_support_reason,
+        "proxy_only_fraction": state.proxy_only_fraction,
+        "audit_propensity_summary": dict(state.audit_propensity_summary),
+        "active_certificate_boundary_summary": dict(
+            state.active_certificate_boundary_summary
+        ),
         "support_richness": state.support_richness,
         "ambiguity_pressure": state.ambiguity_pressure,
         "search_completeness_score": state.search_completeness_score,
@@ -6765,7 +8084,15 @@ def _state_snapshot(
         "feasible_actions": [action.as_dict() for action in feasible_actions],
         "chosen_action": chosen_action.as_dict() if chosen_action is not None else None,
         "best_rejected_action": best_rejected_action,
+        "next_best_unused_action": best_rejected_action,
     }
+    snapshot.update(
+        _surface_voi_artifact_fields(
+            action_trace=state.action_trace,
+            chosen_action=chosen_action,
+        )
+    )
+    return snapshot
 
 
 def _build_stop_certificate(
@@ -6779,7 +8106,9 @@ def _build_stop_certificate(
     certificate_value: float,
 ) -> VOIStopCertificate:
     terminal_action = None
+    terminal_realized_fields: dict[str, Any] = {}
     if state.action_trace:
+        terminal_realized_fields = dict(state.action_trace[-1])
         maybe_terminal = state.action_trace[-1].get("chosen_action")
         if isinstance(maybe_terminal, Mapping):
             terminal_action = maybe_terminal
@@ -6798,12 +8127,17 @@ def _build_stop_certificate(
         terminal_action_kind = str(terminal_action.get("kind", "")).strip() or terminal_action_kind
         terminal_action_family = str(terminal_action.get("action_family", "")).strip() or terminal_action_family
         terminal_action_modality = str(terminal_action.get("action_modality", "")).strip() or terminal_action_modality
+    terminal_hindsight_label = classify_voi_hindsight_necessity(
+        chosen_action=terminal_action,
+        realized_fields=terminal_realized_fields,
+        stop_reason=stop_reason,
+    )
     return VOIStopCertificate(
         final_winner_route_id=state.winner_id,
         final_winner_objective_vector=_winner_objective_vector(state),
         final_strict_frontier_size=len(state.frontier),
         certificate_value=current_certificate,
-        certified=bool(current_certificate >= config.certificate_threshold or stop_reason == "certified"),
+        certified=bool(stop_reason == "certified"),
         search_budget_used=config.search_budget - state.remaining_search_budget,
         search_budget_remaining=state.remaining_search_budget,
         evidence_budget_used=config.evidence_budget - state.remaining_evidence_budget,
@@ -6817,6 +8151,34 @@ def _build_stop_certificate(
         terminal_action_kind=terminal_action_kind or None,
         terminal_action_family=terminal_action_family or None,
         terminal_action_modality=terminal_action_modality or None,
+        predicted_winner_lcb_gain=predicted_winner_lcb_gain(terminal_action),
+        realized_certificate_delta=(
+            _rounded_controller_state_value(
+                terminal_realized_fields.get("realized_certificate_delta")
+            )
+            or 0.0
+        ),
+        predicted_gap_lcb_gain=predicted_gap_lcb_gain(terminal_action),
+        realized_runner_up_gap_delta=(
+            _rounded_controller_state_value(
+                terminal_realized_fields.get("realized_runner_up_gap_delta")
+            )
+            or 0.0
+        ),
+        predicted_delta_radius_or_flip_budget=predicted_delta_radius_or_flip_budget(terminal_action),
+        realized_delta_radius_or_flip_budget=_as_voi_metric(
+            terminal_realized_fields.get("realized_delta_radius_or_flip_budget")
+        ),
+        predicted_preference_shrinkage=predicted_preference_shrinkage(terminal_action),
+        realized_preference_shrinkage=_as_voi_metric(
+            terminal_realized_fields.get("realized_preference_shrinkage")
+        ),
+        predicted_certified_set_contraction=predicted_certified_set_contraction(terminal_action),
+        realized_certified_set_contraction=_as_voi_metric(
+            terminal_realized_fields.get("realized_certified_set_contraction")
+        ),
+        hindsight_necessity_label=terminal_hindsight_label,
+        metric_semantics=voi_artifact_metric_semantics(),
         replay_oracle_summary=replay_evaluation.summary.as_dict(),
         iteration_count=len(state.action_trace),
         controller_state=state.as_dict(),
@@ -6941,7 +8303,7 @@ def run_controller(
                 best_rejected_action=best_rejected_action,
                 certificate_value=certificate_value,
             )
-        if hooks is None and top_action.kind != "stop":
+        if hooks is None and _action_requires_hooks(top_action.kind):
             failed_best_rejected = feasible_actions[1].as_dict() if len(feasible_actions) > 1 else None
             failure_trace_entry = {
                 "iteration": state.iteration_index,
@@ -6951,6 +8313,7 @@ def run_controller(
                 "remaining_search_budget": state.remaining_search_budget,
                 "remaining_evidence_budget": state.remaining_evidence_budget,
                 "best_rejected_action": failed_best_rejected,
+                "next_best_unused_action": failed_best_rejected,
             }
             failure_state_snapshot = _state_snapshot(
                 state,
@@ -6986,6 +8349,7 @@ def run_controller(
             "remaining_search_budget": state.remaining_search_budget,
             "remaining_evidence_budget": state.remaining_evidence_budget,
             "best_rejected_action": best_rejected_action,
+            "next_best_unused_action": best_rejected_action,
         }
         state = replace(
             state,
@@ -7024,8 +8388,31 @@ def run_controller(
         if hooks is None:
             continue
 
+    state = enrich_controller_state_for_actioning(state, dccs=dccs, fragility=fragility, config=cfg)
     current_certificate = _as_float(state.certificate.get(state.winner_id, certificate_value))
-    if current_certificate >= cfg.certificate_threshold:
+    credible_uncertainty = _credible_search_uncertainty(
+        state,
+        config=cfg,
+        current_certificate=current_certificate,
+    )
+    credible_evidence = _credible_evidence_uncertainty(
+        state,
+        fragility=fragility,
+        config=cfg,
+        current_certificate=current_certificate,
+    )
+    state = replace(
+        state,
+        credible_search_uncertainty=bool(credible_uncertainty),
+        credible_evidence_uncertainty=bool(credible_evidence),
+    )
+    if current_certificate >= cfg.certificate_threshold and (
+        (
+            state.search_completeness_score >= cfg.search_completeness_threshold
+            or not credible_uncertainty
+        )
+        and not credible_evidence
+    ):
         stop_reason = "certified"
     elif state.remaining_search_budget <= 0 and state.remaining_evidence_budget <= 0:
         stop_reason = "budget_exhausted"

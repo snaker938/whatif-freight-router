@@ -33,6 +33,65 @@ def test_cache_key_component_handles_literals_and_models() -> None:
     assert main_module._cache_key_component(CostToggles()) == CostToggles().model_dump(mode="json")
 
 
+def test_live_voi_replay_oracle_summary_surfaces_regret_and_modality_switches() -> None:
+    summary = main_module._live_voi_replay_oracle_summary(
+        [
+            {
+                "chosen_action": {
+                    "kind": "refine_top1_dccs",
+                    "action_modality": "refine_top1",
+                    "q_score": 0.1,
+                },
+                "feasible_actions": [
+                    {
+                        "kind": "refine_top1_dccs",
+                        "action_modality": "refine_top1",
+                        "q_score": 0.1,
+                    },
+                    {
+                        "kind": "refresh_top1_vor",
+                        "action_modality": "refresh",
+                        "q_score": 0.3,
+                    },
+                ],
+            },
+            {
+                "chosen_action": {
+                    "kind": "stop",
+                    "action_modality": "stop",
+                    "q_score": 0.0,
+                },
+                "feasible_actions": [
+                    {
+                        "kind": "stop",
+                        "action_modality": "stop",
+                        "q_score": 0.0,
+                    }
+                ],
+            },
+        ],
+        initial_certificate=0.75,
+        final_certificate=0.88,
+        stop_reason="certified",
+    )
+
+    assert summary == {
+        "action_count": 2,
+        "initial_certificate": 0.75,
+        "final_certificate": 0.88,
+        "stop_reason": "certified",
+        "replay_regret": 0.2,
+        "modality_switch_count": 1,
+        "modality_switch_observed": True,
+    }
+    assert main_module._live_voi_replay_oracle_summary(
+        [],
+        initial_certificate=0.75,
+        final_certificate=0.88,
+        stop_reason="certified",
+    ) is None
+
+
 def _make_route(
     *,
     point_count: int,
@@ -245,6 +304,56 @@ def _pareto_payload() -> dict[str, Any]:
         "scenario_mode": "no_sharing",
         "max_alternatives": 5,
     }
+
+
+def _decision_route_option(
+    route_id: str,
+    *,
+    lon_offset: float,
+    certificate: float | None = None,
+    certified: bool = False,
+    threshold: float = 0.8,
+    top_competitor_route_id: str | None = None,
+    top_fragility_families: list[str] | None = None,
+) -> RouteOption:
+    certification = None
+    if certificate is not None:
+        certification = RouteCertificationSummary(
+            route_id=route_id,
+            certificate=certificate,
+            certified=certified,
+            threshold=threshold,
+            active_families=["scenario", "weather"],
+            top_fragility_families=list(top_fragility_families or []),
+            top_competitor_route_id=top_competitor_route_id,
+            top_value_of_refresh_family="weather",
+        )
+    return RouteOption(
+        id=route_id,
+        geometry=GeoJSONLineString(
+            type="LineString",
+            coordinates=[(lon_offset, 52.4862), (-0.1276, 51.5072)],
+        ),
+        metrics=RouteMetrics(
+            distance_km=185.0,
+            duration_s=8100.0,
+            monetary_cost=312.4,
+            emissions_kg=144.2,
+            avg_speed_kmh=82.2,
+        ),
+        scenario_summary=ScenarioSummary(
+            mode=ScenarioMode.NO_SHARING,
+            duration_multiplier=1.0,
+            incident_rate_multiplier=1.0,
+            incident_delay_multiplier=1.0,
+            fuel_consumption_multiplier=1.0,
+            emissions_multiplier=1.0,
+            stochastic_sigma_multiplier=1.0,
+            source="pytest",
+            version="pytest",
+        ),
+        certification=certification,
+    )
 
 
 def test_pareto_computes_all_candidates_and_downsamples_geometry(
@@ -555,11 +664,23 @@ def test_route_uses_direct_pipeline_for_voi_mode(
     )
     assert resp.status_code == 200
     data = resp.json()
+    assert data["terminal_type"] == "certified_singleton"
     assert data["pipeline_mode"] == "voi"
     assert data["selected"]["id"] == "voi_route_1"
+    assert data["recommended_route"]["id"] == "voi_route_1"
+    assert data["certified_set"] == []
+    assert data["certified_set_summary"]["member_route_ids"] == []
+    assert data["certified_set_summary"]["excluded_route_ids"] == []
+    assert data["certified_set_summary"]["certified"] is False
+    assert data["certified_set_summary"]["set_size"] == 0
+    assert data["certified_set_summary"]["terminal_type"] == "certified_singleton"
+    assert data["certified_set_summary"]["not_applicable_reason"] == "singleton_terminal"
+    assert data["abstention"] is None
+    assert data["abstention_summary"]["has_typed_abstention"] is False
     assert data["selected_certificate"]["route_id"] == "voi_route_1"
     assert data["selected_certificate"]["certified"] is True
     assert data["voi_stop_summary"]["stop_reason"] == "certified"
+    assert data["artifact_pointers"]["manifest_endpoint"] == data["manifest_endpoint"]
     assert data["run_id"]
 
     artifact_dir = artifact_dir_for_run(data["run_id"])
@@ -577,6 +698,427 @@ def test_route_uses_direct_pipeline_for_voi_mode(
     assert first_row["competitor_pressure"] == pytest.approx(0.62, rel=0.0, abs=1e-6)
     assert first_row["credible_search_uncertainty"] is True
     assert first_row["credible_evidence_uncertainty"] is True
+
+
+def test_route_returns_certified_set_decision_package_for_multi_route_certification(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+
+    async def _fail_if_legacy_called(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        TerrainDiagnostics,
+        CandidateDiagnostics,
+    ]:
+        raise AssertionError("legacy route collector should not run for VOI pipeline mode")
+
+    route_a = _decision_route_option(
+        "voi_route_1",
+        lon_offset=-1.8904,
+        certificate=0.86,
+        certified=True,
+        top_competitor_route_id="voi_route_2",
+        top_fragility_families=["weather"],
+    )
+    route_b = _decision_route_option("voi_route_2", lon_offset=-1.7904)
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        return {
+            "selected": route_a,
+            "candidates": [route_a, route_b],
+            "warnings": [],
+            "candidate_fetches": 2,
+            "terrain_diag": TerrainDiagnostics(),
+            "candidate_diag": CandidateDiagnostics(raw_count=2, deduped_count=2, candidate_budget=2),
+            "selected_certificate": route_a.certification,
+            "voi_stop_summary": VoiStopSummary(
+                final_route_id="voi_route_1",
+                certificate=0.86,
+                certified=True,
+                iteration_count=1,
+                search_budget_used=1,
+                evidence_budget_used=0,
+                stop_reason="certified",
+                best_rejected_action="refine_top1_dccs:voi_route_2",
+                best_rejected_q=0.03,
+            ),
+            "extra_json_artifacts": {
+                "certificate_summary.json": {"selected_route_id": "voi_route_1", "selected_certificate": 0.86},
+                "voi_stop_certificate.json": {"final_winner_route_id": "voi_route_1", "certificate_value": 0.86},
+            },
+            "extra_jsonl_artifacts": {
+                "dccs_candidates.jsonl": [{"candidate_id": "cand-1", "decision": "refine"}],
+                "voi_controller_state.jsonl": [{"iteration_index": 0, "credible_search_uncertainty": False}],
+            },
+            "extra_csv_artifacts": {
+                "voi_action_scores.csv": (
+                    ["iteration", "action_id", "q_score"],
+                    [{"iteration": 0, "action_id": "refine_top1_dccs:voi_route_2", "q_score": 0.03}],
+                ),
+            },
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fail_if_legacy_called,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+
+    resp = client.post(
+        "/route",
+        json={**_pareto_payload(), "pipeline_mode": "voi", "search_budget": 2, "evidence_budget": 1},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["terminal_type"] == "certified_set"
+    assert data["selected"] is None
+    assert data["recommended_route"] is None
+    assert [route["id"] for route in data["certified_set"]] == ["voi_route_1", "voi_route_2"]
+    assert data["certified_set_summary"]["member_route_ids"] == ["voi_route_1", "voi_route_2"]
+    assert data["certified_set_summary"]["excluded_route_ids"] == []
+    assert data["certified_set_summary"]["certified"] is True
+    assert data["certified_set_summary"]["set_size"] == 2
+    assert data["certified_set_summary"]["terminal_type"] == "certified_set"
+    assert data["certified_set_summary"]["not_applicable_reason"] is None
+    assert data["abstention"] is None
+    assert data["abstention_summary"]["has_typed_abstention"] is False
+    assert data["artifact_pointers"]["manifest_endpoint"] == data["manifest_endpoint"]
+
+
+def test_route_returns_typed_abstention_decision_package_for_uncertified_voi_result(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+
+    async def _fail_if_legacy_called(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        TerrainDiagnostics,
+        CandidateDiagnostics,
+    ]:
+        raise AssertionError("legacy route collector should not run for VOI pipeline mode")
+
+    route_a = _decision_route_option(
+        "voi_route_1",
+        lon_offset=-1.8904,
+        certificate=0.43,
+        certified=False,
+        top_competitor_route_id="voi_route_2",
+        top_fragility_families=["weather"],
+    )
+    route_b = _decision_route_option("voi_route_2", lon_offset=-1.7904)
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        return {
+            "selected": route_a,
+            "candidates": [route_a, route_b],
+            "warnings": [],
+            "candidate_fetches": 2,
+            "terrain_diag": TerrainDiagnostics(),
+            "candidate_diag": CandidateDiagnostics(raw_count=2, deduped_count=2, candidate_budget=2),
+            "selected_certificate": route_a.certification,
+            "voi_stop_summary": VoiStopSummary(
+                final_route_id="voi_route_1",
+                certificate=0.43,
+                certified=False,
+                iteration_count=2,
+                search_budget_used=2,
+                evidence_budget_used=1,
+                stop_reason="search_incomplete_no_action_worth_it",
+                best_rejected_action="audit_world_expansion",
+                best_rejected_q=0.0,
+                credible_search_uncertainty=True,
+            ),
+            "extra_json_artifacts": {
+                "certificate_summary.json": {"selected_route_id": "voi_route_1", "selected_certificate": 0.43},
+                "voi_stop_certificate.json": {"final_winner_route_id": "voi_route_1", "certificate_value": 0.43},
+            },
+            "extra_jsonl_artifacts": {
+                "dccs_candidates.jsonl": [{"candidate_id": "cand-1", "decision": "refine"}],
+                "voi_controller_state.jsonl": [{"iteration_index": 0, "credible_search_uncertainty": True}],
+            },
+            "extra_csv_artifacts": {
+                "voi_action_scores.csv": (
+                    ["iteration", "action_id", "q_score"],
+                    [{"iteration": 0, "action_id": "audit_world_expansion", "q_score": 0.0}],
+                ),
+            },
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fail_if_legacy_called,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+
+    resp = client.post(
+        "/route",
+        json={**_pareto_payload(), "pipeline_mode": "voi", "search_budget": 2, "evidence_budget": 1},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["terminal_type"] == "typed_abstention"
+    assert data["selected"] is None
+    assert data["recommended_route"] is None
+    assert data["certified_set"] == []
+    assert data["certified_set_summary"]["member_route_ids"] == []
+    assert data["certified_set_summary"]["excluded_route_ids"] == ["voi_route_1", "voi_route_2"]
+    assert data["certified_set_summary"]["certified"] is False
+    assert data["certified_set_summary"]["set_size"] == 0
+    assert data["certified_set_summary"]["terminal_type"] == "typed_abstention"
+    assert data["certified_set_summary"]["not_applicable_reason"] == "abstention_terminal"
+    assert data["abstention"]["reason_code"] == "uncertified_due_to_search"
+    assert data["abstention_summary"]["reason_code"] == "uncertified_due_to_search"
+    assert data["abstention_summary"]["has_typed_abstention"] is True
+    assert data["artifact_pointers"]["manifest_endpoint"] == data["manifest_endpoint"]
+
+
+def test_route_downgrades_direct_certified_result_when_support_flag_is_false(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "out_dir", str(tmp_path))
+
+    async def _fail_if_legacy_called(**kwargs: Any) -> tuple[
+        list[RouteOption],
+        list[str],
+        int,
+        TerrainDiagnostics,
+        CandidateDiagnostics,
+    ]:
+        raise AssertionError("legacy route collector should not run for VOI pipeline mode")
+
+    route = _decision_route_option(
+        "voi_route_1",
+        lon_offset=-1.8904,
+        certificate=0.88,
+        certified=True,
+        top_competitor_route_id="voi_route_2",
+        top_fragility_families=["weather"],
+    )
+    challenger = _decision_route_option(
+        "voi_route_2",
+        lon_offset=-1.8804,
+        certificate=0.63,
+        certified=False,
+        top_competitor_route_id="voi_route_1",
+        top_fragility_families=["scenario"],
+    )
+    rich_certified_set_summary = {
+        "member_route_ids": ["voi_route_1"],
+        "excluded_route_ids": ["voi_route_2"],
+        "exclusion_basis": ["certificate_threshold", "frontier_selection"],
+        "certified": True,
+        "threshold": 0.8,
+        "support_flag": False,
+        "set_size": 1,
+        "witness": {
+            "route_id": "voi_route_1",
+            "active_challenger_ids": ["voi_route_2"],
+            "support_flag": False,
+            "singleton_not_justified_reasons": [
+                "support_flag_false_forces_terminal_downgrade",
+            ],
+        },
+    }
+    public_abstention_summary = {
+        "member_route_ids": [],
+        "excluded_route_ids": ["voi_route_1", "voi_route_2"],
+        "exclusion_basis": ["certificate_threshold", "frontier_selection"],
+        "certified": False,
+        "set_size": 0,
+        "terminal_type": "typed_abstention",
+        "not_applicable_reason": "abstention_terminal",
+        "selected_route_id": "voi_route_1",
+        "witness": {
+            "route_id": "voi_route_1",
+            "active_challenger_ids": ["voi_route_2"],
+            "support_flag": False,
+            "singleton_not_justified_reasons": [
+                "support_flag_false_forces_terminal_downgrade",
+            ],
+        },
+    }
+
+    async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
+        return {
+            "selected": route,
+            "candidates": [route, challenger],
+            "warnings": [],
+            "candidate_fetches": 1,
+            "terrain_diag": TerrainDiagnostics(),
+            "candidate_diag": CandidateDiagnostics(
+                raw_count=2,
+                deduped_count=2,
+                candidate_budget=2,
+                selected_candidate_count=2,
+            ),
+            "selected_certificate": route.certification,
+            "voi_stop_summary": VoiStopSummary(
+                final_route_id="voi_route_1",
+                certificate=0.88,
+                certified=True,
+                iteration_count=1,
+                search_budget_used=1,
+                evidence_budget_used=0,
+                stop_reason="certified",
+                best_rejected_action="refine_top1_dccs:other",
+                best_rejected_q=0.0,
+            ),
+            "world_support_summary": {
+                "support_flag": False,
+                "support_reason": "support_flag_false",
+                "support_state": {
+                    "support_flag": False,
+                    "out_of_support_reason": "support_flag_false",
+                },
+                "selected_certificate_basis": "selected_certificate",
+            },
+            "extra_json_artifacts": {
+                "decision_package.json": {
+                    "schema_version": "1.0.0",
+                    "terminal_type": "typed_abstention",
+                    "selected_route_id": "voi_route_1",
+                    "selected_certificate_basis": "selected_certificate",
+                    "preference_summary": {},
+                    "support_summary": {
+                        "support_flag": False,
+                        "support_reason": "support_flag_false",
+                    },
+                    "abstention_summary": {
+                        "reason_code": "uncertified_due_to_out_of_support_world_model",
+                        "terminal_type": "typed_abstention",
+                    },
+                    "certified_set_summary": dict(public_abstention_summary),
+                },
+                "certificate_summary.json": {
+                    "selected_route_id": "voi_route_1",
+                    "selected_certificate": 0.88,
+                    "selected_certificate_basis": "selected_certificate",
+                },
+                "certified_set_summary.json": dict(rich_certified_set_summary),
+                "world_support_summary.json": {
+                    "support_flag": False,
+                    "support_reason": "support_flag_false",
+                    "selected_certificate_basis": "selected_certificate",
+                    "support_state": {
+                        "support_flag": False,
+                        "out_of_support_reason": "support_flag_false",
+                    },
+                },
+                "winner_confidence_state.json": {
+                    "route_id": "voi_route_1",
+                    "selected_certificate": 0.88,
+                    "lower_bound": 0.88,
+                    "upper_bound": 0.88,
+                    "support_flag": False,
+                },
+                "certificate_witness.json": {
+                    "route_id": "voi_route_1",
+                    "active_challenger_ids": ["voi_route_2"],
+                    "support_flag": False,
+                    "witness_size": 1,
+                },
+                "voi_stop_certificate.json": {"final_winner_route_id": "voi_route_1", "certificate_value": 0.88},
+            },
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_collect_route_options_with_diagnostics",
+        _fail_if_legacy_called,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_compute_direct_route_pipeline",
+        _fake_compute_direct_route_pipeline,
+    )
+
+    resp = client.post(
+        "/route",
+        json={**_pareto_payload(), "pipeline_mode": "voi", "search_budget": 1, "evidence_budget": 0},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["x-route-request-id"]
+    data = resp.json()
+    artifact_dir = artifact_dir_for_run(str(data["run_id"]))
+    emitted_decision = json.loads((artifact_dir / "decision_package.json").read_text(encoding="utf-8"))
+    emitted_certified_set = json.loads((artifact_dir / "certified_set_summary.json").read_text(encoding="utf-8"))
+    emitted_world_support = json.loads((artifact_dir / "world_support_summary.json").read_text(encoding="utf-8"))
+    emitted_winner_confidence = json.loads((artifact_dir / "winner_confidence_state.json").read_text(encoding="utf-8"))
+    emitted_certificate_witness = json.loads((artifact_dir / "certificate_witness.json").read_text(encoding="utf-8"))
+    emitted_metadata = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
+
+    assert data["terminal_type"] == "typed_abstention"
+    assert data["selected"] is None
+    assert data["recommended_route"] is None
+    assert data["certified_set"] == []
+    assert data["selected_certificate_basis"] == "selected_certificate"
+    assert data["abstention"]["reason_code"] == "uncertified_due_to_out_of_support_world_model"
+    assert data["abstention_summary"]["reason_code"] == "uncertified_due_to_out_of_support_world_model"
+    assert data["support_summary"]["support_flag"] is False
+    assert data["support_summary"]["support_reason"] == "support_flag_false"
+    assert data["certified_set_summary"]["member_route_ids"] == []
+    assert data["certified_set_summary"]["excluded_route_ids"] == ["voi_route_1", "voi_route_2"]
+    assert data["certified_set_summary"]["not_applicable_reason"] == "abstention_terminal"
+    assert data["certified_set_summary"]["witness"]["route_id"] == "voi_route_1"
+    assert data["certified_set_summary"]["witness"]["active_challenger_ids"] == ["voi_route_2"]
+    assert data["artifact_pointers"] == {
+        "manifest_endpoint": f"/runs/{data['run_id']}/manifest",
+        "artifacts_endpoint": f"/runs/{data['run_id']}/artifacts",
+        "provenance_endpoint": f"/runs/{data['run_id']}/provenance",
+    }
+
+    assert emitted_decision["terminal_type"] == "typed_abstention"
+    assert emitted_decision["selected_certificate_basis"] == data["selected_certificate_basis"]
+    assert emitted_decision["certified_set_summary"]["member_route_ids"] == []
+    assert emitted_decision["certified_set_summary"]["not_applicable_reason"] == "abstention_terminal"
+    assert emitted_certified_set["member_route_ids"] == ["voi_route_1"]
+    assert emitted_certified_set["excluded_route_ids"] == ["voi_route_2"]
+    assert emitted_certified_set["certified"] is True
+    assert emitted_certified_set["set_size"] == 1
+    assert emitted_world_support["support_flag"] is False
+    assert emitted_world_support["support_reason"] == "support_flag_false"
+    assert data["certified_set_summary"]["exclusion_basis"] == emitted_certified_set["exclusion_basis"]
+    assert data["certified_set_summary"]["witness"]["route_id"] == emitted_certified_set["witness"]["route_id"]
+    assert (
+        data["certified_set_summary"]["witness"]["active_challenger_ids"]
+        == emitted_certified_set["witness"]["active_challenger_ids"]
+    )
+    assert (
+        data["certified_set_summary"]["witness"]["singleton_not_justified_reasons"]
+        == emitted_certified_set["witness"]["singleton_not_justified_reasons"]
+    )
+    assert data["winner_confidence_state"]["route_id"] == emitted_winner_confidence["route_id"] == "voi_route_1"
+    assert data["certificate_witness"]["route_id"] == emitted_certificate_witness["route_id"] == "voi_route_1"
+    assert (
+        data["certificate_witness"]["active_challenger_ids"]
+        == emitted_certificate_witness["active_challenger_ids"]
+        == ["voi_route_2"]
+    )
+    assert "certified_set_summary.json" in emitted_metadata["artifact_names"]
+    assert "world_support_summary.json" in emitted_metadata["artifact_names"]
+    assert "evidence_validation.json" in emitted_metadata["artifact_names"]
 
 
 def test_route_legacy_persists_strict_frontier_and_final_trace(

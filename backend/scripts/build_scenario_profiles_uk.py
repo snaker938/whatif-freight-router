@@ -490,6 +490,22 @@ def _observation_has_live_features(row: ScenarioObservation) -> bool:
     )
 
 
+def _augmentation_join_key(row: ScenarioObservation) -> tuple[str, int, str, str, str, str]:
+    corridor_key = (
+        str(row.corridor_bucket).strip().lower()
+        or str(row.corridor_geohash5).strip().lower()
+        or "uk_default"
+    )
+    return (
+        corridor_key,
+        int(row.hour_slot_local),
+        str(row.day_kind).strip().lower() or "weekday",
+        str(row.road_mix_bucket).strip().lower() or "mixed",
+        str(row.vehicle_class).strip().lower() or "rigid_hgv",
+        str(row.weather_regime).strip().lower() or "clear",
+    )
+
+
 def _nearest_reference_row(
     refs: list[ScenarioObservation],
     *,
@@ -497,12 +513,13 @@ def _nearest_reference_row(
 ) -> ScenarioObservation | None:
     if not refs:
         return None
+    preferred_refs = [candidate for candidate in refs if _observation_has_live_features(candidate)] or refs
     target_dt = _parse_as_of_utc(target_as_of_utc)
     if target_dt is None:
-        return refs[0]
+        return preferred_refs[0]
     best: ScenarioObservation | None = None
     best_delta: float | None = None
-    for candidate in refs:
+    for candidate in preferred_refs:
         cand_dt = _parse_as_of_utc(candidate.as_of_utc)
         if cand_dt is None:
             continue
@@ -510,7 +527,7 @@ def _nearest_reference_row(
         if best is None or best_delta is None or delta < best_delta:
             best = candidate
             best_delta = delta
-    return best or refs[0]
+    return best or preferred_refs[0]
 
 
 def _augment_observed_mode_rows_with_live_features(
@@ -521,14 +538,18 @@ def _augment_observed_mode_rows_with_live_features(
     if not observed_rows:
         return []
     refs_by_context: dict[str, list[ScenarioObservation]] = {}
+    refs_by_join_key: dict[tuple[str, int, str, str, str, str], list[ScenarioObservation]] = {}
     for row in live_reference_rows:
         refs_by_context.setdefault(row.context_key, []).append(row)
+        refs_by_join_key.setdefault(_augmentation_join_key(row), []).append(row)
     out: list[ScenarioObservation] = []
     for row in observed_rows:
         if _observation_has_live_features(row):
             out.append(row)
             continue
         refs = refs_by_context.get(row.context_key, [])
+        if not refs:
+            refs = refs_by_join_key.get(_augmentation_join_key(row), [])
         ref = _nearest_reference_row(refs, target_as_of_utc=row.as_of_utc)
         if ref is None:
             out.append(row)
@@ -668,38 +689,80 @@ def _fit_live_pressure_transform(
     default_min: float,
     default_max: float,
 ) -> dict[str, Any]:
+    feature_names = list(feature_getters.keys())
     samples: list[tuple[float, dict[str, float]]] = []
+    target_values: list[float] = []
+    feature_support: dict[str, list[float]] = {name: [] for name in feature_names}
     for row in rows:
         target = target_getter(row)
         if target is None:
             continue
+        target_value = float(target)
+        target_values.append(target_value)
         features: dict[str, float] = {}
         missing = False
         for name, getter in feature_getters.items():
             value = getter(row)
+            if value is not None:
+                feature_support[name].append(float(value))
             if value is None:
                 missing = True
                 break
             features[name] = float(value)
         if missing:
             continue
-        samples.append((float(target), features))
+        samples.append((target_value, features))
 
-    if len(samples) < 30:
+    if len(target_values) < 30:
         raise RuntimeError(
             "Scenario transform fit requires at least 30 live-feature samples per pressure target "
-            f"(got {len(samples)})."
+            f"(got {len(target_values)})."
         )
 
-    feature_names = list(feature_getters.keys())
-    target_values = [row[0] for row in samples]
     target_mean = statistics.fmean(target_values)
+    fit_sample_count = len(samples)
+    if fit_sample_count < 30:
+        default_total = max(1e-9, sum(max(0.0, float(default_weights.get(name, 0.0))) for name in feature_names))
+        weights = {
+            name: max(0.0, float(default_weights.get(name, 0.0))) / default_total
+            for name in feature_names
+        }
+        feature_means = {
+            name: (
+                statistics.fmean(values)
+                if values
+                else (1.0 if name == "speed_inverse" else 0.0)
+            )
+            for name, values in feature_support.items()
+        }
+        bias = target_mean - sum(float(weights.get(name, 0.0)) * float(feature_means[name]) for name in feature_names)
+        p05 = _percentile(target_values, 0.05)
+        p95 = _percentile(target_values, 0.95)
+        min_v = _clamp(p05 * 0.95, 0.5, 3.5)
+        max_v = _clamp(p95 * 1.05, max(min_v, 0.8), 3.5)
+        if max_v < float(default_max):
+            max_v = _clamp(float(default_max), max(min_v, 0.8), 3.5)
+        if min_v > float(default_min):
+            min_v = _clamp(float(default_min), 0.5, max_v)
+        return {
+            "bias": round(float(bias), 6),
+            "weights": {name: round(float(value), 6) for name, value in weights.items()},
+            "min": round(float(min_v), 6),
+            "max": round(float(max_v), 6),
+            "sample_count": int(len(target_values)),
+            "fit_sample_count": int(fit_sample_count),
+            "fit_mode": "default_weights_fallback",
+            "fallback_reason": "insufficient_feature_complete_samples",
+        }
+
+    fit_target_values = [row[0] for row in samples]
+    fit_target_mean = statistics.fmean(fit_target_values)
     strengths: dict[str, float] = {}
     for name in feature_names:
         series = [row[1][name] for row in samples]
         feature_mean = statistics.fmean(series)
         cov = statistics.fmean(
-            (series[idx] - feature_mean) * (target_values[idx] - target_mean)
+            (series[idx] - feature_mean) * (fit_target_values[idx] - fit_target_mean)
             for idx in range(len(series))
         )
         strengths[name] = abs(float(cov))
@@ -715,9 +778,9 @@ def _fit_live_pressure_transform(
         name: statistics.fmean([row[1][name] for row in samples])
         for name in feature_names
     }
-    bias = target_mean - sum(float(weights.get(name, 0.0)) * float(feature_means[name]) for name in feature_names)
-    p05 = _percentile(target_values, 0.05)
-    p95 = _percentile(target_values, 0.95)
+    bias = fit_target_mean - sum(float(weights.get(name, 0.0)) * float(feature_means[name]) for name in feature_names)
+    p05 = _percentile(fit_target_values, 0.05)
+    p95 = _percentile(fit_target_values, 0.95)
     min_v = _clamp(p05 * 0.95, 0.5, 3.5)
     max_v = _clamp(p95 * 1.05, max(min_v, 0.8), 3.5)
     return {
@@ -725,7 +788,10 @@ def _fit_live_pressure_transform(
         "weights": {name: round(float(value), 6) for name, value in weights.items()},
         "min": round(float(min_v), 6),
         "max": round(float(max_v), 6),
-        "sample_count": int(len(samples)),
+        "sample_count": int(len(target_values)),
+        "fit_sample_count": int(fit_sample_count),
+        "fit_mode": "covariance",
+        "fallback_reason": "",
     }
 
 
@@ -1103,6 +1169,7 @@ def build(
     raw_jsonl: Path,
     observed_modes_jsonl: Path | None = None,
     output_json: Path,
+    mirror_output_json: Path | None = None,
     min_contexts: int = 8,
     min_observed_mode_row_share: float = 0.20,
     max_projection_dominant_context_share: float = 0.80,
@@ -1452,8 +1519,18 @@ def build(
         "signature_algorithm": "sha256",
     }
     payload["signature"] = _signature(payload)
-    output_json.parent.mkdir(parents=True, exist_ok=True)
-    output_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    encoded_payload = json.dumps(payload, indent=2)
+    output_paths = [output_json]
+    if mirror_output_json is not None:
+        try:
+            same_target = mirror_output_json.resolve() == output_json.resolve()
+        except FileNotFoundError:
+            same_target = mirror_output_json == output_json
+        if not same_target:
+            output_paths.append(mirror_output_json)
+    for path in output_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(encoded_payload, encoding="utf-8")
     return payload
 
 
@@ -1480,6 +1557,12 @@ def main() -> None:
         default=ROOT / "assets" / "uk" / "scenario_profiles_uk.json",
     )
     parser.add_argument(
+        "--mirror-output",
+        type=Path,
+        default=ROOT / "out" / "model_assets" / "scenario_profiles_uk.json",
+        help="Optional secondary output kept byte-identical with the primary scenario profile asset.",
+    )
+    parser.add_argument(
         "--min-contexts",
         type=int,
         default=8,
@@ -1504,6 +1587,7 @@ def main() -> None:
         raw_jsonl=args.raw_jsonl,
         observed_modes_jsonl=args.observed_modes_jsonl,
         output_json=args.output,
+        mirror_output_json=args.mirror_output,
         min_contexts=max(1, int(args.min_contexts)),
         min_observed_mode_row_share=max(0.0, min(1.0, float(args.min_observed_mode_row_share))),
         max_projection_dominant_context_share=max(
@@ -1513,7 +1597,8 @@ def main() -> None:
         max_observation_window_minutes=max(1, int(args.max_observation_window_minutes)),
     )
     print(
-        f"Wrote scenario profile tensor to {args.output} "
+        f"Wrote scenario profile tensor to {args.output}"
+        f"{f' and mirrored to {args.mirror_output}' if args.mirror_output else ''} "
         f"(contexts={len(payload.get('contexts', []))})."
     )
 

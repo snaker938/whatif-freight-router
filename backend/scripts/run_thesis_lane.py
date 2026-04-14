@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import subprocess
 import sys
@@ -66,6 +67,93 @@ def _validated_artifact_paths(payload: dict[str, Any]) -> dict[str, Path]:
             raise RuntimeError(f"thesis_lane_missing_artifact_file:{key}")
         validated[key] = path
     return validated
+
+
+def _load_headline_artifacts(payload: dict[str, Any]) -> dict[str, Any]:
+    summary_csv_raw = str(payload.get("summary_csv") or "").strip()
+    if not summary_csv_raw:
+        raise RuntimeError("thesis_lane_missing_artifact_path:summary_csv")
+    summary_csv = Path(summary_csv_raw)
+    if not summary_csv.exists() or summary_csv.stat().st_size <= 0:
+        raise RuntimeError("thesis_lane_missing_artifact_file:summary_csv")
+
+    cohort_csv_raw = str(payload.get("summary_by_cohort_csv") or "").strip()
+    if not cohort_csv_raw:
+        raise RuntimeError("thesis_lane_missing_artifact_path:summary_by_cohort_csv")
+    cohort_csv = Path(cohort_csv_raw)
+    if not cohort_csv.exists() or cohort_csv.stat().st_size <= 0:
+        raise RuntimeError("thesis_lane_missing_artifact_file:summary_by_cohort_csv")
+
+    summary_json = summary_csv.with_name("thesis_summary.json")
+    cohort_json = cohort_csv.with_name("thesis_summary_by_cohort.json")
+    plots_json = summary_csv.with_name("thesis_plots.json")
+    for label, path in (
+        ("thesis_summary.json", summary_json),
+        ("thesis_summary_by_cohort.json", cohort_json),
+        ("thesis_plots.json", plots_json),
+    ):
+        if not path.exists() or path.stat().st_size <= 0:
+            raise RuntimeError(f"thesis_lane_missing_artifact_file:{label}")
+
+    with summary_csv.open("r", encoding="utf-8", newline="") as handle:
+        summary_rows_csv = list(csv.DictReader(handle))
+    if not summary_rows_csv or not {"variant_id", "pipeline_mode"}.issubset(summary_rows_csv[0]):
+        raise RuntimeError("thesis_lane_invalid_artifact:thesis_summary.csv")
+    summary_payload = json.loads(summary_json.read_text(encoding="utf-8"))
+    summary_rows_json = summary_payload.get("summary_rows") if isinstance(summary_payload, dict) else None
+    if not isinstance(summary_rows_json, list) or not summary_rows_json:
+        raise RuntimeError("thesis_lane_invalid_artifact:thesis_summary.json")
+
+    csv_variant_ids = [str(row.get("variant_id") or "").strip() for row in summary_rows_csv]
+    json_variant_ids = [str(row.get("variant_id") or "").strip() for row in summary_rows_json if isinstance(row, dict)]
+    if csv_variant_ids != json_variant_ids:
+        raise RuntimeError("thesis_lane_schema_drift:thesis_summary.variant_ids")
+
+    with cohort_csv.open("r", encoding="utf-8", newline="") as handle:
+        cohort_rows_csv = list(csv.DictReader(handle))
+    if not cohort_rows_csv or not {"variant_id", "cohort_label"}.issubset(cohort_rows_csv[0]):
+        raise RuntimeError("thesis_lane_invalid_artifact:thesis_summary_by_cohort.csv")
+    cohort_payload = json.loads(cohort_json.read_text(encoding="utf-8"))
+    cohort_rows_json = cohort_payload.get("summary_rows") if isinstance(cohort_payload, dict) else None
+    if not isinstance(cohort_rows_json, list) or not cohort_rows_json:
+        raise RuntimeError("thesis_lane_invalid_artifact:thesis_summary_by_cohort.json")
+    csv_cohort_keys = [
+        (str(row.get("variant_id") or "").strip(), str(row.get("cohort_label") or "").strip())
+        for row in cohort_rows_csv
+    ]
+    json_cohort_keys = [
+        (str(row.get("variant_id") or "").strip(), str(row.get("cohort_label") or "").strip())
+        for row in cohort_rows_json
+        if isinstance(row, dict)
+    ]
+    if csv_cohort_keys != json_cohort_keys:
+        raise RuntimeError("thesis_lane_schema_drift:thesis_summary_by_cohort.keys")
+
+    plots_payload = json.loads(plots_json.read_text(encoding="utf-8"))
+    if not isinstance(plots_payload, dict):
+        raise RuntimeError("thesis_lane_invalid_artifact:thesis_plots.json")
+    required_plot_keys = ("certificate_vs_variant", "runtime_vs_variant")
+    headline_plot_variant_ids: dict[str, list[str]] = {}
+    for plot_key in required_plot_keys:
+        plot_rows = plots_payload.get(plot_key)
+        if not isinstance(plot_rows, list) or not plot_rows:
+            raise RuntimeError(f"thesis_lane_invalid_artifact:thesis_plots.json:{plot_key}")
+        variant_ids = [str(row.get("variant_id") or "").strip() for row in plot_rows if isinstance(row, dict)]
+        if variant_ids != json_variant_ids:
+            raise RuntimeError(f"thesis_lane_schema_drift:thesis_plots.{plot_key}")
+        headline_plot_variant_ids[plot_key] = variant_ids
+
+    return {
+        "summary_csv": str(summary_csv),
+        "summary_json": str(summary_json),
+        "summary_row_count": len(summary_rows_json),
+        "summary_by_cohort_csv": str(cohort_csv),
+        "summary_by_cohort_json": str(cohort_json),
+        "summary_by_cohort_row_count": len(cohort_rows_json),
+        "plots_json": str(plots_json),
+        "headline_plot_keys": list(required_plot_keys),
+        "headline_plot_variant_ids": headline_plot_variant_ids,
+    }
 
 
 def _run_backend_script(
@@ -221,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
             evaluation_payload["validated_artifacts"] = {
                 key: str(path) for key, path in validated_paths.items()
             }
+            if evaluation_payload.get("summary_by_cohort_csv"):
+                evaluation_payload["headline_artifacts"] = _load_headline_artifacts(evaluation_payload)
         except Exception as exc:  # pragma: no cover - defensive boundary
             evaluation_exit = 1
             evaluation_payload = {"error": type(exc).__name__, "message": str(exc)}

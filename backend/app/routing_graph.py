@@ -58,10 +58,7 @@ def _effective_route_graph_max_hops(
     if not bool(settings.route_graph_adaptive_hops_enabled):
         return base_hops
     cap_hops = max(base_hops, int(settings.route_graph_max_hops_cap))
-    straight_line_m = max(
-        0.0,
-        _haversine_m(origin_lat, origin_lon, destination_lat, destination_lon),
-    )
+    straight_line_m = max(0.0, _haversine_m(origin_lat, origin_lon, destination_lat, destination_lon))
     straight_line_km = straight_line_m / 1000.0
     scaled_hops = int(
         math.ceil(
@@ -70,10 +67,26 @@ def _effective_route_graph_max_hops(
             * max(1.0, float(settings.route_graph_hops_detour_factor))
         )
     )
+    hop_floor = _route_graph_hop_floor(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+    )
+    return max(base_hops, min(cap_hops, max(scaled_hops, hop_floor)))
+
+
+def _route_graph_hop_floor(
+    *,
+    origin_lat: float,
+    origin_lon: float,
+    destination_lat: float,
+    destination_lon: float,
+) -> int:
+    straight_line_m = max(0.0, _haversine_m(origin_lat, origin_lon, destination_lat, destination_lon))
     edge_len_estimate_m = max(1.0, float(settings.route_graph_edge_length_estimate_m))
     hops_safety_factor = max(0.1, float(settings.route_graph_hops_safety_factor))
-    hop_floor = int(math.ceil((straight_line_m / edge_len_estimate_m) * hops_safety_factor))
-    return max(base_hops, min(cap_hops, max(scaled_hops, hop_floor)))
+    return int(math.ceil((straight_line_m / edge_len_estimate_m) * hops_safety_factor))
 
 
 def _route_graph_heuristic_fn(graph: RouteGraph, *, goal_node_id: str):
@@ -595,6 +608,30 @@ def begin_route_graph_warmup(*, force: bool = False) -> None:
     _mark_warmup_loading()
     if thread is not None:
         thread.start()
+
+
+def ensure_route_graph_ready_sync(*, force: bool = False) -> RouteGraph | None:
+    if not bool(settings.route_graph_enabled):
+        return None
+    if force:
+        load_route_graph.cache_clear()
+        _set_last_load_strategy("none")
+        with _EDGE_LOOKUP_CACHE_LOCK:
+            _EDGE_LOOKUP_CACHE.clear()
+    _mark_warmup_loading()
+    try:
+        graph = load_route_graph()
+    except TimeoutError as exc:
+        _mark_warmup_failed(str(exc), timed_out=True, phase="sync_load")
+        raise
+    except Exception as exc:
+        _mark_warmup_failed(str(exc), timed_out=False, phase="sync_load")
+        raise
+    if graph is None:
+        _mark_warmup_failed("route_graph_unavailable", timed_out=False, phase="sync_load")
+        return None
+    _mark_warmup_ready(graph)
+    return graph
 
 
 def route_graph_warmup_status() -> dict[str, Any]:
@@ -1451,20 +1488,27 @@ def route_graph_status() -> tuple[bool, str]:
         # Fast startup keeps strict readiness responsive while deferring full
         # graph hydration for long-corridor OSRM fallback paths.
         return True, "ok_fast"
-    graph = load_route_graph()
-    if graph is None:
+    warmup = route_graph_warmup_status()
+    warmup_state = str(warmup.get("state") or "idle")
+    if warmup_state != "ready":
+        if warmup_state == "failed":
+            return False, "failed"
+        if warmup_state == "loading":
+            return False, "warming_up"
         return False, "unavailable"
-    if bool(graph.graph_fragmented):
+    if str(warmup.get("ready_mode") or "none") == "fast" and not bool(warmup.get("cache_loaded")):
+        return True, "ok_fast"
+    if not bool(warmup.get("cache_loaded")):
+        return False, "unavailable"
+    if bool(warmup.get("graph_fragmented")):
         return False, "fragmented"
-    if _WARMUP_STATE != "ready":
-        _mark_warmup_ready(graph)
     if bool(settings.route_graph_strict_required):
-        src = (graph.source or "").strip().lower()
+        src = str(warmup.get("graph_source") or warmup.get("asset_path") or "").strip().lower()
         if ".pbf" not in src:
             return False, "non_pbf_source"
         if (
-            len(graph.nodes) < int(settings.route_graph_min_nodes)
-            or len(graph.adjacency) < int(settings.route_graph_min_adjacency)
+            int(warmup.get("nodes_kept") or 0) < int(settings.route_graph_min_nodes)
+            or int(warmup.get("edges_kept") or 0) < int(settings.route_graph_min_adjacency)
         ):
             return False, "insufficient_graph_coverage"
     return True, "ok"
@@ -2167,8 +2211,14 @@ def route_graph_via_paths(
     if not start or not goal or start == goal:
         return ()
     heuristic_fn = _route_graph_heuristic_fn(graph, goal_node_id=goal)
+    effective_hops_floor = _route_graph_hop_floor(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+    )
     effective_max_hops = (
-        max(8, int(max_hops_override))
+        max(effective_hops_floor, max(8, int(max_hops_override)))
         if max_hops_override is not None
         else _effective_route_graph_max_hops(
             origin_lat=origin_lat,
@@ -2404,8 +2454,16 @@ def route_graph_candidate_routes(
             no_path_detail="Nearest route graph node could not be resolved for one or both endpoints.",
         )
     heuristic_fn = _route_graph_heuristic_fn(graph, goal_node_id=goal)
+    effective_hops_floor = _route_graph_hop_floor(
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        destination_lat=destination_lat,
+        destination_lon=destination_lon,
+    )
     effective_max_hops = (
-        max(8, int(max_hops_override))
+        # Caller-provided overrides cannot be smaller than the physical hop floor
+        # implied by endpoint distance and graph edge length estimates.
+        max(effective_hops_floor, max(8, int(max_hops_override)))
         if max_hops_override is not None
         else _effective_route_graph_max_hops(
             origin_lat=origin_lat,
@@ -2414,13 +2472,6 @@ def route_graph_candidate_routes(
             destination_lon=destination_lon,
         )
     )
-    straight_line_m = max(
-        0.0,
-        _haversine_m(origin_lat, origin_lon, destination_lat, destination_lon),
-    )
-    edge_len_estimate_m = max(1.0, float(settings.route_graph_edge_length_estimate_m))
-    hops_safety_factor = max(0.1, float(settings.route_graph_hops_safety_factor))
-    effective_hops_floor = int(math.ceil((straight_line_m / edge_len_estimate_m) * hops_safety_factor))
     configured_state_budget = max(1000, int(settings.route_graph_max_state_budget))
     state_budget_per_hop = max(10, int(settings.route_graph_state_budget_per_hop))
     state_budget_cap = max(

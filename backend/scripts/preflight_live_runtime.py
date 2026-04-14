@@ -162,11 +162,28 @@ def _scenario_live_context_details() -> dict[str, Any]:
     }
 
 
+def _resolved_scenario_profile_locator(profiles: Any) -> str | None:
+    source = str(getattr(profiles, "source", "") or "").strip()
+    if not source:
+        return None
+    if source.startswith("repo_local:"):
+        return REPO_LOCAL_RUNTIME_ASSET_PATHS["scenario"]
+    if source.startswith("live_runtime:"):
+        locator = str(settings.live_scenario_coefficient_url or "").strip()
+        return locator or None
+    if source.startswith(("http://", "https://")):
+        return source
+    if "/" in source or "\\" in source:
+        return source
+    return None
+
+
 def _scenario_profile_details() -> dict[str, Any]:
     profiles = _call_uncached(load_scenario_profiles)
     return {
         "version": profiles.version,
         "source": profiles.source,
+        "resolved_source_locator": _resolved_scenario_profile_locator(profiles),
         "calibration_basis": getattr(profiles, "calibration_basis", None),
         "mode_observation_source": getattr(profiles, "mode_observation_source", None),
         "contexts": len(profiles.contexts),

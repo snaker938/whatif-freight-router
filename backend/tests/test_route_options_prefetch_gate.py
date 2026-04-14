@@ -346,6 +346,147 @@ def test_route_state_cache_profile_separates_hydrated_and_lean_dccs_requests() -
     assert lean_profile != full_profile
 
 
+def test_graph_k_raw_cache_key_is_schema_salted_and_stable(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs = {
+        "origin": LatLng(lat=51.501, lon=-0.141),
+        "destination": LatLng(lat=51.454, lon=-2.587),
+        "max_alternatives": 3,
+        "scenario_edge_modifiers": {
+            "weather": {"variance": 0.2, "delay_multiplier": 1.1},
+            "incident": {"severity": "moderate"},
+        },
+        "start_node_id": "node-start",
+        "goal_node_id": "node-goal",
+        "ambiguity_context_available": True,
+        "ambiguity_strength": 0.77,
+        "support_ratio": 0.82,
+        "source_entropy": 0.71,
+        "nominal_margin_proxy": 0.33,
+        "objective_spread": 0.28,
+        "low_ambiguity_fast_path": False,
+        "long_corridor_stress_probe": True,
+        "skip_initial_graph_search": False,
+        "allow_supported_ambiguity_fast_fallback": True,
+        "candidate_path_count": 3,
+        "corridor_family_count": 2,
+        "support_rich_short_haul_fast_path": False,
+        "support_rich_short_haul_graph_probe": True,
+        "max_paths": 5,
+        "configured_state_budget": 7,
+        "initial_max_hops_override": 6,
+        "reliability_corridor_threshold_km": 120.0,
+        "long_corridor_threshold_km": 180.0,
+        "reliability_corridor": True,
+        "long_corridor": False,
+        "reduced_initial_enabled": True,
+        "initial_search_timeout_ms": 900,
+        "retry_search_timeout_ms": 1800,
+        "rescue_search_timeout_ms": 2700,
+    }
+    base_key = main_module._graph_k_raw_cache_key(**kwargs)
+    same_key = main_module._graph_k_raw_cache_key(
+        **{
+            **kwargs,
+            "scenario_edge_modifiers": {
+                "incident": {"severity": "moderate"},
+                "weather": {"delay_multiplier": 1.1, "variance": 0.2},
+            },
+        }
+    )
+    changed_regime_key = main_module._graph_k_raw_cache_key(
+        **{**kwargs, "skip_initial_graph_search": True}
+    )
+    monkeypatch.setattr(
+        main_module,
+        "GRAPH_K_RAW_CACHE_KEY_SCHEMA_VERSION",
+        "graph_k_raw_cache_key_test_salt",
+    )
+    salted_key = main_module._graph_k_raw_cache_key(**kwargs)
+
+    assert same_key == base_key
+    assert changed_regime_key != base_key
+    assert salted_key != base_key
+
+
+def test_route_state_cache_key_is_schema_salted_and_stable(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs = {
+        "refined_route_signatures": ("sig-route-b", "sig-route-a"),
+        "refined_route_evidence_fingerprint": [
+            {
+                "route_id": "route-b",
+                "route_signature": "sig-route-b",
+                "evidence_provenance": {"families": [{"family": "weather", "signature": "wx-b"}]},
+                "evidence_tensor": {"weather": {"time": 1.2, "money": 1.0, "co2": 1.1}},
+            },
+            {
+                "route_id": "route-a",
+                "route_signature": "sig-route-a",
+                "evidence_provenance": {"families": [{"family": "scenario", "signature": "sc-a"}]},
+                "evidence_tensor": {"scenario": {"time": 1.0, "money": 1.0, "co2": 1.0}},
+            },
+        ],
+        "ambiguity_context": {"source_entropy": 0.31, "od_ambiguity_index": 0.44},
+        "vehicle_type": "rigid_hgv",
+        "scenario_mode": "no_sharing",
+        "cost_toggles": {"tolls": True, "fuel": True},
+        "terrain_profile": "flat",
+        "stochastic": {"enabled": False, "samples": 0},
+        "emissions_context": {"kg_per_litre": 2.68},
+        "weather": {"source": "nominal"},
+        "incident_simulation": {"enabled": False},
+        "departure_time_utc": datetime(2026, 4, 11, 12, 0, tzinfo=UTC),
+        "weights": (1.0, 0.5, 0.25),
+        "pipeline_mode": "dccs_refc",
+        "route_state_cache_profile": {
+            "route_option_detail_level": "summary",
+            "priority_hydration_enabled": True,
+        },
+        "risk_aversion": 1.0,
+        "optimization_mode": "expected_value",
+        "pareto_method": "dominance",
+        "epsilon": None,
+        "max_alternatives": 3,
+    }
+    base_key = main_module._build_route_state_cache_key(**kwargs)
+    same_key = main_module._build_route_state_cache_key(
+        **{
+            **kwargs,
+            "refined_route_signatures": ("sig-route-a", "sig-route-b"),
+            "refined_route_evidence_fingerprint": [
+                {
+                    **kwargs["refined_route_evidence_fingerprint"][1],
+                    "route_id": "route-9",
+                },
+                {
+                    **kwargs["refined_route_evidence_fingerprint"][0],
+                    "route_id": "route-8",
+                },
+            ],
+            "ambiguity_context": {"od_ambiguity_index": 0.44, "source_entropy": 0.31},
+            "cost_toggles": {"fuel": True, "tolls": True},
+        }
+    )
+    changed_profile_key = main_module._build_route_state_cache_key(
+        **{
+            **kwargs,
+            "route_state_cache_profile": {
+                "route_option_detail_level": "summary",
+                "priority_hydration_enabled": False,
+            },
+        }
+    )
+    monkeypatch.setattr(
+        main_module,
+        "ROUTE_STATE_CACHE_KEY_SCHEMA_VERSION",
+        "route_state_cache_key_test_salt",
+    )
+    salted_key = main_module._build_route_state_cache_key(**kwargs)
+
+    assert same_key == base_key
+    assert changed_profile_key != base_key
+    assert salted_key != base_key
+
+
 def test_build_options_lightweight_keeps_uncertainty_for_robust_mode(monkeypatch) -> None:
     routes = [_make_leg_route(_collect_kwargs()["origin"], _collect_kwargs()["destination"])]
     observed_force_uncertainty: list[bool] = []
@@ -1633,6 +1774,142 @@ def test_collect_route_options_legacy_candidate_cache_key_stays_stable_for_equiv
             allow_supported_ambiguity_fast_fallback=True,
         )
     )
+
+    assert len(observed_cache_keys) == 2
+    assert observed_cache_keys[0] == observed_cache_keys[1]
+
+
+def test_collect_route_options_dccs_candidate_cache_key_changes_with_ambiguity_regime(
+    monkeypatch,
+) -> None:
+    observed_cache_keys: list[str | None] = []
+    short_haul_origin = LatLng(lat=51.4816, lon=-3.1791)
+    short_haul_destination = LatLng(lat=51.4545, lon=-2.5879)
+
+    async def _ok_precheck(*, origin: LatLng, destination: LatLng) -> dict[str, Any]:
+        _ = (origin, destination)
+        return {"ok": True, "reason_code": "ok", "message": "ok"}
+
+    async def _scenario_context(**_: Any) -> Any:
+        return None
+
+    async def _scenario_modifiers(**_: Any) -> dict[str, Any]:
+        return {}
+
+    async def _candidate_routes(**kwargs: Any):
+        observed_cache_keys.append(kwargs.get("cache_key"))
+        return [_make_leg_route(short_haul_origin, short_haul_destination)], [], 1, main_module.CandidateDiagnostics(raw_count=1, deduped_count=1)
+
+    def _build_options(*args: Any, **kwargs: Any):
+        _ = (args, kwargs)
+        return [], [], main_module.TerrainDiagnostics()
+
+    monkeypatch.setattr(main_module, "_route_graph_od_feasibility_async", _ok_precheck)
+    monkeypatch.setattr(main_module, "refresh_live_runtime_route_caches", lambda **_: None)
+    monkeypatch.setattr(main_module, "resolve_vehicle_profile", lambda *_: SimpleNamespace(vehicle_class="rigid_hgv"))
+    monkeypatch.setattr(main_module, "_scenario_context_from_od", _scenario_context)
+    monkeypatch.setattr(main_module, "_scenario_candidate_modifiers_async", _scenario_modifiers)
+    monkeypatch.setattr(main_module, "_collect_candidate_routes", _candidate_routes)
+    monkeypatch.setattr(main_module, "_build_options", _build_options)
+    monkeypatch.setattr(settings, "strict_live_data_required", False)
+    monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
+    monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
+
+    short_kwargs = _collect_kwargs()
+    short_kwargs["origin"] = short_haul_origin
+    short_kwargs["destination"] = short_haul_destination
+
+    asyncio.run(
+        main_module._collect_route_options(
+            **short_kwargs,
+            refinement_policy="dccs",
+            search_budget=6,
+            od_ambiguity_index=0.26,
+            od_engine_disagreement_prior=0.35,
+            od_hard_case_prior=0.36,
+            od_ambiguity_support_ratio=0.62,
+            od_ambiguity_source_entropy=0.98,
+            od_candidate_path_count=4,
+            od_corridor_family_count=2,
+            allow_supported_ambiguity_fast_fallback=True,
+        )
+    )
+    asyncio.run(
+        main_module._collect_route_options(
+            **short_kwargs,
+            refinement_policy="dccs",
+            search_budget=6,
+            od_ambiguity_index=0.07,
+            od_engine_disagreement_prior=0.35,
+            od_hard_case_prior=0.36,
+            od_ambiguity_support_ratio=0.43,
+            od_ambiguity_source_entropy=0.72,
+            od_candidate_path_count=2,
+            od_corridor_family_count=1,
+            allow_supported_ambiguity_fast_fallback=True,
+        )
+    )
+
+    assert len(observed_cache_keys) == 2
+    assert observed_cache_keys[0] != observed_cache_keys[1]
+
+
+def test_collect_route_options_dccs_candidate_cache_key_stays_stable_for_equivalent_ambiguity_regime(
+    monkeypatch,
+) -> None:
+    observed_cache_keys: list[str | None] = []
+    short_haul_origin = LatLng(lat=51.4816, lon=-3.1791)
+    short_haul_destination = LatLng(lat=51.4545, lon=-2.5879)
+
+    async def _ok_precheck(*, origin: LatLng, destination: LatLng) -> dict[str, Any]:
+        _ = (origin, destination)
+        return {"ok": True, "reason_code": "ok", "message": "ok"}
+
+    async def _scenario_context(**_: Any) -> Any:
+        return None
+
+    async def _scenario_modifiers(**_: Any) -> dict[str, Any]:
+        return {}
+
+    async def _candidate_routes(**kwargs: Any):
+        observed_cache_keys.append(kwargs.get("cache_key"))
+        return [_make_leg_route(short_haul_origin, short_haul_destination)], [], 1, main_module.CandidateDiagnostics(raw_count=1, deduped_count=1)
+
+    def _build_options(*args: Any, **kwargs: Any):
+        _ = (args, kwargs)
+        return [], [], main_module.TerrainDiagnostics()
+
+    monkeypatch.setattr(main_module, "_route_graph_od_feasibility_async", _ok_precheck)
+    monkeypatch.setattr(main_module, "refresh_live_runtime_route_caches", lambda **_: None)
+    monkeypatch.setattr(main_module, "resolve_vehicle_profile", lambda *_: SimpleNamespace(vehicle_class="rigid_hgv"))
+    monkeypatch.setattr(main_module, "_scenario_context_from_od", _scenario_context)
+    monkeypatch.setattr(main_module, "_scenario_candidate_modifiers_async", _scenario_modifiers)
+    monkeypatch.setattr(main_module, "_collect_candidate_routes", _candidate_routes)
+    monkeypatch.setattr(main_module, "_build_options", _build_options)
+    monkeypatch.setattr(settings, "strict_live_data_required", False)
+    monkeypatch.setattr(settings, "live_route_compute_refresh_mode", "route_compute")
+    monkeypatch.setattr(settings, "live_route_compute_require_all_expected", False)
+
+    short_kwargs = _collect_kwargs()
+    short_kwargs["origin"] = short_haul_origin
+    short_kwargs["destination"] = short_haul_destination
+
+    first_call = dict(
+        short_kwargs,
+        refinement_policy="dccs",
+        search_budget=6,
+        od_ambiguity_index=0.26,
+        od_engine_disagreement_prior=0.35,
+        od_hard_case_prior=0.36,
+        od_ambiguity_support_ratio=0.62,
+        od_ambiguity_source_entropy=0.98,
+        od_candidate_path_count=4,
+        od_corridor_family_count=2,
+        allow_supported_ambiguity_fast_fallback=True,
+    )
+
+    asyncio.run(main_module._collect_route_options(**first_call))
+    asyncio.run(main_module._collect_route_options(**first_call))
 
     assert len(observed_cache_keys) == 2
     assert observed_cache_keys[0] == observed_cache_keys[1]

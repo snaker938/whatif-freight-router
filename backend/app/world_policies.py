@@ -1,3 +1,5 @@
+"""Pipeline stage: fingerprint world and support policies for reproducible artifact provenance."""
+
 from __future__ import annotations
 
 import hashlib

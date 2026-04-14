@@ -15,7 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.calibration_loader import load_scenario_profiles
+from app.calibration_loader import (
+    _load_repo_local_asset_payload,
+    _parse_scenario_profiles_payload,
+    load_scenario_profiles,
+)
 from app.live_data_sources import live_scenario_context
 from app.scenario import ScenarioMode, build_scenario_route_context, resolve_scenario_profile
 
@@ -31,11 +35,32 @@ def _canonical_token(raw: Any, *, fallback: str) -> str:
     return token or fallback
 
 
+def _corridor_geohash5(raw: Any, *, corridor_bucket: str) -> str:
+    text = str(raw or "").strip().lower()
+    if text:
+        return text
+    digest = hashlib.sha1(corridor_bucket.encode("utf-8")).hexdigest()
+    return digest[:5]
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _load_projected_mode_profiles(*, allow_partial_sources: bool):
+    if not allow_partial_sources:
+        return load_scenario_profiles()
+    payload, local_path = _load_repo_local_asset_payload(
+        "scenario_profiles_uk.json",
+        label="scenario profiles",
+    )
+    return _parse_scenario_profiles_payload(
+        payload,
+        source=f"collector_repo_local:{local_path.name}",
+    )
 
 
 def _normalize_mode_row(row: dict[str, Any]) -> dict[str, float] | None:
@@ -240,7 +265,12 @@ def build_snapshot(
         "centroid_lon": centroid_lon,
         "road_hint": road_hint or "",
     }
+    collector_partial_projection = bool(project_modes_from_artifact and allow_partial_sources)
     live_kwargs: dict[str, Any] = {"allow_partial_sources": bool(allow_partial_sources)}
+    if collector_partial_projection:
+        # Collector-only artifact projection should not fail on sparse DfT matching
+        # when repo-local projected mode profiles can still fill the optional modes.
+        live_kwargs["skip_dft_in_partial_mode"] = True
     if min_source_count is not None:
         live_kwargs["min_source_count"] = max(1, int(min_source_count))
     payload = live_scenario_context(route_context, **live_kwargs)
@@ -262,6 +292,10 @@ def build_snapshot(
         "signature_algorithm": "sha256",
         "signed": True,
     }
+    out["corridor_geohash5"] = _corridor_geohash5(
+        out.get("corridor_geohash5"),
+        corridor_bucket=_canonical_token(out.get("corridor_bucket"), fallback="uk_default"),
+    )
     matched_observed_outcome = _match_observed_mode_outcome(
         outcomes=(observed_mode_outcomes or []),
         corridor_bucket=corridor_bucket,
@@ -310,8 +344,8 @@ def build_snapshot(
             road_hint=road_hint,
         )
         mode_rows: dict[str, dict[str, float]] = {}
-        if allow_partial_sources:
-            profiles = load_scenario_profiles()
+        if collector_partial_projection:
+            profiles = _load_projected_mode_profiles(allow_partial_sources=True)
             ctx = (profiles.contexts or {}).get(scenario_context.context_key) if profiles.contexts else None
             for mode in (ScenarioMode.NO_SHARING, ScenarioMode.PARTIAL_SHARING, ScenarioMode.FULL_SHARING):
                 selected = None
@@ -470,6 +504,17 @@ def build_batch_snapshots(
     retry_failed: int = 1,
 ) -> dict[str, Any]:
     now_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    effective_allow_partial_sources = bool(allow_partial_sources or project_modes_from_artifact)
+    effective_min_source_count = min_source_count
+    if (
+        effective_allow_partial_sources
+        and project_modes_from_artifact
+        and effective_min_source_count is None
+    ):
+        # Collector-only artifact projection intentionally skips DfT. Lower the
+        # partial-source floor to the remaining live control-plane sources unless
+        # the caller explicitly asked for a different threshold.
+        effective_min_source_count = 2
     tasks: list[dict[str, Any]] = []
     for corridor_row in corridors:
         corridor = str(corridor_row.get("corridor", "uk_default")).strip() or "uk_default"
@@ -523,8 +568,8 @@ def build_batch_snapshots(
                 road_hint=(str(task.get("road_hint", "")).strip() or None),
                 hour_slot_local=hour_slot,
                 project_modes_from_artifact=project_modes_from_artifact,
-                allow_partial_sources=bool(allow_partial_sources),
-                min_source_count=min_source_count,
+                allow_partial_sources=bool(effective_allow_partial_sources),
+                min_source_count=effective_min_source_count,
                 observed_mode_outcomes=observed_mode_outcomes,
                 require_observed_modes=bool(require_observed_modes),
                 persist_output=False,

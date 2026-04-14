@@ -9,6 +9,8 @@ from typing import Any
 
 from .calibration_loader import load_risk_normalization_reference
 from .certification_models import AuditWorldBundle, ProbabilisticWorldBundle, WorldSupportState
+from .settings import settings
+from .support_model import MultiFidelitySummary, build_multi_fidelity_summary
 
 
 def normalized_objective_components(
@@ -170,7 +172,21 @@ class RiskSummary:
     support_state: WorldSupportState | None = None
     probabilistic_world_bundle: ProbabilisticWorldBundle | None = None
     audit_world_bundle: AuditWorldBundle | None = None
+    multi_fidelity_summary: MultiFidelitySummary | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.multi_fidelity_summary is None:
+            object.__setattr__(
+                self,
+                "multi_fidelity_summary",
+                build_multi_fidelity_summary(
+                    probabilistic_world_bundle=self.probabilistic_world_bundle,
+                    audit_world_bundle=self.audit_world_bundle,
+                    support_state=self.support_state,
+                    provenance={"source": "risk_summary"},
+                ),
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -250,6 +266,12 @@ def build_risk_summary(
         support_state=support_state,
         probabilistic_world_bundle=probabilistic_world_bundle,
         audit_world_bundle=audit_world_bundle,
+        multi_fidelity_summary=build_multi_fidelity_summary(
+            probabilistic_world_bundle=probabilistic_world_bundle,
+            audit_world_bundle=audit_world_bundle,
+            support_state=support_state,
+            provenance={"source": "build_risk_summary"},
+        ),
         provenance=dict(provenance or {}),
     )
 

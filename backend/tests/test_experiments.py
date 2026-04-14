@@ -109,12 +109,32 @@ def test_experiment_lifecycle_and_compare_replay(tmp_path: Path, monkeypatch) ->
             run_id = replay["run_id"]
             assert len(replay["results"]) == 3
             assert replay["scenario_manifest_endpoint"] == f"/runs/{run_id}/scenario-manifest"
+            assert replay["scenario_signature_endpoint"] == f"/runs/{run_id}/scenario-signature"
 
             manifest_resp = client.get(f"/runs/{run_id}/scenario-manifest")
             assert manifest_resp.status_code == 200
             manifest = manifest_resp.json()
             assert manifest["source"]["experiment_id"] == experiment_id
             assert manifest["source"]["experiment_name"] == "Morning baseline v2"
+            manifest_signature = manifest["signature"]
+
+            scenario_signature_resp = client.get(f"/runs/{run_id}/scenario-signature")
+            assert scenario_signature_resp.status_code == 200
+            scenario_signature = scenario_signature_resp.json()
+            assert scenario_signature["run_id"] == run_id
+            assert scenario_signature["signature"] == manifest_signature
+
+            unsigned_manifest = dict(manifest)
+            unsigned_manifest.pop("signature", None)
+            verify_resp = client.post(
+                "/verify/signature",
+                json={
+                    "payload": unsigned_manifest,
+                    "signature": manifest_signature["signature"],
+                },
+            )
+            assert verify_resp.status_code == 200
+            assert verify_resp.json()["valid"] is True
 
             delete_resp = client.delete(f"/experiments/{experiment_id}")
             assert delete_resp.status_code == 200

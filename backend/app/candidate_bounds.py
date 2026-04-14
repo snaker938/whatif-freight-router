@@ -1,3 +1,5 @@
+"""Pipeline stage: build conservative candidate envelopes before certification and action ranking."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

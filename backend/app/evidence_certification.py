@@ -1,16 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import copy
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import math
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .certificate_witness import CertificateWitness
+from .certificate_witness import (
+    CertificateWitness,
+    build_support_conditions,
+    derive_witness_action_steps,
+)
 from .certified_set import CertifiedSetState
-from .confidence_sequences import WinnerConfidenceState
-from .decision_region import DecisionRegionState
-from .flip_radius import FlipRadiusState
+from .confidence_sequences import (
+    ANYTIME_HOEFFDING_METHOD,
+    DEFAULT_CONFIDENCE_DELTA,
+    WinnerConfidenceState,
+    anytime_hoeffding_interval,
+)
+from .decision_region import (
+    DecisionRegionState,
+    choose_decision_boundary,
+    infer_preference_direction_from_family,
+)
+from .flip_radius import (
+    FlipRadiusState,
+    build_adversarial_degradation_curve,
+    build_structured_adversarial_budget,
+    minimum_positive_value,
+)
 from .pairwise_gap_model import PairwiseGapState
 
 # REFC uses bounded stress-world analysis rather than an unconstrained noise
@@ -1281,6 +1300,115 @@ def _support_flag_from_manifest(world_manifest: Mapping[str, Any] | None) -> boo
     return bool(manifest.get("support_flag", True))
 
 
+def _manifest_text(
+    world_manifest: Mapping[str, Any] | None,
+    key: str,
+    *,
+    default: str | None = None,
+) -> str | None:
+    manifest = dict(world_manifest or {})
+    value = str(manifest.get(key, default or "") or "").strip()
+    return value or default
+
+
+def _support_bin_from_manifest(world_manifest: Mapping[str, Any] | None) -> str:
+    support_flag = _support_flag_from_manifest(world_manifest)
+    return str(
+        _manifest_text(
+            world_manifest,
+            "support_bin",
+            default="supported" if support_flag else "unsupported",
+        )
+    )
+
+
+def _support_status_from_manifest(world_manifest: Mapping[str, Any] | None) -> str:
+    support_bin = _support_bin_from_manifest(world_manifest)
+    return support_bin if support_bin else ("supported" if _support_flag_from_manifest(world_manifest) else "unsupported")
+
+
+def _calibration_bin_from_manifest(world_manifest: Mapping[str, Any] | None) -> str:
+    return str(
+        _manifest_text(
+            world_manifest,
+            "calibration_bin",
+            default=_manifest_text(world_manifest, "selected_certificate_basis", default="empirical") or "empirical",
+        )
+    )
+
+
+def _calibration_policy_version_from_manifest(world_manifest: Mapping[str, Any] | None) -> str:
+    return str(_manifest_text(world_manifest, "calibration_policy_version", default="untracked"))
+
+
+def _decision_region_atlas_kind(
+    *,
+    support_flag: bool,
+    nearest_boundary: str | None,
+    active_challenger_id: str | None,
+) -> str | None:
+    if not support_flag:
+        return "support_failure"
+    if nearest_boundary == "pairwise_gap" and active_challenger_id:
+        return "singleton_downgrade"
+    if nearest_boundary == "preference":
+        return "preference_sensitive"
+    if nearest_boundary in {"flip_radius", "evidence_family"}:
+        return "fragility_warning"
+    return None
+
+
+def _decision_region_root_cause_tags(
+    *,
+    support_flag: bool,
+    nearest_boundary: str | None,
+    active_challenger_id: str | None,
+    nearest_pairwise: PairwiseGapState | None,
+    dominant_family: str | None,
+    preference_direction: str | None,
+    minimum_flip_budget: float | None,
+) -> list[str]:
+    tags: list[str] = []
+    if not support_flag:
+        tags.append("support_flag_false")
+    if active_challenger_id:
+        tags.append("active_challenger_present")
+    if nearest_pairwise is not None and float(nearest_pairwise.pairwise_gap_lower_bound) <= 0.0:
+        tags.append("pairwise_gap_unresolved")
+    if minimum_flip_budget is None:
+        tags.append("flip_budget_unresolved")
+    if nearest_boundary:
+        tags.append(f"boundary:{nearest_boundary}")
+    if dominant_family:
+        tags.append(f"fragility_family:{dominant_family}")
+    if preference_direction:
+        tags.append(f"preference_direction:{preference_direction}")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        if tag in seen:
+            continue
+        deduped.append(tag)
+        seen.add(tag)
+    return deduped
+
+
+def _winner_confidence_delta(certificate: CertificateResult) -> tuple[float, str]:
+    manifest = dict(certificate.world_manifest or {})
+    selector_config = dict(certificate.selector_config or {})
+    explicit_candidates = (
+        ("world_manifest.confidence_delta", manifest.get("confidence_delta")),
+        ("world_manifest.delta", manifest.get("delta")),
+        ("selector_config.confidence_delta", selector_config.get("confidence_delta")),
+        ("selector_config.delta", selector_config.get("delta")),
+    )
+    for source, value in explicit_candidates:
+        parsed = _as_float(value, default=-1.0)
+        if 0.0 < parsed < 1.0:
+            return parsed, source
+    return DEFAULT_CONFIDENCE_DELTA, "default"
+
+
 def build_winner_confidence_state(
     certificate: CertificateResult,
     *,
@@ -1289,19 +1417,31 @@ def build_winner_confidence_state(
     selected_id = str(selected_route_id or certificate.selected_route_id or certificate.winner_id)
     empirical_win = float(certificate.certificate.get(selected_id, certificate.certificate.get(certificate.winner_id, 0.0)))
     support_flag = _support_flag_from_manifest(certificate.world_manifest)
+    sample_count = max(0, int(certificate.world_manifest.get("world_count", 0) or 0))
+    success_count = min(sample_count, max(0, int(round(empirical_win * float(sample_count)))))
+    delta, delta_source = _winner_confidence_delta(certificate)
+    lower_bound, upper_bound = anytime_hoeffding_interval(
+        success_count,
+        sample_count,
+        delta=delta,
+    )
     return WinnerConfidenceState(
         route_id=selected_id,
         empirical_win=round(empirical_win, 6),
-        lower_bound=round(empirical_win, 6),
-        upper_bound=round(empirical_win, 6),
-        method="empirical_winner_frequency_proxy",
-        delta=round(max(0.0, 1.0 - float(certificate.threshold)), 6),
-        sample_count=int(certificate.world_manifest.get("world_count", 0)),
+        lower_bound=round(lower_bound, 6),
+        upper_bound=round(upper_bound, 6),
+        method=ANYTIME_HOEFFDING_METHOD,
+        delta=round(delta, 6),
+        sample_count=sample_count,
         stopping_valid_trace_state={
             "selected_route_id": selected_id,
-            "world_count": int(certificate.world_manifest.get("world_count", 0)),
+            "world_count": sample_count,
             "unique_world_count": int(certificate.world_manifest.get("unique_world_count", 0)),
             "selected_certificate_basis": certificate.world_manifest.get("selected_certificate_basis", "empirical"),
+            "success_count": success_count,
+            "confidence_interval_method": ANYTIME_HOEFFDING_METHOD,
+            "delta_schedule": "delta/(n*(n+1))",
+            "delta_source": delta_source,
         },
         support_flag=support_flag,
         support_reason=str(certificate.world_manifest.get("support_reason", "")).strip() or None,
@@ -1316,33 +1456,51 @@ def build_pairwise_gap_states(
 ) -> list[PairwiseGapState]:
     selected_id = str(selected_route_id or certificate.selected_route_id or certificate.winner_id)
     selected_certificate = float(certificate.certificate.get(selected_id, certificate.certificate.get(certificate.winner_id, 0.0)))
+    world_count = max(1, int(certificate.world_manifest.get("world_count", 0) or 0))
+    selected_breakdown = dict((competitor_fragility_breakdown or {}).get(selected_id, {}))
     competitor_rows: list[PairwiseGapState] = []
     for route_id, value in sorted(certificate.certificate.items(), key=lambda item: (-float(item[1]), str(item[0]))):
         if str(route_id) == selected_id:
             continue
-        route_fragility = dict((competitor_fragility_breakdown or {}).get(route_id, {}))
+        route_fragility = dict(selected_breakdown.get(str(route_id), {}))
+        challenger_family_pressure = {
+            str(family): round(float(count) / float(world_count), 6)
+            for family, count in route_fragility.items()
+        }
+        dominant_family = (
+            max(
+                challenger_family_pressure.items(),
+                key=lambda item: (float(item[1]), str(item[0])),
+            )[0]
+            if challenger_family_pressure
+            else None
+        )
+        pairwise_gap = round(max(0.0, selected_certificate - float(value)), 6)
+        audit_sensitivity = round(
+            max(challenger_family_pressure.values(), default=0.0),
+            6,
+        )
         competitor_rows.append(
             PairwiseGapState(
                 challenger_id=str(route_id),
-                pairwise_gap_lower_bound=round(max(0.0, selected_certificate - float(value)), 6),
-                pairwise_gap_upper_bound=round(max(0.0, selected_certificate - float(value)), 6),
+                pairwise_gap_lower_bound=pairwise_gap,
+                pairwise_gap_upper_bound=pairwise_gap,
                 nearest_challenger=False,
-                challenger_audit_sensitivity=round(
-                    max((float(v) for family_row in route_fragility.values() for v in family_row.values()), default=0.0),
-                    6,
-                ),
-                challenger_radius=None,
-                flip_budget=None,
+                challenger_audit_sensitivity=audit_sensitivity,
+                challenger_radius=pairwise_gap if pairwise_gap > 0.0 else None,
+                flip_budget=pairwise_gap if pairwise_gap > 0.0 else None,
                 support_flag=_support_flag_from_manifest(certificate.world_manifest),
                 provenance={
                     "selected_route_id": selected_id,
                     "selected_certificate": selected_certificate,
                     "challenger_certificate": float(value),
+                    "dominant_evidence_family": dominant_family,
+                    "challenger_family_pressure": challenger_family_pressure,
                 },
             )
         )
     if competitor_rows:
-        nearest = max(competitor_rows, key=lambda item: (item.pairwise_gap_lower_bound, item.challenger_id))
+        nearest = min(competitor_rows, key=lambda item: (item.pairwise_gap_lower_bound, item.challenger_id))
         competitor_rows = [
             PairwiseGapState(
                 **{
@@ -1360,21 +1518,50 @@ def build_flip_radius_state(
     fragility: FragilityResult | None,
     *,
     selected_route_id: str | None = None,
+    pairwise_states: Sequence[PairwiseGapState] | None = None,
 ) -> FlipRadiusState:
     selected_id = str(selected_route_id or certificate.selected_route_id or certificate.winner_id)
     route_fragility = dict(fragility.route_fragility_map.get(selected_id, {})) if fragility is not None else {}
-    challenger_specific_radii = {
-        str(route_id): round(max(0.0, float(certificate.certificate.get(selected_id, 0.0)) - float(value)), 6)
-        for route_id, value in certificate.certificate.items()
-        if str(route_id) != selected_id
-    }
+    pairwise_rows = list(pairwise_states or [])
+    challenger_specific_radii = (
+        {
+            state.challenger_id: round(float(state.challenger_radius or state.pairwise_gap_lower_bound), 6)
+            for state in pairwise_rows
+        }
+        if pairwise_rows
+        else {
+            str(route_id): round(max(0.0, float(certificate.certificate.get(selected_id, 0.0)) - float(value)), 6)
+            for route_id, value in certificate.certificate.items()
+            if str(route_id) != selected_id
+        }
+    )
     evidence_family_radii = {str(family): round(float(value), 6) for family, value in route_fragility.items()}
     dominant_family = None
     if route_fragility:
         dominant_family = max(route_fragility.items(), key=lambda item: (float(item[1]), str(item[0])))[0]
-    minimum_flip_budget = None
-    if challenger_specific_radii:
-        minimum_flip_budget = min(challenger_specific_radii.values())
+    unsafe_challenger_present = False
+    if pairwise_rows:
+        unsafe_challenger_present = any(
+            float(state.pairwise_gap_lower_bound) <= 0.0
+            for state in pairwise_rows
+        )
+    elif challenger_specific_radii:
+        unsafe_challenger_present = any(float(value) <= 0.0 for value in challenger_specific_radii.values())
+    minimum_flip_budget = None if unsafe_challenger_present else minimum_positive_value(
+        [*challenger_specific_radii.values(), *evidence_family_radii.values()]
+    )
+    evidence_channel_budget = minimum_positive_value(evidence_family_radii.values())
+    evidence_source_metric = "evidence_family_radii"
+    evidence_driver = dominant_family
+    if evidence_channel_budget is None:
+        evidence_channel_budget = minimum_flip_budget
+        evidence_source_metric = "minimum_flip_budget"
+        if evidence_driver is None and challenger_specific_radii:
+            evidence_driver = "challenger_specific_radii"
+    adversarial_degradation_curve = build_adversarial_degradation_curve(
+        challenger_specific_radii=challenger_specific_radii,
+        evidence_family_radii=evidence_family_radii,
+    )
     return FlipRadiusState(
         route_id=selected_id,
         deterministic_local_flip_radius=round(max(0.0, 1.0 - max(route_fragility.values(), default=0.0)), 6),
@@ -1382,11 +1569,41 @@ def build_flip_radius_state(
         challenger_specific_radii=challenger_specific_radii,
         evidence_family_radii=evidence_family_radii,
         dominant_fragility_family=dominant_family,
-        minimum_flip_budget=minimum_flip_budget,
+        minimum_flip_budget=None if minimum_flip_budget is None else round(float(minimum_flip_budget), 6),
+        adversarial_degradation_curve=adversarial_degradation_curve,
+        structured_adversarial_budget=build_structured_adversarial_budget(
+            evidence_budget=evidence_channel_budget,
+            evidence_driver=evidence_driver,
+            evidence_source_metric=evidence_source_metric,
+            evidence_details={
+                "family_count": len(evidence_family_radii),
+                "challenger_count": len(challenger_specific_radii),
+                "dominant_fragility_family": dominant_family,
+            },
+            preference_budget=None,
+            preference_driver=None,
+            preference_source_metric="most_fragile_preference_direction",
+            preference_details={"preference_direction": None},
+            search_deficiency_budget=None,
+            search_deficiency_driver=None,
+            search_deficiency_source_metric="search_completeness_gap",
+            search_deficiency_details={"search_completeness_gap": None},
+            provenance={
+                "selected_route_id": selected_id,
+                "support_flag": _support_flag_from_manifest(certificate.world_manifest),
+            },
+        ),
         support_flag=_support_flag_from_manifest(certificate.world_manifest),
         provenance={
             "selected_route_id": selected_id,
             "selected_certificate": float(certificate.certificate.get(selected_id, certificate.certificate.get(certificate.winner_id, 0.0))),
+            "unsafe_challenger_present": unsafe_challenger_present,
+            "top_refresh_family": (
+                None
+                if fragility is None
+                else fragility.value_of_refresh.get("top_refresh_family_controller")
+                or fragility.value_of_refresh.get("top_refresh_family")
+            ),
         },
     )
 
@@ -1396,27 +1613,149 @@ def build_decision_region_state(
     fragility: FragilityResult | None,
     *,
     selected_route_id: str | None = None,
+    pairwise_states: Sequence[PairwiseGapState] | None = None,
+    flip_radius_state: FlipRadiusState | None = None,
 ) -> DecisionRegionState:
     selected_id = str(selected_route_id or certificate.selected_route_id or certificate.winner_id)
-    pairwise_states = build_pairwise_gap_states(certificate, selected_route_id=selected_id)
-    gap = min((state.pairwise_gap_lower_bound for state in pairwise_states), default=0.0)
-    flip_radius = build_flip_radius_state(certificate, fragility, selected_route_id=selected_id)
+    pairwise_rows = list(pairwise_states or build_pairwise_gap_states(certificate, selected_route_id=selected_id))
+    nearest_pairwise = next((state for state in pairwise_rows if state.nearest_challenger), None)
+    if nearest_pairwise is None and pairwise_rows:
+        nearest_pairwise = min(pairwise_rows, key=lambda state: (state.pairwise_gap_lower_bound, state.challenger_id))
+    minimum_pairwise_gap = (
+        None if nearest_pairwise is None else float(nearest_pairwise.pairwise_gap_lower_bound)
+    )
+    flip_radius = flip_radius_state or build_flip_radius_state(
+        certificate,
+        fragility,
+        selected_route_id=selected_id,
+        pairwise_states=pairwise_rows,
+    )
     route_fragility = dict(fragility.route_fragility_map.get(selected_id, {})) if fragility is not None else {}
-    dominant_family = None
-    if route_fragility:
-        dominant_family = max(route_fragility.items(), key=lambda item: (float(item[1]), str(item[0])))[0]
+    dominant_family = flip_radius.dominant_fragility_family
+    if dominant_family is None and fragility is not None:
+        dominant_family = (
+            fragility.value_of_refresh.get("top_refresh_family_controller")
+            or fragility.value_of_refresh.get("top_refresh_family")
+        )
+    if dominant_family is None:
+        active_families = certificate.world_manifest.get("active_families", [])
+        if isinstance(active_families, Sequence) and not isinstance(active_families, (str, bytes)):
+            dominant_family = next((str(family) for family in active_families if str(family).strip()), None)
+    support_flag = _support_flag_from_manifest(certificate.world_manifest)
+    support_bin = _support_bin_from_manifest(certificate.world_manifest)
+    support_status = _support_status_from_manifest(certificate.world_manifest)
+    selected_certificate_basis = _manifest_text(
+        certificate.world_manifest,
+        "selected_certificate_basis",
+        default="empirical",
+    )
+    calibration_bin = _calibration_bin_from_manifest(certificate.world_manifest)
+    calibration_policy_version = _calibration_policy_version_from_manifest(certificate.world_manifest)
+    preference_direction = infer_preference_direction_from_family(
+        dominant_family,
+        support_flag=support_flag,
+    )
+    if preference_direction is None and support_flag and nearest_pairwise is not None:
+        preference_direction = "certificate_margin"
+    nearest_boundary, nearest_axis = choose_decision_boundary(
+        support_flag=support_flag,
+        active_challenger_id=None if nearest_pairwise is None else nearest_pairwise.challenger_id,
+        minimum_pairwise_gap=minimum_pairwise_gap,
+        minimum_flip_budget=flip_radius.minimum_flip_budget,
+        preference_direction=preference_direction,
+        dominant_evidence_family=dominant_family,
+    )
+    joint_components = [
+        float(value)
+        for value in (minimum_pairwise_gap, flip_radius.minimum_flip_budget)
+        if value is not None
+    ]
+    minimum_joint_perturbation = 0.0 if not support_flag else None
+    if joint_components:
+        minimum_joint_perturbation = round(min(joint_components), 6)
+    atlas_kind = _decision_region_atlas_kind(
+        support_flag=support_flag,
+        nearest_boundary=nearest_boundary,
+        active_challenger_id=None if nearest_pairwise is None else nearest_pairwise.challenger_id,
+    )
+    root_cause_tags = _decision_region_root_cause_tags(
+        support_flag=support_flag,
+        nearest_boundary=nearest_boundary,
+        active_challenger_id=None if nearest_pairwise is None else nearest_pairwise.challenger_id,
+        nearest_pairwise=nearest_pairwise,
+        dominant_family=dominant_family,
+        preference_direction=preference_direction,
+        minimum_flip_budget=flip_radius.minimum_flip_budget,
+    )
+    evidence_channel_payload = (
+        flip_radius.structured_adversarial_budget.evidence_channel
+        if flip_radius.structured_adversarial_budget is not None
+        else None
+    )
     return DecisionRegionState(
         route_id=selected_id,
-        nearest_certificate_boundary="pairwise_gap" if gap > 0.0 else "support",
-        active_challenger_id=pairwise_states[0].challenger_id if pairwise_states else None,
+        nearest_certificate_boundary=nearest_boundary,
+        active_challenger_id=None if nearest_pairwise is None else nearest_pairwise.challenger_id,
         dominant_evidence_family=dominant_family,
-        most_fragile_preference_direction=None,
-        minimum_joint_perturbation=round(min(gap, float(flip_radius.deterministic_local_flip_radius)), 6),
-        nearest_threat_axis="evidence" if route_fragility else "search",
-        support_flag=_support_flag_from_manifest(certificate.world_manifest),
+        most_fragile_preference_direction=preference_direction,
+        minimum_joint_perturbation=minimum_joint_perturbation,
+        nearest_threat_axis=nearest_axis,
+        selected_certificate_basis=selected_certificate_basis,
+        support_status=support_status,
+        support_bin=support_bin,
+        calibration_bin=calibration_bin,
+        calibration_policy_version=calibration_policy_version,
+        nearest_challenger_gap_lower_bound=(
+            None if nearest_pairwise is None else float(nearest_pairwise.pairwise_gap_lower_bound)
+        ),
+        nearest_challenger_audit_sensitivity=(
+            None if nearest_pairwise is None else float(nearest_pairwise.challenger_audit_sensitivity)
+        ),
+        nearest_challenger_radius=(
+            None if nearest_pairwise is None or nearest_pairwise.challenger_radius is None else float(nearest_pairwise.challenger_radius)
+        ),
+        nearest_challenger_flip_budget=(
+            None if nearest_pairwise is None or nearest_pairwise.flip_budget is None else float(nearest_pairwise.flip_budget)
+        ),
+        route_fragility_family_count=len(route_fragility),
+        atlas_kind=atlas_kind,
+        root_cause_tags=root_cause_tags,
+        structured_adversarial_budget=build_structured_adversarial_budget(
+            evidence_budget=(
+                None if evidence_channel_payload is None else evidence_channel_payload.budget
+            ),
+            evidence_driver=dominant_family,
+            evidence_source_metric=(
+                None if evidence_channel_payload is None else evidence_channel_payload.source_metric
+            ) or "evidence_family_radii",
+            evidence_details={
+                "family_count": len(route_fragility),
+                "dominant_fragility_family": dominant_family,
+            },
+            preference_budget=minimum_pairwise_gap if preference_direction is not None else None,
+            preference_driver=preference_direction,
+            preference_source_metric="minimum_pairwise_gap_lcb",
+            preference_details={
+                "nearest_challenger_id": None if nearest_pairwise is None else nearest_pairwise.challenger_id,
+                "minimum_pairwise_gap_lcb": minimum_pairwise_gap,
+            },
+            search_deficiency_budget=None,
+            search_deficiency_driver=None,
+            search_deficiency_source_metric="search_completeness_gap",
+            search_deficiency_details={"search_completeness_gap": None},
+            provenance={
+                "selected_route_id": selected_id,
+                "selected_certificate_basis": selected_certificate_basis,
+                "support_flag": support_flag,
+            },
+        ),
+        support_flag=support_flag,
         provenance={
             "selected_route_id": selected_id,
-            "selected_certificate_basis": certificate.world_manifest.get("selected_certificate_basis", "empirical"),
+            "selected_certificate_basis": selected_certificate_basis,
+            "minimum_pairwise_gap_lcb": minimum_pairwise_gap,
+            "minimum_flip_budget": flip_radius.minimum_flip_budget,
+            "route_fragility_families": sorted(route_fragility),
         },
     )
 
@@ -1426,29 +1765,104 @@ def build_certificate_witness(
     fragility: FragilityResult | None,
     *,
     selected_route_id: str | None = None,
+    pairwise_states: Sequence[PairwiseGapState] | None = None,
+    decision_region_state: DecisionRegionState | None = None,
 ) -> CertificateWitness:
     selected_id = str(selected_route_id or certificate.selected_route_id or certificate.winner_id)
     route_fragility = dict(fragility.route_fragility_map.get(selected_id, {})) if fragility is not None else {}
-    top_families = sorted(route_fragility, key=lambda family: (-float(route_fragility[family]), str(family)))
-    active_challengers = [route_id for route_id in certificate.certificate if route_id != selected_id]
-    witness_size = 3 + len(top_families) + (1 if active_challengers else 0)
+    top_families = [
+        family
+        for family in sorted(route_fragility, key=lambda family: (-float(route_fragility[family]), str(family)))
+        if float(route_fragility[family]) > 0.0
+    ][:2]
+    if not top_families and fragility is not None:
+        top_refresh_family = (
+            fragility.value_of_refresh.get("top_refresh_family_controller")
+            or fragility.value_of_refresh.get("top_refresh_family")
+        )
+        if top_refresh_family:
+            top_families = [str(top_refresh_family)]
+    pairwise_rows = list(pairwise_states or build_pairwise_gap_states(certificate, selected_route_id=selected_id))
+    sorted_challengers = sorted(
+        pairwise_rows,
+        key=lambda state: (state.pairwise_gap_lower_bound, state.challenger_id),
+    )
+    active_challengers = [state.challenger_id for state in sorted_challengers[:2]]
+    decision_state = decision_region_state or build_decision_region_state(
+        certificate,
+        fragility,
+        selected_route_id=selected_id,
+        pairwise_states=pairwise_rows,
+    )
+    if not top_families and decision_state.dominant_evidence_family is not None:
+        top_families = [decision_state.dominant_evidence_family]
+    active_preference_constraints = (
+        [f"protect:{decision_state.most_fragile_preference_direction}"]
+        if decision_state.most_fragile_preference_direction is not None
+        else []
+    )
+    support_flag = _support_flag_from_manifest(certificate.world_manifest)
+    support_reason = _manifest_text(certificate.world_manifest, "support_reason", default=None)
+    selected_certificate_basis = _manifest_text(
+        certificate.world_manifest,
+        "selected_certificate_basis",
+        default="empirical",
+    )
+    support_bin = _support_bin_from_manifest(certificate.world_manifest)
+    support_status = _support_status_from_manifest(certificate.world_manifest)
+    calibration_bin = _calibration_bin_from_manifest(certificate.world_manifest)
+    calibration_policy_version = _calibration_policy_version_from_manifest(certificate.world_manifest)
+    support_conditions = build_support_conditions(
+        support_flag=support_flag,
+        support_reason=support_reason,
+        selected_certificate_basis=str(selected_certificate_basis or "empirical"),
+        support_bin=support_bin,
+    )
+    action_steps = derive_witness_action_steps(
+        active_challenger_ids=active_challengers,
+        active_evidence_families=top_families,
+        active_preference_constraints=active_preference_constraints,
+        support_flag=support_flag,
+        support_reason=support_reason,
+        nearest_certificate_boundary=decision_state.nearest_certificate_boundary,
+    )
+    witness_size = len(active_challengers) + len(top_families) + len(active_preference_constraints)
+    if support_conditions:
+        witness_size += 1
+    explanation_sparsity = round(1.0 / float(max(1, witness_size)), 6)
     return CertificateWitness(
         route_id=selected_id,
-        active_challenger_ids=[active_challengers[0]] if active_challengers else [],
+        active_challenger_ids=active_challengers,
         active_evidence_families=top_families,
-        active_preference_constraints=[],
-        support_conditions=[
-            f"support_flag={_support_flag_from_manifest(certificate.world_manifest)}",
-            f"selected_certificate_basis={certificate.world_manifest.get('selected_certificate_basis', 'empirical')}",
-        ],
-        action_steps=["inspect_certificate", "inspect_fragility", "record_support"],
-        witness_sparsity=round(1.0 / float(max(1, witness_size)), 6),
+        active_preference_constraints=active_preference_constraints,
+        support_conditions=support_conditions,
+        action_steps=action_steps,
+        witness_sparsity=explanation_sparsity,
         witness_size=witness_size,
-        support_flag=_support_flag_from_manifest(certificate.world_manifest),
+        explanation_sparsity=explanation_sparsity,
+        selected_certificate_basis=selected_certificate_basis,
+        support_status=support_status,
+        support_bin=support_bin,
+        support_reason=support_reason,
+        calibration_bin=calibration_bin,
+        calibration_policy_version=calibration_policy_version,
+        nearest_certificate_boundary=decision_state.nearest_certificate_boundary,
+        targeted_challenger_route_id=(
+            active_challengers[0] if active_challengers else decision_state.active_challenger_id
+        ),
+        active_challenger_count=len(active_challengers),
+        active_evidence_family_count=len(top_families),
+        active_preference_constraint_count=len(active_preference_constraints),
+        support_condition_count=len(support_conditions),
+        action_step_count=len(action_steps),
+        atlas_kind=decision_state.atlas_kind,
+        root_cause_tags=list(decision_state.root_cause_tags),
+        support_flag=support_flag,
         provenance={
             "selected_route_id": selected_id,
             "selected_certificate": certificate.certificate.get(selected_id, certificate.certificate.get(certificate.winner_id, 0.0)),
             "world_count": int(certificate.world_manifest.get("world_count", 0)),
+            "nearest_certificate_boundary": decision_state.nearest_certificate_boundary,
         },
     )
 
@@ -1458,22 +1872,82 @@ def build_certified_set_state(
     *,
     frontier_route_ids: Sequence[str] | None = None,
     selected_route_id: str | None = None,
+    pairwise_states: Sequence[PairwiseGapState] | None = None,
 ) -> CertifiedSetState:
     selected_id = str(selected_route_id or certificate.selected_route_id or certificate.winner_id)
-    members = [str(route_id) for route_id in (frontier_route_ids or [selected_id])]
+    members = list(dict.fromkeys(str(route_id) for route_id in (frontier_route_ids or [selected_id])))
     excluded = [route_id for route_id in certificate.certificate if route_id not in members]
+    support_flag = _support_flag_from_manifest(certificate.world_manifest)
+    winner_state = build_winner_confidence_state(certificate, selected_route_id=selected_id)
+    pairwise_rows = list(pairwise_states or build_pairwise_gap_states(certificate, selected_route_id=selected_id))
+    frontier_live_challengers = [
+        state
+        for state in pairwise_rows
+        if state.challenger_id in members and state.challenger_id != selected_id
+    ]
+    excluded_live_challengers = [
+        state
+        for state in pairwise_rows
+        if state.challenger_id in excluded and state.challenger_id != selected_id
+    ]
+    singleton_not_justified_reasons: list[str] = []
+    if winner_state.lower_bound < float(certificate.threshold):
+        singleton_not_justified_reasons.append("winner_lcb_below_threshold")
+    if any(float(state.pairwise_gap_lower_bound) <= 0.0 for state in frontier_live_challengers):
+        singleton_not_justified_reasons.append("frontier_pairwise_gap_unresolved")
+    outside_routes_excluded = bool(excluded)
+    excluded_route_safety_reasons: list[str] = []
+    excluded_challenger_ids = {state.challenger_id for state in excluded_live_challengers}
+    missing_excluded_route_ids = [route_id for route_id in excluded if route_id not in excluded_challenger_ids]
+    if missing_excluded_route_ids:
+        excluded_route_safety_reasons.extend(
+            f"excluded_route_pairwise_state_missing:{route_id}" for route_id in missing_excluded_route_ids
+        )
+    if any(float(state.pairwise_gap_lower_bound) <= 0.0 for state in excluded_live_challengers):
+        excluded_route_safety_reasons.append("excluded_route_pairwise_gap_unresolved")
+    outside_routes_safely_excluded = bool(outside_routes_excluded and not excluded_route_safety_reasons)
+    singleton_justified = bool(certificate.certified) and not singleton_not_justified_reasons
+    exclusion_basis = ["frontier_selection"]
+    exclusion_basis.append("outside_routes_excluded" if outside_routes_excluded else "no_outside_routes_excluded")
+    exclusion_basis.append(
+        "outside_routes_safely_excluded" if outside_routes_safely_excluded else "outside_routes_not_safely_excluded"
+    )
+    exclusion_basis.append(
+        "winner_empirical_threshold_met" if bool(certificate.certified) else "winner_empirical_threshold_not_met"
+    )
+    if singleton_not_justified_reasons:
+        exclusion_basis.extend(f"singleton_not_justified:{reason}" for reason in singleton_not_justified_reasons)
+    else:
+        exclusion_basis.append("singleton_justified")
+    if not support_flag:
+        exclusion_basis.append("support_flag_false")
+    certified = bool(
+        support_flag
+        and bool(certificate.certified)
+        and len(members) > 1
+        and outside_routes_safely_excluded
+        and bool(singleton_not_justified_reasons)
+    )
     return CertifiedSetState(
         member_route_ids=members,
         excluded_route_ids=excluded,
-        exclusion_basis=["certificate_threshold", "frontier_selection"],
-        certified=bool(certificate.certified and members),
+        exclusion_basis=exclusion_basis,
+        certified=certified,
         threshold=float(certificate.threshold),
-        support_flag=_support_flag_from_manifest(certificate.world_manifest),
+        support_flag=support_flag,
         set_size=len(members),
         witness={
             "route_id": selected_id,
-            "active_challenger_ids": excluded[:1],
-            "support_flag": _support_flag_from_manifest(certificate.world_manifest),
+            "active_challenger_ids": [state.challenger_id for state in frontier_live_challengers] or excluded[:1],
+            "support_flag": support_flag,
+            "singleton_not_justified_reasons": singleton_not_justified_reasons,
+            "singleton_justified": singleton_justified,
+            "outside_routes_excluded": outside_routes_excluded,
+            "outside_routes_safely_excluded": outside_routes_safely_excluded,
+            "excluded_route_safety_reasons": excluded_route_safety_reasons,
+            "excluded_route_ids": excluded,
+            "winner_confidence_lcb": winner_state.lower_bound,
+            "frontier_member_ids": members,
         },
     )
 
@@ -1494,13 +1968,35 @@ def project_refc_scaffold_states(
             fragility.competitor_fragility_breakdown if fragility is not None else None
         ),
     )
-    flip_state = build_flip_radius_state(certificate, fragility, selected_route_id=selected_id)
-    decision_state = build_decision_region_state(certificate, fragility, selected_route_id=selected_id)
-    witness_state = build_certificate_witness(certificate, fragility, selected_route_id=selected_id)
+    flip_state = build_flip_radius_state(
+        certificate,
+        fragility,
+        selected_route_id=selected_id,
+        pairwise_states=gap_states,
+    )
+    decision_state = build_decision_region_state(
+        certificate,
+        fragility,
+        selected_route_id=selected_id,
+        pairwise_states=gap_states,
+        flip_radius_state=flip_state,
+    )
+    flip_state = replace(
+        flip_state,
+        structured_adversarial_budget=decision_state.structured_adversarial_budget,
+    )
+    witness_state = build_certificate_witness(
+        certificate,
+        fragility,
+        selected_route_id=selected_id,
+        pairwise_states=gap_states,
+        decision_region_state=decision_state,
+    )
     certified_set_state = build_certified_set_state(
         certificate,
         frontier_route_ids=frontier_route_ids or [selected_id],
         selected_route_id=selected_id,
+        pairwise_states=gap_states,
     )
     return {
         "winner_confidence_state": winner_state,
@@ -1510,6 +2006,211 @@ def project_refc_scaffold_states(
         "certificate_witness": witness_state,
         "certified_set_state": certified_set_state,
     }
+
+
+def build_route_fragility_artifact_payload(
+    certificate: CertificateResult,
+    fragility: FragilityResult,
+    *,
+    selected_route_id: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    route_ids = sorted(
+        {
+            str(route_id)
+            for route_id in (
+                set(fragility.route_fragility_map.keys())
+                | set(certificate.certificate.keys())
+            )
+            if str(route_id).strip()
+        }
+    )
+    for route_id in route_ids:
+        pairwise_rows = build_pairwise_gap_states(
+            certificate,
+            selected_route_id=route_id,
+            competitor_fragility_breakdown=fragility.competitor_fragility_breakdown,
+        )
+        flip_state = build_flip_radius_state(
+            certificate,
+            fragility,
+            selected_route_id=route_id,
+            pairwise_states=pairwise_rows,
+        )
+        payload[route_id] = {
+            "family_fragility_scores": copy.deepcopy(
+                dict(fragility.route_fragility_map.get(route_id, {}))
+            ),
+            "deterministic_local_flip_radius": float(
+                flip_state.deterministic_local_flip_radius
+            ),
+            "probabilistic_flip_radius": float(flip_state.probabilistic_flip_radius),
+            "family_specific_radii": copy.deepcopy(
+                dict(flip_state.evidence_family_radii)
+            ),
+            "challenger_specific_radii": copy.deepcopy(
+                dict(flip_state.challenger_specific_radii)
+            ),
+            "dominant_fragility_family": flip_state.dominant_fragility_family,
+            "minimum_flip_budget": flip_state.minimum_flip_budget,
+            "adversarial_degradation_curve": copy.deepcopy(
+                dict(flip_state.adversarial_degradation_curve)
+            ),
+        }
+    return payload
+
+
+def build_competitor_fragility_artifact_payload(
+    certificate: CertificateResult,
+    fragility: FragilityResult,
+    *,
+    selected_route_id: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    route_ids = sorted(
+        {
+            str(route_id)
+            for route_id in (
+                set(fragility.competitor_fragility_breakdown.keys())
+                | set(certificate.certificate.keys())
+            )
+            if str(route_id).strip()
+        }
+    )
+    for route_id in route_ids:
+        pairwise_rows = build_pairwise_gap_states(
+            certificate,
+            selected_route_id=route_id,
+            competitor_fragility_breakdown=fragility.competitor_fragility_breakdown,
+        )
+        pairwise_by_challenger = {
+            str(state.challenger_id): state for state in pairwise_rows
+        }
+        route_breakdown = dict(fragility.competitor_fragility_breakdown.get(route_id, {}))
+        payload[route_id] = {}
+        for challenger_id in sorted(
+            {
+                str(challenger_id)
+                for challenger_id in (
+                    set(route_breakdown.keys()) | set(pairwise_by_challenger.keys())
+                )
+                if str(challenger_id).strip()
+            }
+        ):
+            state = pairwise_by_challenger.get(challenger_id)
+            state_provenance = (
+                dict(state.provenance)
+                if state is not None and isinstance(state.provenance, Mapping)
+                else {}
+            )
+            payload[route_id][challenger_id] = {
+                "family_fragility_counts": copy.deepcopy(
+                    dict(route_breakdown.get(challenger_id, {}))
+                ),
+                "pairwise_gap_lower_bound": (
+                    None if state is None else float(state.pairwise_gap_lower_bound)
+                ),
+                "pairwise_gap_upper_bound": (
+                    None if state is None else float(state.pairwise_gap_upper_bound)
+                ),
+                "challenger_radius": (
+                    None if state is None else state.challenger_radius
+                ),
+                "challenger_audit_sensitivity": (
+                    None if state is None else float(state.challenger_audit_sensitivity)
+                ),
+                "nearest_challenger": False if state is None else bool(state.nearest_challenger),
+                "dominant_evidence_family": state_provenance.get(
+                    "dominant_evidence_family"
+                ),
+                "challenger_family_pressure": copy.deepcopy(
+                    dict(state_provenance.get("challenger_family_pressure", {}))
+                ),
+            }
+    return payload
+
+
+def build_sampled_world_manifest_artifact_payload(
+    manifest: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    payload = copy.deepcopy(dict(manifest or {}))
+    world_rows = [
+        copy.deepcopy(dict(world))
+        for world in payload.get("worlds", [])
+        if isinstance(world, Mapping)
+    ]
+
+    def _world_kind(world: Mapping[str, Any]) -> str:
+        return str(world.get("world_kind", "")).strip().lower()
+
+    def _world_states(world: Mapping[str, Any]) -> list[str]:
+        states = world.get("states", {})
+        if not isinstance(states, Mapping):
+            return []
+        return [str(value).strip().lower() for value in states.values()]
+
+    def _is_proxy_only_world(world: Mapping[str, Any]) -> bool:
+        states = _world_states(world)
+        return bool(states) and any(state == "proxy" for state in states) and all(
+            state in {"nominal", "proxy"} for state in states
+        )
+
+    def _is_audited_world(world: Mapping[str, Any]) -> bool:
+        return any(state == "refreshed" for state in _world_states(world))
+
+    signature_counts: dict[str, int] = {}
+    for world in world_rows:
+        signature = _world_signature(world)
+        signature_counts[signature] = signature_counts.get(signature, 0) + 1
+    probabilistic_worlds = [
+        copy.deepcopy(world)
+        for world in world_rows
+        if _world_kind(world) == "sampled"
+    ]
+    audit_worlds = [
+        copy.deepcopy(world)
+        for world in world_rows
+        if _world_kind(world) != "sampled"
+    ]
+    proxy_only_worlds = [
+        copy.deepcopy(world) for world in world_rows if _is_proxy_only_world(world)
+    ]
+    audited_worlds = [
+        copy.deepcopy(world) for world in world_rows if _is_audited_world(world)
+    ]
+    reused_worlds = [
+        copy.deepcopy(world)
+        for world in world_rows
+        if signature_counts.get(_world_signature(world), 0) > 1
+    ]
+    support_flag = bool(payload.get("support_flag", True))
+    payload["probabilistic_worlds"] = probabilistic_worlds
+    payload["audit_worlds"] = audit_worlds
+    payload["proxy_only_worlds"] = proxy_only_worlds
+    payload["audited_worlds"] = audited_worlds
+    payload["reused_worlds"] = reused_worlds
+    payload["support_bins"] = {
+        "support_bin": str(
+            payload.get("support_bin", "supported" if support_flag else "unsupported")
+        ),
+        "calibration_bin": str(
+            payload.get(
+                "calibration_bin",
+                payload.get("selected_certificate_basis", "empirical"),
+            )
+        ),
+    }
+    artifact_provenance = payload.get("artifact_provenance", {})
+    payload["calibration_policy_version"] = str(
+        payload.get("calibration_policy_version")
+        or (
+            artifact_provenance.get("calibration_policy_version")
+            if isinstance(artifact_provenance, Mapping)
+            else ""
+        )
+        or "untracked"
+    )
+    return payload
 
 
 @dataclass(frozen=True)

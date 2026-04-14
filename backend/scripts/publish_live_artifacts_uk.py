@@ -330,54 +330,54 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Publish strict live-runtime JSON artifacts into tracked backend/assets/uk files.",
     )
-    parser.add_argument("--scenario", type=Path, default=Path("backend/assets/uk/scenario_profiles_uk.json"))
-    parser.add_argument("--fuel-asset", type=Path, default=Path("backend/assets/uk/fuel_prices_uk.json"))
-    parser.add_argument("--fuel-raw", type=Path, default=Path("backend/data/raw/uk/fuel_prices_raw.json"))
-    parser.add_argument("--carbon", type=Path, default=Path("backend/assets/uk/carbon_price_schedule_uk.json"))
+    parser.add_argument("--scenario", type=Path, default=ROOT / "assets" / "uk" / "scenario_profiles_uk.json")
+    parser.add_argument("--fuel-asset", type=Path, default=ROOT / "assets" / "uk" / "fuel_prices_uk.json")
+    parser.add_argument("--fuel-raw", type=Path, default=ROOT / "data" / "raw" / "uk" / "fuel_prices_raw.json")
+    parser.add_argument("--carbon", type=Path, default=ROOT / "assets" / "uk" / "carbon_price_schedule_uk.json")
     parser.add_argument(
         "--departure-in",
         type=Path,
-        default=Path("backend/out/model_assets/departure_profiles_uk.json"),
+        default=ROOT / "out" / "model_assets" / "departure_profiles_uk.json",
     )
     parser.add_argument(
         "--stochastic-in",
         type=Path,
-        default=Path("backend/out/model_assets/stochastic_regimes_uk.json"),
+        default=ROOT / "out" / "model_assets" / "stochastic_regimes_uk.json",
     )
     parser.add_argument(
         "--toll-topology-in",
         type=Path,
-        default=Path("backend/out/model_assets/toll_segments_seed_compiled.json"),
+        default=ROOT / "out" / "model_assets" / "toll_segments_seed_compiled.json",
     )
     parser.add_argument(
         "--toll-tariffs-in",
         type=Path,
-        default=Path("backend/out/model_assets/toll_tariffs_uk_compiled.json"),
+        default=ROOT / "out" / "model_assets" / "toll_tariffs_uk_compiled.json",
     )
     parser.add_argument(
         "--departure-out",
         type=Path,
-        default=Path("backend/assets/uk/departure_profiles_uk.json"),
+        default=ROOT / "assets" / "uk" / "departure_profiles_uk.json",
     )
     parser.add_argument(
         "--stochastic-out",
         type=Path,
-        default=Path("backend/assets/uk/stochastic_regimes_uk.json"),
+        default=ROOT / "assets" / "uk" / "stochastic_regimes_uk.json",
     )
     parser.add_argument(
         "--toll-topology-out",
         type=Path,
-        default=Path("backend/assets/uk/toll_topology_uk.json"),
+        default=ROOT / "assets" / "uk" / "toll_topology_uk.json",
     )
     parser.add_argument(
         "--toll-tariffs-out",
         type=Path,
-        default=Path("backend/assets/uk/toll_tariffs_uk.json"),
+        default=ROOT / "assets" / "uk" / "toll_tariffs_uk.json",
     )
     parser.add_argument(
         "--summary-out",
         type=Path,
-        default=Path("backend/out/model_assets/live_publish_summary.json"),
+        default=ROOT / "out" / "model_assets" / "live_publish_summary.json",
     )
     args = parser.parse_args()
 

@@ -1,6 +1,6 @@
 # Sample Manifest and Outputs
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-10
 Applies To: `POST /batch/pareto`, run manifests, signatures, artifact endpoints, and thesis evaluation bundles
 
 ## Sample Files in Repo
@@ -23,6 +23,8 @@ Core route bundle files:
 - results.json
 - results.csv
 - metadata.json
+- index.json
+- index.md
 - routes.geojson
 - results_summary.csv
 
@@ -34,6 +36,11 @@ Thesis and VOI bundle files currently emitted by the run store:
 - strict_frontier.jsonl
 - winner_summary.json
 - certificate_summary.json
+- world_support_summary.json
+- flip_radius_summary.json
+- decision_region_summary.json
+- certificate_witness.json
+- certified_set_summary.json (when certified-set emission / normalized certified-set summary is available)
 - route_fragility_map.json
 - competitor_fragility_breakdown.json
 - value_of_refresh.json
@@ -93,6 +100,11 @@ The companion metadata.json includes:
 - `candidate_count`
 - `warning_count`
 - `duration_ms`
+
+The route-compute bundle index is written once route-level metadata is present:
+
+- `index.json` provides a machine-readable bundle index with run id, pipeline mode, run seed, terminal type, selected certificate basis, support state, artifact pointers, and artifact endpoints.
+- `index.md` provides the same bundle as a reviewer-readable checklist of artifact names and endpoints.
 
 The route-level results.json contains:
 
@@ -196,6 +208,16 @@ The thesis evaluation folder includes the derived research outputs as files, not
 - methods_appendix.md
 - thesis_report.md
 
+Thesis-like bundle indexes are now emitted by the run-store path for newly written or additively refreshed thesis-like bundles, using `index.json` and `index.md` plus file-derived export-status metadata. This is forward-only behavior. The current checked focused bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now carries additively backfilled copies of those files, while other older checked bundles may still legitimately lack `index.json` and `index.md` if they predate this emission change and have not been refreshed. That absence in other older bundles does not invalidate the checked CSV, JSON, or Markdown source artifacts already present there, and any later backfill remains additive-only rather than a claim that a historical bundle was originally emitted with those index files.
+
+The current reviewer-facing publication map for these bundle outputs lives at the repo root in [`paper_artifact_index.json`](../paper_artifact_index.json). In the current checked slice:
+
+- the variant-level summary CSV/JSON pair is the source behind the indexed headline table entries
+- the cohort-level summary CSV/JSON pair is the source behind the indexed cohort table entries
+- `thesis_plots.json` is the plot-ready source file behind the currently indexed headline figure entries
+
+This is intentionally conservative. The index records source CSV/JSON artifacts that exist today and does not imply that every publication surface already has a committed PDF/SVG render.
+
 These files are the best place to inspect the latest aggregate metrics such as:
 
 - success rate
@@ -220,7 +242,8 @@ Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/signature"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/scenario-signature"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts/results.json"
-Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/report.pdf" -OutFile ".\report_$runId.pdf"
+Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts/index.json"
+Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/index.md" -OutFile ".\bundle_index_$runId.md"
 ```
 
 ## Related Docs
@@ -228,4 +251,5 @@ Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/report.pdf" 
 - [Documentation Index](DOCS_INDEX.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [API Cookbook](api-cookbook.md)
+- [Paper Artifact Index](../paper_artifact_index.json)
 - [Reproducibility Capsule](reproducibility-capsule.md)

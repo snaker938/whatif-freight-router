@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useState } from 'react';
 
+import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import type { RouteOption } from '../lib/types';
 
 type Props = {
@@ -10,6 +12,25 @@ type Props = {
 };
 
 const PREVIEW_ROW_COUNT = 40;
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
   const segments = Array.isArray(route?.segment_breakdown) ? route?.segment_breakdown : [];
@@ -79,8 +100,25 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
       </div>
       {terrainSummary ? (
         <div className="segmentBreakdown__collapsedHint">
-          Terrain {terrainSummary.source} | Coverage {(terrainSummary.coverage_ratio * 100).toFixed(1)}% |
-          Ascent {terrainSummary.ascent_m.toFixed(0)}m | Descent {terrainSummary.descent_m.toFixed(0)}m
+          Terrain {terrainSummary.source} |{' '}
+          {inlineMetricLabel('Coverage', {
+            definition: 'Share of segment rows with terrain support coverage in the current route breakdown.',
+            direction: 'Higher is better because more of the route has terrain coverage.',
+            unit: 'coverage percent',
+          })}{' '}
+          {(terrainSummary.coverage_ratio * 100).toFixed(1)}% |{' '}
+          {inlineMetricLabel('Ascent', {
+            definition: 'Estimated total uphill elevation gain across the visible segment breakdown.',
+            direction: 'Context only; lower ascent may reduce effort or energy depending on the vehicle and route.',
+            unit: 'meters',
+          })}{' '}
+          {terrainSummary.ascent_m.toFixed(0)}m |{' '}
+          {inlineMetricLabel('Descent', {
+            definition: 'Estimated total downhill elevation change across the visible segment breakdown.',
+            direction: 'Context only; this is descriptive terrain information rather than a direct quality score.',
+            unit: 'meters',
+          })}{' '}
+          {terrainSummary.descent_m.toFixed(0)}m
         </div>
       ) : null}
       {!expanded ? (
@@ -95,11 +133,41 @@ export default function SegmentBreakdown({ route, onTutorialAction }: Props) {
         <table className="segmentBreakdown__table">
           <thead>
             <tr>
-              <th>Seg</th>
-              <th className="segmentBreakdown__right">Dist (km)</th>
-              <th className="segmentBreakdown__right">ETA (s)</th>
-              <th className="segmentBreakdown__right">Cost (£)</th>
-              <th className="segmentBreakdown__right">CO2 (kg)</th>
+              <th>
+                {inlineMetricLabel('Seg', {
+                  definition: 'Segment index within the route segment breakdown table.',
+                  direction: 'Context only; this is an identifier, not a better/worse score.',
+                  unit: 'segment index',
+                })}
+              </th>
+              <th className="segmentBreakdown__right">
+                {inlineMetricLabel('Dist (km)', {
+                  definition: 'Distance for the individual route segment.',
+                  direction: 'Lower is usually better when distance is a cost to minimize.',
+                  unit: 'kilometers',
+                })}
+              </th>
+              <th className="segmentBreakdown__right">
+                {inlineMetricLabel('ETA (s)', {
+                  definition: 'Travel time for the individual route segment.',
+                  direction: 'Lower is usually better because the segment completes sooner.',
+                  unit: 'seconds',
+                })}
+              </th>
+              <th className="segmentBreakdown__right">
+                {inlineMetricLabel('Cost (£)', {
+                  definition: 'Proxy monetary cost for the individual route segment.',
+                  direction: 'Lower is usually better because the segment costs less.',
+                  unit: 'currency units',
+                })}
+              </th>
+              <th className="segmentBreakdown__right">
+                {inlineMetricLabel('CO2 (kg)', {
+                  definition: 'Estimated emissions for the individual route segment.',
+                  direction: 'Lower is usually better because less CO2 is emitted.',
+                  unit: 'kilograms CO2',
+                })}
+              </th>
             </tr>
           </thead>
           <tbody>

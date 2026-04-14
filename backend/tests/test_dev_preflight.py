@@ -433,6 +433,9 @@ def test_preflight_live_runtime_reports_repo_local_bindings(tmp_path: Path, monk
     assert summary["configured_urls"]["fuel"] == "backend/assets/uk/fuel_prices_uk.json"
     assert summary["configured_urls"]["bank_holidays"] == "https://www.gov.uk/bank-holidays.json"
     assert summary["configured_remote_urls"]["scenario"] == "https://example.invalid/scenario_profiles_uk.json"
+    scenario_check = next(check for check in summary["checks"] if check["name"] == "scenario_profiles")
+    assert scenario_check["details"]["source"] == "repo_local:scenario_profiles_uk.json"
+    assert scenario_check["details"]["resolved_source_locator"] == "backend/assets/uk/scenario_profiles_uk.json"
 
 
 def test_preflight_live_runtime_fails_when_ors_engine_smoke_fails(tmp_path: Path, monkeypatch) -> None:

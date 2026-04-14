@@ -1,4 +1,17 @@
-# Carbon-Aware Multi-Objective Freight Router
+# WhatIf Freight Router
+
+WhatIf Freight Router is an auditable, tri-source, selective minimum-cost certification engine for freight-route recommendation under incomplete search, biased evidence, and ambiguous preferences.
+
+The optimization objective is to minimize expected action cost to a justified terminal decision. The controller keeps three action families explicit and separate: search actions, evidence actions, and preference actions.
+In this central claim set, the problem is posed as minimum-cost certification under coupled but distinct uncertainty sources; the controller can buy search, evidence, and preference information, and each resulting decision is surfaced as a certified singleton, certified set, or typed abstention through artifacts and traces.
+User-facing terminal outcomes are certified singleton, certified set, or typed abstention.
+Typed abstention classes are:
+- `uncertified_due_to_search`
+- `uncertified_due_to_evidence`
+- `uncertified_due_to_preference`
+- `uncertified_due_to_out_of_support_world_model`
+- `uncertified_due_to_budget`
+- `uncertified_due_to_model_assumption`
 
 This repo runs:
 - OSRM in Docker (routing engine)
@@ -11,6 +24,39 @@ This repo runs:
 - PowerShell
 - `uv` installed (for backend local dev)
 - Node.js and `pnpm` installed (for frontend local dev)
+
+## Codex Agent Ops
+
+This repository now has a repo-scoped Codex operating layer:
+
+- root operating rules live in [`AGENTS.md`](AGENTS.md)
+- project agent config lives under [`.codex/`](.codex/)
+- core coordination logic lives in [`tools/codex_coord_lib.py`](tools/codex_coord_lib.py)
+- coordination docs live under [`docs/agent-ops/`](docs/agent-ops/README.md)
+- live multi-parent coordination state is stored under `<git-common-dir>/codex-coordination/`
+
+Parent-controller mode in this repo means one parent plus exactly 6 live child subagents.
+`status`, `doctor`, and `ensure-six-subagents` mark a parent noncompliant whenever the live child count drops below 6 or a child becomes stale, missing, or otherwise unhealthy.
+`max_threads = 6` in [`.codex/config.toml`](.codex/config.toml) is only a concurrency cap. It is not proof that the six-child invariant is satisfied.
+
+Fast status check:
+
+```powershell
+python tools/codex_coord.py status
+```
+
+Inspect the resolved shared runtime root:
+
+```powershell
+python tools/codex_coord.py runtime-path
+```
+
+Fast parent-session start:
+
+```powershell
+python tools/codex_coord.py start-parent --task-summary "Parse prompt and initialize work ledger"
+python tools/codex_coord.py ensure-six-subagents --session-id <parent_session>
+```
 
 ## Recommended workflow (one command, local dev)
 
@@ -41,7 +87,8 @@ URLs:
 
 For the full current environment matrix, use `.env.example` and the operational notes in [`docs/run-and-operations.md`](docs/run-and-operations.md).
 
-The current codebase includes an explicit thesis-facing DCCS/REFC/VOI backend path. In the verified default configuration, supported requests resolve through `dccs_refc` as the primary runtime path, while `legacy` remains available as the baseline-only path for ablation, replay, or historical comparison. Terminal outcomes are typed as certified singleton, certified set, or typed abstention.
+The current codebase includes an explicit thesis-facing DCCS/REFC/VOI backend path. In the verified default configuration, the default primary live `/route` path for thesis-facing non-waypoint requests is the redesigned certification engine, with supported requests resolving through `dccs_refc`. Live `/route` rejects `pipeline_mode=legacy` and rejects waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. The public `/route` response surface is `DecisionPackage`, and terminal outcomes in the certification-facing path are certified singleton, certified set, or typed abstention.
+This README documents the current certification-facing runtime surface and does not treat still-open redesign or publication gates as closed.
 
 ### Route compute timeout/fallback knobs
 
@@ -253,6 +300,12 @@ Use this for full containerized verification. Do not run this at the same time a
   - reason-code catalog and stream/non-stream failure shape
 - `docs/quality-gates-and-benchmarks.md`
   - quality and performance gate workflow
+- Publication-facing docs:
+  - `docs/reviewer_quickstart.md`
+  - `docs/evaluation_card.md`
+  - `docs/negative_results.md`
+  - `docs/data_card.md`
+  - `docs/model_card_proxy_audit.md`
 - `notebooks/NOTEBOOKS_POLICY.md`
   - notebook-free policy and alternatives
 

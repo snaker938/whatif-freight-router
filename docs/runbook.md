@@ -21,7 +21,7 @@ For deeper operational context, see [Run and Operations Guide](run-and-operation
 The documented local stack assumes:
 
 - PowerShell on Windows
-- Docker Desktop for OSRM and compose workflows
+- Docker Desktop for OSRM, ORS, and compose workflows
 - Python plus `uv` for the backend
 - Node.js plus `pnpm` for the frontend
 
@@ -40,6 +40,11 @@ That script is the current documented entry point for the full local stack. It:
 - runs strict live preflight before backend startup
 - starts the backend
 - starts the frontend
+
+Important:
+- The current strict live preflight checks both OSRM and ORS engine smoke paths before backend startup.
+- `.\scripts\dev.ps1` currently brings up OSRM itself, but it does not start ORS for you.
+- If ORS is not already running, strict preflight can still fail even when OSRM is healthy.
 
 If you want to run the backend by hand instead of using the full dev script:
 
@@ -75,6 +80,7 @@ If readiness is not good, the documented causes are typically:
 - route graph warmup still in progress
 - warmup timeout or warmup failure
 - strict live source staleness or freshness failure
+- ORS or OSRM engine smoke failure during strict live readiness
 - graph fragmentation or OD-specific graph failure
 
 ## Core Commands
@@ -144,6 +150,11 @@ The run-store and sample-manifest docs list representative artifact families suc
 - `dccs_summary.json`
 - `strict_frontier.jsonl`
 - `certificate_summary.json`
+- `world_support_summary.json`
+- `flip_radius_summary.json`
+- `decision_region_summary.json`
+- `certificate_witness.json`
+- `certified_set_summary.json` when certified-set emission / normalized certified-set summary is available
 - `route_fragility_map.json`
 - `competitor_fragility_breakdown.json`
 - `value_of_refresh.json`
@@ -164,7 +175,7 @@ The run-store and sample-manifest docs list representative artifact families suc
 - `methods_appendix.md`
 - `evaluation_manifest.json`
 
-For route-compute bundles, `index.json` is the machine-readable bundle index and `index.md` is the reviewer-readable summary of the same run folder. Use them first when you need the stable artifact list and endpoints for one route decision.
+For route-compute bundles, `index.json` is the machine-readable bundle index and `index.md` is the reviewer-readable summary of the same run folder. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Use those files first when you need the stable artifact list and artifact-presence status for one checked bundle; they do not imply committed PDF or SVG renders.
 
 ## Shutdown
 
@@ -194,6 +205,8 @@ When this happens:
 
 - re-run readiness
 - inspect the latest `backend/out/model_assets/preflight_live_runtime.json`
+- for scenario-profile freshness or provenance issues, inspect `checks[].details.resolved_source_locator` on the `scenario_profiles` check when present; it shows whether strict runtime is on the current repo-local scenario asset locator or a live URL-backed source, not a more specific winning repo-local file inside `repo_local_fresh`
+- confirm both local routing engines are actually available, not just OSRM
 - inspect the relevant `backend/out/thesis_campaigns/*` bundle
 - check the live-call trace if the failure happened during compute
 

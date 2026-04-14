@@ -193,6 +193,8 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
                 "results.json",
                 "results.csv",
                 "metadata.json",
+                "index.json",
+                "index.md",
                 "routes.geojson",
                 "results_summary.csv",
             }
@@ -214,9 +216,24 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metadata_resp.status_code == 200
             metadata = metadata_resp.json()
             assert metadata["run_id"] == run_id
+            assert metadata["type"] == "batch_pareto"
             assert metadata["provenance_endpoint"] == f"/runs/{run_id}/provenance"
             assert core_artifacts.issubset(set(metadata["artifact_names"]))
             assert names.issubset(set(metadata["artifact_names"]))
+
+            index_json_resp = client.get(f"/runs/{run_id}/artifacts/index.json")
+            assert index_json_resp.status_code == 200
+            index_json = index_json_resp.json()
+            assert index_json["run_id"] == run_id
+            assert index_json["bundle_type"] == "batch_pareto"
+            assert index_json["pair_count"] == 2
+            assert index_json["error_count"] == 0
+            assert "index.json" not in index_json["artifact_names"]
+            assert "index.md" not in index_json["artifact_names"]
+
+            index_md_resp = client.get(f"/runs/{run_id}/artifacts/index.md")
+            assert index_md_resp.status_code == 200
+            assert "# Batch Pareto Bundle Index" in index_md_resp.text
 
             provenance_resp = client.get(f"/runs/{run_id}/provenance")
             assert provenance_resp.status_code == 200
@@ -251,7 +268,7 @@ def test_batch_flow_covers_manifest_artifacts_logging_and_metrics(
             assert metrics["endpoints"]["runs_manifest_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_artifacts_list_get"]["request_count"] == 1
             assert metrics["endpoints"]["runs_provenance_get"]["request_count"] == 1
-            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 5
+            assert metrics["endpoints"]["runs_artifact_get"]["request_count"] == 7
 
     finally:
         app.dependency_overrides.clear()

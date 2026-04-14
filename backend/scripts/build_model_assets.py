@@ -1987,7 +1987,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("backend/out/model_assets"),
+        default=ROOT / "out" / "model_assets",
         help="Output directory for generated model assets",
     )
     parser.add_argument(

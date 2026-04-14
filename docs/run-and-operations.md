@@ -3,7 +3,7 @@
 Last Updated: 2026-02-25
 Applies To: local backend/frontend runtime, full rebuilds, docs checks, and low-resource test execution
 
-This runbook is the operational reference for running and rebuilding the project safely.
+This guide is the extended operational reference for running and rebuilding the project safely. For the shortest operator-facing checklist, use `docs/runbook.md`.
 
 ## Prerequisites
 
@@ -86,18 +86,20 @@ Backend dev endpoint for this trace:
 The most recent checked local evidence is written to `backend/out/model_assets/preflight_live_runtime.json` and companion summaries in `backend/out/`. This snapshot is useful for provenance and current-state inspection, not as a guarantee that every future run will match it.
 
 - `backend/out/model_assets/preflight_live_runtime.json`
-  - `checked_at_utc=2026-04-04T15:48:39Z`
+  - `checked_at_utc=2026-04-10T16:03:44Z`
   - `required_ok=true`
   - `required_failure_count=0`
   - `scenario_profiles.version=scenario_profiles_uk_v2_live`
-  - `scenario_profiles.contexts=384`
+  - `scenario_profiles.contexts=192`
+  - `scenario_profiles.resolved_source_locator=backend/assets/uk/scenario_profiles_uk.json`
+  - `scenario_live_context.as_of_utc=2026-04-10T13:53:23Z`
   - `scenario_live_context.coverage.overall=1.0`
   - `scenario_live_context.coverage.webtris=1.0`
   - `scenario_live_context.coverage.traffic_england=1.0`
   - `scenario_live_context.coverage.dft=1.0`
   - `scenario_live_context.coverage.open_meteo=1.0`
-  - `fuel_snapshot.as_of=2026-03-23T00:00:00Z`
-  - `fuel_snapshot.signature_prefix=6092b11ca3f7`
+  - `fuel_snapshot.as_of=2026-04-06T00:00:00Z`
+  - `fuel_snapshot.signature_prefix=39e656b5ca83`
   - `toll_tariffs.rule_count=220`
   - `toll_topology.segment_count=28`
   - `stochastic_regimes.regime_count=18`
@@ -242,6 +244,8 @@ Under `backend/out/`:
 - `provenance/{run_id}.jsonl`
 - `test_runs/{timestamp}/` (safe test runner outputs)
 
+Route-compute bundles may include `index.json` and `index.md` as machine-readable and reviewer-readable bundle indexes. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
+
 ## Safe Test Execution (Low Resource)
 
 From repo root:
@@ -287,6 +291,11 @@ docker compose down
 
 ## Related Docs
 
+- Current truth anchors for the live runtime and UI:
+  - [Backend README](../backend/README.md)
+  - [Frontend README](../frontend/README.md)
+  - [API Cookbook](api-cookbook.md)
+  - [Reviewer Quickstart](reviewer_quickstart.md)
 - [Documentation Index](DOCS_INDEX.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)

@@ -2,6 +2,7 @@
 
 import CollapsibleCard from './CollapsibleCard';
 import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import { formatNumber } from '../lib/format';
 import type { Locale } from '../lib/i18n';
 import { SIDEBAR_FIELD_HELP, SIDEBAR_SECTION_HINTS } from '../lib/sidebarHelpText';
@@ -22,6 +23,34 @@ type Props = {
     tutorialLocked?: boolean;
   };
 };
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function metricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <>
+      {label}
+      <FieldInfo text={metricHelp(tooltip)} />
+    </>
+  );
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 export default function DutyChainPlanner({
   stopsText,
@@ -91,24 +120,53 @@ export default function DutyChainPlanner({
       {data ? (
         <div style={{ marginTop: 10 }}>
           <div className="tiny">
-            Legs: {data.leg_count} | Successful Legs: {data.successful_leg_count}
+            {inlineMetricLabel('Legs', {
+              definition: 'Total number of legs in the duty-chain run.',
+              direction: 'Context only; more legs indicate a longer chain, not automatically better or worse.',
+              unit: 'leg count',
+            })}{' '}
+            {data.leg_count} |{' '}
+            {inlineMetricLabel('Successful Legs', {
+              definition: 'Number of duty-chain legs that returned a route successfully.',
+              direction: 'Higher is better because more planned legs were routed successfully.',
+              unit: 'successful leg count',
+            })}{' '}
+            {data.successful_leg_count}
           </div>
           <div className="metrics" style={{ marginTop: 10 }}>
             <div className="metric">
-              <div className="metric__label">Total Distance</div>
+              <div className="metric__label">
+                {metricLabel('Total Distance', {
+                  definition: 'Total routed distance across all duty-chain legs.',
+                  direction: 'Lower is usually better when distance is a cost to minimize.',
+                  unit: 'kilometers',
+                })}
+              </div>
               <div className="metric__value">
                 {formatNumber(data.total_metrics.distance_km, locale, { maximumFractionDigits: 2 })} km
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Total Duration</div>
+              <div className="metric__label">
+                {metricLabel('Total Duration', {
+                  definition: 'Total travel time across all duty-chain legs.',
+                  direction: 'Lower is usually better because the chain completes sooner.',
+                  unit: 'minutes',
+                })}
+              </div>
               <div className="metric__value">
                 {formatNumber(data.total_metrics.duration_s / 60, locale, { maximumFractionDigits: 1 })}{' '}
                 min
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Total Cost</div>
+              <div className="metric__label">
+                {metricLabel('Total Cost', {
+                  definition: 'Proxy monetary cost across all duty-chain legs.',
+                  direction: 'Lower is usually better because the chain costs less.',
+                  unit: 'currency units',
+                })}
+              </div>
               <div className="metric__value">
                 £
                 {formatNumber(data.total_metrics.monetary_cost, locale, {
@@ -117,14 +175,26 @@ export default function DutyChainPlanner({
               </div>
             </div>
             <div className="metric">
-              <div className="metric__label">Total CO2</div>
+              <div className="metric__label">
+                {metricLabel('Total CO2', {
+                  definition: 'Estimated total emissions across all duty-chain legs.',
+                  direction: 'Lower is usually better because less CO2 is emitted.',
+                  unit: 'kilograms CO2',
+                })}
+              </div>
               <div className="metric__value">
                 {formatNumber(data.total_metrics.emissions_kg, locale, { maximumFractionDigits: 3 })} kg
               </div>
             </div>
             {data.total_metrics.energy_kwh !== null && data.total_metrics.energy_kwh !== undefined ? (
               <div className="metric">
-                <div className="metric__label">Total Energy</div>
+                <div className="metric__label">
+                  {metricLabel('Total Energy', {
+                    definition: 'Estimated total energy use across all duty-chain legs.',
+                    direction: 'Lower is usually better because the chain consumes less energy.',
+                    unit: 'kilowatt-hours',
+                  })}
+                </div>
                 <div className="metric__value">
                   {formatNumber(data.total_metrics.energy_kwh, locale, { maximumFractionDigits: 2 })} kWh
                 </div>
@@ -144,24 +214,46 @@ export default function DutyChainPlanner({
                     Leg {leg.leg_index + 1}: {leg.origin.label ?? 'Origin'} {'→'}{' '}
                     {leg.destination.label ?? 'End'}
                   </div>
-                  <div className="routeCard__pill">{leg.selected ? 'OK' : 'No Route'}</div>
+                  <div className="routeCard__pill">
+                    {inlineMetricLabel('Leg status', {
+                      definition: 'Whether this duty-chain leg returned a route successfully.',
+                      direction: 'OK is better because the leg routed successfully; No Route indicates failure.',
+                      unit: 'categorical status',
+                    })}{' '}
+                    {leg.selected ? 'OK' : 'No Route'}
+                  </div>
                 </div>
                 {leg.error ? <div className="error">{leg.error}</div> : null}
                 {leg.selected ? (
                   <div className="routeCard__meta">
                     <span>
+                      {inlineMetricLabel('Duration', {
+                        definition: 'Travel time for this duty-chain leg.',
+                        direction: 'Lower is usually better because the leg completes sooner.',
+                        unit: 'minutes',
+                      })}{' '}
                       {formatNumber(leg.selected.metrics.duration_s / 60, locale, {
                         maximumFractionDigits: 1,
                       })}{' '}
                       min
                     </span>
                     <span>
+                      {inlineMetricLabel('Cost', {
+                        definition: 'Proxy monetary cost for this duty-chain leg.',
+                        direction: 'Lower is usually better because the leg costs less.',
+                        unit: 'currency units',
+                      })}{' '}
                       £
                       {formatNumber(leg.selected.metrics.monetary_cost, locale, {
                         maximumFractionDigits: 2,
                       })}
                     </span>
                     <span>
+                      {inlineMetricLabel('CO2', {
+                        definition: 'Estimated emissions for this duty-chain leg.',
+                        direction: 'Lower is usually better because less CO2 is emitted.',
+                        unit: 'kilograms CO2',
+                      })}{' '}
                       {formatNumber(leg.selected.metrics.emissions_kg, locale, {
                         maximumFractionDigits: 3,
                       })}{' '}

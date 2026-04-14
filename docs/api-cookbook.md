@@ -1,6 +1,6 @@
 # API Cookbook
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-12
 Applies To: local backend API usage from PowerShell
 
 This page provides reproducible CLI examples for the strict backend API.
@@ -16,7 +16,6 @@ $base = @{
   weights = @{ time = 1; money = 1; co2 = 1 }
   max_alternatives = 24
   pareto_method = "dominance"
-  pipeline_mode = "legacy"
 } | ConvertTo-Json -Depth 10
 ```
 
@@ -26,7 +25,28 @@ $base = @{
 Invoke-RestMethod -Uri "http://localhost:8000/route" -Method Post -ContentType "application/json" -Body $base
 ```
 
-The response includes `selected`, `candidates`, `run_id`, `pipeline_mode`, and the run artifact pointers (`manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`) when route execution succeeds.
+Live `/route` is the certification-facing transport. It rejects `pipeline_mode=legacy` and rejects waypoint requests. Use `POST /route/baseline` or `POST /route/baseline/ors` for comparison, ablation, replay, historical-comparison, or waypoint traffic.
+
+The live response is `DecisionPackage`, the public certification-oriented `/route` contract. It preserves the current UI compatibility fields (`selected`, `candidates`) while also exposing the decision-state summaries that the frontend surfaces read-only through `DecisionStateSummary`, while the adjacent `PreferenceElicitationPanel` uses the same live payload for in-memory preference actions:
+
+- `terminal_type`
+- `selected_certificate_basis`
+- `abstention` and `abstention_summary`
+- `certified_set` and `certified_set_summary`
+- `preference_state` and `preference_query_trace`
+- `support_summary` and `world_support_summary`
+- `action_trace_summary` and `witness_summary`
+- `artifact_pointers` together with the run endpoints (`manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`)
+
+Terminal semantics are explicit on the public payload:
+
+- singleton certification returns `terminal_type=certified_singleton` with `selected` and `recommended_route`
+- certified-set output returns `terminal_type=certified_set` with `certified_set` membership and exclusion summaries
+- abstention returns `terminal_type=typed_abstention` with `abstention` and `abstention_summary`
+
+Those terminal labels do not suppress the explanation surfaces. In the checked local `/route` smokes, a public `typed_abstention` response can still carry normalized `certified_set_summary`, `winner_confidence_state`, and `certificate_witness` fields as explanation context, while the emitted bundle may preserve a richer local `certified_set` proof surface for the same request.
+
+The public `/route` payload is the transport contract. In the current smoke-covered direct-REFC slice, that transport can normalize to `terminal_type=typed_abstention` even when the local emitted run bundle preserves richer `certified_set` proof artifacts for the same request. When you need that richer local proof surface, inspect `decision_package.json` and `certified_set_summary.json` via `artifacts_endpoint`; this is a narrow note about the checked local slice, not a global claim about every `/route` abstention.
 
 ## 3) Pareto (`POST /pareto`)
 
@@ -146,10 +166,9 @@ Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/signature"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/scenario-signature"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts/results.json"
-Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/report.pdf" -OutFile ".\report_$runId.pdf"
 ```
 
-Use `GET /runs/{run_id}/artifacts/{artifact_name}` to retrieve any file in the run folder, including thesis-specific outputs such as thesis_report.md, thesis_summary.json, and thesis_metrics.json.
+Use `GET /runs/{run_id}/artifacts/{artifact_name}` to retrieve any file in the run folder after listing `GET /runs/{run_id}/artifacts` for the current bundle. Common checked examples include `results.json`, `metadata.json`, thesis-specific outputs such as `thesis_report.md`, `thesis_summary.json`, `thesis_metrics.json`, and the current proof/governance surfaces such as `preference_state.json`, `preference_query_trace.json`, `certificate_summary.json`, `route_fragility_map.json`, `decision_region_summary.json`, `certificate_witness.json`, `world_support_summary.json`, `voi_action_trace.json`, and `voi_stop_certificate.json`.
 
 ## 12) Signature Verify (`POST /verify/signature`)
 

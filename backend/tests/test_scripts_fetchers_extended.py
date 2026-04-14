@@ -289,6 +289,10 @@ def test_fetch_scenario_live_load_match_and_snapshot(tmp_path: Path, monkeypatch
     )
     assert output.exists()
     assert snapshot["mode_is_projected"] is False
+    assert snapshot["corridor_geohash5"] == fetch_scenario_live_uk._corridor_geohash5(
+        None,
+        corridor_bucket="uk_default",
+    )
     assert set(snapshot["modes"].keys()) == {"no_sharing", "partial_sharing", "full_sharing"}
 
 
@@ -338,6 +342,139 @@ def test_fetch_scenario_live_snapshot_forwards_min_source_count_override(
     assert snapshot["partial_source_mode"] is True
     assert captured["allow_partial_sources"] is True
     assert captured["min_source_count"] == 2
+
+
+def test_fetch_scenario_live_snapshot_partial_projection_uses_repo_local_profiles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_live_context(route_context, allow_partial_sources=False, **kwargs):  # noqa: ANN001, ANN003
+        captured["allow_partial_sources"] = bool(allow_partial_sources)
+        captured["skip_dft_in_partial_mode"] = bool(kwargs.get("skip_dft_in_partial_mode"))
+        return {
+            "coverage": {"overall": 0.5},
+            "source_coverage": {"webtris": 0.0, "traffic_england": 1.0, "dft": 0.0, "open_meteo": 1.0},
+            "as_of_utc": "2026-04-10T02:45:14Z",
+            "partial_source_mode": True,
+        }
+
+    fake_profiles = SimpleNamespace(
+        contexts=None,
+        profiles={
+            "no_sharing": SimpleNamespace(
+                duration_multiplier=1.0,
+                incident_rate_multiplier=1.0,
+                incident_delay_multiplier=1.0,
+                fuel_consumption_multiplier=1.0,
+                emissions_multiplier=1.0,
+                stochastic_sigma_multiplier=1.0,
+            ),
+            "partial_sharing": SimpleNamespace(
+                duration_multiplier=0.9,
+                incident_rate_multiplier=0.9,
+                incident_delay_multiplier=0.9,
+                fuel_consumption_multiplier=0.9,
+                emissions_multiplier=0.9,
+                stochastic_sigma_multiplier=0.9,
+            ),
+            "full_sharing": SimpleNamespace(
+                duration_multiplier=0.8,
+                incident_rate_multiplier=0.8,
+                incident_delay_multiplier=0.8,
+                fuel_consumption_multiplier=0.8,
+                emissions_multiplier=0.8,
+                stochastic_sigma_multiplier=0.8,
+            ),
+        },
+    )
+
+    monkeypatch.setattr(fetch_scenario_live_uk, "live_scenario_context", _fake_live_context)
+    monkeypatch.setattr(
+        fetch_scenario_live_uk,
+        "_load_projected_mode_profiles",
+        lambda *, allow_partial_sources: fake_profiles,
+    )
+    monkeypatch.setattr(
+        fetch_scenario_live_uk,
+        "resolve_scenario_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("strict resolver should not run")),
+    )
+
+    output = tmp_path / "scenario_snapshot_partial_projection.json"
+    snapshot = fetch_scenario_live_uk.build_snapshot(
+        output_json=output,
+        corridor_bucket="uk_default",
+        road_mix_bucket="mixed",
+        vehicle_class="rigid_hgv",
+        day_kind="weekday",
+        weather_bucket="clear",
+        centroid_lat=54.2,
+        centroid_lon=-2.3,
+        road_hint="A1",
+        hour_slot_local=12,
+        project_modes_from_artifact=True,
+        allow_partial_sources=True,
+    )
+
+    assert output.exists()
+    assert captured["allow_partial_sources"] is True
+    assert captured["skip_dft_in_partial_mode"] is True
+    assert snapshot["partial_source_mode"] is True
+    assert snapshot["mode_is_projected"] is True
+    assert set(snapshot["modes"].keys()) == {"no_sharing", "partial_sharing", "full_sharing"}
+
+
+def test_fetch_scenario_live_batch_auto_enables_partial_projection_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_json = tmp_path / "scenario_batch_summary.json"
+    output_jsonl = tmp_path / "scenario_live_observed.jsonl"
+    captured: list[dict[str, object]] = []
+
+    def _fake_build_snapshot(**kwargs):  # noqa: ANN003
+        captured.append(
+            {
+                "project_modes_from_artifact": bool(kwargs["project_modes_from_artifact"]),
+                "allow_partial_sources": bool(kwargs["allow_partial_sources"]),
+                "min_source_count": kwargs["min_source_count"],
+            }
+        )
+        return {
+            "corridor_bucket": str(kwargs["corridor_bucket"]),
+            "day_kind": str(kwargs["day_kind"]),
+            "hour_slot_local": int(kwargs["hour_slot_local"]),
+            "as_of_utc": "2026-04-10T02:45:14Z",
+            "coverage": {"overall": 0.5},
+            "mode_is_projected": True,
+        }
+
+    monkeypatch.setattr(fetch_scenario_live_uk, "build_snapshot", _fake_build_snapshot)
+
+    summary = fetch_scenario_live_uk.build_batch_snapshots(
+        output_json=output_json,
+        output_jsonl=output_jsonl,
+        corridors=[{"corridor": "uk_default", "lat": 54.2, "lon": -2.3, "road_hint": "A1"}],
+        road_mix_bucket="mixed",
+        vehicle_class="rigid_hgv",
+        day_kinds=["weekday"],
+        weather_bucket="clear",
+        hour_slots=[12],
+        project_modes_from_artifact=True,
+        allow_partial_sources=False,
+        workers=1,
+        progress_every=1,
+        retry_failed=0,
+    )
+
+    assert summary["batch_count"] == 1
+    assert summary["error_count"] == 0
+    assert len(captured) == 1
+    assert captured[0]["project_modes_from_artifact"] is True
+    assert captured[0]["allow_partial_sources"] is True
+    assert captured[0]["min_source_count"] == 2
 
 
 def test_fetch_scenario_live_batch_retries_failed_tasks_and_persists_rows(

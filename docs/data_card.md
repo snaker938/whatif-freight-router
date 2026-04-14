@@ -73,7 +73,7 @@ The docs also reference a corpus-ambiguity summary artifact:
 
 - `backend/out/corpus_ambiguity_refresh_summary.json`
 
-These files are the best source for current OD corpus composition and support-bin evidence.
+These files are the best source for current bundle-local OD corpus composition, accepted/rejected row coverage, and support-bin evidence. They should be read as checked campaign artifacts for a given bundle, not as a universal census of all future OD cases.
 
 ## Current Evidence Shapes
 
@@ -147,6 +147,9 @@ For current evidence, reviewers should start with:
    - runtime asset provenance
 5. `docs/claim_matrix.md`
    - current slice status for corpus and support surfaces
+6. `docs/DOCS_INDEX.md`
+   - docs navigation entry point
+   - publication and review surface links
 
 ## Suggested Review Framing
 
@@ -162,3 +165,9 @@ When reviewing corpus or support claims, use these questions:
 The current repository supports a bounded UK OD corpus with explicit support and ambiguity slices.
 
 It does **not** yet support a blanket claim of completeness, universality, or theorem-backed corpus sufficiency.
+
+## Related Docs
+
+- [Evaluation Card](evaluation_card.md)
+- [Model Assets and Data Sources](model-assets-and-data-sources.md)
+- [Thesis-Grade Codebase Report](thesis-codebase-report.md)

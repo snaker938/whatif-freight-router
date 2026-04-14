@@ -1,14 +1,14 @@
 # Model Assets and Data Sources
 
-Last Updated: 2026-04-09
+Last Updated: 2026-04-10
 Applies To: `backend/assets/uk/*`, `backend/out/model_assets/*`, live-source settings in `backend/app/settings.py`
 
 This page tracks where backend model inputs come from, where compiled artifacts are written, and which strict gates protect route-producing APIs.
 
 ## Current Evidence Snapshot
 
-- `backend/out/model_assets/manifest.json` now reports `version=model-v2-uk`, `source_policy=repo_local_fresh`, `generated_at_utc=2026-03-21T13:09:12.262992Z`, and 19 tracked assets.
-- `backend/out/model_assets/preflight_live_runtime.json` passes with `required_ok=true`, `required_failure_count=0`, `strict_live_data_required=true`, `live_runtime_data_enabled=true`, `scenario_contexts=384`, `coverage.overall=1.0`, `toll_rule_count=220`, `toll_topology_segments=28`, `stochastic_regime_count=18`, `departure_region_count=11`, and `bank_holiday_count=134`.
+- `backend/out/model_assets/manifest.json` now reports `version=model-v2-uk`, `source_policy=repo_local_fresh`, `generated_at_utc=2026-04-10T15:18:10.176657Z`, manifest signature `580e01e2da3350bf83182cc7900a82c54a0424a31146bc7e58911bbe3fd444ac`, and 19 tracked assets.
+- `backend/out/model_assets/preflight_live_runtime.json` currently passes with `required_ok=true`, `required_failure_count=0`, and `checked_at_utc=2026-04-10T16:03:44Z`. The `scenario_profiles` check resolves to `source=repo_local:scenario_profiles_uk.json` with `resolved_source_locator=backend/assets/uk/scenario_profiles_uk.json`, and `scenario_live_context` also passes against repo-local scenario context with `as_of_utc=2026-04-10T13:53:23Z`. Treat this as current local strict-runtime readiness evidence only; it does not by itself close broader publication or repeated-run proof rows.
 - `backend/out/model_assets/routing_graph_coverage_report.json` passes coverage with `16,782,614` nodes, `17,271,476` edges, `worst_fixture_nearest_node_m=2545.053`, `graph_size_mb=4123.27`, and the UK bounding box `lat 49.75..61.1`, `lon -8.75..2.25`.
 - The current compiled fuel surface is `uk_fuel_surface_v1` with axes `vehicle_class=4`, `load_factor=4`, `speed_kmh=5`, `grade_pct=5`, and `ambient_temp_c=5`.
 - The current toll-confidence calibration is `uk-toll-confidence-v2-empirical`, with logit coefficients `intercept=0.074138`, `class_signal=0.07386`, `segment_signal=0.107248`, and reliability bins calibrated to `0.1`, `0.3`, `0.5455`, `0.7`, and `0.9`.
@@ -80,6 +80,7 @@ Generated files in `backend/out/` are runtime artifacts and should not be treate
   - DfT raw counts (`LIVE_SCENARIO_DFT_COUNTS_URL`)
   - Open-Meteo (`LIVE_SCENARIO_OPEN_METEO_FORECAST_URL`, `LIVE_SCENARIO_OPEN_METEO_ARCHIVE_URL`)
 - Runtime gate signals: `scenario_profile_unavailable`, `scenario_profile_invalid`
+- Preflight provenance surface: `backend/out/model_assets/preflight_live_runtime.json` now exposes `checks[].details.resolved_source_locator` for `scenario_profiles` when the profile loads successfully. Under `repo_local_fresh`, that field currently tells you whether strict runtime is on the repo-local scenario asset locator `backend/assets/uk/scenario_profiles_uk.json` or a live URL-backed source. It does not currently distinguish which repo-local file won inside the resolver.
 - Current compiled snapshot: `scenario_profiles_uk_v2_live` contains 384 contextual profiles, uses `temporal_forward_plus_corridor_block`, and reports a 192-context holdout slice with 6 hour slots and 16 corridors covered. The holdout metrics currently show `mode_separation_mean=0.169764`, `duration_mape=0.0`, `monetary_mape=0.0`, `emissions_mape=0.0`, `full_identity_share=0.291667`, `projection_dominant_context_share=0.5`, `observed_mode_context_share=0.5`, and `observed_mode_row_share=0.5`.
 
 ### Terrain DEM

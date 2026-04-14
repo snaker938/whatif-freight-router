@@ -2,6 +2,8 @@
 
 import { useMemo } from 'react';
 
+import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import type { BaselineComparison } from '../lib/baselineComparison';
 import type { RouteOption } from '../lib/types';
 
@@ -31,6 +33,34 @@ type Props = {
   candidateCount: number | null;
   liveSummary: LiveSummary | null;
 };
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function metricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <>
+      {label}
+      <FieldInfo text={metricHelp(tooltip)} />
+    </>
+  );
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -78,6 +108,35 @@ function ratioIndex(baselineValue: number, smartValue: number): number {
   const baseline = Math.max(baselineValue, 1e-6);
   const smart = Math.max(smartValue, 1e-6);
   return clamp((100 * baseline) / smart, 50, 200);
+}
+
+function deltaRowTooltip(label: string): MetricTooltip {
+  if (label === 'ETA improvement') {
+    return {
+      definition: 'Travel-time improvement row in the baseline comparison bars.',
+      direction: 'Higher positive percentages are better because they mean the selected route is faster than the baseline.',
+      unit: 'percent ETA improvement vs baseline',
+    };
+  }
+  if (label === 'Cost improvement') {
+    return {
+      definition: 'Monetary-cost improvement row in the baseline comparison bars.',
+      direction: 'Higher positive percentages are better because they mean the selected route costs less than the baseline.',
+      unit: 'percent cost improvement vs baseline',
+    };
+  }
+  if (label === 'CO2 improvement') {
+    return {
+      definition: 'Emissions improvement row in the baseline comparison bars.',
+      direction: 'Higher positive percentages are better because they mean the selected route emits less CO2 than the baseline.',
+      unit: 'percent CO2 improvement vs baseline',
+    };
+  }
+  return {
+    definition: 'Distance improvement row in the baseline comparison bars.',
+    direction: 'Higher positive percentages are better because they mean the selected route is shorter than the baseline.',
+    unit: 'percent distance improvement vs baseline',
+  };
 }
 
 export default function RouteBaselineComparison({
@@ -200,7 +259,13 @@ export default function RouteBaselineComparison({
 
       <div className="baselineKpiGrid">
         <div className={`baselineKpi ${etaBetter ? 'isPositive' : 'isNegative'}`}>
-          <div className="baselineKpi__label">ETA improvement vs baseline</div>
+          <div className="baselineKpi__label">
+            {metricLabel('ETA improvement vs baseline', {
+              definition: 'Elapsed-time improvement of the selected route relative to the baseline route.',
+              direction: 'Higher positive percentages are better because they mean the selected route is faster than the baseline.',
+              unit: 'seconds delta and percent ETA improvement vs baseline',
+            })}
+          </div>
           <div className="baselineKpi__value">
             {formatDuration(Math.abs(comparison.etaDeltaS))} {etaBetter ? 'faster' : 'slower'}
           </div>
@@ -209,7 +274,13 @@ export default function RouteBaselineComparison({
           </div>
         </div>
         <div className={`baselineKpi ${costBetter ? 'isPositive' : 'isNegative'}`}>
-          <div className="baselineKpi__label">Cost improvement vs baseline</div>
+          <div className="baselineKpi__label">
+            {metricLabel('Cost improvement vs baseline', {
+              definition: 'Monetary-cost improvement of the selected route relative to the baseline route.',
+              direction: 'Higher positive percentages are better because they mean the selected route costs less than the baseline.',
+              unit: 'currency delta and percent cost improvement vs baseline',
+            })}
+          </div>
           <div className="baselineKpi__value">
             {numberFmt2.format(Math.abs(comparison.costDelta))} {costBetter ? 'lower' : 'higher'}
           </div>
@@ -218,7 +289,13 @@ export default function RouteBaselineComparison({
           </div>
         </div>
         <div className={`baselineKpi ${co2Better ? 'isPositive' : 'isNegative'}`}>
-          <div className="baselineKpi__label">CO2 improvement vs baseline</div>
+          <div className="baselineKpi__label">
+            {metricLabel('CO2 improvement vs baseline', {
+              definition: 'Emissions improvement of the selected route relative to the baseline route.',
+              direction: 'Higher positive percentages are better because they mean the selected route emits less CO2 than the baseline.',
+              unit: 'kilogram delta and percent CO2 improvement vs baseline',
+            })}
+          </div>
           <div className="baselineKpi__value">
             {numberFmt3.format(Math.abs(comparison.co2Delta))} kg {co2Better ? 'lower' : 'higher'}
           </div>
@@ -227,7 +304,13 @@ export default function RouteBaselineComparison({
           </div>
         </div>
         <div className={`baselineKpi ${distanceBetter ? 'isPositive' : 'isNegative'}`}>
-          <div className="baselineKpi__label">Distance improvement vs baseline</div>
+          <div className="baselineKpi__label">
+            {metricLabel('Distance improvement vs baseline', {
+              definition: 'Distance improvement of the selected route relative to the baseline route.',
+              direction: 'Higher positive percentages are better because they mean the selected route is shorter than the baseline.',
+              unit: 'kilometer delta and percent distance improvement vs baseline',
+            })}
+          </div>
           <div className="baselineKpi__value">
             {numberFmt2.format(Math.abs(comparison.distanceDeltaKm))} km{' '}
             {distanceBetter ? 'shorter' : 'longer'}
@@ -241,21 +324,45 @@ export default function RouteBaselineComparison({
 
       <div className="baselineImpactGrid">
         <div>
-          <div className="baselineImpactGrid__label">Smart compute elapsed</div>
+          <div className="baselineImpactGrid__label">
+            {metricLabel('Smart compute elapsed', {
+              definition: 'Elapsed compute time for the selected route generation path.',
+              direction: 'Lower is usually better for latency when decision quality is held constant.',
+              unit: 'milliseconds or formatted duration',
+            })}
+          </div>
           <div className="baselineImpactGrid__value">{formatMs(smartComputeMs)}</div>
         </div>
         <div>
-          <div className="baselineImpactGrid__label">Baseline fetch elapsed</div>
+          <div className="baselineImpactGrid__label">
+            {metricLabel('Baseline fetch elapsed', {
+              definition: 'Elapsed time to fetch or compute the baseline route used in this comparison.',
+              direction: 'Lower is usually better for latency when comparison fidelity is held constant.',
+              unit: 'milliseconds or formatted duration',
+            })}
+          </div>
           <div className="baselineImpactGrid__value">{formatMs(baselineMeta?.compute_ms ?? null)}</div>
         </div>
         <div>
-          <div className="baselineImpactGrid__label">Smart candidates</div>
+          <div className="baselineImpactGrid__label">
+            {metricLabel('Smart candidates', {
+              definition: 'Candidate count available to the selected route pipeline at comparison time.',
+              direction: 'Context only; lower is usually better once certification is stable, but this is not a direct quality score.',
+              unit: 'candidate count',
+            })}
+          </div>
           <div className="baselineImpactGrid__value">
             {candidateCount !== null && Number.isFinite(candidateCount) ? numberFmt2.format(candidateCount) : 'n/a'}
           </div>
         </div>
         <div>
-          <div className="baselineImpactGrid__label">Live-source coverage</div>
+          <div className="baselineImpactGrid__label">
+            {metricLabel('Live-source coverage', {
+              definition: 'Observed satisfied live-source checks over expected live-source checks for the current run.',
+              direction: 'Higher is better because more expected live calls were observed.',
+              unit: 'satisfied/expected live-source count',
+            })}
+          </div>
           <div className="baselineImpactGrid__value">
             {liveSummary
               ? `${numberFmt2.format(liveSummary.expected_satisfied)}/${numberFmt2.format(liveSummary.expected_total)}`
@@ -269,7 +376,14 @@ export default function RouteBaselineComparison({
 
       <div className="baselineChartsGrid">
         <div className="baselineChartCard">
-          <div className="baselineChartCard__title">Improvement bars (% vs baseline, + is better)</div>
+          <div className="baselineChartCard__title">
+            {metricLabel('Improvement bars', {
+              definition: 'Bar view of selected-route improvements versus the baseline across the tracked route metrics.',
+              direction: 'Higher positive percentages are better because they mean the selected route improved over the baseline metric.',
+              unit: 'percent improvement vs baseline',
+            })}{' '}
+            (% vs baseline, + is better)
+          </div>
           <div className="baselineDeltaBars">
             {deltaRows.map((row) => {
               const value = clamp(row.value, -100, 100);
@@ -277,7 +391,9 @@ export default function RouteBaselineComparison({
               const positive = value >= 0;
               return (
                 <div key={row.label} className="baselineDeltaBars__row">
-                  <div className="baselineDeltaBars__label">{row.label}</div>
+                  <div className="baselineDeltaBars__label">
+                    {inlineMetricLabel(row.label, deltaRowTooltip(row.label))}
+                  </div>
                   <div className="baselineDeltaBars__track">
                     <div className="baselineDeltaBars__zero" />
                     <div
@@ -298,7 +414,14 @@ export default function RouteBaselineComparison({
         </div>
 
         <div className="baselineChartCard">
-          <div className="baselineChartCard__title">Smart vs {baselineLabel} radar ({baselineLabel}=100)</div>
+          <div className="baselineChartCard__title">
+            {metricLabel('Smart vs baseline radar', {
+              definition: 'Radar view comparing the selected route against the baseline across ETA, cost, CO2, and distance.',
+              direction: 'Values above the baseline ring indicate the selected route is outperforming the baseline on that axis.',
+              unit: 'index where baseline equals 100',
+            })}{' '}
+            ({baselineLabel}=100)
+          </div>
           <svg viewBox="0 0 200 200" className="baselineRadar" role="img" aria-label="Radar comparison">
             <circle cx="100" cy="100" r="19" className="baselineRadar__ring" />
             <circle cx="100" cy="100" r="38" className="baselineRadar__ring" />
@@ -308,11 +431,37 @@ export default function RouteBaselineComparison({
             <line x1="24" y1="100" x2="176" y2="100" className="baselineRadar__axis" />
             <polygon points={baselinePolygon} className="baselineRadar__baselinePoly" />
             <polygon points={smartPolygon} className="baselineRadar__smartPoly" />
-            <text x="100" y="14" textAnchor="middle" className="baselineRadar__label">ETA</text>
-            <text x="186" y="104" textAnchor="start" className="baselineRadar__label">Cost</text>
-            <text x="100" y="194" textAnchor="middle" className="baselineRadar__label">CO2</text>
-            <text x="14" y="104" textAnchor="end" className="baselineRadar__label">Dist</text>
           </svg>
+          <div className="routeCard__meta" style={{ marginTop: 8 }}>
+            <span>
+              {inlineMetricLabel('ETA', {
+                definition: 'Travel-time axis in the baseline radar comparison.',
+                direction: 'Higher radar index is better because it means the selected route improved over the baseline on ETA.',
+                unit: 'baseline-relative index',
+              })}
+            </span>
+            <span>
+              {inlineMetricLabel('Cost', {
+                definition: 'Monetary-cost axis in the baseline radar comparison.',
+                direction: 'Higher radar index is better because it means the selected route improved over the baseline on cost.',
+                unit: 'baseline-relative index',
+              })}
+            </span>
+            <span>
+              {inlineMetricLabel('CO2', {
+                definition: 'Emissions axis in the baseline radar comparison.',
+                direction: 'Higher radar index is better because it means the selected route improved over the baseline on CO2.',
+                unit: 'baseline-relative index',
+              })}
+            </span>
+            <span>
+              {inlineMetricLabel('Dist', {
+                definition: 'Distance axis in the baseline radar comparison.',
+                direction: 'Higher radar index is better because it means the selected route improved over the baseline on distance.',
+                unit: 'baseline-relative index',
+              })}
+            </span>
+          </div>
           <div className="baselineRadarLegend">
             <span className="baselineRadarLegend__item baselineRadarLegend__item--smart">Smart route</span>
             <span className="baselineRadarLegend__item baselineRadarLegend__item--baseline">{baselineLabel}</span>

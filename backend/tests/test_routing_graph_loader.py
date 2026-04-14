@@ -77,3 +77,52 @@ def test_load_route_graph_requires_streaming_parser(monkeypatch, tmp_path: Path)
         assert load_route_graph() is None
     finally:
         load_route_graph.cache_clear()
+
+
+def test_route_graph_status_returns_warming_up_without_hydrating_graph(monkeypatch) -> None:
+    def _unexpected_loader(*_: object, **__: object) -> RouteGraph:
+        raise AssertionError("route_graph_status should not hydrate the full graph while warming up")
+
+    monkeypatch.setattr(routing_graph, "_fast_startup_graph_ready_without_full_load", lambda: False)
+    monkeypatch.setattr(routing_graph, "route_graph_warmup_status", lambda: {"state": "loading"})
+    monkeypatch.setattr(routing_graph, "_load_route_graph_compact_bundle", _unexpected_loader)
+    monkeypatch.setattr(routing_graph, "_load_route_graph_binary_cache", _unexpected_loader)
+    monkeypatch.setattr(routing_graph, "_load_route_graph_streaming", _unexpected_loader)
+
+    ok, status = routing_graph.route_graph_status()
+
+    assert ok is False
+    assert status == "warming_up"
+
+
+def test_route_graph_status_uses_warmup_snapshot_without_full_load(monkeypatch) -> None:
+    def _unexpected_loader(*_: object, **__: object) -> RouteGraph:
+        raise AssertionError("route_graph_status should not hydrate the full graph once warmup is ready")
+
+    monkeypatch.setattr(routing_graph, "_fast_startup_graph_ready_without_full_load", lambda: False)
+    monkeypatch.setattr(routing_graph.settings, "route_graph_enabled", True)
+    monkeypatch.setattr(routing_graph.settings, "route_graph_strict_required", True)
+    monkeypatch.setattr(routing_graph.settings, "route_graph_min_nodes", 2)
+    monkeypatch.setattr(routing_graph.settings, "route_graph_min_adjacency", 1)
+    monkeypatch.setattr(
+        routing_graph,
+        "route_graph_warmup_status",
+        lambda: {
+            "state": "ready",
+            "ready_mode": "full",
+            "cache_loaded": True,
+            "graph_fragmented": False,
+            "graph_source": "routing_graph_uk.pbf",
+            "asset_path": "routing_graph_uk.pbf",
+            "nodes_kept": 2,
+            "edges_kept": 1,
+        },
+    )
+    monkeypatch.setattr(routing_graph, "_load_route_graph_compact_bundle", _unexpected_loader)
+    monkeypatch.setattr(routing_graph, "_load_route_graph_binary_cache", _unexpected_loader)
+    monkeypatch.setattr(routing_graph, "_load_route_graph_streaming", _unexpected_loader)
+
+    ok, status = routing_graph.route_graph_status()
+
+    assert ok is True
+    assert status == "ok"

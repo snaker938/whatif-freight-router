@@ -3,6 +3,8 @@
 import { Chart as ChartJS, Legend, LinearScale, PointElement, Title, Tooltip } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
 
+import FieldInfo from './FieldInfo';
+import { formatMetricTooltip, type MetricTooltip } from './metricTooltip';
 import type { RouteOption } from '../lib/types';
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend, Title);
@@ -13,6 +15,25 @@ type Props = {
   labelsById: Record<string, string>;
   onSelect: (routeId: string) => void;
 };
+
+const inlineMetricLabelStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+} as const;
+
+function metricHelp(tooltip: MetricTooltip): string {
+  return formatMetricTooltip(tooltip);
+}
+
+function inlineMetricLabel(label: string, tooltip: MetricTooltip) {
+  return (
+    <span style={inlineMetricLabelStyle}>
+      <span>{label}</span>
+      <FieldInfo text={metricHelp(tooltip)} />
+    </span>
+  );
+}
 
 export default function ParetoChart({ routes, selectedId, labelsById, onSelect }: Props) {
   const points = routes.map((r) => ({
@@ -50,7 +71,7 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
     animation: { duration: 450 },
     plugins: {
       title: {
-        display: true,
+        display: false,
         text: 'Pareto space: time vs CO₂',
         color: 'rgba(255, 255, 255, 0.85)',
         font: { size: 12, weight: '600' },
@@ -64,8 +85,12 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
           },
           label: (context: any) => {
             const raw = context.raw;
-            const knee = raw.isKnee ? ', knee-point' : '';
-            return `time=${raw.x.toFixed(1)} min, CO₂=${raw.y.toFixed(3)} kg, £=${raw.money.toFixed(2)}${knee}`;
+            return [
+              `Travel time: ${raw.x.toFixed(1)} min`,
+              `Emissions: ${raw.y.toFixed(3)} kg CO2`,
+              `Cost: £${raw.money.toFixed(2)}`,
+              `Knee-point: ${raw.isKnee ? 'yes' : 'no'}`,
+            ];
           },
         },
         titleColor: 'rgba(255, 255, 255, 0.92)',
@@ -78,12 +103,12 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
     },
     scales: {
       x: {
-        title: { display: true, text: 'Travel time (min)', color: 'rgba(255, 255, 255, 0.70)' },
+        title: { display: false, text: 'Travel time (min)', color: 'rgba(255, 255, 255, 0.70)' },
         ticks: { color: 'rgba(255, 255, 255, 0.65)' },
         grid: { color: 'rgba(255, 255, 255, 0.08)' },
       },
       y: {
-        title: { display: true, text: 'Emissions (kg CO₂)', color: 'rgba(255, 255, 255, 0.70)' },
+        title: { display: false, text: 'Emissions (kg CO₂)', color: 'rgba(255, 255, 255, 0.70)' },
         ticks: { color: 'rgba(255, 255, 255, 0.65)' },
         grid: { color: 'rgba(255, 255, 255, 0.08)' },
       },
@@ -97,8 +122,40 @@ export default function ParetoChart({ routes, selectedId, labelsById, onSelect }
   };
 
   return (
-    <div style={{ height: 220 }}>
-      <Scatter data={data} options={options} />
+    <div>
+      <div className="routeCard__meta" style={{ marginBottom: 8 }}>
+        <span>
+          {inlineMetricLabel('Pareto space', {
+            definition: 'Scatter view of candidate routes in time-emissions tradeoff space.',
+            direction: 'Lower-left is better when minimizing both axes together.',
+            unit: 'chart view',
+          })}
+        </span>
+        <span>
+          {inlineMetricLabel('Travel time', {
+            definition: 'Route duration shown on the chart x-axis.',
+            direction: 'Lower is usually better because the route completes sooner.',
+            unit: 'minutes',
+          })}
+        </span>
+        <span>
+          {inlineMetricLabel('Emissions', {
+            definition: 'Route CO2 shown on the chart y-axis.',
+            direction: 'Lower is usually better because less CO2 is emitted.',
+            unit: 'kilograms CO2',
+          })}
+        </span>
+        <span>
+          {inlineMetricLabel('Hover details', {
+            definition: 'Per-point hover summary for travel time, emissions, cost, and knee-point status.',
+            direction: 'Descriptive only; hover details explain the selected candidate rather than ranking it.',
+            unit: 'mixed route metrics',
+          })}
+        </span>
+      </div>
+      <div style={{ height: 220 }}>
+        <Scatter data={data} options={options} />
+      </div>
     </div>
   );
 }

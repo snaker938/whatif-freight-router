@@ -1,3 +1,5 @@
+"""Pipeline stage: summarize compatible preference weights and shrinkage traces for preference certification."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -30,6 +32,8 @@ def build_compatible_set_summary(
     compatible_set_volume_proxy: float = 1.0,
     necessary_best_prob: float = 0.0,
     possible_best_prob: float = 1.0,
+    necessary_best_route_ids: list[str] | None = None,
+    possible_best_route_ids: list[str] | None = None,
     support_flag: bool = True,
     support_reason: str | None = None,
 ) -> CompatibleSetSummary:
@@ -38,6 +42,8 @@ def build_compatible_set_summary(
         compatible_set_volume_proxy=max(0.0, float(compatible_set_volume_proxy)),
         necessary_best_prob=max(0.0, min(1.0, float(necessary_best_prob))),
         possible_best_prob=max(0.0, min(1.0, float(possible_best_prob))),
+        necessary_best_route_ids=list(necessary_best_route_ids or []),
+        possible_best_route_ids=list(possible_best_route_ids or []),
         support_flag=bool(support_flag),
         support_reason=support_reason,
     )
@@ -68,12 +74,22 @@ def build_preference_state(
     support_flag: bool = True,
     support_reason: str | None = None,
 ) -> PreferenceState:
+    route_id_list = list(route_ids or [])
+    singleton_irrelevance = len(route_id_list) <= 1
+    singleton_route_ids = route_id_list[:1] if singleton_irrelevance else []
     summary = build_compatible_set_summary(
-        route_ids=route_ids,
+        route_ids=route_id_list,
+        necessary_best_prob=1.0 if singleton_irrelevance and support_flag else 0.0,
+        possible_best_prob=1.0 if singleton_irrelevance else 1.0,
+        necessary_best_route_ids=singleton_route_ids if support_flag else [],
+        possible_best_route_ids=singleton_route_ids or route_id_list,
         support_flag=support_flag,
         support_reason=support_reason,
     )
-    state = PreferenceState(compatible_set_summary=summary)
+    state = PreferenceState(
+        compatible_set_summary=summary,
+        preference_irrelevance_proven=singleton_irrelevance,
+    )
     if weights is not None:
         state.compatible_weights = [normalize_weight_vector(weights)]
     return state

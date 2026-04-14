@@ -1,10 +1,50 @@
-"""Anytime-valid confidence-sequence wrappers for REFC scaffolding."""
+"""Anytime-valid confidence-sequence helpers for REFC winner bounds."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import math
 from typing import Any
+
+
+DEFAULT_CONFIDENCE_DELTA = 0.05
+ANYTIME_HOEFFDING_METHOD = "anytime_hoeffding_union_bound"
+
+
+def _coerce_delta(delta: float | None) -> float:
+    try:
+        parsed = float(delta) if delta is not None else DEFAULT_CONFIDENCE_DELTA
+    except (TypeError, ValueError):
+        return DEFAULT_CONFIDENCE_DELTA
+    if not math.isfinite(parsed) or parsed <= 0.0 or parsed >= 1.0:
+        return DEFAULT_CONFIDENCE_DELTA
+    return parsed
+
+
+def anytime_hoeffding_interval(
+    success_count: int,
+    sample_count: int,
+    *,
+    delta: float = DEFAULT_CONFIDENCE_DELTA,
+) -> tuple[float, float]:
+    """Return a conservative anytime-valid Bernoulli interval.
+
+    The construction uses Hoeffding's inequality with a summable time schedule
+    ``delta_n = delta / (n (n + 1))``. By a union bound over all ``n >= 1``,
+    the interval is valid uniformly over optional stopping times.
+    """
+
+    n = max(0, int(sample_count))
+    if n <= 0:
+        return 0.0, 1.0
+
+    successes = min(max(0, int(success_count)), n)
+    delta_value = _coerce_delta(delta)
+    empirical = successes / float(n)
+    log_term = math.log((2.0 * n * (n + 1)) / delta_value)
+    radius = math.sqrt(max(0.0, log_term) / (2.0 * n))
+    return max(0.0, empirical - radius), min(1.0, empirical + radius)
 
 
 @dataclass(frozen=True)

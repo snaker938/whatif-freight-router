@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import pytest
 
 from app.decision_critical import (
+    _dccs_gate_metrics,
+    _direct_fallback_via_prediction_scale,
     _direct_fallback_via_label_shrink_fraction,
     _legacy_predicted_refine_cost,
     _predicted_refine_cost,
+    _reserve_anti_collapse_records,
+    _seed_refine_cost_blend_weight,
+    _stretch_ratio,
     _bootstrap_score,
     _challenger_score,
     _normalised_distance,
@@ -130,6 +136,20 @@ def test_candidate_ledger_is_stable_and_auditable() -> None:
         "predicted_refine_cost",
         "objective_extremeness",
         "comparator_seed_penalty",
+        "winner_lcb_lift",
+        "pairwise_gap_lcb_lift",
+        "flip_radius_lift",
+        "unresolved_winner_mass",
+        "preference_relevance",
+        "search_deficiency_risk",
+        "candidate_action_cost",
+        "criticality_score",
+        "expected_proxy_value",
+        "expected_audit_value",
+        "preference_query_sensitivity",
+        "changes_possible_best_probability",
+        "changes_necessary_best_probability",
+        "search_completeness_contribution",
     }
     assert record.comparator_seeded is False
 
@@ -169,6 +189,15 @@ def test_candidate_envelope_and_criticality_round_trip_in_ledger_dict() -> None:
     assert payload["safe_elimination_reason"] == "objective_dominated_by_frontier_envelope"
     assert payload["candidate_envelope"]["safe_eliminated"] is True
     assert payload["candidate_envelope"]["dominated_by_route_id"] == "frontier_anchor"
+    assert 0.0 <= payload["unresolved_possible_frontier_mass_contribution"] <= 1.0
+    assert 0.0 <= payload["unresolved_possible_winner_mass_contribution"] <= 1.0
+    assert 0.0 <= payload["unresolved_certificate_critical_mass_contribution"] <= 1.0
+    assert 0.0 <= payload["expected_proxy_value"] <= 1.0
+    assert 0.0 <= payload["expected_audit_value"] <= 1.0
+    assert 0.0 <= payload["preference_query_sensitivity"] <= 1.0
+    assert 0.0 <= payload["changes_possible_best_probability"] <= 1.0
+    assert 0.0 <= payload["changes_necessary_best_probability"] <= 1.0
+    assert 0.0 <= payload["search_completeness_contribution"] <= 1.0
 
 
 def test_bootstrap_mode_selects_diverse_representatives_under_budget() -> None:
@@ -462,7 +491,10 @@ def test_challenger_mode_prefers_high_flip_probability_per_cost() -> None:
 
     assert [item.candidate_id for item in result.selected] == ["challenger_fast"]
     assert result.selected[0].decision == "refine"
-    assert result.selected[0].decision_reason == "selected_by_challenger"
+    assert result.selected[0].decision_reason in {
+        "selected_by_challenger",
+        "selected_by_anti_collapse_quota",
+    }
     assert result.skipped[0].decision_reason == "budget_exhausted"
 
 
@@ -910,12 +942,28 @@ def test_direct_fallback_seed_observed_cost_reanchors_refine_cost_prediction() -
         {**candidate, "seed_observed_refine_cost_ms": 210.0},
         config=DCCSConfig(pipeline_variant="dccs_refc"),
     )
+    blend_weight = _seed_refine_cost_blend_weight(
+        pipeline_variant="dccs_refc",
+        source_label=candidate["candidate_source_label"],
+        source_stage=candidate["candidate_source_stage"],
+    )
+    expected_low = math.exp(
+        ((1.0 - blend_weight) * math.log(unseeded))
+        + (blend_weight * math.log(48.0))
+    )
+    expected_high = math.exp(
+        ((1.0 - blend_weight) * math.log(unseeded))
+        + (blend_weight * math.log(210.0))
+    )
 
     assert unseeded > 0.0
     assert seeded_low > 0.0
     assert seeded_high > 0.0
-    assert seeded_low < seeded_high
-    assert seeded_high > unseeded
+    assert 0.0 < blend_weight < 1.0
+    assert seeded_low == pytest.approx(expected_low, rel=0.0, abs=1e-9)
+    assert seeded_high == pytest.approx(expected_high, rel=0.0, abs=1e-9)
+    assert abs(seeded_low - 48.0) < abs(unseeded - 48.0)
+    assert abs(seeded_high - 210.0) < abs(unseeded - 210.0)
 
 
 def test_unlabeled_bootstrap_refine_cost_uses_pipeline_specific_legacy_shrink_factor() -> None:
@@ -1056,6 +1104,98 @@ def test_shorthaul_direct_fallback_via_label_shrink_targets_short_routes_only() 
     assert short_shrink > 0.5
     assert long_shrink == 0.0
     assert alt_shrink == 0.0
+
+
+def test_stretch_ratio_uses_explicit_stretch_when_distance_inputs_are_missing() -> None:
+    candidate = {
+        "graph_length_km": 93.4,
+        "stretch": 1.873,
+        "graph_path": ["s1", "s2", "s3", "s4"],
+    }
+
+    assert _stretch_ratio(candidate) == pytest.approx(1.873, rel=0.0, abs=1e-9)
+
+
+def test_voi_direct_fallback_via_prediction_scale_targets_live_via5_and_via6_shapes_without_broadening() -> None:
+    short_mid_scale = _direct_fallback_via_prediction_scale(
+        pipeline_variant="voi",
+        source_label="fallback:via:5:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=100.1828,
+        stretch=1.7290566914884706,
+        motorway_share=0.360292,
+        urban_share=0.10552,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=12.0,
+    )
+    live_via6_scale = _direct_fallback_via_prediction_scale(
+        pipeline_variant="voi",
+        source_label="fallback:via:6:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=77.4989,
+        stretch=1.560591866188484,
+        motorway_share=0.453695,
+        urban_share=0.085307,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=12.0,
+    )
+    short_generic_scale = _direct_fallback_via_prediction_scale(
+        pipeline_variant="voi",
+        source_label="fallback:via:6:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=78.9974,
+        stretch=1.9238365075772794,
+        motorway_share=0.487163,
+        urban_share=0.042828,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=12.0,
+    )
+    long_via5_scale = _direct_fallback_via_prediction_scale(
+        pipeline_variant="voi",
+        source_label="fallback:via:5:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=154.3968,
+        stretch=1.2424189548651705,
+        motorway_share=0.59526,
+        urban_share=0.044786,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=12.0,
+    )
+    long_scale = _direct_fallback_via_prediction_scale(
+        pipeline_variant="voi",
+        source_label="fallback:via:8:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=155.4374,
+        stretch=2.6826967960325523,
+        motorway_share=0.481767,
+        urban_share=0.034975,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=11.0,
+    )
+    alt_scale = _direct_fallback_via_prediction_scale(
+        pipeline_variant="voi",
+        source_label="fallback:alternatives:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=89.6403,
+        stretch=1.5471035002219338,
+        motorway_share=0.57947,
+        urban_share=0.028826,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=12.0,
+    )
+
+    assert short_mid_scale == pytest.approx(0.45, rel=0.0, abs=1e-9)
+    assert live_via6_scale == pytest.approx(1.50, rel=0.0, abs=1e-9)
+    assert short_generic_scale == pytest.approx(0.45, rel=0.0, abs=1e-9)
+    assert long_via5_scale == pytest.approx(0.83, rel=0.0, abs=1e-9)
+    assert long_scale == pytest.approx(1.0, rel=0.0, abs=1e-9)
+    assert alt_scale == pytest.approx(1.0, rel=0.0, abs=1e-9)
 
 
 def test_challenger_score_is_monotone_in_overlap_and_cost() -> None:
@@ -1337,7 +1477,35 @@ def test_dccs_summary_flags_prediction_stage_and_supports_observed_rollup() -> N
     assert 0.0 <= result.summary["dc_yield"] <= 1.0
     assert 0.0 <= result.summary["challenger_hit_rate"] <= 1.0
     assert 0.0 <= result.summary["frontier_gain_per_refinement"] <= 1.0
+    assert 0.0 <= result.summary["safe_prune_rate"] <= 1.0
+    assert 0.0 <= result.summary["false_safe_prune_rate"] <= 1.0
+    assert 0.0 <= result.summary["anti_collapse_success_rate"] <= 1.0
+    assert 0.0 <= result.summary["certificate_critical_hit_rate"] <= 1.0
+    assert 0.0 <= result.summary["time_preserving_challenger_coverage"] <= 1.0
+    assert 0.0 <= result.summary["dominance_likely_challenger_coverage"] <= 1.0
+    assert 0.0 <= result.summary["hidden_challenger_miss_diagnostics"]["miss_rate"] <= 1.0
+    assert result.summary["unresolved_possible_frontier_mass"] == 0.0
+    assert result.summary["unresolved_possible_winner_mass"] == 0.0
+    assert result.summary["unresolved_certificate_critical_mass"] == 0.0
+    assert result.summary["search_completeness_score"] == 1.0
+    assert result.summary["search_completeness_gap"] == 0.0
     assert result.summary["selected_count"] == len(result.selected)
+    selected_record = result.selected[0]
+    assert selected_record.quota_assignment != ""
+    assert isinstance(selected_record.time_preserving_likely, bool)
+    assert isinstance(selected_record.dominance_likely, bool)
+    assert isinstance(selected_record.certificate_critical_candidate, bool)
+    assert selected_record.hidden_challenger_risk >= 0.0
+    assert isinstance(selected_record.safe_prune_consistent, bool)
+    assert 0.0 <= selected_record.unresolved_possible_frontier_mass_contribution <= 1.0
+    assert 0.0 <= selected_record.unresolved_possible_winner_mass_contribution <= 1.0
+    assert 0.0 <= selected_record.unresolved_certificate_critical_mass_contribution <= 1.0
+    assert 0.0 <= selected_record.expected_proxy_value <= 1.0
+    assert 0.0 <= selected_record.expected_audit_value <= 1.0
+    assert 0.0 <= selected_record.preference_query_sensitivity <= 1.0
+    assert 0.0 <= selected_record.changes_possible_best_probability <= 1.0
+    assert 0.0 <= selected_record.changes_necessary_best_probability <= 1.0
+    assert 0.0 <= selected_record.search_completeness_contribution <= 1.0
 
     observed = summarize_refine_outcomes(
         [
@@ -1357,4 +1525,443 @@ def test_dccs_summary_flags_prediction_stage_and_supports_observed_rollup() -> N
     assert breadcrumbs["candidate_criticality_schema_version"] == "candidate_criticality_v1"
     assert breadcrumbs["candidate_envelope_count"] == len(result.candidate_ledger)
     assert breadcrumbs["candidate_criticality_count"] == len(result.candidate_ledger)
+    assert breadcrumbs["candidate_criticality_ranking_trace_present"] is True
+    assert breadcrumbs["search_deficiency_trace_present"] is True
+    assert breadcrumbs["forecast_trace_present"] is True
+    assert "criticality_score" in breadcrumbs["criticality_rank_term_keys"]
+    assert 0.0 <= breadcrumbs["mean_candidate_criticality_score"] <= 1.0
+    assert 0.0 <= breadcrumbs["mean_expected_proxy_value"] <= 1.0
+    assert 0.0 <= breadcrumbs["mean_expected_audit_value"] <= 1.0
+    assert 0.0 <= breadcrumbs["mean_preference_query_sensitivity"] <= 1.0
+    assert 0.0 <= breadcrumbs["mean_search_completeness_contribution"] <= 1.0
+    assert 0.0 <= breadcrumbs["mean_hidden_challenger_risk"] <= 1.0
     assert breadcrumbs["safe_elimination_provenance_present"] is True
+    assert breadcrumbs["safe_prune_consistent_count"] == len(result.candidate_ledger)
+
+
+def test_challenger_score_ranks_on_candidate_criticality_and_search_deficiency_terms() -> None:
+    cfg = DCCSConfig(mode="challenger", search_budget=1)
+    low = replace(
+        _score_only_record(
+            "low_criticality",
+            objective_gap=0.28,
+            mechanism_gap=0.18,
+            overlap=0.22,
+            stretch=1.02,
+            time_regret_gap=0.06,
+            time_preservation_bonus=0.12,
+            predicted_refine_cost=1.0,
+            flip_probability=0.24,
+        ),
+        candidate_criticality=CandidateCriticalityEstimate(
+            winner_lcb_lift=0.12,
+            pairwise_gap_lcb_lift=0.10,
+            flip_radius_lift=0.08,
+            unresolved_winner_mass=0.18,
+            preference_relevance=0.11,
+            search_deficiency_risk=0.10,
+            action_cost=1.0,
+            criticality_score=0.22,
+            provenance="candidate_criticality_v1",
+        ),
+        hidden_challenger_risk=0.12,
+        expected_proxy_value=0.16,
+        expected_audit_value=0.14,
+        preference_query_sensitivity=0.11,
+        changes_possible_best_probability=0.13,
+        changes_necessary_best_probability=0.12,
+        search_completeness_contribution=0.18,
+    )
+    high = replace(
+        _score_only_record(
+            "high_criticality",
+            objective_gap=0.28,
+            mechanism_gap=0.18,
+            overlap=0.22,
+            stretch=1.02,
+            time_regret_gap=0.06,
+            time_preservation_bonus=0.12,
+            predicted_refine_cost=1.0,
+            flip_probability=0.24,
+        ),
+        candidate_criticality=CandidateCriticalityEstimate(
+            winner_lcb_lift=0.54,
+            pairwise_gap_lcb_lift=0.44,
+            flip_radius_lift=0.37,
+            unresolved_winner_mass=0.61,
+            preference_relevance=0.49,
+            search_deficiency_risk=0.72,
+            action_cost=1.0,
+            criticality_score=0.91,
+            provenance="candidate_criticality_v1",
+        ),
+        hidden_challenger_risk=0.76,
+        expected_proxy_value=0.68,
+        expected_audit_value=0.71,
+        preference_query_sensitivity=0.52,
+        changes_possible_best_probability=0.69,
+        changes_necessary_best_probability=0.63,
+        search_completeness_contribution=0.81,
+    )
+
+    assert _challenger_score(high, config=cfg) > _challenger_score(low, config=cfg)
+
+
+def test_dccs_summary_flags_hidden_challenger_miss_when_live_candidate_is_left_unresolved() -> None:
+    candidates = [
+        _candidate(
+            "cand_primary",
+            path=["p1", "p2", "p3", "p4"],
+            objective=(8.8, 9.2, 9.1),
+            road_mix={"motorway_share": 0.7, "a_road_share": 0.2, "urban_share": 0.1},
+            toll_share=0.03,
+            terrain_burden=0.05,
+            straight_line_km=8.5,
+            mechanism={"motorway_share": 0.7, "toll_share": 0.03, "terrain_burden": 0.05},
+        ),
+        _candidate(
+            "cand_hidden",
+            path=["p1", "p2", "p3", "h4"],
+            objective=(9.0, 9.0, 9.8),
+            road_mix={"motorway_share": 0.68, "a_road_share": 0.22, "urban_share": 0.10},
+            toll_share=0.04,
+            terrain_burden=0.05,
+            straight_line_km=8.5,
+            mechanism={"motorway_share": 0.68, "toll_share": 0.04, "terrain_burden": 0.05},
+        ),
+    ]
+
+    result = select_candidates(
+        candidates,
+        config=DCCSConfig(mode="challenger", search_budget=1, near_duplicate_threshold=0.60),
+    )
+
+    skipped_live_record = next(
+        record
+        for record in result.candidate_ledger
+        if record.candidate_id == "cand_hidden"
+    )
+
+    assert skipped_live_record.safe_eliminated is False
+    assert skipped_live_record.decision == "skip"
+    assert skipped_live_record.hidden_challenger_risk >= 0.5
+    assert skipped_live_record.unresolved_possible_winner_mass_contribution > 0.0
+    assert skipped_live_record.search_completeness_contribution > 0.0
+
+    miss = result.summary["hidden_challenger_miss_diagnostics"]
+    assert miss["candidate_count"] >= 1
+    assert miss["selected_count"] < miss["candidate_count"]
+    assert miss["miss_count"] >= 1
+    assert miss["miss_rate"] > 0.0
+    assert result.summary["unresolved_possible_winner_mass"] > 0.0
+    assert result.summary["unresolved_possible_frontier_mass"] > 0.0
+    assert result.summary["search_completeness_gap"] > 0.0
+    assert result.summary["search_completeness_score"] == pytest.approx(
+        1.0 - result.summary["search_completeness_gap"]
+    )
+
+
+def test_dccs_search_completeness_improves_when_budget_covers_hidden_challenger() -> None:
+    candidates = [
+        _candidate(
+            "cand_primary",
+            path=["p1", "p2", "p3", "p4"],
+            objective=(8.8, 9.2, 9.1),
+            road_mix={"motorway_share": 0.7, "a_road_share": 0.2, "urban_share": 0.1},
+            toll_share=0.03,
+            terrain_burden=0.05,
+            straight_line_km=8.5,
+            mechanism={"motorway_share": 0.7, "toll_share": 0.03, "terrain_burden": 0.05},
+        ),
+        _candidate(
+            "cand_hidden",
+            path=["p1", "p2", "p3", "h4"],
+            objective=(9.0, 9.0, 9.8),
+            road_mix={"motorway_share": 0.68, "a_road_share": 0.22, "urban_share": 0.10},
+            toll_share=0.04,
+            terrain_burden=0.05,
+            straight_line_km=8.5,
+            mechanism={"motorway_share": 0.68, "toll_share": 0.04, "terrain_burden": 0.05},
+        ),
+    ]
+
+    budget_one = select_candidates(
+        candidates,
+        config=DCCSConfig(mode="challenger", search_budget=1, near_duplicate_threshold=0.60),
+    )
+    budget_two = select_candidates(
+        candidates,
+        config=DCCSConfig(mode="challenger", search_budget=2, near_duplicate_threshold=0.60),
+    )
+
+    miss_one = budget_one.summary["hidden_challenger_miss_diagnostics"]
+    miss_two = budget_two.summary["hidden_challenger_miss_diagnostics"]
+
+    assert miss_two["miss_count"] <= miss_one["miss_count"]
+    assert budget_two.summary["unresolved_possible_winner_mass"] <= budget_one.summary["unresolved_possible_winner_mass"]
+    assert budget_two.summary["search_completeness_gap"] <= budget_one.summary["search_completeness_gap"]
+    assert budget_two.summary["search_completeness_score"] >= budget_one.summary["search_completeness_score"]
+    assert [record.candidate_id for record in budget_two.selected] == ["cand_primary", "cand_hidden"]
+    assert budget_two.summary["unresolved_possible_winner_mass"] == 0.0
+    assert budget_two.summary["search_completeness_gap"] == 0.0
+    assert budget_two.summary["search_completeness_score"] == 1.0
+
+
+def test_challenger_mode_reserves_literal_anti_collapse_quota_classes() -> None:
+    cfg = DCCSConfig(mode="challenger", search_budget=2)
+    records = [
+        replace(
+            _score_only_record(
+                "corridor_a",
+                objective_gap=0.12,
+                mechanism_gap=0.05,
+                overlap=0.25,
+                stretch=1.40,
+                time_regret_gap=0.92,
+                time_preservation_bonus=0.08,
+                predicted_refine_cost=12.0,
+                flip_probability=0.30,
+            ),
+            quota_assignment="high_significance_corridor_family",
+            corridor_signature="family_a",
+        ),
+        replace(
+            _score_only_record(
+                "corridor_b",
+                objective_gap=0.11,
+                mechanism_gap=0.04,
+                overlap=0.22,
+                stretch=1.38,
+                time_regret_gap=0.90,
+                time_preservation_bonus=0.09,
+                predicted_refine_cost=11.5,
+                flip_probability=0.28,
+            ),
+            quota_assignment="high_significance_corridor_family",
+            corridor_signature="family_b",
+        ),
+        replace(
+            _score_only_record(
+                "time_dom",
+                objective_gap=0.22,
+                mechanism_gap=0.18,
+                overlap=0.16,
+                stretch=1.10,
+                time_regret_gap=0.12,
+                time_preservation_bonus=0.88,
+                predicted_refine_cost=6.0,
+                flip_probability=0.72,
+            ),
+            quota_assignment="time_preserving_challenger",
+            time_preserving_likely=True,
+            dominance_likely=True,
+            corridor_signature="family_c",
+        ),
+        replace(
+            _score_only_record(
+                "disagreement",
+                objective_gap=0.18,
+                mechanism_gap=0.14,
+                overlap=0.18,
+                stretch=1.12,
+                time_regret_gap=0.20,
+                time_preservation_bonus=0.72,
+                predicted_refine_cost=7.5,
+                flip_probability=0.60,
+            ),
+            comparator_seeded=True,
+            quota_assignment="disagreement_driven_challenger",
+            corridor_signature="family_d",
+        ),
+        replace(
+            _score_only_record(
+                "rescue",
+                objective_gap=0.02,
+                mechanism_gap=0.03,
+                overlap=0.30,
+                stretch=1.08,
+                time_regret_gap=0.86,
+                time_preservation_bonus=0.14,
+                predicted_refine_cost=5.5,
+                flip_probability=0.14,
+            ),
+            quota_assignment="representative_capital_rescue",
+            corridor_signature="family_e",
+        ),
+    ]
+
+    reserved = _reserve_anti_collapse_records(records, config=cfg)
+    reserved_ids = {record.candidate_id for record in reserved}
+
+    assert reserved_ids == {
+        "corridor_a",
+        "corridor_b",
+        "time_dom",
+        "disagreement",
+        "rescue",
+    }
+    assert any(record.time_preserving_likely for record in reserved)
+    assert any(record.dominance_likely for record in reserved)
+    assert any(record.comparator_seeded for record in reserved)
+    assert {record.corridor_signature for record in reserved if record.quota_assignment == "high_significance_corridor_family"} == {
+        "family_a",
+        "family_b",
+    }
+    assert any(record.quota_assignment == "representative_capital_rescue" for record in reserved)
+
+
+def test_gate_coverage_rates_ignore_safely_pruned_candidates() -> None:
+    live_selected = replace(
+        _score_only_record(
+            "live_selected",
+            objective_gap=0.24,
+            mechanism_gap=0.18,
+            overlap=0.12,
+            stretch=1.08,
+            time_regret_gap=0.10,
+            time_preservation_bonus=0.90,
+            predicted_refine_cost=5.0,
+            flip_probability=0.92,
+        ),
+        certificate_critical_candidate=True,
+        time_preserving_likely=True,
+        dominance_likely=True,
+        safe_eliminated=False,
+        decision="refine",
+    )
+    live_unselected = replace(
+        _score_only_record(
+            "live_unselected",
+            objective_gap=0.18,
+            mechanism_gap=0.14,
+            overlap=0.20,
+            stretch=1.10,
+            time_regret_gap=0.14,
+            time_preservation_bonus=0.86,
+            predicted_refine_cost=6.0,
+            flip_probability=0.88,
+        ),
+        certificate_critical_candidate=True,
+        time_preserving_likely=True,
+        dominance_likely=True,
+        safe_eliminated=False,
+    )
+    safely_pruned_selected = replace(
+        _score_only_record(
+            "safely_pruned_selected",
+            objective_gap=0.16,
+            mechanism_gap=0.12,
+            overlap=0.18,
+            stretch=1.06,
+            time_regret_gap=0.12,
+            time_preservation_bonus=0.88,
+            predicted_refine_cost=7.0,
+            flip_probability=0.90,
+        ),
+        certificate_critical_candidate=True,
+        time_preserving_likely=True,
+        dominance_likely=True,
+        safe_eliminated=True,
+        safe_prune_consistent=True,
+        decision="refine",
+    )
+
+    metrics = _dccs_gate_metrics(
+        [live_selected, live_unselected, safely_pruned_selected],
+        selected=[live_selected, safely_pruned_selected],
+    )
+
+    assert metrics["false_safe_prune_rate"] == 0.0
+    assert metrics["certificate_critical_hit_rate"] == pytest.approx(0.5, rel=0.0, abs=1e-9)
+    assert metrics["time_preserving_challenger_coverage"] == pytest.approx(0.5, rel=0.0, abs=1e-9)
+    assert metrics["dominance_likely_challenger_coverage"] == pytest.approx(0.5, rel=0.0, abs=1e-9)
+
+
+def test_challenger_mode_reserves_frontier_expansion_candidate_from_new_corridor() -> None:
+    cfg = DCCSConfig(mode="challenger", search_budget=1)
+    records = [
+        replace(
+            _score_only_record(
+                "time_slot",
+                objective_gap=0.12,
+                mechanism_gap=0.08,
+                overlap=0.18,
+                stretch=1.05,
+                time_regret_gap=0.10,
+                time_preservation_bonus=0.86,
+                predicted_refine_cost=4.5,
+                flip_probability=0.78,
+            ),
+            quota_assignment="time_preserving_challenger",
+            time_preserving_likely=True,
+            corridor_signature="family_a",
+        ),
+        replace(
+            _score_only_record(
+                "frontier_extra",
+                objective_gap=0.28,
+                mechanism_gap=0.16,
+                overlap=0.08,
+                stretch=1.12,
+                time_regret_gap=0.82,
+                time_preservation_bonus=0.18,
+                predicted_refine_cost=6.0,
+                flip_probability=0.72,
+            ),
+            quota_assignment="unassigned",
+            corridor_signature="family_b",
+        ),
+    ]
+
+    reserved = _reserve_anti_collapse_records(records, config=cfg)
+
+    assert {record.candidate_id for record in reserved} == {"time_slot", "frontier_extra"}
+
+
+def test_long_corridor_shortcuts_raise_explicit_search_support_abstention_and_safety_fields() -> None:
+    base_candidate = _candidate(
+        "cand_base",
+        path=["p1", "p2", "p3", "p4"],
+        objective=(8.8, 9.2, 9.1),
+        road_mix={"motorway_share": 0.7, "a_road_share": 0.2, "urban_share": 0.1},
+        toll_share=0.03,
+        terrain_burden=0.05,
+        straight_line_km=8.5,
+        mechanism={"motorway_share": 0.7, "toll_share": 0.03, "terrain_burden": 0.05},
+    )
+    long_corridor_candidate = dict(base_candidate)
+    long_corridor_candidate["candidate_source_stage"] = "long_corridor_fallback"
+    long_corridor_candidate["candidate_source_label"] = "fallback:alternatives:long_corridor_fallback"
+
+    plain = select_candidates(
+        [base_candidate],
+        config=DCCSConfig(mode="challenger", search_budget=0),
+    )
+    long_corridor = select_candidates(
+        [long_corridor_candidate],
+        config=DCCSConfig(mode="challenger", search_budget=0),
+    )
+
+    plain_record = plain.candidate_ledger[0]
+    long_corridor_record = long_corridor.candidate_ledger[0]
+
+    assert plain_record.long_corridor_shortcut is False
+    assert long_corridor_record.long_corridor_shortcut is True
+    assert long_corridor_record.long_corridor_support_status is not None
+    assert long_corridor_record.long_corridor_search_completeness_penalty > 0.0
+    assert long_corridor_record.long_corridor_abstention_risk > 0.0
+    assert long_corridor_record.long_corridor_terminal_safety_risk > 0.0
+    assert long_corridor_record.search_completeness_contribution > plain_record.search_completeness_contribution
+    assert long_corridor.summary["long_corridor_shortcut_count"] == 1
+    assert long_corridor.summary["long_corridor_support_status_counts"][long_corridor_record.long_corridor_support_status] == 1
+    assert long_corridor.summary["long_corridor_search_completeness_penalty_mean"] > 0.0
+    assert long_corridor.summary["long_corridor_abstention_risk_mean"] > 0.0
+    assert long_corridor.summary["long_corridor_terminal_safety_risk_mean"] > 0.0
+    assert (
+        long_corridor_record.unresolved_certificate_critical_mass_contribution
+        > plain_record.unresolved_certificate_critical_mass_contribution
+    )
+    assert (
+        long_corridor_record.unresolved_possible_frontier_mass_contribution
+        > plain_record.unresolved_possible_frontier_mass_contribution
+    )

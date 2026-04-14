@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from tempfile import gettempdir
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _LOGGER = logging.getLogger(__name__)
@@ -1001,11 +1001,18 @@ class Settings(BaseSettings):
         default=True,
         alias="ROUTE_REFC_ADAPTIVE_WORLD_COUNT_ENABLED",
     )
+    # Maintained publication alias for the checklist's "certified-set cap" axis.
+    # Truthfully this caps low-ambiguity REFC world sampling; it does not directly
+    # cap certified-set cardinality.
     route_refc_low_ambiguity_world_cap: int = Field(
         default=24,
         ge=1,
         le=512,
         alias="ROUTE_REFC_LOW_AMBIGUITY_WORLD_CAP",
+        validation_alias=AliasChoices(
+            "ROUTE_REFC_LOW_AMBIGUITY_WORLD_CAP",
+            "ROUTE_REFC_CERTIFIED_SET_CAP",
+        ),
     )
     route_refc_medium_ambiguity_world_cap: int = Field(
         default=48,
@@ -1315,6 +1322,10 @@ class Settings(BaseSettings):
         # candidate generation can fail with routing_graph_deferred_load even
         # though readiness has already reported success.
         self.route_graph_fast_startup_enabled = False
+        # Reviewer-facing strict proof runs cannot skip long-corridor graph
+        # search up front, otherwise DCCS collapses to bounded fallback with
+        # zero graph-generated challengers on the broad-cold evidence lane.
+        self.route_graph_skip_initial_search_long_corridor = False
         self.departure_require_empirical_profiles = True
         self.departure_allow_synthetic_profiles = False
         self.stochastic_require_empirical_calibration = policy == "strict_external"

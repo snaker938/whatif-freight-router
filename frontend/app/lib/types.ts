@@ -219,15 +219,426 @@ export type EvidenceProvenance = {
   families: EvidenceSourceRecord[];
 };
 
+export type PreferenceTerminalType = 'open' | 'certified' | 'abstained';
+export type PreferenceQueryType = 'pairwise' | 'threshold' | 'ratio' | 'veto' | 'time_guard';
+
+export type PreferenceWeightsSummary = {
+  time?: number | null;
+  money?: number | null;
+  co2?: number | null;
+};
+
+export type PreferenceCompatibleSetSummary = {
+  route_ids?: string[];
+  compatible_set_size?: number | null;
+  compatible_set_volume_proxy?: number | null;
+  necessary_best_prob?: number | null;
+  possible_best_prob?: number | null;
+  support_flag?: boolean | null;
+  support_reason?: string | null;
+};
+
+export type PairwisePreferenceQuery = {
+  query_type: 'pairwise';
+  preferred_route_id: string;
+  challenger_route_id: string;
+  reason?: string | null;
+  weight_hint?: Record<string, number> | null;
+};
+
+export type ThresholdPreferenceQuery = {
+  query_type: 'threshold';
+  route_id: string;
+  metric_name: string;
+  threshold_value: number;
+  direction?: 'gte' | 'lte';
+  reason?: string | null;
+};
+
+export type RatioPreferenceQuery = {
+  query_type: 'ratio';
+  route_id: string;
+  numerator_metric: string;
+  denominator_metric: string;
+  minimum_ratio: number;
+  reason?: string | null;
+};
+
+export type VetoPreferenceQuery = {
+  query_type: 'veto';
+  route_id: string;
+  veto_name: string;
+  active?: boolean | null;
+  reason?: string | null;
+};
+
+export type TimeGuardPreferenceQuery = {
+  query_type: 'time_guard';
+  route_id: string;
+  latest_arrival_utc?: string | null;
+  max_travel_time_s?: number | null;
+  preserve_time_budget_s?: number | null;
+  reason?: string | null;
+};
+
+export type PreferenceQuery =
+  | PairwisePreferenceQuery
+  | ThresholdPreferenceQuery
+  | RatioPreferenceQuery
+  | VetoPreferenceQuery
+  | TimeGuardPreferenceQuery;
+
+export type PreferenceShrinkageTrace = {
+  query_index: number;
+  query_type: PreferenceQueryType;
+  before_size: number;
+  after_size: number;
+  before_volume_proxy: number;
+  after_volume_proxy: number;
+  predicted_shrinkage?: number | null;
+  realized_shrinkage?: number | null;
+  target_route_id?: string | null;
+  query_reason?: string | null;
+  preference_irrelevance?: boolean | null;
+};
+
+export type PreferenceContradictionRecord = {
+  contradiction_detected?: boolean | null;
+  contradiction_reasons?: string[];
+};
+
+export type PreferenceTraceProvenance = {
+  selected_route_id?: string | null;
+  pipeline_mode?: PipelineMode | null;
+};
+
+export type PreferenceState = {
+  compatible_set_summary?: PreferenceCompatibleSetSummary | null;
+  compatible_weights?: Array<Record<string, number>>;
+  pairwise_constraints?: PairwisePreferenceQuery[];
+  threshold_constraints?: ThresholdPreferenceQuery[];
+  ratio_constraints?: RatioPreferenceQuery[];
+  veto_rules?: VetoPreferenceQuery[];
+  time_preserving_guard_rules?: TimeGuardPreferenceQuery[];
+  query_history?: PreferenceQuery[];
+  shrinkage_trace?: PreferenceShrinkageTrace[];
+  contradiction_record?: PreferenceContradictionRecord | null;
+  derived_invariants?: Record<string, boolean> | null;
+  terminal_type?: PreferenceTerminalType | null;
+  preference_irrelevance_proven?: boolean | null;
+  no_query_reason?: string | null;
+  no_preference_query_reason?: string | null;
+  query_count?: number | null;
+};
+
+export type PreferenceQueryTrace = {
+  schema_version?: string | null;
+  selected_route_id?: string | null;
+  selected_certificate_basis?: string | null;
+  terminal_type?: PreferenceTerminalType | null;
+  query_count?: number | null;
+  query_history?: PreferenceQuery[];
+  shrinkage_trace?: PreferenceShrinkageTrace[];
+  compatible_set_summary?: PreferenceCompatibleSetSummary | null;
+  derived_invariants?: Record<string, boolean> | null;
+  contradiction_record?: PreferenceContradictionRecord | null;
+  preference_irrelevance_proven?: boolean | null;
+  no_query_reason?: string | null;
+  no_preference_query_reason?: string | null;
+  targeted_challenger_route_id?: string | null;
+  query_selection_reason?: string | null;
+  provenance?: PreferenceTraceProvenance | null;
+};
+
+export type PreferenceSummary = {
+  selected_certificate_basis?: string | null;
+  pipeline_mode?: PipelineMode | null;
+  weights?: PreferenceWeightsSummary | null;
+  preference_state?: PreferenceState | null;
+  compatible_set_summary?: PreferenceCompatibleSetSummary | null;
+  derived_invariants?: Record<string, boolean> | null;
+  contradiction_record?: PreferenceContradictionRecord | null;
+  preference_irrelevance_proven?: boolean | null;
+  no_query_reason?: string | null;
+  no_preference_query_reason?: string | null;
+  targeted_challenger_route_id?: string | null;
+  query_selection_reason?: string | null;
+  query_count?: number | null;
+};
+
+export type PreferenceRuntimeUpdateRequest = {
+  candidate_routes: RouteOption[];
+  selected_route_id?: string | null;
+  selected_certificate_basis?: string | null;
+  pipeline_mode?: PipelineMode | null;
+  support_flag?: boolean | null;
+  support_reason?: string | null;
+  preference_state: PreferenceState;
+};
+
+export type PreferenceRuntimeUpdateResponse = {
+  selected_route_id?: string | null;
+  selected_certificate_basis?: string | null;
+  pipeline_mode?: PipelineMode | null;
+  terminal_type?: PreferenceTerminalType | null;
+  preference_state: PreferenceState;
+  preference_query_trace: PreferenceQueryTrace;
+  preference_summary: PreferenceSummary;
+};
+
+export type SupportStateSummary = {
+  schema_version?: string;
+  support_flag?: boolean | null;
+  support_status?: string | null;
+  support_reason?: string | null;
+  support_score?: number | null;
+  support_ratio?: number | null;
+  support_bin?: string | null;
+  calibration_bin?: string | null;
+  support_source?: string | null;
+  out_of_support_reason?: string | null;
+  coverage_ratio?: number | null;
+  confidence?: number | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+export type ProbabilisticWorldBundleSummary = {
+  world_count?: number | null;
+  unique_world_count?: number | null;
+  active_families?: string[];
+  state_catalog?: string[];
+  state_weights?: Record<string, Record<string, number>>;
+  world_reuse_rate?: number | null;
+  world_reuse_rate_within_manifest?: number | null;
+  world_reuse_rate_cross_request?: number | null;
+  certification_cache_reuse_origin?: string | null;
+  certification_cache_reuse_applied?: boolean | null;
+  manifest_hash?: string | null;
+  support_state?: SupportStateSummary | null;
+};
+
+export type AuditWorldBundleSummary = {
+  audit_world_count?: number | null;
+  audited_route_pair_count?: number | null;
+  partially_audited_world_count?: number | null;
+  fully_audited_world_count?: number | null;
+  reused_world_count?: number | null;
+  corrected_world_count?: number | null;
+  support_condition?: string | null;
+  calibration_version?: string | null;
+  propensity_version?: string | null;
+  diagnostics?: Record<string, unknown> | null;
+};
+
+export type WorldBundleSummary = {
+  regime_id?: string | null;
+  copula_id?: string | null;
+  calibration_version?: string | null;
+  as_of_utc?: string | null;
+  support_state?: SupportStateSummary | null;
+  probabilistic_world_bundle?: ProbabilisticWorldBundleSummary | null;
+  audit_world_bundle?: AuditWorldBundleSummary | null;
+  uncertainty_summary?: Record<string, unknown> | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+export type WorldSupportSummary = {
+  schema_version?: string | null;
+  selected_route_id?: string | null;
+  selected_certificate_basis?: string | null;
+  support_state?: SupportStateSummary | null;
+  world_bundle_summary?: WorldBundleSummary | null;
+  scenario_summary?: ScenarioSummary | null;
+  risk_summary?: Record<string, unknown> | null;
+  provenance?: Record<string, unknown> | null;
+  support_flag?: boolean | null;
+  support_reason?: string | null;
+  world_count?: number | null;
+  unique_world_count?: number | null;
+  world_reuse_rate?: number | null;
+  calibration_bin?: string | null;
+  support_bin?: string | null;
+  active_families?: string[];
+};
+
+export type ActionTraceSummary = {
+  stop_reason?: string | null;
+  search_completeness_score?: number | null;
+  search_completeness_gap?: number | null;
+  pipeline_mode?: PipelineMode | null;
+  selected_candidate_count?: number | null;
+};
+
+export type WitnessSummary = {
+  witness_size?: number | null;
+  active_challenger_ids?: string[];
+  active_evidence_families?: string[];
+  route_id?: string | null;
+  selected_certificate_basis?: string | null;
+};
+
+export type RouteFragilityMapArtifact = Record<string, Record<string, number>>;
+
+export type FlipRadiusSummaryArtifact = {
+  route_id?: string | null;
+  minimum_flip_budget?: number | null;
+  dominant_fragility_family?: string | null;
+  adversarial_degradation_curve?: Array<Record<string, unknown>> | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+export type DecisionRegionSummaryArtifact = {
+  route_id?: string | null;
+  nearest_certificate_boundary?: string | null;
+  active_challenger_id?: string | null;
+  dominant_evidence_family?: string | null;
+  most_fragile_preference_direction?: string | null;
+  minimum_joint_perturbation?: number | null;
+  nearest_threat_axis?: string | null;
+  support_flag?: boolean | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+export type ValueOfRefreshMarginSummary = {
+  world_count?: number | null;
+  mean_runner_up_gap?: number | null;
+  min_runner_up_gap?: number | null;
+  max_runner_up_gap?: number | null;
+  positive_world_share?: number | null;
+  margin_stability_signal?: number | null;
+};
+
+export type ValueOfRefreshRankingEntry = {
+  family: string;
+  vor?: number | null;
+  controller_score?: number | null;
+  empirical_vor?: number | null;
+  raw_refresh_gain?: number | null;
+  basis?: string | null;
+};
+
+export type ValueOfRefreshArtifact = {
+  selected_route_id?: string | null;
+  baseline_certificate?: number | null;
+  empirical_baseline_certificate?: number | null;
+  controller_baseline_certificate?: number | null;
+  baseline_margin_summary?: ValueOfRefreshMarginSummary | null;
+  fragility_stress_state?: string | null;
+  per_family_certificate?: Record<string, number>;
+  per_family_margin_summary?: Record<string, ValueOfRefreshMarginSummary>;
+  ranking?: ValueOfRefreshRankingEntry[];
+  top_refresh_family?: string | null;
+  top_refresh_gain?: number | null;
+  controller_ranking_basis?: string | null;
+  controller_ranking?: ValueOfRefreshRankingEntry[];
+  top_refresh_family_controller?: string | null;
+  top_refresh_gain_controller?: number | null;
+  controller_refresh_frontier_mode?: string | null;
+  controller_refresh_frontier_route_ids?: string[];
+  controller_refresh_frontier_count?: number | null;
+  single_frontier_certificate_cap?: number | null;
+  single_frontier_certificate_cap_applied?: boolean | null;
+  single_frontier_requires_full_stress?: boolean | null;
+  single_frontier_observed_coverage_ratio?: number | null;
+  single_frontier_observed_coverage_relief?: number | null;
+  single_frontier_observed_coverage_ceiling?: number | null;
+  single_frontier_observed_stress_fraction?: number | null;
+};
+
+export type SampledWorldManifestWorld = {
+  world_id: string;
+  states?: Record<string, string>;
+  stress_factor?: number | null;
+  world_kind?: string | null;
+  target_route_id?: string | null;
+  target_route_ids?: Record<string, string> | null;
+};
+
+export type SampledWorldManifestArtifact = {
+  seed?: number | null;
+  requested_world_count?: number | null;
+  sampler_requested_world_count?: number | null;
+  world_count?: number | null;
+  unique_world_count?: number | null;
+  active_families?: string[];
+  state_catalog?: string[];
+  state_weights?: Record<string, Record<string, number>>;
+  ambiguity_context?: Record<string, unknown> | null;
+  hard_case_stress_pack_count?: number | null;
+  supported_ambiguity_stress_pack_count?: number | null;
+  targeted_stress_pack_count?: number | null;
+  mixed_targeted_stress_pack_count?: number | null;
+  single_family_targeted_stress_pack_count?: number | null;
+  world_reuse_rate?: number | null;
+  stress_world_fraction?: number | null;
+  refc_stress_world_fraction?: number | null;
+  hard_case_stress_world_fraction?: number | null;
+  supported_ambiguity_stress_world_fraction?: number | null;
+  worlds?: SampledWorldManifestWorld[];
+  manifest_hash?: string | null;
+  forced_refreshed_families?: string[];
+  selected_route_id?: string | null;
+  effective_world_count?: number | null;
+  world_count_policy?: string | null;
+};
+
+export type TypedAbstentionReason =
+  | 'uncertified_due_to_search'
+  | 'uncertified_due_to_evidence'
+  | 'uncertified_due_to_preference'
+  | 'uncertified_due_to_out_of_support_world_model'
+  | 'uncertified_due_to_budget'
+  | 'uncertified_due_to_model_assumption';
+
+export type AbstentionRecord = {
+  reason_code: TypedAbstentionReason;
+  message: string;
+  detail?: Record<string, unknown>;
+  support_flag?: boolean | null;
+  evidence_family?: string | null;
+  budget_channel?: string | null;
+  model_assumption?: string | null;
+  terminal_type?: 'typed_abstention';
+};
+
+export type ProofAbstentionProvenance = {
+  reason_code?: TypedAbstentionReason | null;
+  message?: string | null;
+  detail?: Record<string, unknown> | null;
+  support_flag?: boolean | null;
+  evidence_family?: string | null;
+  budget_channel?: string | null;
+  model_assumption?: string | null;
+  terminal_type?: 'typed_abstention' | null;
+};
+
 export type RouteCertificationSummary = {
   route_id: string;
   certificate: number;
   certified: boolean;
   threshold: number;
+  certificate_lcb?: number | null;
+  certificate_ucb?: number | null;
+  minimum_pairwise_gap_lcb?: number | null;
   active_families?: string[];
   top_fragility_families?: string[];
   top_competitor_route_id?: string | null;
   top_value_of_refresh_family?: string | null;
+};
+
+export type DecisionProofContext = {
+  selected_certificate_basis?: string | null;
+  support_flag?: boolean | null;
+  out_of_support_reason?: string | null;
+  typed_abstention?: ProofAbstentionProvenance | AbstentionRecord | null;
+  controller_boundary_summary?: VoiControllerBoundarySummary | null;
+  controller_state?: VoiControllerState | null;
+  witness_summary?: WitnessSummary | null;
+  world_support_summary?: WorldSupportSummary | null;
+  certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
+  support_summary?: Record<string, unknown> | null;
+  abstention_summary?: Record<string, unknown> | null;
+  action_trace_summary?: ActionTraceSummary | null;
 };
 
 export type VoiStopSummary = {
@@ -241,6 +652,169 @@ export type VoiStopSummary = {
   best_rejected_action?: string | null;
   best_rejected_q?: number | null;
   credible_search_uncertainty?: boolean | null;
+};
+
+export type VoiTraceAction = {
+  action_id?: string | null;
+  kind?: string | null;
+  target?: string | null;
+  action_family?: string | null;
+  action_modality?: string | null;
+  cost_search?: number | null;
+  cost_evidence?: number | null;
+  predicted_delta_certificate?: number | null;
+  predicted_delta_margin?: number | null;
+  predicted_delta_frontier?: number | null;
+  predicted_delta_search_completeness?: number | null;
+  predicted_winner_lcb_gain?: number | null;
+  predicted_gap_lcb_gain?: number | null;
+  predicted_radius_or_flip_budget_gain?: number | null;
+  predicted_unresolved_mass_reduction?: number | null;
+  predicted_preference_ambiguity_reduction?: number | null;
+  predicted_boundary_contraction?: number | null;
+  predicted_delta_radius_or_flip_budget?: number | null;
+  predicted_preference_shrinkage?: number | null;
+  predicted_certified_set_contraction?: number | null;
+  q_score?: number | null;
+  feasible?: boolean | null;
+  preconditions?: string[];
+  reason?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type VoiTraceIteration = {
+  iteration?: number | null;
+  selected_route_id?: string | null;
+  selected_certificate?: number | null;
+  remaining_search_budget?: number | null;
+  remaining_evidence_budget?: number | null;
+  frontier_size?: number | null;
+  feasible_actions?: VoiTraceAction[];
+  chosen_action?: VoiTraceAction | null;
+  best_rejected_action?: VoiTraceAction | null;
+  next_best_unused_action?: VoiTraceAction | null;
+  realized_certificate_before?: number | null;
+  realized_certificate_after?: number | null;
+  realized_certificate_delta?: number | null;
+  realized_frontier_gain?: number | null;
+  realized_selected_route_changed?: boolean | null;
+  realized_selected_score_delta?: number | null;
+  realized_runner_up_gap_before?: number | null;
+  realized_runner_up_gap_after?: number | null;
+  realized_runner_up_gap_delta?: number | null;
+  realized_evidence_uncertainty_before?: number | null;
+  realized_evidence_uncertainty_after?: number | null;
+  realized_evidence_uncertainty_delta?: number | null;
+  realized_productive?: boolean | null;
+};
+
+export type VoiControllerAuditPropensitySummary = {
+  audit_coverage_ratio?: number | null;
+  coverage_ratio?: number | null;
+  minimum_propensity?: number | null;
+  mean_propensity?: number | null;
+  mean_audit_probability?: number | null;
+  positivity_ok?: boolean | null;
+  weak_overlap_detected?: boolean | null;
+  leakage_safe_training?: boolean | null;
+  correction_path_estimator?: string | null;
+  certification_evaluation_tag?: string | null;
+  propensity_model_version?: string | null;
+  correction_model_version?: string | null;
+  [key: string]: unknown;
+};
+
+export type VoiControllerBoundarySummary = {
+  active_challenger_id?: string | null;
+  active_challenger_ids?: string[];
+  top_competitor_route_id?: string | null;
+  boundary_count?: number | null;
+  challenger_count?: number | null;
+  boundary_status?: string | null;
+  certificate_boundary_kind?: string | null;
+  [key: string]: unknown;
+};
+
+export type VoiControllerState = {
+  iteration_index?: number | null;
+  winner_id?: string | null;
+  selected_route_id?: string | null;
+  remaining_search_budget?: number | null;
+  remaining_evidence_budget?: number | null;
+  certificate_lcb?: number | null;
+  certificate_ucb?: number | null;
+  necessary_best_probability?: number | null;
+  possible_best_probability?: number | null;
+  minimum_pairwise_gap_lcb?: number | null;
+  deterministic_local_flip_radius?: number | null;
+  probabilistic_flip_radius?: number | null;
+  minimum_flip_budget?: number | null;
+  certified_set_size?: number | null;
+  weight_set_volume?: number | null;
+  weight_set_shrinkage?: number | null;
+  preference_irrelevance_proven?: boolean | null;
+  no_preference_query_reason?: string | null;
+  unresolved_possible_frontier_mass?: number | null;
+  unresolved_possible_winner_mass?: number | null;
+  unresolved_certificate_critical_mass?: number | null;
+  support_flag?: boolean | null;
+  out_of_support_reason?: string | null;
+  proxy_only_fraction?: number | null;
+  audit_propensity_summary?: VoiControllerAuditPropensitySummary | null;
+  active_certificate_boundary_summary?: VoiControllerBoundarySummary | null;
+  support_richness?: number | null;
+  ambiguity_pressure?: number | null;
+  search_completeness_score?: number | null;
+  search_completeness_gap?: number | null;
+  pending_challenger_mass?: number | null;
+  best_pending_flip_probability?: number | null;
+  top_refresh_gain?: number | null;
+  competitor_pressure?: number | null;
+  feasible_actions?: VoiTraceAction[];
+  chosen_action?: VoiTraceAction | null;
+  best_rejected_action?: VoiTraceAction | null;
+  [key: string]: unknown;
+};
+
+export type VoiActionTraceArtifact = {
+  pipeline_mode?: PipelineMode | null;
+  selected_route_id?: string | null;
+  actions?: VoiTraceIteration[];
+};
+
+export type VoiStopCertificateArtifact = {
+  pipeline_mode?: PipelineMode | null;
+  status?: string | null;
+  final_winner_route_id?: string | null;
+  selected_route_id?: string | null;
+  certificate_value?: number | null;
+  certified?: boolean | null;
+  search_budget_used?: number | null;
+  search_budget_remaining?: number | null;
+  evidence_budget_used?: number | null;
+  evidence_budget_remaining?: number | null;
+  search_completeness_score?: number | null;
+  search_completeness_gap?: number | null;
+  credible_search_uncertainty?: boolean | null;
+  credible_evidence_uncertainty?: boolean | null;
+  stop_reason?: string | null;
+  action_trace?: VoiTraceIteration[];
+  best_rejected_action?: VoiTraceAction | null;
+  ambiguity_summary?: Record<string, unknown> | null;
+  terminal_action_id?: string | null;
+  terminal_action_kind?: string | null;
+  terminal_action_family?: string | null;
+  terminal_action_modality?: string | null;
+  predicted_delta_radius_or_flip_budget?: number | null;
+  realized_delta_radius_or_flip_budget?: number | null;
+  predicted_preference_shrinkage?: number | null;
+  realized_preference_shrinkage?: number | null;
+  predicted_certified_set_contraction?: number | null;
+  realized_certified_set_contraction?: number | null;
+  hindsight_necessity_label?: string | null;
+  metric_semantics?: Record<string, string> | null;
+  iteration_count?: number | null;
+  controller_state?: VoiControllerState | null;
 };
 
 export type GeoJSONLineString = {
@@ -277,45 +851,62 @@ export type RouteOption = {
 export type RouteResponse = {
   selected: RouteOption;
   candidates: RouteOption[];
+  recommended_route?: RouteOption | null;
+  certified_set?: RouteOption[] | null;
+  abstention?: AbstentionRecord | null;
+  terminal_type?: 'certified_singleton' | 'certified_set' | 'typed_abstention';
   run_id?: string | null;
   pipeline_mode?: PipelineMode;
   manifest_endpoint?: string | null;
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
   selected_certificate?: RouteCertificationSummary | null;
+  selected_certificate_basis?: string | null;
   voi_stop_summary?: VoiStopSummary | null;
   artifact_pointers?: Record<string, string | null> | null;
-  preference_state?: Record<string, unknown> | null;
-  preference_query_trace?: Record<string, unknown> | null;
-  action_trace_summary?: Record<string, unknown> | null;
-  witness_summary?: Record<string, unknown> | null;
-  world_support_summary?: Record<string, unknown> | null;
+  preference_state?: PreferenceState | null;
+  preference_query_trace?: PreferenceQueryTrace | null;
+  frontier_summary?: Record<string, unknown> | null;
+  certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
+  stability_summary?: Record<string, unknown> | null;
+  preference_summary?: PreferenceSummary | null;
+  support_summary?: Record<string, unknown> | null;
+  abstention_summary?: Record<string, unknown> | null;
+  certified_set_summary?: Record<string, unknown> | null;
+  action_trace_summary?: ActionTraceSummary | null;
+  witness_summary?: WitnessSummary | null;
+  world_support_summary?: WorldSupportSummary | null;
 };
 
 export type DecisionPackage = {
   selected?: RouteOption | null;
+  candidates?: RouteOption[] | null;
   recommended_route?: RouteOption | null;
   certified_set?: RouteOption[] | null;
-  candidates?: RouteOption[] | null;
+  abstention?: AbstentionRecord | null;
+  terminal_type?: 'certified_singleton' | 'certified_set' | 'typed_abstention';
   frontier_summary?: Record<string, unknown> | null;
-  certificate_summary?: RouteCertificationSummary | null;
+  certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
+  selected_certificate?: RouteCertificationSummary | null;
   stability_summary?: Record<string, unknown> | null;
-  preference_summary?: Record<string, unknown> | null;
+  preference_summary?: PreferenceSummary | null;
   support_summary?: Record<string, unknown> | null;
   abstention_summary?: Record<string, unknown> | null;
-  action_trace_summary?: Record<string, unknown> | null;
-  witness_summary?: Record<string, unknown> | null;
+  certified_set_summary?: Record<string, unknown> | null;
+  action_trace_summary?: ActionTraceSummary | null;
+  witness_summary?: WitnessSummary | null;
+  proof_context?: DecisionProofContext | null;
   artifact_pointers?: Record<string, string | null> | null;
   run_id?: string | null;
   pipeline_mode?: PipelineMode;
   manifest_endpoint?: string | null;
   artifacts_endpoint?: string | null;
   provenance_endpoint?: string | null;
-  selected_certificate?: RouteCertificationSummary | null;
+  selected_certificate_basis?: string | null;
   voi_stop_summary?: VoiStopSummary | null;
-  preference_state?: Record<string, unknown> | null;
-  preference_query_trace?: Record<string, unknown> | null;
-  world_support_summary?: Record<string, unknown> | null;
+  preference_state?: PreferenceState | null;
+  preference_query_trace?: PreferenceQueryTrace | null;
+  world_support_summary?: WorldSupportSummary | null;
 };
 
 export type DecisionPackageResponse = {
@@ -896,6 +1487,38 @@ export type RunManifestSummary = {
   run_id: string;
   signature?: Record<string, unknown>;
   [key: string]: unknown;
+};
+
+export type ProofDashboardSliceId =
+  | 'v0'
+  | 'a'
+  | 'b'
+  | 'c'
+  | 'broad'
+  | 'focused'
+  | 'cold_hot'
+  | 'osrm_ors'
+  | 'theorem_artifact';
+
+export type ProofArtifactLink = {
+  label: string;
+  href?: string | null;
+  artifact?: string | null;
+};
+
+export type ProofDemoPresetId =
+  | 'safe_singleton'
+  | 'certified_set'
+  | 'support_abstention'
+  | 'preference_sensitive'
+  | 'collapse_prone'
+  | 'hot_rerun';
+
+export type ProofDemoPreset = {
+  id: ProofDemoPresetId;
+  title: string;
+  subtitle: string;
+  focus: string;
 };
 
 export type RunArtifactsListResponse = {

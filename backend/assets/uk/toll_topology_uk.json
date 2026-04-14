@@ -1,10 +1,10 @@
 {
   "type": "FeatureCollection",
-  "source": "osrm\\data\\pbf\\region.osm.pbf",
+  "source": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\assets\\uk\\uk-latest.osm.pbf",
   "version": "uk-v2",
-  "generated_at_utc": "2026-03-21T13:09:17Z",
-  "published_at_utc": "2026-03-21T13:09:17Z",
-  "as_of_utc": "2026-03-21T13:09:07Z",
+  "generated_at_utc": "2026-04-10T15:18:18Z",
+  "published_at_utc": "2026-04-10T15:18:18Z",
+  "as_of_utc": "2026-04-10T15:18:05Z",
   "source_validation": {
     "toll_raw_inputs": {
       "status": "repo_local_ok",

@@ -1,6 +1,6 @@
 # Thesis-Grade Codebase Report: whatif-freight-router
 
-Date: April 9, 2026
+Date: April 12, 2026
 
 Repository basis: current local working tree at `c:\Users\jmend\Documents\GitHub\whatif-freight-router`
 
@@ -8,13 +8,29 @@ Evidence policy: repo-local evidence only.
 
 ## Abstract
 
-This project is a UK-focused freight-routing decision system built as a hybrid of four things: a prepared OSRM road-routing engine, a Python/FastAPI modeling backend, a Next.js single-page frontend, and a calibrated data/model asset layer that injects time-of-day, terrain, toll, fuel, carbon, uncertainty, and live scenario pressure into route selection. In plain language, the project does not only ask "what is the shortest road path?" It asks "which of the feasible UK freight routes is the better operational decision once cost, delay risk, terrain, tolls, weather, live pressure, carbon, and user preferences are added?"
+WhatIf Freight Router is an auditable, tri-source, selective minimum-cost certification engine for freight-route recommendation under incomplete search, biased evidence, and ambiguous preferences.
+
+The optimization objective is to minimize expected action cost to a justified terminal decision. The controller keeps three action families explicit and separate throughout the redesign: search actions, evidence actions, and preference actions. Typed abstention classes are `uncertified_due_to_search`, `uncertified_due_to_evidence`, `uncertified_due_to_preference`, `uncertified_due_to_out_of_support_world_model`, `uncertified_due_to_budget`, and `uncertified_due_to_model_assumption`.
+In this central claim set, the problem is posed as minimum-cost certification under coupled but distinct uncertainty sources; the controller can buy search, evidence, and preference information, and each resulting decision is surfaced as a certified singleton, certified set, or typed abstention through artifacts and traces.
+
+WhatIf Freight Router is an auditable, tri-source, selective minimum-cost certification engine for freight-route recommendation under incomplete search, biased evidence, and ambiguous preferences. It is implemented as a UK-focused freight-routing decision system built as a hybrid of four things: a prepared OSRM road-routing engine, a Python/FastAPI modeling backend, a Next.js single-page frontend, and a calibrated data/model asset layer that injects time-of-day, terrain, toll, fuel, carbon, uncertainty, and live scenario pressure into route selection. In plain language, the project does not only ask "what is the shortest road path?" It asks "which of the feasible UK freight routes is the better operational decision once cost, delay risk, terrain, tolls, weather, live pressure, carbon, and user preferences are added?"
 
 The main engineering character of the repository is strictness. The backend is intentionally fail-closed for many subsystems: graph readiness, scenario data, terrain coverage, toll topology/tariffs, departure profiles, stochastic regimes, fuel and carbon feeds, and several signature/provenance checks. This means the software would rather stop with an explicit reason code than silently invent a result from stale or unsupported data. That design choice is one of the strongest thesis themes in the repo.
 
-The third defining trait in the current codebase is that the thesis pipeline is explicit in code and available through named modes rather than only implicit in scripts or notes. The repository carries named pipeline modes (`legacy`, `dccs`, `dccs_refc`, `voi`), deterministic candidate triage, frontier certification, and a VOI-style controller, along with the artifact and UI surfaces needed to inspect those stages after a run.
+The third defining trait in the current codebase is that the thesis pipeline is explicit in code and available through named modes rather than only implicit in scripts or notes. The default primary live `/route` path for thesis-facing non-waypoint requests is the redesigned certification engine, with supported requests resolving through `dccs_refc`. Live `/route` no longer supports `pipeline_mode=legacy` and does not support waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. Terminal outcomes in the certification-facing path are certified singleton, certified set, or typed abstention. The repository carries named pipeline modes (`legacy`, `dccs`, `dccs_refc`, `voi`) for the broader thesis/evaluation surface, along with deterministic candidate triage, frontier certification, and a VOI-style controller.
 
 The second defining trait is that the project is not a pure academic implementation. It uses academically recognizable methods such as weighted-sum selection, augmented Tchebycheff scalarisation, VIKOR compromise ranking, Pareto dominance, epsilon-constraint filtering, A* heuristics, Yen-style K-shortest paths, quantiles, and CVaR. But those methods are adapted into transparent engineering blends that better fit freight-routing product needs. The code itself explicitly says the modified profiles are not claimed as novel theory.
+Unless a section explicitly cites current artifact evidence, benchmark, runtime, and baseline-comparison statements in this report should be read as empirical or descriptive observations rather than as open `G11.*` or `P14.*` gates being declared green. In this report, certification-facing guarantees are conditional on the stated support, bounded-world, and model-validity assumptions; benchmark and bundle results are empirical unless tied to a checked artifact; and score blends or ranking helpers are heuristic unless the section explicitly cites a theorem-backed invariant.
+
+## Proof Status And Theorem Map
+
+This report now treats the theorem package and theorem-to-artifact map as front-door reading surfaces rather than appendix-only references.
+
+Start proof-status reading with [`docs/theorem_package.md`](theorem_package.md) for the named theorem/proposition and lower-bound statements, then [`docs/theorem_map.md`](theorem_map.md) for the reviewer-readable theorem-to-artifact map. Together those files map each required family to assumptions, code objects, named tests, artifact fields, evaluator metrics, and report appendix locations.
+
+Read [`docs/claim_matrix.md`](claim_matrix.md) next for the detailed claim-discipline ledger and [`../claim_matrix.md`](../claim_matrix.md) for the reviewer-facing top-level claim index. Those files separate theorem-backed claims, empirical claims, heuristic-but-measured surfaces, and non-claim / descriptive-only framing so the report does not silently blur proof status with implementation evidence.
+
+The current evidence remains intentionally narrow: this repository slice now publishes a named `partial-proof` theorem and lower-bound package for the current thesis families, but it still does not claim theorem-backed closure for the full thesis pipeline. The point of foregrounding [`docs/theorem_package.md`](theorem_package.md) and [`docs/theorem_map.md`](theorem_map.md) here is to make that proof status central and explicit, not to imply theorem closure.
 
 ## How To Read This Report
 
@@ -25,16 +41,18 @@ This report is intentionally dual-layered.
 
 If the goal is dissertation writing, the most useful reading order is:
 
-1. System overview
-2. Frontend capabilities
-3. Backend routing pipeline
-4. Routing mechanics
-5. Math and algorithms
-6. Physics and cost model
-7. Live/strict data
-8. Data and calibration
-9. Comparison against OSRM/ORS baselines
-10. Quality, reproducibility, and file inventory appendices
+1. Proof status and theorem-to-artifact map:
+   [`docs/theorem_package.md`](theorem_package.md), [`docs/theorem_map.md`](theorem_map.md), [`docs/claim_matrix.md`](claim_matrix.md), and [`../claim_matrix.md`](../claim_matrix.md)
+2. System overview
+3. Frontend capabilities
+4. Backend routing pipeline
+5. Routing mechanics
+6. Math and algorithms
+7. Physics and cost model
+8. Live/strict data
+9. Data and calibration
+10. Comparison against OSRM/ORS baselines
+11. Quality, reproducibility, and file inventory appendices
 
 ## Scope And Evidence Hierarchy
 
@@ -42,16 +60,16 @@ If the goal is dissertation writing, the most useful reading order is:
 
 The repository currently contains:
 
-- 1022 tracked files total.
-- 895 tracked files under `backend`, mostly because raw toll evidence and toll fixtures are intentionally stored in-repo.
-- 77 tracked files under `frontend`.
-- 26 tracked files under `docs`.
+- 1064 tracked files total.
+- 925 tracked files under `backend`, mostly because raw toll evidence and toll fixtures are intentionally stored in-repo.
+- 79 tracked files under `frontend`.
+- 35 tracked files under `docs`.
 - 42 tracked backend data/build/benchmark scripts under `backend/scripts`.
-- 48 backend runtime modules under `backend/app`.
-- 428 tracked backend test files.
-- 68 tracked files under `frontend/app`.
+- 67 backend runtime modules under `backend/app`.
+- 438 tracked backend test files.
+- 69 tracked files under `frontend/app`.
 - 27 tracked frontend API proxy route files.
-- 24 tracked frontend component files.
+- 25 tracked frontend component files.
 - 14 tracked frontend library files under `frontend/app/lib`.
 - 18 tracked UK asset files under `backend/assets/uk`.
 - 342 tracked UK raw evidence files under `backend/data/raw/uk`.
@@ -700,7 +718,7 @@ Those are request-level `pipeline_mode` values, and in the thesis bundles they a
 - `B -> dccs_refc`
 - `C -> voi`
 
-In the verified default runtime configuration, supported requests resolve through `dccs_refc` as the primary thesis-facing path, while `legacy` remains available as the baseline-only path for ablation, replay, or historical comparison. Terminal outcomes in that path are typed as certified singleton, certified set, or typed abstention.
+In the verified default runtime configuration, thesis-facing non-waypoint requests resolve through `dccs_refc` as the primary live `/route` path. Live `/route` rejects `pipeline_mode=legacy` and rejects waypoint requests; comparison, ablation, replay, and historical-comparison flows are directed to `/route/baseline` and `/route/baseline/ors`. Terminal outcomes in the certification-facing path are typed as certified singleton, certified set, or typed abstention.
 
 The pipeline spec also makes the named route sets explicit:
 
@@ -717,7 +735,7 @@ The most important architectural change since the earlier report draft is that c
 
 `backend/app/decision_critical.py` adds DCCS. It builds deterministic candidate ledgers, stable candidate IDs, objective proxies, mechanism descriptors, confidence maps, overlap/stretches, flip probabilities, and auditable refine-cost estimates from fixed in-repo coefficients. In plain English, it decides which candidates are worth spending refinement budget on before the backend commits to expensive route building.
 
-`backend/app/evidence_certification.py` adds REFC. It works on the strict frontier `F`, activates evidence families such as scenario, toll, terrain, fuel, carbon, weather, and stochastic state, samples bounded replayable worlds, computes winner-frequency certificates, and then derives fragility maps and value-of-refresh summaries. In plain English, it asks whether the apparent winner still looks like a winner once evidence uncertainty is stressed in a controlled, repeatable way.
+`backend/app/evidence_certification.py` adds REFC. It works on the strict frontier `F`, activates evidence families such as scenario, toll, terrain, fuel, carbon, weather, and stochastic state, samples bounded replayable worlds, computes winner-frequency certificates, and then derives fragility maps and value-of-refresh summaries. Those certificates are conditional on the bounded-world model, support gating, and asset-validity assumptions encoded for the run; they are not assumption-free claims about the outside world. In plain English, it asks whether the apparent winner still looks like a winner once evidence uncertainty is stressed in a controlled, repeatable way.
 
 `backend/app/voi_controller.py` adds VOI-AD2R. It keeps a deterministic controller state, scores a fixed menu of actions, and can:
 
@@ -1650,7 +1668,7 @@ Additional current defaults worth calling out:
 | route Pareto backfill | enabled; minimum alternatives 6 | prevents very small frontiers from starving the UI |
 | live retry policy | 6 attempts, 30 s deadline, 200-2500 ms backoff | balances strictness and practical recoverability |
 
-## Comparison Chapter: Base OSRM, ORS, And The Smart Router
+## Comparison Chapter: Certification-Facing Comparisons With OSRM And ORS
 
 ### What the project adds beyond base OSRM
 
@@ -1707,9 +1725,9 @@ The frontend baseline-comparison layer and backend baseline endpoints frame impr
 - CO2 improvement
 - distance change
 
-The current frontend helper `baselineComparison.ts` computes a composite "Epic score" from normalized ETA, cost, and CO2 gains, then places the route in a tier.
+The current frontend helper `baselineComparison.ts` computes a heuristic composite "Epic score" from normalized ETA, cost, and CO2 gains, then places the route in a tier.
 
-This means the project's own notion of "beats the baseline" is not strictly shortest-time. It is explicitly multi-criteria.
+This means the project's own notion of "beats the baseline" is not strictly shortest-time. It is explicitly multi-criteria. The displayed deltas are empirical for the visible request or checked bundle; they are not theorem-backed global superiority claims.
 
 ### Evidence strength versus evidence gap
 
@@ -1728,12 +1746,12 @@ Weak or absent local evidence:
 The defensible thesis wording is therefore:
 
 - the repository contains explicit comparison machinery and user-facing comparison workflows
-- it is architecturally capable of outperforming base routing once freight-specific costs and constraints matter
+- it can outperform base routing on some rows once freight-specific costs and constraints matter
 - but a universal percentage claim would need a separately reported benchmark corpus result
 
-### Why the smart system can win in general
+### Why the system can outperform baseline providers on some rows
 
-It can win generally because plain provider routes optimize a narrower surrogate target, while the smart system optimizes a broader operational target. If a route is slightly longer but avoids tolls, smoother terrain, peak departure pressure, or bad uncertainty tails, it can be better for freight operations even when it is not the absolute shortest geometry.
+It can outperform plain provider routes on some rows because provider routes often optimize a narrower surrogate target, while the certification-facing system optimizes a broader operational target. If a route is slightly longer but avoids tolls, smoother terrain, peak departure pressure, or bad uncertainty tails, it can be better for freight operations even when it is not the absolute shortest geometry.
 
 ## Thesis Pipeline Chapter
 
@@ -1760,6 +1778,7 @@ That pipeline is implemented directly in:
 
 and surfaced in the frontend through:
 
+- `frontend/app/components/DecisionStateSummary.tsx`
 - `frontend/app/components/RouteCertificationPanel.tsx`
 - `frontend/app/components/devtools/RunInspector.tsx`
 
@@ -1951,7 +1970,7 @@ The controller state tracks quantities such as:
 - competitor turnover
 - prior support strength
 
-Those state variables are not just labels. The controller computes `support_richness` from an explicit weighted blend of prior strength `0.24`, support strength `0.22`, support ratio `0.18`, source entropy `0.14`, source count `0.08`, source-mix count `0.06`, corridor count `0.04`, and candidate-path count `0.04`. It computes `ambiguity_pressure` from pending flip probability `0.30`, pending challenger mass `0.22`, near-tie mass `0.18`, search-completeness gap `0.14`, frontier-recall deficit `0.10`, and certificate-margin pressure `0.06`. In other words, the VOI controller is not hand-wavy. Its notion of “this row is still worth more work” is a fixed deterministic formula over recorded state.
+Those state variables are not just labels. The controller computes `support_richness` from an explicit weighted blend of prior strength `0.24`, support strength `0.22`, support ratio `0.18`, source entropy `0.14`, source count `0.08`, source-mix count `0.06`, corridor count `0.04`, and candidate-path count `0.04`. It computes `ambiguity_pressure` from pending flip probability `0.30`, pending challenger mass `0.22`, near-tie mass `0.18`, search-completeness gap `0.14`, frontier-recall deficit `0.10`, and certificate-margin pressure `0.06`. In other words, the VOI controller is not hand-wavy, but the action-priority blend is still a heuristic deterministic control rule rather than a theorem-backed optimal-control guarantee.
 
 The stop logic is equally explicit. `VOIStopCertificate` records `stop_reason`, the full `action_trace`, the full `state_trace`, the `best_rejected_action`, and an `ambiguity_summary`. The code can stop because the route is already `certified`, because budgets are exhausted, because no action is worth enough value (`no_action_worth_it` or `search_incomplete_no_action_worth_it`), because the iteration cap is reached, or because an execution path failed without the required hooks (`error_missing_action_hooks`). The file also contains explicit suppression logic for search-tail churn, saturated certified reopen churn, and uncertified weak-search tails, so the controller is guarding against pathological “keep doing work because work is available” behavior rather than only maximizing local q-scores.
 
@@ -1998,7 +2017,7 @@ Those file names are not interchangeable. Their semantics are now clear enough t
 - `od_corpus.csv`, `od_corpus.json`, `od_corpus_summary.json`, and `od_corpus_rejected.json` record the evaluation input set itself rather than only outcomes
 - `thesis_results.*`, `thesis_summary.*`, `thesis_summary_by_cohort.*`, `thesis_metrics.json`, `thesis_plots.json`, `methods_appendix.md`, and `thesis_report.md` are the derived research-facing outputs rather than the operational run outputs
 
-The ordinary run-manifest and metadata contract is also now clearer than the earlier report suggested. Route manifests written by the run store include `schema_version`, `type`, `request`, `pipeline`, `selected_route_id`, `selected_certificate`, `voi_stop_summary`, `warnings`, `candidate_diagnostics`, and `execution`. The companion `metadata.json` includes `run_id`, `schema_version`, `type`, `request_id`, `pipeline_mode`, `run_seed`, `manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`, `provenance_file`, `artifact_names`, `selected_route_id`, `candidate_count`, `warning_count`, and `duration_ms`. That means a thesis reader can reconstruct not only “what route won,” but also which run identity, seed, and artifact pointers were associated with that decision.
+The ordinary run-manifest and metadata contract is also now clearer than the earlier report suggested. Route manifests written by the run store include `schema_version`, `type`, `request`, `pipeline`, `selected_route_id`, `selected_certificate`, `voi_stop_summary`, `warnings`, `candidate_diagnostics`, and `execution`. The companion `metadata.json` includes `run_id`, `schema_version`, `type`, `request_id`, `pipeline_mode`, `run_seed`, `manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`, `provenance_file`, `artifact_names`, `selected_route_id`, `candidate_count`, `warning_count`, and `duration_ms`. For route-compute bundles, the same artifact directory now also carries a synthesized `index.json` and `index.md` built from `metadata.json`, artifact pointers, support summaries, and cache summaries, with the index files excluded from `artifact_names` to avoid self-referential churn. That means a thesis reader can reconstruct not only “what route won,” but also which run identity, seed, artifact pointers, and support summary were associated with that decision.
 
 The retrieval flow is likewise part of the codebase contract rather than only a convenience doc example: submit the run, capture `run_id`, fetch `manifest` and `scenario-manifest`, fetch `signature` and `scenario-signature`, then enumerate or download the artifact set via `/runs/{run_id}/artifacts`. This matters because the report should explain how the backend was designed to be audited after the fact, not only how it computes in the moment.
 
@@ -2026,7 +2045,48 @@ The newest checked campaign bundle in this repo is the blocked widening campaign
 
 - `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi`
 
-That bundle matters because it is the best single place in the local repo for a complete, all-variants, all-success, artifact-rich thesis run. Its `evaluation_manifest.json` records:
+That bundle matters because it is the most complete local focused-VOI snapshot currently checked into the repo. It is not, by itself, a redesign-complete proof pack: it does not close any open `G11.*` or `P14.*` item, and it does not substitute for separate `preference proof`, `optional-stopping coverage`, `proxy-audit calibration`, `perturbation / flip-radius`, `public transfer`, or `synthetic ground-truth` lanes.
+
+The proxy-audit discussion in this report should now be read as a model-card and calibration-surface explanation rather than as the live blocker ledger. The authoritative checked truth for publication status is the suite-level bundle under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`, whose `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json` is currently red on current evidence: `publishable_on_current_evidence=false`, `adoption_claim_supported=false`, `hot_rerun_all_green=true`, and the remaining blockers are `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green`. Older standalone proxy-only inspection slices remain useful as examples of leakage-safe, out-of-fold calibration payloads, but they are no longer the maintained checked reviewer surface for overall publishability status.
+
+That older proxy-audit example is still useful because it is leakage-safe and out-of-fold rather than in-sample: the emitted calibration payload records `proxy_audit_calibration_leakage_safe_training = true`, the support-conditioned payload carries `oof_row_count = 50`, and the same example surfaces `proxy_bias_model_version = proxy-bias-v3` together with `audit_propensity_version = audit-propensity-v2`. That is the right publication reading for `P5.3`: the repo has a real cross-fit calibration surface and the model card can describe it honestly, while the checked publication verdict itself now lives at suite level rather than in a standalone proxy-audit companion.
+
+One concrete full artifact-tree example for a single checked run bundle is the current focused-VOI bundle itself:
+
+```text
+backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/
+|-- baseline_smoke_summary.json
+|-- cohort_composition.json
+|-- evaluation_manifest.json
+|-- index.json
+|-- index.md
+|-- metadata.json
+|-- methods_appendix.md
+|-- od_corpus.csv
+|-- od_corpus.json
+|-- od_corpus_summary.json
+|-- repo_asset_preflight.json
+|-- results.json
+|-- thesis_metrics.json
+|-- thesis_plots.json
+|-- thesis_report.md
+|-- thesis_results.csv
+|-- thesis_results.json
+|-- thesis_summary.csv
+|-- thesis_summary.json
+|-- thesis_summary_by_cohort.csv
+`-- thesis_summary_by_cohort.json
+```
+
+In the inspected evaluator source for this report, explicit suite roles currently confirmed are `broad_cold_proof`, `focused_refc_proof`, `focused_voi_proof`, `dccs_diagnostic_probe`, `hot_rerun_cold_source`, `hot_rerun`, `preference_proof`, `optional_stopping_coverage`, `proxy_audit_calibration`, `perturbation_flip_radius`, `threshold_sensitivity`, `public_transfer`, and `synthetic_ground_truth` (plus `generic_evaluation` as a helper role). That registration matters because the evaluator vocabulary is now machine-readable end to end. The present report slice now cites checked local reviewer companion bundles for the newer `threshold_sensitivity` and `public_transfer` lanes under `out/headline_exports/current_checked/`, but those bundle citations still do not close the corresponding redesign gates by themselves.
+
+The evaluator source also defines a `threshold_sensitivity` lane for one-factor-at-a-time sweeps over the certificate threshold, fast-path threshold, and certified-set cap. When that role is selected, it writes `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.csv`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_report.md`, and the `threshold_sensitivity_vs_variant` plot family into the run artifact directory. This report now cites the checked local companion bundle `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/`, whose `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/lane_metadata.json` records role `threshold_sensitivity`, `row_count = 52`, and the maintained sweep axes for all three threshold families. That is concrete checked evaluator evidence for lane existence and artifact emission, not a claim that the sensitivity-related publishability gates are green.
+
+For `public_transfer`, the current source now distinguishes two emitted holdout surfaces rather than only one. A lane run still writes the corridor-family transfer slice through `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.csv` / `.json` and `thesis_plots.json` family `leave_one_corridor_family_out_transfer_vs_variant`, but it now also writes a separate weather-regime holdout slice through `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.csv` / `.json` and `thesis_plots.json` family `leave_one_weather_regime_out_transfer_vs_variant`. This report now cites the checked local companion bundle `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/`, whose `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/lane_metadata.json` records both transfer-slice families. That checked bundle still reports `row_count = 52` against the `G11.52` minimum of `50`, so it is evidence of evaluator coverage rather than a green transfer-size proof.
+
+The export helper now also stages runtime-observability reviewer surfaces from the staged full-suite broad-cold proof bundle: `figure.latest_checked_campaign.runtime_distribution_vs_variant` for the p50/p90/p95 runtime distribution plus max RSS/VMS memory surfaces, `figure.latest_checked_campaign.runtime_breakdown_vs_variant` for the stage-by-stage runtime and runtime-utilization proxy breakdown, `figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage` for the stage-wise p50/p90/p95 view, `table.latest_checked_campaign.runtime_observability_summary` for a compact table view, `table.latest_checked_campaign.runtime_action_observability_summary` for the budget-used, action-family-budget-share, and VOI action-family proxy view, and `table.latest_checked_campaign.runtime_stage_quantiles` for the per-stage quantile table. The same reviewer package now stages the focused-VOI preference-burden tables `table.focused_voi.preference_burden_summary` and `table.focused_voi.preference_burden_by_cohort`, which currently show zero preference query counts on the available rows and the checked budget-utilization proxies. The runtime tables now ship paired CSV and JSON source companions for consistency. The runtime-action table exposes exact fast-path precision/recall with denominators, the checked hot-rerun companion now carries populated peak RSS/VMS summary fields in `thesis_summary.*` / `thesis_metrics.json`, and the full-suite checked companion now adds `out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.json` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.md` sourced from the copied lane `thesis_metrics.json` files. That makes the `P14.46-P14.50` reporting family present on current checked evidence. The separate pair-benchmark hot-rerun companion is green on its own, but the suite-level publishability verdict is still red because the embedded full-suite hot-rerun reuse gate is not all green.
+
+Its `evaluation_manifest.json` records:
 
 - run id `thesis_eval_20260331_r2_focused_voi`
 - created at `2026-04-01T00:09:48.771286+00:00`
@@ -2064,9 +2124,9 @@ Its baseline smoke summary is also worth preserving because it proves the bundle
 - ORS graph identity status `graph_identity_verified`
 - ORS asset manifest hash `6bbc27f2cff7983598de1ee9fe5272c67b4b3fab6c732dd696d909151261d063`
 
-Variant-level summary rows from `thesis_summary.json` currently record:
+Variant-level snapshot rows from `thesis_summary.json` currently record:
 
-| Variant | Mode | Weighted win vs best baseline | Dominance win vs best baseline | Runtime win vs `V0` | Mean runtime ms | Mean algorithm ms | Mean certificate | VOI engagement |
+| Variant | Mode | Weighted baseline-comparison rate | Dominance baseline-comparison rate | Runtime reduction rate vs `V0` | Mean runtime ms | Mean algorithm ms | Mean certificate | VOI engagement |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `V0` | `legacy` | `0.95` | `0.55` | `0.0` | `19882.11025` | `19168.68825` | n/a | `0.0` |
 | `A` | `dccs` | `1.0` | `0.7` | `0.25` | `30695.3346` | `29981.9126` | n/a | `0.0` |
@@ -2096,13 +2156,13 @@ The ambiguity side of that focused bundle is equally important because it shows 
 - `C ambiguity_prior_top_k_precision=1.0`
 - `C certificate_availability_gain_vs_v0_rate=1.0`
 
-The cleanest interpretation is:
+A safe local interpretation of this bundle alone is:
 
 - `A` improves frontier quality but pays for it heavily in cold-run runtime
 - `B` is the strongest "faster than V0 while adding certification" result in the complete focused bundle
 - `C` adds the richest controller evidence and the highest mean certificate, but its runtime story is mixed because the controller intentionally spends effort on hard rows
 
-That makes the focused VOI bundle the most informative current local artifact for understanding not only what the thesis pipeline can do, but also what it costs and how it is tuned.
+That makes the focused VOI bundle the most complete local focused-VOI artifact currently checked in, not a substitute for the full required lane family or for any still-open `G11.*` or `P14.*` gate.
 
 ### Bundle-level artifact semantics
 
@@ -2115,11 +2175,29 @@ The focused VOI bundle is not one flat report. It is a layered artifact stack, a
 - `cohort_composition.json` explains which OD rows are being summarized together. In the current focused bundle every variant sees the same `20` OD ids split into `15` ambiguity rows and `5` representative rows, so the cross-variant comparisons are not being driven by changing corpus membership.
 - `thesis_metrics.json` is the densest row-level evidence ledger. Each row carries corpus descriptors, ambiguity priors, effective request config, selected-route outputs, baseline comparisons, stage timings, cache statistics, controller/certificate summaries, artifact status flags, and the `artifact_run_id` that links the row back to a concrete route-compute artifact directory.
 - `thesis_summary.json` is the all-rows aggregate by variant.
-- `thesis_summary_by_cohort.json` keeps the same metric families but splits them by cohort. In the current focused bundle it includes `representative`, `ambiguity`, `hard_case`, and an extra VOI-only `controller_stress` slice for `C`.
+- `thesis_summary_by_cohort.json` keeps the same metric families but splits them by cohort. In the current focused bundle it includes `representative`, `ambiguity`, `hard_case`, `support_fragile`, and an extra VOI-only `controller_stress` slice for `C`.
 - `thesis_plots.json` is plotting-ready derived data, not the root evidentiary store.
 - `thesis_report.md` is generated narrative output. It is useful for fast reading, but the actual ground truth still lives in `evaluation_manifest.json`, `thesis_metrics.json`, and the per-run artifact directories.
 
 That separation matters because a reader who only opens `thesis_report.md` sees an interpretation, while a reader who walks `evaluation_manifest.json -> thesis_metrics.json -> artifact_run_id` sees the actual execution trace.
+
+### One worked row from request to decision to artifacts
+
+One concrete checked row in the current focused bundle is enough to show the intended end-to-end trace.
+
+- Start at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_metrics.json` for `od_id=birmingham_bristol`, `variant_id=C`, `pipeline_mode=voi`. That row records `artifact_run_id=80039735-492b-46c8-a82e-ff1673ccf036`, `manifest_endpoint=/runs/80039735-492b-46c8-a82e-ff1673ccf036/manifest`, and `artifacts_endpoint=/runs/80039735-492b-46c8-a82e-ff1673ccf036/artifacts`.
+- The concrete request for that same row is preserved in `backend/out/manifests/80039735-492b-46c8-a82e-ff1673ccf036.json`: origin Birmingham (`52.4862,-1.8904`) to Bristol (`51.4545,-2.5879`), `vehicle_type=rigid_hgv`, `scenario_mode=no_sharing`, `max_alternatives=10`, `optimization_mode=robust`, weights `time=1.25`, `money=1.1`, `co2=1.3`, `search_budget=6`, `evidence_budget=3`, `cert_world_count=88`, `certificate_threshold=0.83`, and `departure_time_utc=2026-03-21T11:00:00Z`.
+- The same manifest and provenance record preserve the key staged outputs for that request. Candidate generation started from `12` raw candidates, deduped to `3`, and selected `route_0`. The VOI controller spent one evidence action on stochastic resampling, which raised the realized certificate from `0.787574` to `0.81748`, but still left the route below the `0.83` threshold.
+- The same run's final public `DecisionPackage`-relevant state is visible in the checked decision-facing fields carried by the manifest and final summaries: `pipeline_mode=voi`, `selected_route_id=route_0`, `selected_certificate.certificate=0.81748`, `selected_certificate.certified=false`, `selected_certificate.active_families=[carbon,fuel,scenario,stochastic,terrain,toll]`, `selected_certificate.top_value_of_refresh_family=carbon`, and `voi_stop_summary.stop_reason=search_incomplete_no_action_worth_it`. In plain English, the run found one surviving frontier route and improved its certificate, but stopped short of a certified win.
+- The exact artifact bundle pointers for that same row are then pinned by `backend/out/artifacts/80039735-492b-46c8-a82e-ff1673ccf036/metadata.json`, which repeats the same `run_id`, `manifest_endpoint`, `artifacts_endpoint`, and `provenance_endpoint`. The emitted artifact family for that row includes `results.json`, `certificate_summary.json`, `winner_summary.json`, `route_fragility_map.json`, `sampled_world_manifest.json`, `value_of_refresh.json`, `voi_action_trace.json`, `voi_action_scores.csv`, and `voi_stop_certificate.json`.
+
+That is the complete worked row in miniature: one evaluator row points to one concrete request, one final decision state, and one concrete artifact directory with the supporting traces for that same decision.
+
+The repo root now also carries a conservative `paper_artifact_index.json` that maps the current reviewer-facing headline surfaces and supporting source-only surfaces to exact checked local artifacts. In the present slice that means `thesis_summary.*`, `thesis_summary_by_cohort.*`, and selected `thesis_plots.json` views from `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/`, plus the current checked full-suite fairness surface in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/universal_baseline_audit.csv` and `.json` together with the copied `out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.json` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.json` attachments in the same bundle root. Those manifests preserve graph date, graph digest, image/config identity, and source graph metadata, which is why the current package supports `P9.5`, the manifest-attachment portion of `P14.32`, and a green suite-level fairness reading (`fairness_failure_count = 0`). The index is intentionally source-artifact first: headline entries now also point at checked SVG/PDF/HTML renders under `out/headline_exports/current_checked/`, supporting entries may remain source-only, and none of those paths imply a new claim beyond the concrete files that exist today. The older campaign-backed `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/baseline_fairness_audit.json` remains in the index as a historical contrast, while the current checked fairness audit surface is green at suite level.
+
+When repeated headline runs are present, the maintained report-side reading is narrower than the raw artifact catalog: use BCa-bootstrap CI summaries for point estimate, paired delta, and interval interpretation, and use Holm-adjusted claim summaries for adjusted p-value interpretation. Read point estimate and paired delta together with `seed count` plus `paired rows / seed`, cite the emitted bootstrap method and resample count when interpreting the 95% BCa CI, and read effect size as the between-seed standardized effect size for the headline metric rather than as a standalone success flag. If a CI crosses zero or the claim summary flags claim narrowing, the comparison should be read as inconclusive or narrowed rather than positive; none of those outputs imply green gates unless the report also cites completed repeated runs, thresholds, and sample sizes. The currently checked focused bundle is still single-seed only (`seed_repeat_plan.headline_seed_repeat_required = true`, `configured_seed_count = 1`, `status = single_seed_only`), so the focused `C` row below is a local checked example, not seed-robust or threshold-stable publication evidence.
+
+In the local reviewer slice, that repeated-run reading is still not directly consumable from the maintained focused bundle alone. The focused reviewer bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` contains `thesis_summary.*`, `thesis_summary_by_cohort.*`, `thesis_plots.json`, `thesis_metrics.json`, `thesis_report.md`, and `evaluation_manifest.json`, and its manifest records `20` requested OD rows with `80` result rows. The latest checked campaign bundle under `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/` is likewise a single checked tranche rather than a repeated-seed publication bundle. Those counts are descriptive evaluator row counts, not repeated-seed sample sizes. The newer checked full-suite assessment bundle `full_suite_curated_latest_20260411` now does provide the stronger publishability-facing surfaces: lane-publishability summaries, universal-baseline audit summaries, sample-size gate summaries, headline seed-claim summaries, `out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas_lane_metadata.json`, a failure atlas, a publishability verdict, and a publishability assessment. In its checked local reviewer companion under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`, the failure-atlas lane metadata currently records `lane_status = present_complete`, required exemplar counts for `wrong_singleton`, `support_downgrade`, and `abstention` as `82`, `82`, and `40`, and the atlas family is complete in the checked artifact truth. The current checked full-suite verdict now reports `fairness_failure_count = 0`, `sample_size_failure_count = 0`, `headline_claim_narrowing_count = 0`, `optional_stopping_gate_failure_count = 0`, `perturbation_gate_failure_count = 0`, `hot_rerun_all_green = true`, and `publishable_on_current_evidence = false` with `adoption_claim_supported = false`. The remaining blockers are `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green`. So the right reading is narrower than “no full-suite evidence”: stronger suite-level evidence now exists, but the current checked verdict is still not publishable on current evidence.
 
 ### Cohort detail inside the focused bundle
 
@@ -2128,6 +2206,7 @@ The focused bundle is also more informative than one all-rows aggregate:
 - `representative` rows are the non-ambiguity baseline workload. Here `C` is especially cheap: `mean_runtime_ms=5385.9102`, `mean_certificate=0.829784`, `mean_voi_action_count=1.2`, and `voi_controller_engagement_rate=0.6`.
 - `ambiguity` rows are the main stress set. Here `C` rises to `mean_runtime_ms=13370.882067`, `mean_certificate=0.872018`, `mean_voi_action_count=1.333333`, and `voi_controller_engagement_rate=0.866667`, while `B` remains comparatively stable at `mean_runtime_ms=8816.7622` with `mean_certificate=0.838026`.
 - `hard_case` rows are the stronger pressure subset. Here `C` records `mean_runtime_ms=11374.6391`, `mean_certificate=0.861459`, `mean_search_budget_utilization=0.660833`, and `mean_evidence_budget_utilization=0.3`, while `B` records `mean_runtime_ms=8212.239588` and `mean_certificate=0.747852`.
+- `support_fragile` is a derived support-richness slice, not a mutually exclusive cohort class. It can overlap with the other labels above when a row is both ambiguity-heavy and support-fragile under the current evaluator thresholding.
 - `controller_stress` appears only for `C` and is therefore the clearest direct view of VOI intervention. In that slice, `C` records `row_count=16`, `mean_runtime_ms=13059.021`, `mean_certificate=0.855486`, `mean_voi_action_count=1.625`, `voi_controller_engagement_rate=1.0`, `mean_search_budget_utilization=0.663095`, and `mean_evidence_budget_utilization=0.375`.
 
 So the current local thesis evidence is not saying only "VOI sometimes helps." It is saying more specifically that the controller spends extra effort where ambiguity pressure is high, and that the bundle preserves those cohort-conditioned costs and certificates explicitly.
@@ -2184,6 +2263,12 @@ Its `dccs_summary.json` also makes the batch logic explicit:
 
 The paired `winner_summary.json` then keeps the chosen objective vector visible: `time=8270.89 s`, `money=150.55`, `co2=221.745 kg`.
 
+The current checked route-compute bundle `027975bb-4dd9-4795-96a0-e4a4276b7e2f` also lets the report write down one numeric DCCS case directly from the maintained artifact surfaces. That request runs from `(-2.997889, 51.584251)` to `(-2.35893, 51.38094)`, and its `dccs_summary.json` records `candidate_count_raw=12`, `refined_count=6`, `frontier_count=3`, `search_budget_total=5`, and `search_budget_used=5`. The candidate ledger is explicit that the envelope layer is written as `candidate_envelope.provenance="proxy_objective_envelope_v1"` with lower and upper objective bounds per candidate, while `selection_rank` is the refinement-order signal and the route-level survivors are written separately in `strict_frontier.jsonl`.
+
+In that checked ledger, candidate `243acb965555e37856326102eff65c0c78a2bbe5` enters the queue with `selection_rank=0`, `decision="refine"`, and `decision_reason="frontier_addition"`. Its `candidate_envelope.lower_objective` is `[3448.707372248, 70.03275709498996, 79.7713439209008]`, its `candidate_envelope.upper_objective` is `[3779.6926277519997, 76.75406090501005, 87.42729607909921]`, and after refinement the same record is marked `known_dominance="dominated_by_frontier"`, `safe_eliminated=true`, `necessary_dominated=true`, `dominated_by_route_id="e3a20a8ecb45c4aeff61b142903c188e8aa74385"`, and `dominance_margin=17.51798633333333`. The next ranked challenger, `9c0e627a65160a1a214f7c86fc1784c88f205f2a`, has `selection_rank=1`, envelope `[4879.344642683999, 93.51563668446515, 102.58186792325759]` to `[5354.455357316, 102.62142531553484, 112.57045207674241]`, and is safely eliminated against `243acb965555e37856326102eff65c0c78a2bbe5` with `dominance_margin=517.1173206666666`.
+
+The survivor side of the same OD case is then written in the frontier files rather than inferred. Candidate `e3a20a8ecb45c4aeff61b142903c188e8aa74385` carries envelope `[3397.5960400021627, 69.25042335924024, 79.06094078989368]` to `[3728.609423997837, 75.99719864075976, 86.76351321010632]`, with `known_dominance="dominates_frontier"` and `safe_eliminated=false`. `strict_frontier.jsonl` maps that candidate to selected `route_2`, while the same file keeps `route_0` and `route_4` as the remaining frontier competitors. `winner_summary.json` then records the selected survivor as `route_2` with `time=3649.78 s`, `money=78.86`, and `co2=109.72 kg`. So the maintained DCCS surfaces now show one complete numeric chain: envelope construction on each candidate, explicit safe-elimination witnesses in `dccs_candidates.jsonl`, and route-level survival/selection in `strict_frontier.jsonl` and `winner_summary.json`.
+
 In variant `B` (`dccs_refc`), artifact run `04d4b18a-8342-4d0a-b8ed-5d729c8eb9da` shows what certification adds:
 
 - selected certificate `0.6929133858267716`
@@ -2210,6 +2295,14 @@ Its `value_of_refresh.json` shows how REFC ranks uncertainty families:
 
 So the REFC layer is not only saying "the route is uncertified." It is also saying why it is uncertified and which evidence family would be most worth refreshing first.
 
+The maintained checked `dccs_refc` bundle `a6a8f5a9-ea79-53fb-8609-83d6ec9ceab8` is the clean worked case where the terminal outcome is intentionally a certified set rather than a singleton. `backend/out/manifests/a6a8f5a9-ea79-53fb-8609-83d6ec9ceab8.json` preserves the concrete request from `(51.5,-2.6)` to `(51.6,-2.5)` with `vehicle_type=rigid_hgv`, `scenario_mode=no_sharing`, `max_alternatives=2`, and weights `(time=1.0, money=0.0, co2=0.0)`. The matching `decision_package.json` closes that same request with `terminal_type="certified_set"`, `selected_route_id="route_0"`, `certificate_summary.certificate=0.86`, `certificate_summary.certified=true`, and a two-member `certified_set` over `route_0` and `route_1`. The same public package leaves `recommended_route=null`, so the API is intentionally not presenting a singleton-certified winner even though the selected route itself is certified.
+
+The reason singleton is withheld is explicit and internally consistent in the lower-level witness artifacts. `certified_set_summary.json` records `certified=true`, `set_size=2`, `excluded_route_ids=[route_2]`, and `exclusion_basis=[outside_routes_excluded, singleton_not_justified:frontier_pairwise_gap_unresolved]`, while its witness keeps `singleton_justified=false`, `singleton_not_justified_reasons=[frontier_pairwise_gap_unresolved]`, `outside_routes_excluded=true`, `outside_routes_safely_excluded=true`, and `frontier_member_ids=[route_0, route_1]`. In plain language, the maintained witness surface says the frontier has been safely cut down to a two-route certified set and all outside routes are excluded safely, but the remaining pairwise gap is still unresolved, so collapsing that set to a singleton would be overclaiming. `metadata.json` and `index.json` then pin the artifact family for that exact run, including `decision_package.json`, `certified_set_summary.json`, `preference_state.json`, `preference_query_trace.json`, `world_support_summary.json`, and the manifest/artifact endpoints. This is therefore the maintained contradiction-free proof case for the report row that requires a certified set to be correct while singleton certification is intentionally withheld.
+
+The same checked bundle also supports a worked preference-robust example from a raw query to a necessary-best / possible-best outcome. `preference_query_trace.json` records `query_count=1` and a single pairwise query with `preferred_route_id="route_a"` against `challenger_route_id="route_b"`. Its `shrinkage_trace` then shows the compatible set contracting from `before_size=2` and `before_volume_proxy=1.0` to `after_size=1` and `after_volume_proxy=0.4`, with `predicted_shrinkage=0.5`, `realized_shrinkage=0.6`, and `query_selection_reason="reduce ambiguity"`. The same trace keeps `contradiction_detected=false`, so this is a clean preference update rather than a contradiction-handling path.
+
+`preference_state.json` and the embedded `decision_package.json.preference_summary` both preserve the resulting route-level preference certificate. `compatible_set_summary` records `compatible_set_size=1`, `necessary_best_prob=1.0`, `possible_best_prob=1.0`, `necessary_best_route_ids=[route_0]`, and `possible_best_route_ids=[route_0]`, with the maintained invariants `necessary_best_prob_le_possible_best_prob=true` and `no_necessary_best_without_possible_best=true`. In plain language, once the user answers that one raw pairwise query in favor of `route_0`, the maintained preference surface no longer treats `route_0` as merely plausible: it is simultaneously the only possible-best route and the only necessary-best route under the surviving compatible weight set. The trace still labels the preference subproblem `terminal_type="open"` because that artifact family reports the elicitation state rather than the global route terminal branch, but the route-level necessary-best / possible-best outcome itself is explicit and complete in the maintained bundle.
+
 In variant `C` (`voi`), artifact run `80039735-492b-46c8-a82e-ff1673ccf036` shows the controller in action:
 
 - initial selected certificate `0.787574`
@@ -2229,6 +2322,16 @@ Its `voi_action_trace.json` is especially revealing because the controller consi
 - `stop` with `q_score=0.0`
 
 The controller chose the stochastic-resample action, recorded `sample_increment=32`, flagged `controller_refresh_fallback_activated=true`, recorded `controller_empirical_vs_raw_refresh_disagreement=true`, and after execution measured a real certificate lift of only `0.029906` (`0.787574 -> 0.81748`). Because the new certificate still stayed below the row threshold `0.83`, the run ended with the explicit stop reason `search_incomplete_no_action_worth_it`.
+
+A current checked route-compute bundle, `027975bb-4dd9-4795-96a0-e4a4276b7e2f`, makes the same controller story explicit row by row rather than only as a summary paragraph:
+
+1. `voi_controller_state.jsonl` starts at `iteration_index=0` with selected `route_2`, certificate map `route_2=0.45`, `route_0=0.0`, `route_1=0.0`, `remaining_search_budget=2`, `remaining_evidence_budget=3`, `search_completeness_score=0.528177`, `search_completeness_gap=0.311823`, `pending_challenger_mass=0.668179`, and frontier routes `route_2`, `route_0`, and `route_1`. So the initial VOI state is already concrete: the controller begins with a nonterminal frontier, unused evidence budget, and a certificate that is still below the controller's own idealized ceiling.
+
+2. `voi_action_trace.json` at iteration `0` shows five feasible actions: `refine_top1_dccs`, `refine_topk_dccs`, `increase_stochastic_samples`, `refresh_top1_vor`, and `stop`. The chosen action is `refine_top1_dccs:2041686dbb093f8a02f2dea7e49157cebfe2ca68` because it has the largest `q_score=0.34589979472404275`. Its predicted gains are `predicted_delta_certificate=0.4347253537792971`, `predicted_delta_margin=0.24682973849018483`, `predicted_delta_frontier=0.1557143211987873`, and `predicted_delta_search_completeness=0.1557143211987873`, with predicted refine cost `66.77404454685592`.
+
+3. The same trace then records the realized outcome of that first action: `realized_certificate_before=0.45`, `realized_certificate_after=1.0`, `realized_certificate_delta=0.55`, `realized_frontier_gain=1`, and `realized_selected_route_changed=false`. At iteration `1`, the controller reevaluates with selected certificate already at `1.0`; only `refine_top1_dccs` and `stop` remain feasible. It still spends the last search step on `refine_top1_dccs:2be47f136b973319e471cdee0aa7adf358935cc9`, where the prediction is no further certificate lift (`predicted_delta_certificate=0.0`) but a larger separation margin (`predicted_delta_margin=0.29401384802124053`, `predicted_delta_frontier=0.28265366767214894`). The realized result matches that shape: `realized_certificate_delta=0.0` while `realized_runner_up_gap_delta=0.147865`.
+
+4. `voi_stop_certificate.json` closes the trace with the controller's own terminal judgment: `final_winner_route_id="route_2"`, `certificate_value=1.0`, `search_budget_used=5`, `search_budget_remaining=0`, `evidence_budget_used=0`, `evidence_budget_remaining=3`, `search_completeness_score=0.382254`, `search_completeness_gap=0.457746`, and `stop_reason="search_incomplete_no_action_worth_it"`. In other words, this checked VOI run does not stop because the search is globally complete; it stops because the remaining feasible action set has collapsed to `stop`, even after one large realized certificate jump and one smaller margin-tightening search refinement.
 
 The corresponding `final_route_trace.json` adds the runtime-and-cache side of the same story:
 
@@ -2343,7 +2446,7 @@ The repo's reproducibility machinery includes:
 - scenario manifests
 - provenance logs
 - signed payloads using HMAC-SHA256
-- stored artifacts such as `backend/out/artifacts/<run_id>/results.json`, `backend/out/artifacts/<run_id>/results.csv`, `backend/out/artifacts/<run_id>/metadata.json`, `backend/out/artifacts/<run_id>/routes.geojson`, `backend/out/artifacts/<run_id>/results_summary.csv`, and `backend/out/artifacts/<run_id>/report.pdf`
+- stored artifacts such as `backend/out/artifacts/<run_id>/results.json`, `backend/out/artifacts/<run_id>/results.csv`, `backend/out/artifacts/<run_id>/metadata.json`, `backend/out/artifacts/<run_id>/routes.geojson`, `backend/out/artifacts/<run_id>/results_summary.csv`, and, for route-compute bundles, `backend/out/artifacts/<run_id>/index.json` plus `backend/out/artifacts/<run_id>/index.md`
 - reproducibility capsule script `scripts/demo_repro_run.ps1`
 - model manifest `backend/out/model_assets/manifest.json`
 - refresh manifest `backend/out/model_assets/refresh_manifest.json`
@@ -2351,6 +2454,15 @@ The repo's reproducibility machinery includes:
 - strict preflight summary `backend/out/model_assets/preflight_live_runtime.json`
 
 `backend/app/signatures.py` uses canonical JSON serialization plus HMAC-SHA256. `backend/app/run_store.py` signs manifests. `backend/app/provenance_store.py` writes timestamped event histories.
+
+#### Reproducibility appendix: policy and model identifiers
+
+The checked repo does not emit one literal hash for every control surface. Where the runtime writes a true fingerprint, this appendix names that hash family directly. Where it does not, this appendix records the stable emitted identifier or version field that the current code and checked artifacts expose.
+
+- world policy: `backend/app/world_policies.py` defines the canonical fingerprint tuple `policy_name`, `policy_version`, and `policy_hash`; the same fields are carried on both `ProbabilisticWorldBundle` and `AuditWorldBundle`, so the world-policy family is the one reproducibility surface that already has an explicit hash contract
+- controller policy: the route controller currently exposes stable emitted identifiers rather than a single controller hash; the maintained controller-policy identifiers are `selected_certificate_basis` together with the coupled world-count selector fields `world_count_policy` and `refc_world_count_policy`, with checked artifact examples such as `single_frontier_structural_cap` and `single_frontier_full_stress`
+- preference model: the repo does not currently stamp a separate preference-model hash into checked artifacts; the maintained equivalent identifiers are the model family `CompatibleWeightSetSummary` and its emitted route-facing payloads `preference_state.json` and `preference_query_trace.json`, built by `build_preference_state(...)` and `build_preference_shrinkage_trace(...)`
+- proxy-correction model: the proxy-correction side is versioned explicitly through `LeakageSafeCorrectionMetadata` with `model_name=conservative_bias_correction`, `model_version=v1`, and a `policy_hash` field; the paired audit-propensity model uses `AuditPropensityMetadata` with `model_name=conservative_audit_propensity`, `model_version=v1`, and its own `policy_hash`, and those versions also flow into `proxy_bias_model_version` and `audit_propensity_version`
 
 The current model manifest is version `model-v2-uk`, generated at `2026-03-21T13:09:12.262992Z`, signed as `87270329a4e941f63c991fc3edf23298ecdaad803a74e2ab5388a16db4690d0a`, and lists 19 built assets. The current live publish summary records publication at `2026-03-21T13:09:18Z`, with scenario signature prefix `dbca97d56394` and fuel signature prefix `02ec87074710`.
 
@@ -2363,7 +2475,7 @@ Several parts of the codebase become much easier to understand once these four s
 - provenance is the timestamped process history that explains what happened during the run
 - artifacts are the concrete output files that contain route, thesis, and report payloads
 
-`backend/app/run_store.py` implements that distinction quite strictly. Its internal `_write_signed_manifest(...)` helper adds `run_id` and `created_at`, then attaches a signature block before writing into `backend/out/manifests` or `backend/out/scenario_manifests`. The same file also standardizes the artifact contract through the `ARTIFACT_FILES` tuple, which currently names 35 artifact slots ranging from `results.json` and `results_summary.csv` to `dccs_candidates.jsonl`, `certificate_summary.json`, `voi_action_trace.json`, `thesis_metrics.json`, `methods_appendix.md`, and `evaluation_manifest.json`. That standardization is academically useful because it makes artifact completeness testable rather than leaving "what a full run should produce" to memory.
+`backend/app/run_store.py` implements that distinction quite strictly. Its internal `_write_signed_manifest(...)` helper adds `run_id` and `created_at`, then attaches a signature block before writing into `backend/out/manifests` or `backend/out/scenario_manifests`. The same file also standardizes the artifact contract through the `ARTIFACT_FILES` tuple, which currently names 47 artifact slots ranging from `results.json` and `results_summary.csv` to `dccs_candidates.jsonl`, `certificate_summary.json`, `voi_action_trace.json`, `thesis_metrics.json`, `methods_appendix.md`, `evaluation_manifest.json`, and the route-compute bundle index pair `index.json` / `index.md`. That standardization is academically useful because it makes artifact completeness testable rather than leaving "what a full run should produce" to memory.
 
 The file is also deliberately defensive. Artifact names must satisfy the safe-name regex `^[A-Za-z0-9][A-Za-z0-9._-]*$`, and `list_artifact_paths_for_run(...)` merges the actual on-disk files with the known contract so callers can distinguish "file absent" from "file not part of the standard run surface." This seemingly small detail explains why the report can talk about artifact completeness rates, why the evaluator can declare required artifacts per pipeline mode, and why the April 9 failing benchmark run is interpretable as a contract mismatch rather than a mysterious directory oddity.
 
@@ -2469,6 +2581,12 @@ The methods appendix paired with this campaign records the current thesis-lane p
 - max alternatives `8`
 - strict evidence policy `no_synthetic_no_proxy_no_fallback`
 
+Headline metadata for the latest checked campaign table and figure family in this subsection:
+
+- lane identity: single checked thesis-campaign tranche `dominance_cluster5_cardiff_bath_corr12p5_r2`, with thesis-lane variants `V0=legacy`, `A=dccs`, `B=dccs_refc`, and `C=voi`
+- cohort identity: the current checked campaign headline slice is ambiguity-only at the evaluator-row level
+- row count: `5` OD rows, therefore `20` total variant-rows across the headline campaign table and figure surfaces cited below
+
 The corresponding thesis summary and metrics artifacts record:
 
 | Variant | Mean runtime ms | Mean algorithm ms | Mean hypervolume | Mean certificate | Key note |
@@ -2507,7 +2625,7 @@ The campaign above is the newest checked thesis-campaign directory, but the most
 Its `evaluation_manifest.json` records:
 
 - `run_id = thesis_eval_20260331_r2_focused_voi`
-- `created_at = 2026-04-01T00:09:48.771286+00:00`
+- `created_at = 2026-04-11T00:33:36.069897+00:00`
 - `model_version = thesis-script-v3`
 - `strict_evidence_policy = no_synthetic_no_proxy_no_fallback`
 - `cache_mode = cold`
@@ -2516,6 +2634,7 @@ Its `evaluation_manifest.json` records:
 - `cache_reset_count = 80`
 - `run_validity.scenario_profile_unavailable_rate = 0.0`
 - `run_validity.strict_live_readiness_pass_rate = 1.0`
+- `seed_repeat_plan.headline_seed_repeat_required = true`, `configured_seed_count = 1`, `status = single_seed_only`
 - `run_validity.evaluation_rerun_success_rate = 1.0`
 
 The same manifest also captures the route-runtime readiness context that preceded the evaluation:
@@ -2530,6 +2649,12 @@ The same manifest also captures the route-runtime readiness context that precede
 - largest component ratio `0.9274120825277874`
 - strict-live dependency count `7`
 
+Headline metadata for the focused-VOI table and figure family in this subsection:
+
+- lane identity: focused-VOI thesis evaluation bundle `thesis_eval_20260331_r2_focused_voi`, with the same thesis-lane variants `V0=legacy`, `A=dccs`, `B=dccs_refc`, and `C=voi`
+- cohort identity: the current focused-VOI headline slice spans `ambiguity` and `representative` rows, while the underlying cohort-split artifacts also retain `hard_case`, `support_fragile`, and a VOI-only `controller_stress` slice for `C`
+- row count: `20` OD rows per variant, therefore `80` total variant-rows across the focused-VOI headline table and figure surfaces cited below
+
 The focused bundle's cohort and corpus summaries show a broader composition than the narrower April 6 campaign:
 
 - `20` OD rows per variant, therefore `80` total variant-rows
@@ -2543,14 +2668,19 @@ The focused bundle's cohort and corpus summaries show a broader composition than
 - mean engine-disagreement prior `0.395974`
 - mean hard-case prior `0.399096`
 
-The aggregate variant summary is:
+The aggregate variant summary is now rendered as a variant-comparison matrix with adjacent delta columns:
 
-| Variant | Mean runtime ms | Mean algorithm ms | Weighted win vs OSRM | Weighted win vs ORS | Weighted win vs `V0` | Mean certificate | Mean frontier count | Key extra signal |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `V0` | `19882.11025` | `19168.68825` | `0.85` | `1.0` | `0.0` | n/a | `1.7` | matched-budget legacy comparator |
-| `A` | `30695.3346` | `29981.9126` | `1.0` | `1.0` | `0.4` | n/a | `2.2` | DCCS yield `1.0`, mean search budget used `5.45` |
-| `B` | `8730.2474` | `8016.8254` | `1.0` | `1.0` | `0.35` | `0.781651` | `2.1` | REFC unique worlds `92.95` |
-| `C` | `11374.6391` | `10661.2171` | `1.0` | `1.0` | `0.35` | `0.861459` | `1.65` | VOI actions `1.3`, engagement rate `0.8` |
+| Metric | `V0` | `A` | `B` | `C` | `A-V0` | `B-A` | `C-B` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Weighted win vs OSRM | `0.85` | `1.0` | `1.0` | `1.0` | `0.15` | `0.0` | `0.0` |
+| Weighted win vs ORS | `1.0` | `1.0` | `1.0` | `1.0` | `0.0` | `0.0` | `0.0` |
+| Weighted win vs `V0` | `0.0` | `0.4` | `0.35` | `0.35` | `0.4` | `-0.05` | `0.0` |
+| Mean runtime ms | `19882.11025` | `30695.3346` | `8730.2474` | `11374.6391` | `10813.22435` | `-21965.0872` | `2644.3917` |
+| Mean algorithm ms | `19168.68825` | `29981.9126` | `8016.8254` | `10661.2171` | `10813.22435` | `-21965.0872` | `2644.3917` |
+| Mean certificate | n/a | n/a | `0.781651` | `0.861459` | n/a | n/a | `0.079808` |
+| Mean frontier count | `1.7` | `2.2` | `2.1` | `1.65` | `0.5` | `-0.1` | `-0.45` |
+
+That `C` row is a checked local example of controller behavior, not a seed-robust claim. The current bundle does not yet justify reading it as stable across repeated seeds or across the certificate-threshold / certified-set-cap / fast-path sensitivity sweeps.
 
 The focused bundle also sharpens several methodological points that the current thesis report should preserve:
 
@@ -2576,7 +2706,7 @@ It records:
 - mode `inprocess-fake`
 - pair count `10`
 - duration `4163932.432 ms`
-- peak memory `7657716472 bytes` (about `7.13 GiB`)
+- p90 RSS/VMS memory-distribution `7657716472 bytes` (about `7.13 GiB`)
 - error count `10`
 - run id `b7bc7c51-043d-4c64-9e8f-d52a44501f0d`
 - input provenance `vehicle_type=rigid_hgv`, `scenario_mode=no_sharing`, `max_alternatives=3`, `optimization_mode=expected_value`, `pareto_method=dominance`, `use_tolls=true`, `fuel_price_multiplier=1.0`, `carbon_price_per_kg=0.0`, `toll_cost_per_km=0.0`, `terrain_profile=flat`, `stochastic.enabled=false`, `stochastic.samples=25`, `weather.enabled=false`, and emissions context `diesel/euro6/15 C`
@@ -2639,9 +2769,14 @@ The tradeoff is more code and more moving parts. The benefit is stronger evidenc
 From the local evidence, the main limitations are:
 
 - UK-only support
+- certification-facing claims are conditional on calibrated world models and current support coverage
 - heavy dependence on prepared assets and strict feed availability
+- proxy-audit correction validity depends on bias-correction, propensity, and overlap assumptions
+- preference-sensitive certification may be limited when operators cannot answer or tolerate enough preference queries
 - graph warmup and large graph size can dominate startup behavior
+- runtime may still favor certification quality, auditability, and fail-closed behavior over raw throughput
 - no locally checked-in universal aggregate OSRM/ORS improvement percentage
+- support failures or weak overlap can force widened bounds, extra auditing, certified-set downgrade, or typed abstention
 - engineering blends in route selection are practical rather than formally optimal in a theorem-driven sense
 
 ## Appendix A: Backend Endpoint Inventory
@@ -2666,7 +2801,7 @@ From the local evidence, the main limitations are:
 | `POST` | `/pareto` | compute Pareto routes as JSON |
 | `POST` | `/pareto/stream` | stream Pareto events |
 | `POST` | `/api/pareto/stream` | alternate streaming path |
-| `POST` | `/route` | compute selected route and route set |
+| `POST` | `/route` | compute the public `DecisionPackage` route decision |
 | `POST` | `/route/baseline` | OSRM quick baseline |
 | `POST` | `/route/baseline/ors` | ORS reference or ORS-proxy baseline |
 | `POST` | `/departure/optimize` | search best departure slot |
@@ -2692,7 +2827,7 @@ From the local evidence, the main limitations are:
 | `GET` | `/runs/{run_id}/artifacts/metadata.json` | run metadata |
 | `GET` | `/runs/{run_id}/artifacts/routes.geojson` | route geometries |
 | `GET` | `/runs/{run_id}/artifacts/results_summary.csv` | summarized metrics |
-| `GET` | `/runs/{run_id}/artifacts/report.pdf` | generated PDF report |
+| `GET` | `/runs/{run_id}/artifacts/index.json` | route-compute bundle index summary |
 
 ## Appendix B: Frontend Proxy Endpoint Inventory
 
@@ -2760,7 +2895,7 @@ From the local evidence, the main limitations are:
 | ambient temperature | `emissions_context.ambient_temp_c` | temperature-sensitive energy/fuel adjustment |
 | weather enabled/profile/intensity | `weather.*` | weather scenario fed into speed and incident modifiers |
 | incident simulation settings | `incident_simulation.*` | synthetic incident experiment parameters |
-| route button | `POST /route` | compute selected route |
+| route button | `POST /route` | compute the public `DecisionPackage` route decision |
 | Pareto button | `POST /pareto` or `/pareto/stream` | compute the trade-off set |
 | baseline button | `POST /route/baseline` | compute plain OSRM-style comparison route |
 | ORS baseline button | `POST /route/baseline/ors` | compute ORS or proxy reference route |
@@ -2801,7 +2936,7 @@ From the local evidence, the main limitations are:
 | `RouteCertificationSummary` | selected-route certificate, fragility, and refresh summary |
 | `VoiStopSummary` | VOI stop reason plus budget-usage summary |
 | `RouteOption` | a fully modeled route alternative |
-| `RouteResponse` | selected route plus alternative set and metadata |
+| `DecisionPackage` | public `/route` decision contract covering singleton, certified-set, and typed-abstention outcomes plus the route, support, witness, and artifact summary surfaces |
 | `RouteBaselineResponse` | baseline route plus baseline method metadata |
 | `ParetoResponse` | Pareto route set and diagnostics |
 | `ScenarioCompareRequest/Response` | compare results across scenario modes |
@@ -3095,7 +3230,8 @@ That is not a cosmetic implementation detail. It is what prevents one subsystem 
 | `backend/out/artifacts/<run_id>/metadata.json` | batch/run artifact writer | run metadata |
 | `backend/out/artifacts/<run_id>/routes.geojson` | batch/run artifact writer | geometry export |
 | `backend/out/artifacts/<run_id>/results_summary.csv` | batch/reporting flow | summarized results |
-| `backend/out/artifacts/<run_id>/report.pdf` | `backend/scripts/compose_thesis_suite_report.py` | human-readable thesis/report output |
+| `backend/out/artifacts/<run_id>/index.json` | route/run artifact writer | machine-readable route-compute bundle index |
+| `backend/out/artifacts/<run_id>/index.md` | route/run artifact writer | human-readable route-compute bundle index |
 | oracle checks NDJSON | `oracle_quality_store.append_check_record` | per-source quality record stream |
 | oracle summary JSON/CSV | `oracle_quality_store.write_summary_artifacts` | dashboard outputs |
 | replay-oracle summary JSON/CSV | `oracle_quality_store.write_replay_oracle_artifacts` | replay-oracle consumer summary outputs |
@@ -3111,6 +3247,7 @@ The artifact table above is more useful when read as a retrieval chain:
 - start with the bundle `evaluation_manifest.json`, because it records the corpus source, suite role, strict evidence policy, cache mode, baseline-smoke summary, readiness payloads, and the paths to thesis-level outputs
 - move from `thesis_metrics.json` or `thesis_results.csv` to the per-row `artifact_run_id`
 - open that run's `metadata.json` to recover `pipeline_mode`, `selected_route_id`, `artifact_names`, manifest/provenance endpoints, and timing
+- then open that run's `index.json` or `index.md` when the bundle type is `route_compute`, because those files consolidate artifact pointers, support status, and cache summaries into one reviewer-facing entry point
 - then inspect pipeline-specific artifacts such as `dccs_summary.json`, `certificate_summary.json`, `value_of_refresh.json`, `voi_action_trace.json`, `voi_stop_certificate.json`, and `final_route_trace.json`
 
 This is the practical route from a thesis table row back to the exact execution evidence that produced it.
@@ -3199,6 +3336,7 @@ Importance legend used below:
 | `../.vscode/settings.json` | `reference` | local editor performance and interpreter settings |
 | `../README.md` | `supporting` | top-level architecture, startup flow, and operations guidance |
 | `docker-compose.yml` | `core` | service graph for OSRM, backend, and frontend |
+| `paper_artifact_index.json` | `supporting` | reviewer-facing map from indexed headline table/figure surfaces to checked local artifact paths |
 | `project-dump.txt` | `reference` | stale/high-level directory snapshot; useful background, not authoritative over current code |
 | `data/.gitkeep` | `reference` | keeps placeholder data directory in Git |
 
@@ -3209,6 +3347,7 @@ Importance legend used below:
 | `docs/.gitkeep` | `reference` | keeps docs directory present in Git |
 | `docs/DOCS_INDEX.md` | `supporting` | entry point into the docs set |
 | `docs/api-cookbook.md` | `supporting` | example API usage patterns |
+| `docs/claim_matrix.md` | `core` | detailed claim-status mapping for implementation and report surfaces |
 | `docs/appendix-graph-theory-notes.md` | `reference` | graph-theory background notes for the route graph |
 | `docs/backend-api-tools.md` | `core` | backend endpoint and tooling documentation |
 | `docs/co2e-validation.md` | `supporting` | CO2e validation notes |
@@ -3219,16 +3358,20 @@ Importance legend used below:
 | `docs/map-overlays-tooltips.md` | `supporting` | UI map overlay semantics |
 | `docs/math-appendix.md` | `supporting` | mathematical appendix beyond high-level overview |
 | `docs/model-assets-and-data-sources.md` | `core` | asset families, provenance, and source descriptions |
+| `docs/negative_results.md` | `supporting` | current negative-result and non-claim discipline notes |
 | `docs/performance-profiling-notes.md` | `supporting` | performance measurement notes |
 | `docs/quality-gates-and-benchmarks.md` | `core` | explicit quality thresholds and benchmark expectations |
+| `docs/redesign-implementation-tracker.md` | `core` | live redesign packet tracker and doc-sync map |
 | `docs/reproducibility-capsule.md` | `supporting` | reproducibility capsule workflow |
-| `docs/run-and-operations.md` | `supporting` | runtime operations guide |
-| `docs/sample-manifest.md` | `supporting` | manifest example and explanation |
-| `docs/strict-errors-reference.md` | `core` | strict reason-code reference |
-| `docs/synthetic-incidents-weather.md` | `supporting` | incident simulation and weather overlay behavior |
-| `docs/thesis-codebase-report.md` | `core` | thesis-grade master synthesis of the full repository |
-| `docs/tutorial-and-reporting.md` | `supporting` | tutorial UX and reporting outputs |
-| `docs/voi-pipeline-spec.md` | `core` | DCCS/REFC/VOI thesis-pipeline contract and artifact expectations |
+| `docs/run-and-operations.md` | `core` | extended operations guide, rebuild flow, and runtime troubleshooting |
+| `docs/runbook.md` | `supporting` | short operator runbook for startup, readiness, artifacts, and shutdown |
+| `docs/sample-manifest.md` | `supporting` | manifest and artifact bundle examples |
+| `docs/strict-errors-reference.md` | `supporting` | strict error contract reference |
+| `docs/synthetic-incidents-weather.md` | `supporting` | synthetic incident and weather experiment notes |
+| `docs/theorem_map.md` | `core` | theorem/proposition map and proof-gap tracker |
+| `docs/thesis-codebase-report.md` | `core` | this codebase report |
+| `docs/tutorial-and-reporting.md` | `supporting` | frontend reporting and run-inspector workflow |
+| `docs/voi-pipeline-spec.md` | `core` | DCCS/REFC/VOI artifact and pipeline contract |
 | `docs/examples/sample_batch_request.json` | `reference` | batch request example payload |
 | `docs/examples/sample_batch_response.json` | `reference` | batch response example payload |
 | `docs/examples/sample_manifest.json` | `reference` | manifest example payload |
@@ -3590,7 +3733,7 @@ Additional current local benchmark-side artifacts worth preserving are:
 - that focused diff also preserves the per-variant runtime deltas: `A +778.166 ms`, `B +2242.353 ms`, `C +492.383 ms`, and `V0 +718.092 ms`
 - `backend/out/corpus_ambiguity_refresh_summary.json`, which records `row_count=19`, `mean_ambiguity_index=0.239727`, `max_ambiguity_index=0.420932`, `mean_engine_disagreement_prior=0.413061`, `mean_hard_case_prior=0.419982`, and `mean_od_ambiguity_confidence=0.899552`
 - the same ambiguity-refresh file also records all `19` rows as bootstrap-backed, all `19` rows with nonzero ambiguity/engine/hard-case priors, `mean_od_ambiguity_source_count=2.526316`, `mean_od_ambiguity_source_support_strength=0.60263`, and source-mix ledgers spanning graph probe, repo-local geometry backfill, and historical bootstrap evidence
-- `backend/out/benchmarks/batch_pareto_benchmark_20260409T053840Z.json`, which records the latest raw benchmark capture as a full-error `10/10` run under `rigid_hgv`, `no_sharing`, `expected_value`, and dominance Pareto selection, with peak memory `7657716472 bytes`, no route candidates for any pair, and a metadata-versus-artifact listing mismatch that should be treated as a reproducibility/debugging issue rather than success evidence
+- `backend/out/benchmarks/batch_pareto_benchmark_20260409T053840Z.json`, which records the latest raw benchmark capture as a full-error `10/10` run under `rigid_hgv`, `no_sharing`, `expected_value`, and dominance Pareto selection, with p90 RSS/VMS memory-distribution `7657716472 bytes`, no route candidates for any pair, and a metadata-versus-artifact listing mismatch that should be treated as a reproducibility/debugging issue rather than success evidence
 
 ## Glossary
 
@@ -4024,7 +4167,7 @@ For thesis purposes, the most defensible central claim is that this repository i
 - It now also orchestrates DCCS, REFC, VOI, cache-stat reporting, hot-rerun cache restore, and strict-live readiness reporting.
 - It also contains the scalar route-selection logic and the baseline endpoints.
 - The import surface is itself informative: this file pulls together calibration loading, graph routing, OSRM, ORS, terrain, tolls, fuel, carbon, stochastic uncertainty, incident simulation, signatures, manifests, provenance, metrics, experiments, and all of the newer thesis-pipeline modules in one place.
-- That centralization explains an otherwise surprising fact of the repo: there is no separate heavyweight `route_service.py`. The backend intentionally keeps the final route-construction and artifact-writing path close to the HTTP contract.
+- That centralization explains an otherwise surprising fact of the repo: there is no separate heavyweight route-construction service module for this flow. The backend intentionally keeps the final route-construction and artifact-writing path in `backend/app/main.py`, close to the HTTP contract.
 - It also records per-request timing and error information through the metrics store, attaches run identifiers/manifests/artifact endpoints to responses, and owns the logic that turns partial stage outputs into a coherent route or Pareto answer.
 - In plain English, this file is where the project stops being a collection of subsystems and becomes a working routing product.
 - If a thesis needs one file that represents the system's integration logic, this is that file.
@@ -4709,7 +4852,7 @@ It actively shapes requests, exposes modeling choices, reveals diagnostics, stor
 - It is also wired to the Run Inspector, which means the user can move directly from a summary KPI card to the stored artifact set.
 - The KPI layout is itself revealing: it treats certificate strength, refresh priority, competitor identity, active evidence-family count, VOI iteration count, search/evidence budget usage, and stop reason as first-class operator outputs rather than hidden debug values.
 - In thesis terms, this component is important because it turns DCCS/REFC/VOI from hidden backend machinery into an inspectable analytical workflow.
-- It is one of the clearest signs that the frontend evolved alongside the thesis pipeline rather than staying baseline-only.
+- It is one of the clearest signs that the frontend evolved alongside the thesis pipeline rather than staying a thin baseline viewer.
 
 ### `frontend/app/components/ScenarioComparison.tsx`
 
@@ -5507,8 +5650,9 @@ The scripts explain how the live and strict runtime is made possible.
 - That matters because the repo now claims reuse at several levels, not only at the final route-response level.
 - In thesis terms, it supports the performance/reuse story with direct before-versus-after evidence.
 - It is one of the key scripts for interpreting cache-hit metrics honestly.
-- The script is more opinionated than a generic benchmark wrapper. It encodes explicit hot-pass gates: `mean_route_cache_hit_rate >= 0.50` for `A/B/C`, `mean_option_build_cache_hit_rate >= 0.70` for `A/B/C`, `mean_option_build_reuse_rate >= 0.70` for `A/B/C`, and `mean_refc_world_reuse_rate >= 0.80` for `B/C`.
-- It also refuses to treat cache reuse as sufficient on its own. For `A/B/C`, the hot rerun must improve both `mean_runtime_ratio_vs_osrm` and `mean_runtime_ratio_vs_ors`, so the script is checking realized runtime competitiveness against both baseline engines rather than only internal cache counters.
+- The current checked reviewer package now also stages a hot-rerun companion bundle at `out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/`, so the runtime-observability and reuse evidence can be reviewed without leaving the workspace.
+- The script is more opinionated than a generic benchmark wrapper. It encodes explicit hot-pass gates: `mean_route_cache_hit_rate >= 0.50` for `A/B/C`, `mean_option_build_cache_hit_rate >= 0.70` for `A/B/C`, `mean_option_build_reuse_rate >= 0.70` for `A/B/C`, and `mean_refc_world_reuse_rate >= 0.80` for `B/C`. In the separate pair-benchmark companion `out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_gate.json`, the route and option-build reuse gates pass for `A/B/C`, `mean_refc_world_reuse_rate` is `1.0` for `B` and `C`, `hot_cold_parity_rate` is `1.0`, `certificate_lcb_drift` and `max_final_certificate_lcb_abs_drift` are `0.0`, and `semantic_drift_rate` is `0.0`, so that stronger reuse claim is green on current evidence for the pair benchmark itself.
+- It also refuses to treat cache reuse as sufficient on its own. For `A/B/C`, the hot rerun must improve both `mean_runtime_ratio_vs_osrm` and `mean_runtime_ratio_vs_ors`, so the script is checking realized runtime competitiveness against both baseline engines rather than only internal cache counters. The current checked pair-benchmark hot-rerun bundle clears the route, option-build, REFC reuse, parity, and drift checks, and the repaired suite-level verdict now agrees that `hot_rerun_all_green = true`; the suite remains red because DCCS, refine-cost forecasting, and VOI still fail on current checked evidence.
 - The cache instrumentation is detailed enough to reconstruct the whole rerun state transition. The comparison artifact records `before_clear`, `after_clear`, `after_cold`, `restore_response`, `after_restore`, and `after_hot` cache snapshots, then carries those alongside per-variant cold-versus-hot delta rows and gate-check rows.
 - The route cache restore step is also explicit: `_restore_hot_rerun_route_cache(...)` calls `POST /cache/hot-rerun/restore`, so the "hot" run is not a vague rerun after incidental warming. It is a deliberate restoration of the thesis hot-rerun surface.
 - Each cold and hot route-run artifact is annotated in place with `benchmark_kind=hot_rerun_benchmark`, `benchmark_phase`, `pair_run_id`, `paired_run_id`, and before/after cache-state payloads. That is useful because it means the benchmark leaves interpretable provenance inside the same artifact directories that the evaluator already understands.
@@ -5523,8 +5667,10 @@ The scripts explain how the live and strict runtime is made possible.
 - The file is also where several high-level thesis promises become executable policy: `V0/A/B/C` are mapped to `legacy/dccs/dccs_refc/voi`, suite roles such as `focused_voi_proof` and `hot_rerun` are named explicitly, essential artifacts are declared per pipeline mode, and route-evidence validation is enforced before rows can count as complete evidence.
 - The very large summary-field catalogue inside the script is itself revealing. It shows the evaluator is not only measuring win rates and runtime; it is measuring ambiguity priors, frontier diversity, certificate behavior, cache reuse, controller productivity, baseline honesty, and stage-specific budget utilization at the same time.
 - It is also where comparator honesty, strict evidence policy, and required artifact families become executable policy rather than prose.
-- The suite-role taxonomy deserves to be named explicitly because it turns thesis intent into machine-readable run context. The evaluator currently distinguishes `generic_evaluation`, `broad_cold_proof`, `focused_refc_proof`, `focused_voi_proof`, `dccs_diagnostic_probe`, `hot_rerun_cold_source`, and `hot_rerun`, each with its own scope/focus label.
-- The evaluator's artifact contract is also richer than the main report previously stated. In addition to the "final" REFC/VOI artifacts, the script explicitly knows about pre-action or initial-state artifacts: `initial_certificate_summary.json`, `initial_route_fragility_map.json`, `initial_competitor_fragility_breakdown.json`, `initial_value_of_refresh.json`, and `initial_sampled_world_manifest.json`. Those files matter because they preserve the before-VOI state, allowing the report to compare what the controller inherited against what it changed.
+- The suite-role taxonomy deserves to be named explicitly because it turns thesis intent into machine-readable run context. The evaluator currently distinguishes `generic_evaluation`, `broad_cold_proof`, `focused_refc_proof`, `focused_voi_proof`, `dccs_diagnostic_probe`, `hot_rerun_cold_source`, `hot_rerun`, `preference_proof`, `optional_stopping_coverage`, `proxy_audit_calibration`, `perturbation_flip_radius`, `threshold_sensitivity`, `public_transfer`, and `synthetic_ground_truth`, each with its own scope/focus label.
+- `threshold_sensitivity` and `public_transfer` are no longer only source-level claims in this report slice. The maintained reviewer package now carries checked local companion bundles for both lanes under `out/headline_exports/current_checked/`, which makes the lane metadata and maintained summary/report surfaces inspectable without leaving the workspace.
+- `public_transfer` now has two distinct transfer-generalization artifact families in checked local evidence as well as source. The older corridor-family holdout remains, but the same lane also emits `thesis_summary_by_weather_regime_transfer_slice.csv` / `.json` plus `thesis_plots.json` family `leave_one_weather_regime_out_transfer_vs_variant`, so weather-regime transfer is no longer only implicit in row metadata.
+- The evaluator's artifact contract is also richer than the main report previously stated. In addition to the "final" REFC/VOI artifacts, the script explicitly knows about pre-action or initial-state artifacts: `initial_certificate_summary.json`, `initial_route_fragility_map.json`, `initial_competitor_fragility_breakdown.json`, `initial_value_of_refresh.json`, and `initial_sampled_world_manifest.json`. Those files matter because they preserve the before-VOI state, allowing the report to compare what the controller inherited against what it changed. The checked hot-rerun companion bundle packages first-class runtime-observability reviewer surfaces for runtime quantiles, max RSS/VMS memory fields, runtime-share fields, and stage-level timing fields; the checked full-suite companion now also packages `out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.json` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.md`, which read per-lane `artifact_generation_ms` from the copied lane `thesis_metrics.json` files. `controller_reuse_reporting` is now populated, so the report can cite controller reuse instead of treating it as empty, and the reporting-side `P14.46-P14.50` surfaces themselves are present.
 - Required artifacts are pipeline-specific rather than one-size-fits-all. `legacy` only requires `metadata.json`, `strict_frontier.jsonl`, and `final_route_trace.json`; `dccs` adds `dccs_summary.json` and `dccs_candidates.jsonl`; `dccs_refc` adds the certificate, fragility, competitor-breakdown, refresh, and sampled-world artifacts; and `voi` adds `voi_action_trace.json` plus `voi_stop_certificate.json`. That staged contract is why artifact completeness rates in the thesis summaries are interpretable by mode.
 - Comparator governance is also enforced here rather than left to operator discipline. The strict evidence policy is fixed as `no_synthetic_no_proxy_no_fallback`; the evaluator supports ORS snapshot record/replay modes; it records `ors_snapshot_mode`, hashes, timestamps, and provider mode into row-level outputs; and it raises `strict_proxy_ors_baseline_forbidden` when a proxy ORS baseline leaks into a run that has not explicitly allowed it.
 - Some defaults are intentionally conservative for methodological reasons. The evaluator leaves `--auto-enrich-corpus-ambiguity` off by default so route-graph probing and ambiguity enrichment cost is not silently folded into the measured evaluation runtime, and the separate `--allow-proxy-ors` and `--allow-evidence-fallbacks` switches make any relaxation of comparator or evidence policy an explicit act rather than a hidden convenience.
@@ -5609,12 +5755,20 @@ Second, it records where the rest of the documentation was still useful as a sou
 
 ### `docs/run-and-operations.md`
 
-- This is the main operational runbook.
+- This is the extended operations guide.
 - It explains prerequisites, environment setup, the compute fallback policy, graph warmup lifecycle, diagnostics panel, startup scripts, rebuild steps, runtime output locations, low-resource testing, and docs validation.
 - In plain English, it is the "how to run this system safely" document.
 - Its material has been absorbed into the deployment chapter, workflow narratives, readiness discussion, diagnostics discussion, and reproducibility chapter.
 - It was especially important for capturing the strict compute degrade order of stream to JSON Pareto to single route with default steps 12 to 6 to 3.
 - In thesis terms, this doc is where engineering operations and modeling rigor most visibly meet.
+
+### `docs/runbook.md`
+
+- This is the short operator runbook.
+- It summarizes startup, readiness checks, artifact locations, shutdown, and common failure handling without the longer rebuild and environment matrix detail.
+- In plain English, it is the quickest operator-facing reference for "start it, check it, find the artifacts, stop it."
+- Its material complements `docs/run-and-operations.md` rather than replacing it.
+- In thesis terms, it is the compact operational companion to the fuller runtime operations guide.
 
 ### `docs/model-assets-and-data-sources.md`
 
@@ -8692,8 +8846,9 @@ The goal is to help a reader understand the analytical function of each endpoint
 ### `POST /route`
 
 - This is the single-route endpoint.
-- It returns one recommended route after running the candidate-generation, modeling, and selection pipeline.
-- In plain English, it asks the system for the best highlighted route under the chosen settings.
+- It returns the public `DecisionPackage` transport contract after running the candidate-generation, modeling, and selection pipeline.
+- In the checked direct-REFC smoke slice, that public contract can normalize a support-unsafe certified-set candidate to `terminal_type=typed_abstention` even while the emitted local bundle preserves richer `decision_package.json` and `certified_set_summary.json` proof artifacts for the same request.
+- In plain English, it asks the system for the public route decision under the chosen settings; richer local proof remains an artifact-inspection concern rather than a transport guarantee.
 - The backend still uses graph-led candidates and scalar selection internally rather than simple shortest path.
 - In thesis terms, this endpoint is where the modified selectors matter most visibly.
 
@@ -10052,66 +10207,66 @@ That distinction should be explicit in a thesis.
 - In thesis terms, the repo is trying to compare against a plausible reference, not a straw man.
 - The exact multipliers are local configuration choices and should be reported as such.
 
-### AC3. The Smart Router Can Beat Baselines By Generating Better Candidate Diversity
+### AC3. Candidate Diversity Can Broaden Certification-Relevant Frontier Coverage
 
 - Plain shortest-path systems often commit early to one dominant path family.
-- The smart router first searches for multiple plausible corridors using the custom graph.
+- The certification-facing system first searches for multiple plausible corridors using the custom graph.
 - In plain English, it tries not to get trapped in the first obvious corridor.
 - This matters because some trade-off routes are only visible if candidate generation is diversity-aware.
 - In thesis terms, better candidate breadth can improve frontier quality before any cost model is applied.
-- This is one of the main conceptual advantages over provider-only routing.
+- This is a capability difference relative to provider-only routing, not a blanket win-rate claim.
 
-### AC4. The Smart Router Can Beat Baselines By Scoring More Realistically
+### AC4. Richer Operational Scoring Can Change The Supported Decision
 
 - The smart route is not judged only by raw distance or nominal ETA.
 - It incorporates terrain effects, vehicle physics, toll logic, fuel prices, emissions, carbon cost, and scenario pressure.
-- In plain English, it knows more about the route than a basic shortest-path provider does.
+- In plain English, it uses a richer operational evidence basis than a basic shortest-path provider.
 - That can change which route is truly better for freight.
 - In thesis terms, realism layers can produce a more operationally meaningful winner than plain shortest path.
 - This does not mean the geometry is always radically different.
 
-### AC5. The Smart Router Can Beat Baselines By Being Risk-Aware
+### AC5. Risk-Aware Evaluation Can Change The Certification Basis
 
 - Baselines are often deterministic.
-- The smart router can summarize uncertainty through q95, CVaR, and robust score.
+- The certification-facing system can summarize uncertainty through q95, CVaR, and robust score.
 - In plain English, it can reject a route that looks good on average but is too ugly in the tail.
-- That is an important kind of improvement for operational planning.
-- In thesis terms, risk-aware superiority is different from mean-value superiority.
+- That is an important capability for operational planning.
+- In thesis terms, risk-aware comparison is different from mean-value comparison.
 - The report should keep those comparison types separate.
 
-### AC6. The Smart Router Can Beat Baselines By Being Scenario-Aware
+### AC6. Scenario-Aware Evaluation Extends The Decision Surface
 
 - A baseline route usually ignores sharing-policy context.
-- The smart router can evaluate the same trip under no-sharing, partial-sharing, and full-sharing assumptions.
+- The certification-facing system can evaluate the same trip under no-sharing, partial-sharing, and full-sharing assumptions.
 - In plain English, it can answer a richer question.
 - That means "better" sometimes refers to better policy sensitivity rather than just lower ETA.
 - In thesis terms, scenario awareness is a capability improvement even when raw path geometry looks similar.
 - This is important in discussing the novelty of the project.
 
-### AC7. The Smart Router Can Beat Baselines By Being Departure-Aware
+### AC7. Departure-Aware Evaluation Extends The Decision Surface Over Time
 
 - If departure context matters, then a baseline computed for one moment may not reflect the best operational timing.
-- The smart router can optimize over departure windows using departure profiles.
+- The certification-facing system can optimize over departure windows using departure profiles.
 - In plain English, it can improve the timing of the trip, not just the path.
 - This is a different kind of gain from path-only optimization.
 - In thesis terms, the system expands the decision space.
 - That should be presented as a core advantage over static baseline routing.
 
-### AC8. The Smart Router Can Beat Baselines By Being More Explainable
+### AC8. Decision Evidence Can Be Richer Than A Baseline Route Response
 
-- Even when the final path is similar, the smart system may be better because it explains why it chose the route.
+- Even when the final path is similar, the certification-facing system can still provide richer evidence because it explains why it chose the route.
 - Segment breakdowns, counterfactuals, Pareto charts, and baseline deltas all contribute to this.
 - In plain English, the user gets reasoning support rather than only a line on a map.
 - This matters for dispatch trust and for dissertation evidence.
-- In thesis terms, explainability is a legitimate axis of system superiority.
+- In thesis terms, explainability is a legitimate certification and governance objective.
 - It should not be ignored simply because it is not a raw travel metric.
 
-### AC9. The Smart Router Can Beat Baselines By Producing Better Evidence
+### AC9. The Certification Stack Can Surface Richer Decision Evidence Than A Baseline Route Response
 
 - Manifests, provenance, signatures, and oracle-quality diagnostics do not directly shorten travel time.
 - But they do improve the quality of evidence around a route decision.
 - In plain English, the system can prove more about how it got its answer.
-- This is a form of engineering superiority in governance and reproducibility.
+- This is a stronger auditability and governance surface, not a claim of route-quality dominance.
 - In thesis terms, the project's contribution is not only route scoring but also route accountability.
 - That is especially important for research-grade software.
 
@@ -10140,16 +10295,16 @@ That distinction should be explicit in a thesis.
 - Some corridors have one obvious dominant motorway path.
 - Some context layers may not move the route enough to matter.
 - Some weight settings may align closely with what a baseline already optimizes.
-- In plain English, the smart router is not guaranteed to look different or better on every trip.
+- In plain English, the certification-facing system is not guaranteed to look different or better on every trip.
 - A strong thesis should admit this.
 - It should explain when the extra model depth matters most.
 
-### AC13. When The Smart Router Is Most Likely To Matter
+### AC13. When The Certification-Facing System Is Most Likely To Matter
 
-- The smart pipeline is most useful when there are genuine corridor alternatives.
+- The certification-facing pipeline is most useful when there are genuine corridor alternatives.
 - It is also more useful when toll exposure, terrain, emissions, cost, or risk meaningfully differ across those corridors.
 - Scenario-sensitive or time-sensitive trips also magnify the value of the richer model.
-- In plain English, the smart system matters most when the route problem is multidimensional.
+- In plain English, the certification-facing system matters most when the route problem is multidimensional.
 - This is exactly when pure shortest path is least sufficient.
 - In thesis terms, these are the conditions under which the project should be evaluated most seriously.
 - That helps frame case-study selection.
@@ -10422,8 +10577,8 @@ The goal is to make the report easier to mine for thesis paragraphs, viva prepar
 
 ### AD30. If the thesis had to summarize the system in one sentence, what should it say?
 
-- It is a UK-specific, graph-led, multi-objective freight-routing system that combines academic routing ideas with pragmatic engineering layers for live data, physical realism, robust risk handling, and reproducible evidence.
-- In plain English, it is a smarter and more accountable router, not just a faster one.
+- It is an auditable, tri-source, selective minimum-cost certification engine for freight-route recommendation under incomplete search, biased evidence, and ambiguous preferences.
+- In plain English, it is a certification-oriented freight-routing system that favors accountable, evidence-backed decisions over opaque route selection.
 - That sentence is broad enough to cover the stack but specific enough to stay defensible.
 - In thesis terms, it is a strong abstract-level summary grounded in the repo.
 
@@ -10445,6 +10600,7 @@ A good thesis should state what remains hard, uncertain, or incomplete.
 ### AE2. Calibration Can Age
 
 - Scenario profiles, departure profiles, and stochastic regimes are only as current as the data and publication pipeline behind them.
+- Certification-facing guarantees are therefore conditional on calibrated world models and support-aware evaluation staying in date.
 - Drift tooling helps, but it does not magically eliminate temporal change.
 - In plain English, calibrated realism still needs maintenance.
 - In thesis terms, recalibration cadence is an important future-work consideration.
@@ -10460,6 +10616,7 @@ A good thesis should state what remains hard, uncertain, or incomplete.
 
 - Fail-closed behavior is methodologically strong.
 - It also means some routes will fail instead of returning best-effort answers.
+- The runtime can therefore favor certification quality and auditability over raw throughput.
 - In plain English, the system chooses honesty over always answering.
 - In thesis terms, this is a defendable tradeoff, but still a tradeoff.
 
@@ -10502,11 +10659,13 @@ A good thesis should state what remains hard, uncertain, or incomplete.
 
 - The stochastic model is richer where contexts map well to calibrated regimes.
 - Sparse or weakly matched contexts can reduce confidence even when the system still computes.
+- Weak support or proxy-audit overlap can require widened bounds, extra auditing, certified-set downgrade, or typed abstention instead of singleton certification.
 - In plain English, risk estimates are best where the calibration knows the context well.
 - In thesis terms, regime coverage is a natural future-work area.
 
 ### AE11. Operator Usability Still Needs Study
 
+- Preference-sensitive certification assumes operators can answer some queries, but real workflows may not always permit enough elicitation.
 - The frontend is feature-rich, but the repo does not itself contain a formal user study.
 - Tutorial mode, accessibility work, and help text are positive signs, but usability evidence could go further.
 - In plain English, the interface looks serious, but user-research evidence could be deeper.
@@ -11091,6 +11250,14 @@ The aim is to explain how the repo moves from one nominal route estimate to a ca
 - In plain English, it models route risk carefully, but within bounded calibration and engineering assumptions.
 - That is a strong and defensible position.
 - In thesis terms, the uncertainty layer is one of the report's strongest technical chapters when described this way.
+
+### AH21. Certification Effort Depends On Gap And Threshold
+
+- REFC effort is not constant across requests.
+- Smaller decisive gaps, weaker certificate margins, or stricter certificate thresholds generally require more sampled worlds, more evidence work, or a typed-abstention outcome at the same budget.
+- The checked local artifacts already record the practical signals for that pressure: `certificate_threshold`, `certificate margin`, `runner-up gap`, `requested worlds`, `effective worlds`, `world-count efficiency`, and evidence-budget usage.
+- In plain English, a hard-to-separate winner usually costs more certification effort than an easy one.
+- In thesis terms, this is local engineering evidence for gap-sensitive certification effort, not a closed formal lower-bound proof.
 
 ## Related Docs
 
