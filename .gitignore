@@ -57,6 +57,17 @@ frontend/tsconfig.tsbuildinfo
 out/
 
 # Misc
+.codex_tmp/
+backend/.codex_tmp/
+.codex/agents/__pycache__/
+.codex_resume_state.md
+.tmp/
+doctor_final.json
+ensure_six_final.json
+scripts/__pycache__/
+status_final.md
+tools/__pycache__/
+tests/__pycache__/
 .DS_Store
 Thumbs.db
 *.log
