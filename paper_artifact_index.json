@@ -1,0 +1,122 @@
+{
+  "schema_version": "paper_artifact_index.v1",
+  "status": "current_checked_local_slice",
+  "scope": "Current reviewer-facing headline table and figure source artifacts backed by checked local thesis bundles.",
+  "notes": [
+    "This index is conservative. It only lists checked local artifact files that exist in the repository workspace.",
+    "Entries in this slice point to CSV or JSON source artifacts and do not imply that every headline surface already has a checked rendered PDF or SVG export.",
+    "The quickstart command block at docs/reviewer_quickstart.md#headline-table-and-figure-commands directly materializes the four focused-VOI table and figure surfaces indexed in this file. The additional report-table entries below are checked source anchors that currently require direct bundle inspection rather than that narrow export block."
+  ],
+  "surfaces": [
+    {
+      "surface_id": "table.focused_voi.variant_summary",
+      "surface_type": "table",
+      "title": "Focused VOI variant summary table",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.csv",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [],
+      "export_formats_available": [
+        "csv",
+        "json"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
+      "status_note": "Checked local CSV and JSON sources exist. No committed PDF or SVG render is claimed for this slice."
+    },
+    {
+      "surface_id": "table.focused_voi.cohort_summary",
+      "surface_type": "table",
+      "title": "Focused VOI cohort summary table",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.csv",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/cohort_composition.json"
+      ],
+      "rendered_outputs": [],
+      "export_formats_available": [
+        "csv",
+        "json"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
+      "status_note": "Checked local cohort-level CSV and JSON sources exist. This slice does not claim a committed rendered figure."
+    },
+    {
+      "surface_id": "table.focused_voi.aggregate_variant_evidence",
+      "surface_type": "table",
+      "title": "Focused VOI aggregate variant evidence table",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.csv",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_metrics.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [],
+      "export_formats_available": [
+        "csv",
+        "json"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#current-checked-reviewer-bundle",
+      "status_note": "Backs the later focused-VOI aggregate variant evidence table in docs/thesis-codebase-report.md around line 2561. Checked local summary and metrics artifacts exist. No committed PDF or SVG render is claimed for this slice."
+    },
+    {
+      "surface_id": "table.latest_checked_campaign.summary_and_metrics",
+      "surface_type": "table",
+      "title": "Latest checked campaign summary and metrics table",
+      "bundle_path": "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2",
+      "source_files": [
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_report.md",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/campaign_result.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.csv",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.json",
+        "backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/evaluation_manifest.json"
+      ],
+      "rendered_outputs": [],
+      "export_formats_available": [
+        "md",
+        "csv",
+        "json"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#notes",
+      "status_note": "Backs the latest checked campaign summary-and-metrics table in docs/thesis-codebase-report.md around line 2487. Checked local campaign markdown, JSON, and tranche summary artifacts exist. No committed PDF or SVG render is claimed for this slice."
+    },
+    {
+      "surface_id": "figure.focused_voi.certificate_vs_variant",
+      "surface_type": "figure",
+      "title": "Focused VOI certificate versus variant figure source",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_plots.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json"
+      ],
+      "source_selector": "$.certificate_vs_variant",
+      "rendered_outputs": [],
+      "export_formats_available": [
+        "json"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
+      "status_note": "The checked local source is plot-ready JSON. No committed PDF or SVG render is claimed for this slice."
+    },
+    {
+      "surface_id": "figure.focused_voi.runtime_vs_variant",
+      "surface_type": "figure",
+      "title": "Focused VOI runtime versus variant figure source",
+      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "source_files": [
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_plots.json",
+        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json"
+      ],
+      "source_selector": "$.runtime_vs_variant",
+      "rendered_outputs": [],
+      "export_formats_available": [
+        "json"
+      ],
+      "quickstart_reference": "docs/reviewer_quickstart.md#headline-table-and-figure-commands",
+      "status_note": "The checked local source is plot-ready JSON. No committed PDF or SVG render is claimed for this slice."
+    }
+  ]
+}
