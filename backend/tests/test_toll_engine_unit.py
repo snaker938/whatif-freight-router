@@ -183,6 +183,36 @@ def test_compute_toll_cost_unresolved_when_no_tariff_match(monkeypatch) -> None:
     assert result.details["pricing_unresolved"] is True
 
 
+def test_compute_toll_cost_applies_explicit_rate_when_tariffs_unresolved(monkeypatch) -> None:
+    table = TollTariffTable(
+        default_crossing_fee_gbp=0.0,
+        default_distance_fee_gbp_per_km=0.0,
+        rules=(),
+        source="unit",
+    )
+    monkeypatch.setattr(toll_engine, "load_toll_tariffs", lambda: table)
+    monkeypatch.setattr(toll_engine, "load_toll_segments_seed", lambda: (_seed(),))
+    monkeypatch.setattr(toll_engine, "load_toll_confidence_calibration", _calibration)
+    monkeypatch.setattr(toll_engine, "_segment_overlap_km", lambda _seed_obj, _pts: 1.0)
+
+    result = toll_engine.compute_toll_cost(
+        route=_route(),
+        distance_km=8.0,
+        vehicle_type="rigid_hgv",
+        departure_time_utc=datetime(2026, 2, 23, 9, 30, tzinfo=UTC),
+        use_tolls=True,
+        fallback_toll_cost_per_km=0.2,
+    )
+
+    assert result.source == "explicit_user_rate"
+    assert result.toll_cost_gbp == pytest.approx(0.2)
+    assert result.confidence > 0.0
+    assert result.details["pricing_unresolved"] is False
+    assert result.details["pricing_policy_used"] == "explicit_user_rate"
+    assert result.details["tariff_rule_ids"] == "explicit_user_rate"
+    assert result.details["unresolved_asset_ids"] == "seg_a"
+
+
 def test_compute_toll_cost_skips_far_seed_before_overlap(monkeypatch) -> None:
     near_seed = _seed()
     far_seed = TollSegmentSeed(

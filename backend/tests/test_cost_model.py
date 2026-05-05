@@ -461,16 +461,19 @@ def test_toll_toggle_only_applies_to_toll_flagged_routes() -> None:
         scenario_mode=ScenarioMode.FULL_SHARING,
         cost_toggles=toggles,
     )
-    with pytest.raises(ValueError, match="tariff resolution"):
-        build_option(
-            toll_route,
-            option_id="with_toll",
-            vehicle_type="rigid_hgv",
-            scenario_mode=ScenarioMode.FULL_SHARING,
-            cost_toggles=toggles,
-        )
+    tolled = build_option(
+        toll_route,
+        option_id="with_toll",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.FULL_SHARING,
+        cost_toggles=toggles,
+    )
 
     assert no_toll.metrics.monetary_cost > 0.0
+    assert sum(float(row.get("toll_cost", 0.0)) for row in tolled.segment_breakdown) > 0.0
+    assert (tolled.toll_metadata or {}).get("classification_source") == "explicit_user_rate"
+    assert "explicit_user_rate" in ((tolled.toll_metadata or {}).get("tariff_rule_ids") or [])
+    assert tolled.metrics.monetary_cost > no_toll.metrics.monetary_cost
 
 
 @pytest.mark.skipif(not TOLL_TARIFFS_READY, reason="Toll tariff corpus unavailable in local strict runtime.")
@@ -559,14 +562,13 @@ def test_toll_free_candidate_meta_overrides_legacy_toll_flag() -> None:
     route["contains_toll"] = True
 
     toll_toggles = CostToggles(use_tolls=True, toll_cost_per_km=0.60)
-    with pytest.raises(ValueError, match="tariff resolution"):
-        build_option(
-            route,
-            option_id="legacy_tolled",
-            vehicle_type="rigid_hgv",
-            scenario_mode=ScenarioMode.FULL_SHARING,
-            cost_toggles=toll_toggles,
-        )
+    legacy_tolled = build_option(
+        route,
+        option_id="legacy_tolled",
+        vehicle_type="rigid_hgv",
+        scenario_mode=ScenarioMode.FULL_SHARING,
+        cost_toggles=toll_toggles,
+    )
 
     toll_free_route = _route(distance_m=16_000.0, duration_s=1_200.0)
     toll_free_route["contains_toll"] = True
@@ -584,7 +586,11 @@ def test_toll_free_candidate_meta_overrides_legacy_toll_flag() -> None:
         cost_toggles=toll_toggles,
     )
 
+    assert sum(float(row.get("toll_cost", 0.0)) for row in legacy_tolled.segment_breakdown) > 0.0
+    assert (legacy_tolled.toll_metadata or {}).get("classification_source") == "explicit_user_rate"
     assert toll_free.metrics.monetary_cost > 0.0
+    assert sum(float(row.get("toll_cost", 0.0)) for row in toll_free.segment_breakdown) == 0.0
+    assert toll_free.metrics.monetary_cost < legacy_tolled.metrics.monetary_cost
 
 
 def test_fuel_multiplier_changes_monetary_ranking() -> None:

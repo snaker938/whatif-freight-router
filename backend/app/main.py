@@ -4176,7 +4176,7 @@ def build_option(
             shifted_after_tod = base_duration_s * shifted_tod_multiplier
             shifted_after_scenario = shifted_after_tod * scenario_multiplier
             shifted_after_weather = shifted_after_scenario * weather_speed
-        shifted_departure_duration = shifted_after_weather * gradient_duration_multiplier
+            shifted_departure_duration = shifted_after_weather * gradient_duration_multiplier
 
         shifted_mode = _counterfactual_shift_scenario(scenario_mode)
         shifted_mode_policy = _resolve_route_scenario_policy(
@@ -8089,6 +8089,109 @@ def _route_selection_scale_floor(objective: str, reference_value: float) -> floa
     return 0.0
 
 
+def _guard_context_float(context: Mapping[str, Any], key: str) -> float:
+    try:
+        return max(0.0, min(1.0, float(context.get(key) or 0.0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _guard_context_int(context: Mapping[str, Any], key: str) -> int:
+    try:
+        return max(0, int(float(context.get(key) or 0.0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _time_preserving_frontier_guard_supported(ambiguity_context: Mapping[str, Any] | None) -> bool:
+    if not isinstance(ambiguity_context, Mapping):
+        return False
+    context = ambiguity_context
+    ambiguity_strength = max(
+        _guard_context_float(context, "od_ambiguity_index"),
+        _guard_context_float(context, "od_ambiguity_prior_strength"),
+        _guard_context_float(context, "od_engine_disagreement_prior"),
+        _guard_context_float(context, "od_hard_case_prior"),
+    )
+    confidence = _guard_context_float(context, "od_ambiguity_confidence")
+    support_ratio = _guard_context_float(context, "od_ambiguity_support_ratio")
+    source_entropy = _guard_context_float(context, "od_ambiguity_source_entropy")
+    candidate_path_count = _guard_context_int(context, "od_candidate_path_count")
+    corridor_family_count = _guard_context_int(context, "od_corridor_family_count")
+    budget_band = str(context.get("ambiguity_budget_band") or "").strip().lower()
+    high_band = budget_band == "high"
+
+    return bool(
+        (high_band or ambiguity_strength >= 0.20)
+        and confidence >= 0.70
+        and support_ratio >= 0.50
+        and source_entropy >= 0.50
+        and candidate_path_count >= 4
+        and corridor_family_count >= 2
+    )
+
+
+def _time_preserving_frontier_guard_candidate(
+    options: Sequence[RouteOption],
+    *,
+    base_option: RouteOption,
+    times: Sequence[float],
+    moneys: Sequence[float],
+    emissions: Sequence[float],
+    distances: Sequence[float],
+    ambiguity_context: Mapping[str, Any] | None,
+) -> RouteOption | None:
+    if not _time_preserving_frontier_guard_supported(ambiguity_context):
+        return None
+    base_idx = next(
+        (idx for idx, option in enumerate(options) if option.id == base_option.id),
+        None,
+    )
+    if base_idx is None:
+        return None
+    base_time = max(1.0, float(times[base_idx]))
+    base_money = max(1.0, abs(float(moneys[base_idx])))
+    base_emissions = max(1.0, abs(float(emissions[base_idx])))
+    base_distance = max(1.0, abs(float(distances[base_idx])))
+    eligible: list[tuple[float, float, float, float, str, int, RouteOption]] = []
+
+    for idx, (option, time_v, money_v, co2_v, distance_v) in enumerate(
+        zip(
+            options,
+            times,
+            moneys,
+            emissions,
+            distances,
+            strict=True,
+        )
+    ):
+        if option.id == base_option.id:
+            continue
+        time_gain = (base_time - float(time_v)) / base_time
+        if time_gain < 0.005:
+            continue
+        money_loss = max(0.0, (float(money_v) - float(moneys[base_idx])) / base_money)
+        emissions_loss = max(0.0, (float(co2_v) - float(emissions[base_idx])) / base_emissions)
+        distance_loss = max(0.0, (float(distance_v) - float(distances[base_idx])) / base_distance)
+        if money_loss > 0.06 or emissions_loss > 0.08 or distance_loss > 0.05:
+            continue
+        eligible.append(
+            (
+                -time_gain,
+                money_loss,
+                emissions_loss,
+                distance_loss,
+                _stable_option_order_key(option),
+                idx,
+                option,
+            )
+        )
+
+    if not eligible:
+        return None
+    return min(eligible)[-1]
+
+
 def _pick_best_option(
     options: list[RouteOption],
     *,
@@ -8097,6 +8200,8 @@ def _pick_best_option(
     w_co2: float,
     optimization_mode: OptimizationMode = "expected_value",
     risk_aversion: float = 1.0,
+    time_preserving_frontier_guard: bool = False,
+    ambiguity_context: Mapping[str, Any] | None = None,
 ) -> RouteOption:
     wt, wm, we = normalise_weights(w_time, w_money, w_co2)
 
@@ -8312,6 +8417,18 @@ def _pick_best_option(
         if tie_break < best_tuple:
             best = option
             best_tuple = tie_break
+    if time_preserving_frontier_guard:
+        guarded = _time_preserving_frontier_guard_candidate(
+            options,
+            base_option=best,
+            times=times,
+            moneys=moneys,
+            emissions=emissions,
+            distances=distances,
+            ambiguity_context=ambiguity_context,
+        )
+        if guarded is not None:
+            return guarded
     return best
 
 
@@ -12641,6 +12758,8 @@ def _route_selection_score_map(
     w_co2: float,
     optimization_mode: OptimizationMode = "expected_value",
     risk_aversion: float = 1.0,
+    time_preserving_frontier_guard: bool = False,
+    ambiguity_context: Mapping[str, Any] | None = None,
 ) -> dict[str, float]:
     if not options:
         return {}
@@ -12811,6 +12930,26 @@ def _route_selection_score_map(
                 + time_preservation_penalty
             )
         score_map[option.id] = float(score)
+    if time_preserving_frontier_guard and score_map:
+        base_option = min(
+            options,
+            key=lambda option: (
+                float(score_map.get(option.id, float("inf"))),
+                _stable_option_order_key(option),
+            ),
+        )
+        guarded = _time_preserving_frontier_guard_candidate(
+            options,
+            base_option=base_option,
+            times=times,
+            moneys=moneys,
+            emissions=emissions,
+            distances=distances,
+            ambiguity_context=ambiguity_context,
+        )
+        if guarded is not None:
+            best_score = min(float(value) for value in score_map.values())
+            score_map[guarded.id] = best_score - max(1e-9, abs(best_score) * 1e-9)
     return score_map
 
 
@@ -22279,9 +22418,9 @@ async def optimize_departure_time(
                 risk_aversion=req.risk_aversion,
                 utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
                 option_prefix=f"departure_{departure_time.strftime('%H%M')}",
-                od_ambiguity_index=req.od_ambiguity_index,
-                od_engine_disagreement_prior=req.od_engine_disagreement_prior,
-                od_hard_case_prior=req.od_hard_case_prior,
+                od_ambiguity_index=getattr(req, "od_ambiguity_index", None),
+                od_engine_disagreement_prior=getattr(req, "od_engine_disagreement_prior", None),
+                od_hard_case_prior=getattr(req, "od_hard_case_prior", None),
                 od_ambiguity_support_ratio=getattr(req, "od_ambiguity_support_ratio", None),
                 od_ambiguity_source_entropy=getattr(req, "od_ambiguity_source_entropy", None),
                 od_candidate_path_count=getattr(req, "od_candidate_path_count", None),
@@ -22583,9 +22722,9 @@ async def run_duty_chain(
                 risk_aversion=req.risk_aversion,
                 utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
                 option_prefix=f"duty_leg_{idx}",
-                od_ambiguity_index=req.od_ambiguity_index,
-                od_engine_disagreement_prior=req.od_engine_disagreement_prior,
-                od_hard_case_prior=req.od_hard_case_prior,
+                od_ambiguity_index=getattr(req, "od_ambiguity_index", None),
+                od_engine_disagreement_prior=getattr(req, "od_engine_disagreement_prior", None),
+                od_hard_case_prior=getattr(req, "od_hard_case_prior", None),
                 od_ambiguity_support_ratio=getattr(req, "od_ambiguity_support_ratio", None),
                 od_ambiguity_source_entropy=getattr(req, "od_ambiguity_source_entropy", None),
                 od_candidate_path_count=getattr(req, "od_candidate_path_count", None),
@@ -22878,9 +23017,9 @@ async def _run_scenario_compare(
             risk_aversion=req.risk_aversion,
             utility_weights=(req.weights.time, req.weights.money, req.weights.co2),
             option_prefix=f"scenario_{scenario_mode.value}",
-            od_ambiguity_index=req.od_ambiguity_index,
-            od_engine_disagreement_prior=req.od_engine_disagreement_prior,
-            od_hard_case_prior=req.od_hard_case_prior,
+            od_ambiguity_index=getattr(req, "od_ambiguity_index", None),
+            od_engine_disagreement_prior=getattr(req, "od_engine_disagreement_prior", None),
+            od_hard_case_prior=getattr(req, "od_hard_case_prior", None),
             od_ambiguity_support_ratio=getattr(req, "od_ambiguity_support_ratio", None),
             od_ambiguity_source_entropy=getattr(req, "od_ambiguity_source_entropy", None),
             od_candidate_path_count=getattr(req, "od_candidate_path_count", None),

@@ -355,6 +355,10 @@ export type PreferenceQueryTrace = {
 export type PreferenceSummary = {
   selected_certificate_basis?: string | null;
   pipeline_mode?: PipelineMode | null;
+  objective_field?: string | null;
+  selector_policy?: string | null;
+  selective?: boolean | null;
+  tie_break_order?: string[] | null;
   weights?: PreferenceWeightsSummary | null;
   preference_state?: PreferenceState | null;
   compatible_set_summary?: PreferenceCompatibleSetSummary | null;
@@ -448,6 +452,12 @@ export type WorldSupportSummary = {
   schema_version?: string | null;
   selected_route_id?: string | null;
   selected_certificate_basis?: string | null;
+  support_strength?: number | string | null;
+  source_support_strength?: number | string | null;
+  recommended_fidelity?: string | null;
+  proxy_penalty?: number | null;
+  audit_correction?: number | null;
+  support_sufficient?: boolean | null;
   support_state?: SupportStateSummary | null;
   world_bundle_summary?: WorldBundleSummary | null;
   scenario_summary?: ScenarioSummary | null;
@@ -476,6 +486,11 @@ export type WitnessSummary = {
   active_challenger_ids?: string[];
   active_evidence_families?: string[];
   route_id?: string | null;
+  primary_witness_route_id?: string | null;
+  witness_route_ids?: string[];
+  challenger_route_ids?: string[];
+  witness_source_ids?: string[];
+  witness_world_count?: number | null;
   selected_certificate_basis?: string | null;
 };
 
@@ -628,6 +643,87 @@ export type RouteCertificationSummary = {
   top_value_of_refresh_family?: string | null;
 };
 
+export type SupportSummary = {
+  satisfied?: boolean | null;
+  supported?: boolean | null;
+  support_flag?: boolean | null;
+  observed_source_count?: number | null;
+  required_source_count?: number | null;
+  source_mix?: string[] | null;
+  missing_sources?: string[] | null;
+  provenance_mode?: string | null;
+  [key: string]: unknown;
+};
+
+export type CertifiedSetSummary = {
+  certified?: boolean | null;
+  selected_route_id?: string | null;
+  certified_route_ids?: string[] | null;
+  frontier_route_ids?: string[] | null;
+  certificate_basis?: string | null;
+  minimum_cost_route_id?: string | null;
+  [key: string]: unknown;
+};
+
+export type AbstentionSummary = {
+  abstained?: boolean | null;
+  reason_code?: string | null;
+  blocking_sources?: string[] | null;
+  retryable?: boolean | null;
+  [key: string]: unknown;
+};
+
+export type WorldFidelitySummary = {
+  multi_fidelity_mode?: string | null;
+  policy?: string | null;
+  effective_world_count?: number | null;
+  world_count?: number | null;
+  proxy_world_fraction?: number | null;
+  stress_world_fraction?: number | null;
+  world_reuse_rate?: number | null;
+  recommended_policy?: string | null;
+  [key: string]: unknown;
+};
+
+export type CertificationStateSummary = {
+  winner_id?: string | null;
+  certification_basis?: string | null;
+  certified?: boolean | null;
+  abstained?: boolean | null;
+  support_strength?: number | string | null;
+  certified_set?: { safe?: boolean | null; [key: string]: unknown } | null;
+  [key: string]: unknown;
+};
+
+export type ControllerSummary = {
+  controller_mode?: string | null;
+  engaged?: boolean | null;
+  iteration_count?: number | null;
+  action_count?: number | null;
+  stop_reason?: string | null;
+  search_budget_used?: number | null;
+  evidence_budget_used?: number | null;
+  [key: string]: unknown;
+};
+
+export type TheoremHookSummary = {
+  hooks?: Array<{
+    hook_id?: string | null;
+    status?: string | null;
+    artifact_name?: string | null;
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown;
+};
+
+export type LaneManifestSummary = {
+  lane_id?: string | null;
+  lane_name?: string | null;
+  lane_version?: string | null;
+  artifact_names?: string[] | null;
+  [key: string]: unknown;
+};
+
 export type DecisionProofContext = {
   selected_certificate_basis?: string | null;
   support_flag?: boolean | null;
@@ -638,8 +734,8 @@ export type DecisionProofContext = {
   witness_summary?: WitnessSummary | null;
   world_support_summary?: WorldSupportSummary | null;
   certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
-  support_summary?: Record<string, unknown> | null;
-  abstention_summary?: Record<string, unknown> | null;
+  support_summary?: SupportSummary | null;
+  abstention_summary?: AbstentionSummary | null;
   action_trace_summary?: ActionTraceSummary | null;
 };
 
@@ -872,31 +968,41 @@ export type RouteResponse = {
   certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
   stability_summary?: Record<string, unknown> | null;
   preference_summary?: PreferenceSummary | null;
-  support_summary?: Record<string, unknown> | null;
-  abstention_summary?: Record<string, unknown> | null;
-  certified_set_summary?: Record<string, unknown> | null;
+  support_summary?: SupportSummary | null;
+  abstention_summary?: AbstentionSummary | null;
+  certified_set_summary?: CertifiedSetSummary | null;
   action_trace_summary?: ActionTraceSummary | null;
   witness_summary?: WitnessSummary | null;
   world_support_summary?: WorldSupportSummary | null;
 };
 
 export type DecisionPackage = {
+  package_kind?: string | null;
+  schema_version?: string | number | null;
   selected?: RouteOption | null;
   candidates?: RouteOption[] | null;
   recommended_route?: RouteOption | null;
   certified_set?: RouteOption[] | null;
   abstention?: AbstentionRecord | null;
   terminal_type?: 'certified_singleton' | 'certified_set' | 'typed_abstention';
+  terminal_kind?: string | null;
+  selected_route_id?: string | null;
   frontier_summary?: Record<string, unknown> | null;
   certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
   selected_certificate?: RouteCertificationSummary | null;
   stability_summary?: Record<string, unknown> | null;
   preference_summary?: PreferenceSummary | null;
-  support_summary?: Record<string, unknown> | null;
-  abstention_summary?: Record<string, unknown> | null;
-  certified_set_summary?: Record<string, unknown> | null;
+  support_summary?: SupportSummary | null;
+  abstention_summary?: AbstentionSummary | null;
+  certified_set_summary?: CertifiedSetSummary | null;
   action_trace_summary?: ActionTraceSummary | null;
   witness_summary?: WitnessSummary | null;
+  world_fidelity_summary?: WorldFidelitySummary | null;
+  certification_state_summary?: CertificationStateSummary | null;
+  controller_summary?: ControllerSummary | null;
+  theorem_hook_summary?: TheoremHookSummary | null;
+  lane_manifest?: LaneManifestSummary | null;
+  provenance?: Record<string, unknown> | null;
   proof_context?: DecisionProofContext | null;
   artifact_pointers?: Record<string, string | null> | null;
   run_id?: string | null;
@@ -1532,6 +1638,192 @@ export type RunArtifactsListResponse = {
   }>;
   provenance_endpoint: string;
 };
+
+export type FrontendArtifactInspectionItem = {
+  name: string;
+  label: string;
+  description: string;
+  expectation: 'guaranteed' | 'conditional';
+  present: boolean;
+  listed: boolean;
+  sizeBytes?: number | null;
+};
+
+export type FrontendArtifactInspectionGroup = {
+  id: string;
+  label: string;
+  description: string;
+  items: FrontendArtifactInspectionItem[];
+  presentCount: number;
+  listedCount: number;
+  missingExpectedCount: number;
+};
+
+type FrontendArtifactSpec = Omit<FrontendArtifactInspectionItem, 'present' | 'listed' | 'sizeBytes'>;
+
+const FRONTEND_ARTIFACT_GROUP_SPECS: Array<{
+  id: string;
+  label: string;
+  description: string;
+  items: FrontendArtifactSpec[];
+}> = [
+  {
+    id: 'core',
+    label: 'Core run documents',
+    description: 'Decision package, manifest, provenance, and signature documents that anchor the run.',
+    items: [
+      {
+        name: 'decision_package.json',
+        label: 'Decision package',
+        description: 'Route decision payload with selected route, certification state, support state, and preference state',
+        expectation: 'guaranteed',
+      },
+      {
+        name: 'manifest.json',
+        label: 'Manifest',
+        description: 'Run manifest with artifact pointers and reproducibility metadata',
+        expectation: 'guaranteed',
+      },
+      {
+        name: 'provenance.json',
+        label: 'Provenance',
+        description: 'Evidence-source and live-data provenance used for the decision',
+        expectation: 'guaranteed',
+      },
+      {
+        name: 'signature.json',
+        label: 'Signature',
+        description: 'Signed reproducibility signature for the run package',
+        expectation: 'conditional',
+      },
+    ],
+  },
+  {
+    id: 'certification',
+    label: 'Certification artifacts',
+    description: 'Artifacts explaining why the selected route or certified set is defensible.',
+    items: [
+      {
+        name: 'route_fragility_map.json',
+        label: 'Route fragility',
+        description: 'Per-route fragility by evidence family and perturbation axis',
+        expectation: 'conditional',
+      },
+      {
+        name: 'competitor_fragility_map.json',
+        label: 'Competitor fragility',
+        description: 'Fragility evidence for active challenger routes',
+        expectation: 'conditional',
+      },
+      {
+        name: 'decision_region_summary.json',
+        label: 'Decision region',
+        description: 'Nearest certificate boundary and active challenge directions',
+        expectation: 'conditional',
+      },
+      {
+        name: 'flip_radius_summary.json',
+        label: 'Flip radius',
+        description: 'Minimum perturbation budget needed to overturn the selected route',
+        expectation: 'conditional',
+      },
+    ],
+  },
+  {
+    id: 'worlds',
+    label: 'World and refresh artifacts',
+    description: 'Sampled-world, evidence-refresh, and controller artifacts used by DCCS/REFC/VOI lanes.',
+    items: [
+      {
+        name: 'sampled_world_manifest.json',
+        label: 'Sampled worlds',
+        description: 'Stress and uncertainty worlds sampled for certification',
+        expectation: 'conditional',
+      },
+      {
+        name: 'value_of_refresh.json',
+        label: 'Value of refresh',
+        description: 'Expected certificate or margin gain from refreshing evidence families',
+        expectation: 'conditional',
+      },
+      {
+        name: 'controller_trace.json',
+        label: 'Controller trace',
+        description: 'VOI controller actions, budgets, and stop reasons',
+        expectation: 'conditional',
+      },
+      {
+        name: 'theorem_hook_summary.json',
+        label: 'Theorem hooks',
+        description: 'Claim-map hooks linking run evidence to thesis theorem obligations',
+        expectation: 'conditional',
+      },
+    ],
+  },
+];
+
+export function buildFrontendArtifactInspectionGroups({
+  decisionPackage,
+  listedArtifactNames,
+  artifacts,
+}: {
+  decisionPackage?: DecisionPackage | null;
+  listedArtifactNames?: string[] | null;
+  artifacts?: RunArtifactsListResponse | null;
+}): FrontendArtifactInspectionGroup[] {
+  const listedNames = new Set((listedArtifactNames ?? []).filter(Boolean));
+  const artifactByName = new Map((artifacts?.artifacts ?? []).map((artifact) => [artifact.name, artifact]));
+  const packagePointers = decisionPackage?.artifact_pointers ?? {};
+  const pointerNames = new Set(Object.values(packagePointers).filter((value): value is string => Boolean(value)));
+  const groups = FRONTEND_ARTIFACT_GROUP_SPECS.map((group) => {
+    const items = group.items.map((item) => {
+      const present = artifactByName.has(item.name) || pointerNames.has(item.name);
+      const listed = listedNames.has(item.name) || present;
+      return {
+        ...item,
+        present,
+        listed,
+        sizeBytes: artifactByName.get(item.name)?.size_bytes ?? null,
+      };
+    });
+    return {
+      ...group,
+      items,
+      presentCount: items.filter((item) => item.present).length,
+      listedCount: items.filter((item) => item.listed).length,
+      missingExpectedCount: items.filter((item) => item.expectation === 'guaranteed' && !item.present).length,
+    };
+  });
+
+  const knownNames = new Set(groups.flatMap((group) => group.items.map((item) => item.name)));
+  const extraItems = (artifacts?.artifacts ?? [])
+    .filter((artifact) => !knownNames.has(artifact.name))
+    .map((artifact) => ({
+      name: artifact.name,
+      label: artifact.name,
+      description: 'Additional run-store artifact returned by the backend',
+      expectation: 'conditional' as const,
+      present: true,
+      listed: listedNames.has(artifact.name),
+      sizeBytes: artifact.size_bytes,
+    }));
+  if (extraItems.length) {
+    groups.push({
+      id: 'additional',
+      label: 'Additional artifacts',
+      description: 'Artifacts returned by the backend that are not part of the fixed frontend inspection catalogue.',
+      items: extraItems,
+      presentCount: extraItems.length,
+      listedCount: extraItems.filter((item) => item.listed).length,
+      missingExpectedCount: 0,
+    });
+  }
+
+  if (!decisionPackage && !artifacts && listedNames.size === 0) {
+    return [];
+  }
+  return groups.filter((group) => group.items.length > 0);
+}
 
 export type StrictErrorDetail = {
   reason_code?: StrictReasonCode;

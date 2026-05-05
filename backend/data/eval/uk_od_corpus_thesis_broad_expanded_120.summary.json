@@ -1,0 +1,21 @@
+{
+  "source_csv": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\eval\\uk_od_corpus_thesis_broad.csv",
+  "output_csv": "C:\\Users\\jmend\\Documents\\GitHub\\whatif-freight-router\\backend\\data\\eval\\uk_od_corpus_thesis_broad_expanded_120.csv",
+  "target_count": 120,
+  "selected_count": 120,
+  "origin_prototype_count": 9,
+  "destination_prototype_count": 9,
+  "augmented_origin_count": 18,
+  "augmented_destination_count": 18,
+  "candidate_count": 312,
+  "distance_bin_counts": {
+    "0-100 km": 35,
+    "100-250 km": 35,
+    "250-500 km": 34,
+    "500+ km": 16
+  },
+  "corpus_group_counts": {
+    "ambiguity": 60,
+    "representative": 60
+  }
+}

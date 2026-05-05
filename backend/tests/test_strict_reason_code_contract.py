@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.main import (
+    CandidateDiagnostics,
     TerrainDiagnostics,
     app,
     osrm_client,
@@ -28,6 +29,27 @@ def client() -> Iterator[TestClient]:
             yield test_client
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _route_endpoint_uses_mocked_collect(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _strict_reason_pipeline_stub(**_: Any) -> dict[str, Any]:
+        result = await main_module._collect_route_options()
+        options, warnings, candidate_fetches, terrain_diag = result[:4]
+        candidate_diag = result[4] if len(result) >= 5 else CandidateDiagnostics()
+        selected = options[0] if options else None
+        return {
+            "selected": selected,
+            "candidates": list(options),
+            "warnings": list(warnings),
+            "candidate_fetches": int(candidate_fetches),
+            "terrain_diag": terrain_diag,
+            "candidate_diag": candidate_diag,
+            "selected_certificate": None,
+            "voi_stop_summary": None,
+        }
+
+    monkeypatch.setattr(main_module, "_compute_direct_route_pipeline", _strict_reason_pipeline_stub)
 
 
 def _base_od_payload() -> dict[str, Any]:

@@ -5,6 +5,8 @@ import json
 import math
 import os
 import pickle
+import csv
+import sys
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,6 +52,52 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _in_bbox(lat: float, lon: float, bbox: tuple[float, float, float, float]) -> bool:
     lat_min, lat_max, lon_min, lon_max = bbox
     return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
+
+
+def _km_to_lat_deg(buffer_km: float) -> float:
+    return max(0.0, float(buffer_km)) / 111.0
+
+
+def _km_to_lon_deg(buffer_km: float, *, latitude_deg: float) -> float:
+    scale = max(0.1, math.cos(math.radians(max(-89.9, min(89.9, latitude_deg)))))
+    return max(0.0, float(buffer_km)) / (111.0 * scale)
+
+
+def _load_corpus_bbox(
+    *,
+    corpus_csv: Path,
+    buffer_km: float,
+) -> tuple[float, float, float, float]:
+    latitudes: list[float] = []
+    longitudes: list[float] = []
+    with corpus_csv.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            for lat_key, lon_key in (
+                ("origin_lat", "origin_lon"),
+                ("destination_lat", "destination_lon"),
+            ):
+                raw_lat = row.get(lat_key)
+                raw_lon = row.get(lon_key)
+                if raw_lat in (None, "") or raw_lon in (None, ""):
+                    continue
+                latitudes.append(float(raw_lat))
+                longitudes.append(float(raw_lon))
+    if not latitudes or not longitudes:
+        raise RuntimeError(f"No OD coordinates found in corpus csv: {corpus_csv}")
+    lat_min = min(latitudes)
+    lat_max = max(latitudes)
+    lon_min = min(longitudes)
+    lon_max = max(longitudes)
+    center_lat = (lat_min + lat_max) / 2.0
+    lat_buffer_deg = _km_to_lat_deg(float(buffer_km))
+    lon_buffer_deg = _km_to_lon_deg(float(buffer_km), latitude_deg=center_lat)
+    derived = (
+        lat_min - lat_buffer_deg,
+        lat_max + lat_buffer_deg,
+        lon_min - lon_buffer_deg,
+        lon_max + lon_buffer_deg,
+    )
+    return derived
 
 
 def _parse_maxspeed(tag: str | None) -> float | None:
@@ -528,8 +576,8 @@ def _write_compact_bundle(
     with tmp_path.open("wb") as fh:
         pickle.dump(bundle_payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
     tmp_path.replace(bundle_output)
-    bundle_output.with_suffix(".meta.json").write_text(
-        json.dumps(
+    with bundle_output.with_suffix(".meta.json").open("w", encoding="utf-8") as fh:
+        json.dump(
             {
                 "asset": bundle_payload["asset"],
                 "saved_at_utc": generated_at_utc,
@@ -540,11 +588,90 @@ def _write_compact_bundle(
                     "component_count": component_count,
                 },
             },
+            fh,
+            indent=2,
+        )
+    return {
+        "compact_bundle": str(bundle_output),
+        "compact_bundle_meta": str(bundle_output.with_suffix(".meta.json")),
+        "compact_bundle_nodes": int(len(nodes)),
+        "compact_bundle_edges": int(bundle_payload["graph"]["edge_count"]),
+    }
+
+
+def _write_graph_json_streaming(
+    *,
+    output: Path,
+    source: Path,
+    generated_at_utc: str,
+    as_of_utc: str,
+    bbox: tuple[float, float, float, float],
+    nodes: dict[str, tuple[float, float]],
+    edges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    bbox_payload = {
+        "lat_min": bbox[0],
+        "lat_max": bbox[1],
+        "lon_min": bbox[2],
+        "lon_max": bbox[3],
+    }
+    tmp_path = output.with_suffix(f"{output.suffix}.tmp")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tmp_path.open("w", encoding="utf-8") as fh:
+        fh.write("{")
+        fh.write('"version":')
+        json.dump("uk-routing-graph-v1", fh, separators=(",", ":"))
+        fh.write(',"source":')
+        json.dump(str(source), fh, separators=(",", ":"))
+        fh.write(',"generated_at_utc":')
+        json.dump(generated_at_utc, fh, separators=(",", ":"))
+        fh.write(',"as_of_utc":')
+        json.dump(as_of_utc, fh, separators=(",", ":"))
+        fh.write(',"bbox":')
+        json.dump(bbox_payload, fh, separators=(",", ":"))
+        fh.write(',"nodes":[')
+        first_node = True
+        for node_id, (lat, lon) in nodes.items():
+            if not first_node:
+                fh.write(",")
+            json.dump(
+                {"id": node_id, "lat": lat, "lon": lon},
+                fh,
+                separators=(",", ":"),
+            )
+            first_node = False
+        fh.write('],"edges":[')
+        first_edge = True
+        for edge in edges:
+            if not first_edge:
+                fh.write(",")
+            json.dump(edge, fh, separators=(",", ":"))
+            first_edge = False
+        fh.write("]}")
+    tmp_path.replace(output)
+    meta_path = output.with_suffix(".meta.json")
+    meta_path.write_text(
+        json.dumps(
+            {
+                "version": "uk-routing-graph-v1",
+                "source": str(source),
+                "generated_at_utc": generated_at_utc,
+                "as_of_utc": as_of_utc,
+                "nodes": len(nodes),
+                "edges": len(edges),
+                "bbox": bbox_payload,
+            },
             indent=2,
         ),
         encoding="utf-8",
     )
-    return bundle_payload
+    return {
+        "version": "uk-routing-graph-v1",
+        "source": str(source),
+        "generated_at_utc": generated_at_utc,
+        "as_of_utc": as_of_utc,
+        "bbox": bbox_payload,
+    }
 
 
 def build(
@@ -568,41 +695,16 @@ def build(
 
     generated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     as_of_utc = datetime.fromtimestamp(source.stat().st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")
-    payload = {
-        "version": "uk-routing-graph-v1",
-        "source": str(source),
-        "generated_at_utc": generated_at_utc,
-        "as_of_utc": as_of_utc,
-        "bbox": {
-            "lat_min": bbox[0],
-            "lat_max": bbox[1],
-            "lon_min": bbox[2],
-            "lon_max": bbox[3],
-        },
-        "nodes": [
-            {"id": node_id, "lat": lat, "lon": lon}
-            for node_id, (lat, lon) in nodes.items()
-        ],
-        "edges": edges,
-    }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload), encoding="utf-8")
-    meta_path = output.with_suffix(".meta.json")
-    meta_path.write_text(
-        json.dumps(
-            {
-                "version": payload["version"],
-                "source": str(source),
-                "generated_at_utc": generated_at_utc,
-                "as_of_utc": as_of_utc,
-                "nodes": len(nodes),
-                "edges": len(edges),
-                "bbox": payload["bbox"],
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    _write_graph_json_streaming(
+        output=output,
+        source=source,
+        generated_at_utc=generated_at_utc,
+        as_of_utc=as_of_utc,
+        bbox=bbox,
+        nodes=nodes,
+        edges=edges,
     )
+    meta_path = output.with_suffix(".meta.json")
     report = {
         "nodes": len(nodes),
         "edges": len(edges),
@@ -611,7 +713,7 @@ def build(
         "meta": str(meta_path),
     }
     if compact_bundle_output is not None:
-        bundle_payload = _write_compact_bundle(
+        bundle_report = _write_compact_bundle(
             graph_output=output,
             bundle_output=compact_bundle_output,
             source=source,
@@ -622,14 +724,11 @@ def build(
             min_giant_component_nodes=max(1, int(compact_bundle_min_giant_component_nodes)),
             min_giant_component_ratio=max(0.0, float(compact_bundle_min_giant_component_ratio)),
         )
-        report["compact_bundle"] = str(compact_bundle_output)
-        report["compact_bundle_meta"] = str(compact_bundle_output.with_suffix(".meta.json"))
-        report["compact_bundle_nodes"] = int(len(bundle_payload["graph"]["nodes"]))
-        report["compact_bundle_edges"] = int(bundle_payload["graph"]["edge_count"])
+        report.update(bundle_report)
     return report
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build UK routing graph asset from OSM PBF/OSM or GeoJSON.")
     parser.add_argument(
         "--source",
@@ -648,6 +747,18 @@ def main() -> None:
     parser.add_argument("--lon-min", type=float, default=UK_BBOX[2])
     parser.add_argument("--lon-max", type=float, default=UK_BBOX[3])
     parser.add_argument(
+        "--od-corpus-csv",
+        type=Path,
+        default=None,
+        help="Optional OD corpus CSV used to derive a tighter bbox from origin/destination coordinates.",
+    )
+    parser.add_argument(
+        "--bbox-buffer-km",
+        type=float,
+        default=25.0,
+        help="Buffer in km applied around a corpus-derived bbox when --od-corpus-csv is used.",
+    )
+    parser.add_argument(
         "--max-ways",
         type=int,
         default=0,
@@ -659,8 +770,13 @@ def main() -> None:
         default=None,
         help="Optional compact startup bundle path to write alongside the graph JSON.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     bbox = (args.lat_min, args.lat_max, args.lon_min, args.lon_max)
+    if args.od_corpus_csv is not None:
+        bbox = _load_corpus_bbox(
+            corpus_csv=args.od_corpus_csv,
+            buffer_km=max(0.0, float(args.bbox_buffer_km)),
+        )
     report = build(
         source=args.source,
         output=args.output,
@@ -672,4 +788,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

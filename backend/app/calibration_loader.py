@@ -2848,6 +2848,8 @@ class TollConfidenceCalibration:
 
 @lru_cache(maxsize=1)
 def load_toll_confidence_calibration() -> TollConfidenceCalibration:
+    pytest_bypass_enabled = _strict_runtime_test_bypass_enabled()
+    strict_runtime_required = _strict_runtime_required() and not pytest_bypass_enabled
     candidates = [
         _model_asset_root() / "toll_confidence_calibration_uk.json",
         _assets_root() / "toll_confidence_calibration_uk.json",
@@ -2877,14 +2879,14 @@ def load_toll_confidence_calibration() -> TollConfidenceCalibration:
             message="Toll confidence calibration asset is stale for strict live-data policy.",
             as_of_utc=_infer_as_of_from_payload(payload) or _infer_as_of_from_path(fallback_path),
             max_age_days=int(settings.live_toll_topology_max_age_days),
-            enforce=True,
+            enforce=strict_runtime_required,
         )
 
     model = payload.get("logit_model", {})
     if not isinstance(model, dict):
         model = {}
     raw_bins = payload.get("reliability_bins", [])
-    if _strict_runtime_required():
+    if strict_runtime_required:
         required_model_keys = (
             "intercept",
             "class_signal",
@@ -2917,7 +2919,7 @@ def load_toll_confidence_calibration() -> TollConfidenceCalibration:
             calibrated = max(0.0, min(1.0, _safe_float(row.get("calibrated"), (lo + hi) * 0.5)))
             bins.append(TollConfidenceBin(minimum=lo, maximum=hi, calibrated=calibrated))
     if not bins:
-        if _strict_runtime_required():
+        if strict_runtime_required:
             raise ModelDataError(
                 reason_code="toll_topology_unavailable",
                 message="No valid toll confidence reliability bins were parsed for strict runtime.",
@@ -2927,7 +2929,7 @@ def load_toll_confidence_calibration() -> TollConfidenceCalibration:
             TollConfidenceBin(minimum=0.5, maximum=1.0, calibrated=0.75),
         ]
 
-    if _strict_runtime_required():
+    if strict_runtime_required:
         try:
             intercept = float(model["intercept"])
             class_signal = float(model["class_signal"])

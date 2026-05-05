@@ -398,10 +398,11 @@ def test_ev_mode_emits_energy_kwh_and_grid_based_co2() -> None:
     assert option.metrics.energy_kwh is not None
     assert option.metrics.energy_kwh > 0
     assert option.metrics.emissions_kg > 0
-    # V2 EV pipeline uses speed/grade adjustments; CO2 intensity should still match grid factor.
+    # V2 EV pipeline uses speed/grade adjustments, then applies the active
+    # scenario emissions multiplier from the live profile fixture.
     assert math.isclose(
         option.metrics.emissions_kg / option.metrics.energy_kwh,
-        0.20,
+        0.20 * 0.96,
         rel_tol=0.0,
         abs_tol=5e-3,
     )

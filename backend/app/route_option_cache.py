@@ -22,7 +22,7 @@ from .models import (
 )
 from .settings import settings
 
-ROUTE_OPTION_CACHE_SCHEMA_VERSION = 2
+ROUTE_OPTION_CACHE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -130,6 +130,69 @@ def _segment_annotation_signature(route: Mapping[str, Any]) -> str | None:
             }
         )
     encoded = json.dumps(segments, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
+
+
+def _toll_classification_signature(route: Mapping[str, Any]) -> str:
+    candidate_meta = route.get("_candidate_meta")
+    candidate_payload: dict[str, Any] = {}
+    if isinstance(candidate_meta, Mapping):
+        candidate_payload = {
+            "source_labels": _normalize_key_component(candidate_meta.get("source_labels")),
+            "seen_by_exclude_toll": bool(candidate_meta.get("seen_by_exclude_toll", False)),
+            "seen_by_non_exclude_toll": bool(candidate_meta.get("seen_by_non_exclude_toll", False)),
+            "toll_exclusion_available": bool(candidate_meta.get("toll_exclusion_available", False)),
+        }
+
+    step_payload: list[dict[str, Any]] = []
+    legs = route.get("legs", [])
+    if isinstance(legs, Sequence) and not isinstance(legs, (str, bytes, bytearray)):
+        for leg in legs:
+            if not isinstance(leg, Mapping):
+                continue
+            steps = leg.get("steps", [])
+            if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes, bytearray)):
+                continue
+            for step in steps[:512]:
+                if not isinstance(step, Mapping):
+                    continue
+                classes = step.get("classes", [])
+                normalized_classes = (
+                    sorted({str(item).strip().lower() for item in classes if str(item).strip()})
+                    if isinstance(classes, Sequence) and not isinstance(classes, (str, bytes, bytearray))
+                    else []
+                )
+                intersection_classes: list[list[str]] = []
+                intersections = step.get("intersections", [])
+                if isinstance(intersections, Sequence) and not isinstance(intersections, (str, bytes, bytearray)):
+                    for intersection in intersections[:64]:
+                        if not isinstance(intersection, Mapping):
+                            continue
+                        raw_classes = intersection.get("classes", [])
+                        if not isinstance(raw_classes, Sequence) or isinstance(
+                            raw_classes,
+                            (str, bytes, bytearray),
+                        ):
+                            continue
+                        normalized = sorted(
+                            {str(item).strip().lower() for item in raw_classes if str(item).strip()}
+                        )
+                        if normalized:
+                            intersection_classes.append(normalized)
+                if normalized_classes or intersection_classes:
+                    step_payload.append(
+                        {
+                            "classes": normalized_classes,
+                            "intersections": intersection_classes,
+                        }
+                    )
+
+    payload = {
+        "contains_toll": bool(route.get("contains_toll", False)),
+        "candidate_meta": candidate_payload,
+        "step_toll_hints": step_payload,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
 
 
@@ -259,6 +322,7 @@ def _build_route_option_cache_key(
         "duration_s": round(float(route.get("duration", 0.0)), 6),
         "road_class_counts": _road_class_counts(route),
         "segment_annotation_signature": segment_signature,
+        "toll_classification_signature": _toll_classification_signature(route),
         "evidence_snapshot_hash": str(route.get("evidence_snapshot_hash") or route.get("snapshot_hash") or ""),
         "evidence_provenance": _normalize_key_component(route.get("evidence_provenance")),
         "evidence_tensor": _normalize_key_component(route.get("evidence_tensor")),

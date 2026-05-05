@@ -32,6 +32,53 @@
             "monetary_cost": 171.84,
             "emissions_kg": 242.602,
             "avg_speed_kmh": 59.48
+          },
+          "knee_score": 0.84,
+          "is_knee": true,
+          "eta_explanations": [
+            "traffic relief dominates the weighted utility"
+          ],
+          "segment_breakdown": [
+            {
+              "distance_km": 120.5,
+              "duration_s": 7212.2
+            }
+          ],
+          "uncertainty": {
+            "utility_mean": 0.82,
+            "utility_p90": 0.77
+          },
+          "scenario_summary": {
+            "scenario_mode": "partial_sharing",
+            "time_multiplier": 1.04,
+            "cost_multiplier": 1.01,
+            "emissions_multiplier": 0.98
+          },
+          "weather_summary": {
+            "enabled": true,
+            "profile": "rain"
+          },
+          "incident_events": [],
+          "certification": {
+            "route_id": "pair0_route0",
+            "certificate": 0.81,
+            "certified": true,
+            "threshold": 0.75,
+            "active_families": [
+              "traffic",
+              "weather",
+              "incident"
+            ],
+            "top_fragility_families": [
+              "traffic",
+              "incident"
+            ],
+            "top_competitor_route_id": "pair0_route1",
+            "top_value_of_refresh_family": "traffic",
+            "ambiguity_context": {
+              "od_ambiguity_index": 0.71,
+              "od_engine_disagreement_prior": 0.63
+            }
           }
         }
       ],

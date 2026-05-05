@@ -8,10 +8,56 @@
       "destination": {
         "lat": 51.5072,
         "lon": -0.1276
-      }
+      },
+      "od_ambiguity_index": 0.71,
+      "od_ambiguity_confidence": 0.84,
+      "od_engine_disagreement_prior": 0.63,
+      "od_hard_case_prior": 0.58
     }
   ],
   "vehicle_type": "rigid_hgv",
-  "scenario_mode": "no_sharing",
-  "max_alternatives": 5
+  "scenario_mode": "partial_sharing",
+  "max_alternatives": 8,
+  "weights": {
+    "time": 1,
+    "money": 1,
+    "co2": 1
+  },
+  "cost_toggles": {
+    "use_tolls": true,
+    "fuel_price_multiplier": 1,
+    "carbon_price_per_kg": 0.12,
+    "toll_cost_per_km": 0
+  },
+  "stochastic": {
+    "enabled": true,
+    "seed": 11,
+    "sigma": 0.08,
+    "samples": 25
+  },
+  "departure_time_utc": "2026-03-31T09:30:00Z",
+  "weather": {
+    "enabled": true,
+    "profile": "rain",
+    "intensity": 1.1,
+    "apply_incident_uplift": true
+  },
+  "incident_simulation": {
+    "enabled": true,
+    "seed": 17,
+    "dwell_rate_per_100km": 0.8,
+    "accident_rate_per_100km": 0.25,
+    "closure_rate_per_100km": 0.05,
+    "dwell_delay_s": 120,
+    "accident_delay_s": 480,
+    "closure_delay_s": 900,
+    "max_events_per_route": 12
+  },
+  "pipeline_mode": "voi",
+  "pipeline_seed": 20260331,
+  "search_budget": 8,
+  "evidence_budget": 3,
+  "cert_world_count": 64,
+  "certificate_threshold": 0.75,
+  "tau_stop": 0.02
 }

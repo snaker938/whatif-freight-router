@@ -21,13 +21,16 @@ from scripts.run_thesis_evaluation import (
     RESULT_FIELDS,
     SUMMARY_FIELDS,
     _cohort_composition,
+    _cohort_scaffolding_payload,
     _cohort_label,
+    _cohort_summary_artifact_payload,
     _cohort_summary_rows,
     _is_hard_case_row,
     _observed_ambiguity_index,
     _row_identity_key,
     _finalize_cross_variant_metrics,
     _methods_appendix,
+    _suite_role_descriptor,
     _thesis_report,
     _validate_written_output_artifacts,
     _now,
@@ -456,6 +459,11 @@ def compose_suite(args: argparse.Namespace) -> dict[str, Any]:
         cohort_summary_rows = _cohort_summary_rows(rows)
         cohort_composition = _cohort_composition(rows)
         prior_coverage = _prior_coverage_summary(rows, canonical_index=canonical_index)
+        cohort_scaffolding = _cohort_scaffolding_payload()
+        evaluation_suite = {
+            **_suite_role_descriptor("composed_suite_report"),
+            "source": "compose_suite",
+        }
 
         run_id = str(args.run_id)
         pair_count = len({_row_identity_key(row) for row in rows})
@@ -479,14 +487,18 @@ def compose_suite(args: argparse.Namespace) -> dict[str, Any]:
         }
         write_json_artifact(run_id, "suite_sources.json", source_manifest)
         write_json_artifact(run_id, "prior_coverage_summary.json", prior_coverage)
-        write_json_artifact(run_id, "cohort_composition.json", cohort_composition)
+        cohort_composition_path = write_json_artifact(run_id, "cohort_composition.json", cohort_composition)
 
         results_csv = write_csv_artifact(run_id, "thesis_results.csv", fieldnames=RESULT_FIELDS, rows=rows)
         write_json_artifact(run_id, "thesis_results.json", {"rows": rows})
         summary_csv = write_csv_artifact(run_id, "thesis_summary.csv", fieldnames=SUMMARY_FIELDS, rows=summary_rows)
         write_json_artifact(run_id, "thesis_summary.json", {"summary_rows": summary_rows})
         cohort_summary_csv = write_csv_artifact(run_id, "thesis_summary_by_cohort.csv", fieldnames=COHORT_SUMMARY_FIELDS, rows=cohort_summary_rows)
-        write_json_artifact(run_id, "thesis_summary_by_cohort.json", {"summary_rows": cohort_summary_rows})
+        cohort_summary_json = write_json_artifact(
+            run_id,
+            "thesis_summary_by_cohort.json",
+            _cohort_summary_artifact_payload(cohort_summary_rows),
+        )
 
         methods_text = _composed_methods_appendix(source_manifest)
         methods_path = write_text_artifact(run_id, "methods_appendix.md", methods_text)
@@ -498,6 +510,8 @@ def compose_suite(args: argparse.Namespace) -> dict[str, Any]:
                 "created_at": _now(),
                 "composition": source_manifest,
                 "ambiguity_prior_coverage": prior_coverage,
+                "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
                 "secondary_baseline_policy": "local_service",
                 "snapshot_mode": "off",
             },
@@ -510,12 +524,18 @@ def compose_suite(args: argparse.Namespace) -> dict[str, Any]:
                 "row_count": len(rows),
                 "failure_count": sum(1 for row in rows if row.get("failure_reason")),
                 "source_runs": source_manifest["sources"],
+                "evaluation_suite": evaluation_suite,
+                "cohort_scaffolding": cohort_scaffolding,
             },
         )
         manifest_path = write_manifest(
             run_id,
             {
-                "request": {"composition": source_manifest},
+                "request": {
+                    "composition": source_manifest,
+                    "evaluation_suite": evaluation_suite,
+                    "cohort_scaffolding": cohort_scaffolding,
+                },
                 "execution": {"pair_count": pair_count, "variant_count": 4},
             },
         )
@@ -556,10 +576,10 @@ def compose_suite(args: argparse.Namespace) -> dict[str, Any]:
                 "metadata.json": Path(metadata_path),
                 "thesis_results.json": artifact_dir_for_run(run_id) / "thesis_results.json",
                 "thesis_summary.json": artifact_dir_for_run(run_id) / "thesis_summary.json",
-                "thesis_summary_by_cohort.json": artifact_dir_for_run(run_id) / "thesis_summary_by_cohort.json",
+                "thesis_summary_by_cohort.json": Path(cohort_summary_json),
                 "suite_sources.json": artifact_dir_for_run(run_id) / "suite_sources.json",
                 "prior_coverage_summary.json": artifact_dir_for_run(run_id) / "prior_coverage_summary.json",
-                "cohort_composition.json": artifact_dir_for_run(run_id) / "cohort_composition.json",
+                "cohort_composition.json": Path(cohort_composition_path),
             },
             extra_text_paths={},
             optional_paths={
@@ -596,12 +616,16 @@ def compose_suite(args: argparse.Namespace) -> dict[str, Any]:
             "rows": rows,
             "summary_rows": summary_rows,
             "summary_by_cohort_rows": cohort_summary_rows,
+            "summary_by_cohort_json": str(cohort_summary_json),
             "ambiguity_prior_coverage": prior_coverage,
+            "cohort_composition_path": str(cohort_composition_path),
+            "cohort_scaffolding": cohort_scaffolding,
             "results_csv": str(results_csv),
             "summary_csv": str(summary_csv),
             "summary_by_cohort_csv": str(cohort_summary_csv),
             "thesis_report": str(thesis_report_path),
             "methods_appendix": str(methods_path),
+            "evaluation_suite": evaluation_suite,
             "output_artifact_validation": output_validation,
         }
     finally:
