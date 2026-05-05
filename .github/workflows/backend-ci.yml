@@ -13,8 +13,8 @@ jobs:
       PYTHONUNBUFFERED: "1"
       STRICT_RUNTIME_TEST_BYPASS: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install uv
@@ -37,8 +37,8 @@ jobs:
       LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK: "0"
       LIVE_FUEL_ALLOW_SIGNED_FALLBACK: "0"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install uv
