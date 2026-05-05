@@ -8715,6 +8715,31 @@ def _cohort_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _cohort_scaffolding_payload() -> dict[str, Any]:
+    return {
+        "cohort_summary_order": list(COHORT_SUMMARY_ORDER),
+        "cohort_definitions": dict(COHORT_DEFINITIONS),
+        "support_bin_definitions": dict(SUPPORT_BIN_DEFINITIONS),
+        "summary_fields": list(COHORT_SUMMARY_FIELDS),
+        "assignment_contract": (
+            "Rows keep their primary corpus cohort, while overlap cohorts such as hard_case, "
+            "controller_stress, preference_sensitive, support_fragile, and proxy_friendly are "
+            "reported as non-exclusive lenses so thesis claims can separate baseline population "
+            "effects from stress-condition effects."
+        ),
+    }
+
+
+def _cohort_summary_artifact_payload(summary_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "summary_rows": summary_rows,
+        "cohort_definitions": dict(COHORT_DEFINITIONS),
+        "cohort_summary_order": list(COHORT_SUMMARY_ORDER),
+        "field_contract": list(COHORT_SUMMARY_FIELDS),
+        "row_count": len(summary_rows),
+    }
+
+
 def _transfer_slice_summary_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
