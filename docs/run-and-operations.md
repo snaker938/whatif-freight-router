@@ -86,7 +86,7 @@ Backend dev endpoint for this trace:
 The most recent checked local evidence is written to `backend/out/model_assets/preflight_live_runtime.json` and companion summaries in `backend/out/`. This snapshot is useful for provenance and current-state inspection, not as a guarantee that every future run will match it.
 
 - `backend/out/model_assets/preflight_live_runtime.json`
-  - `checked_at_utc=2026-04-10T16:03:44Z`
+  - `checked_at_utc=2026-04-12T13:33:57Z`
   - `required_ok=true`
   - `required_failure_count=0`
   - `scenario_profiles.version=scenario_profiles_uk_v2_live`

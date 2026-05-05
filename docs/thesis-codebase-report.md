@@ -1,6 +1,6 @@
 # Thesis-Grade Codebase Report: whatif-freight-router
 
-Date: April 12, 2026
+Date: May 5, 2026
 
 Repository basis: current local working tree at `c:\Users\jmend\Documents\GitHub\whatif-freight-router`
 
@@ -62,21 +62,22 @@ If the goal is dissertation writing, the most useful reading order is:
 
 The repository currently contains:
 
-- 1064 tracked files total.
-- 925 tracked files under `backend`, mostly because raw toll evidence and toll fixtures are intentionally stored in-repo.
-- 79 tracked files under `frontend`.
-- 35 tracked files under `docs`.
-- 42 tracked backend data/build/benchmark scripts under `backend/scripts`.
-- 67 backend runtime modules under `backend/app`.
-- 438 tracked backend test files.
-- 69 tracked files under `frontend/app`.
-- 27 tracked frontend API proxy route files.
-- 25 tracked frontend component files.
+- 1103 tracked files total.
+- 937 tracked files under `backend`, mostly because raw UK evidence, toll evidence, fixtures, tests, scripts, and runtime modules are intentionally stored in-repo.
+- 83 tracked files under `frontend`.
+- 42 tracked files under `docs`.
+- 45 tracked backend data/build/benchmark scripts under `backend/scripts`.
+- 68 backend runtime modules under `backend/app`.
+- 446 tracked backend test files.
+- 73 tracked files under `frontend/app`.
+- 28 tracked frontend API proxy route files.
+- 28 tracked frontend component files.
 - 14 tracked frontend library files under `frontend/app/lib`.
 - 18 tracked UK asset files under `backend/assets/uk`.
 - 342 tracked UK raw evidence files under `backend/data/raw/uk`.
+- 45 tracked Markdown files overall, including root operating docs, root claim ledgers, backend and frontend READMEs, 38 docs Markdown files total under `docs` (32 first-level docs plus 6 agent-ops docs).
 
-The current workspace also contains tracked additions that affect the active codebase view in the IDE. The most important are:
+The current repository now includes the following tracked thesis-facing implementation files as normal source, not as uncommitted workspace additions. The most important are:
 
 - `frontend/app/api/route/baseline/route.ts`
 - `frontend/app/api/route/baseline/ors/route.ts`
@@ -96,7 +97,7 @@ The current workspace also contains tracked additions that affect the active cod
 - `backend/tests/test_voi_controller.py`
 - `backend/tests/test_pareto_backfill.py`
 
-Because the user asked for the entire codebase, this report describes both the tracked repository and those active codebase additions when they materially affect behavior.
+Because the user asked for the entire codebase, this report describes these tracked repository contents when they materially affect behavior.
 
 Other late-stage tracked files that now materially affect the thesis-facing route path include:
 
@@ -229,15 +230,17 @@ Operations and packaging:
 
 ### Deployment shape
 
-The default local architecture is a five-service Docker Compose pipeline plus local frontend tooling:
+The full containerized local architecture in `docker-compose.yml` is a seven-service graph:
 
 1. `osrm_download` downloads the configured region PBF.
 2. `osrm` prepares cached OSRM data if needed, then serves routing on port 5000.
 3. `osrm_ready` waits for OSRM readiness.
-4. `backend` serves the FastAPI API on port 8000.
-5. `frontend` serves the Next.js app on port 3000.
+4. `ors` runs the self-hosted OpenRouteService HGV reference engine on port 8082.
+5. `ors_ready` waits for ORS readiness.
+6. `backend` serves the FastAPI API on port 8000 with internal `OSRM_BASE_URL=http://osrm:5000` and `ORS_BASE_URL=http://ors:8082/ors`.
+7. `frontend` serves the Next.js app on port 3000.
 
-The root `docker-compose.yml` wires these together. The shell scripts under `osrm/scripts` manage PBF download caching and OSRM preprocessing reuse.
+The root `docker-compose.yml` wires these together. The shell scripts under `osrm/scripts` manage PBF download caching and OSRM preprocessing reuse. The PowerShell developer script `.\\scripts\\dev.ps1` is a related but different topology: it starts OSRM, waits for OSRM, runs strict preflight, then starts local backend and frontend processes if their ports are free; it does not itself start ORS, so strict preflight can still fail if ORS is not already available.
 
 ### Why OSRM is still present even though there is a custom route graph
 
@@ -576,6 +579,7 @@ Core user-facing compute endpoints are:
 - `POST /api/pareto/stream`
 - `POST /route/baseline`
 - `POST /route/baseline/ors`
+- `POST /route/preference`
 - `POST /departure/optimize`
 - `POST /duty/chain`
 - `POST /scenario/compare`
@@ -587,7 +591,7 @@ Supporting endpoints include:
 - readiness and health
 - vehicle profile CRUD
 - cache stats and cache clear
-- hot-rerun cache restore
+- hot-rerun cache restore through `POST /cache/hot-rerun/restore`
 - metrics
 - experiments CRUD
 - oracle quality checks/dashboard
@@ -1278,14 +1282,14 @@ This frozen set is thesis-significant because it formalizes failure semantics as
 
 ### Preflight evidence currently present locally
 
-`backend/out/model_assets/preflight_live_runtime.json` records a local strict preflight run at `2026-04-04T15:48:39Z` with:
+`backend/out/model_assets/preflight_live_runtime.json` records a local strict preflight run at `2026-04-12T13:33:57Z` with:
 
 - `required_ok: true`
 - `required_failure_count: 0`
 - scenario profile asset version `scenario_profiles_uk_v2_live`
-- scenario profile contexts recorded by preflight: 384
-- scenario live context as of `2026-04-04T02:39:16Z`, with WebTRIS, Traffic England, DfT, Open-Meteo, and overall coverage all at 1.0
-- fuel snapshot source `repo_local:fuel_prices_uk.json`, as of `2026-03-23T00:00:00Z`, signature prefix `6092b11ca3f7`
+- scenario profile contexts recorded by preflight: 192
+- scenario live context as of `2026-04-10T13:53:23Z`, with WebTRIS, Traffic England, DfT, Open-Meteo, and overall coverage all at 1.0
+- fuel snapshot source `repo_local:fuel_prices_uk.json`, as of `2026-04-06T00:00:00Z`, signature prefix `39e656b5ca83`
 - toll tariff rule count 220 and toll-topology segment count 28
 - stochastic regimes 18 and departure-profile region count 11
 - bank holiday count 134
@@ -1418,23 +1422,23 @@ From `backend/assets/uk/scenario_profiles_uk.json`:
 - version: `scenario_profiles_uk_v2_live`
 - source: `free_live_apis+holdout_fit`
 - calibration basis: `empirical_live_fit`
-- generated at `2026-03-30T15:20:52Z`
-- as of `2026-03-30T15:07:37Z`
-- calibrated context families in file: 192
-- strict preflight later records 384 live-usable contexts for the same profile family
+- generated at `2026-04-13T22:52:49Z`
+- as of `2026-04-13T22:36:36Z`
+- calibrated context families in the current asset file: 96
+- strict preflight later records 192 live-usable contexts for the same profile family
 - coverage: 1.0
 - split strategy: `temporal_forward_plus_corridor_block`
-- blocked corridor count in holdout metadata: 4
-- blocked corridors: `scotland_south`, `south_england`, `uk_default`, `wales_west`
-- source observation rows: 1023
-- observed mode row count: 735
-- holdout mode-separation mean: 0.176535
-- holdout duration MAPE: 0.011509
-- holdout monetary MAPE: 0.010849
-- holdout emissions MAPE: 0.013062
-- observed mode row share: 0.718475
-- projection dominant context share: 0.5
-- full identity share: 0.333333
+- blocked corridor count in holdout metadata: 2
+- blocked corridors: `6cd3f`, `9ad74`
+- source observation rows: 576
+- observed mode row count: 288
+- holdout mode-separation mean: 0.191077
+- holdout duration MAPE: 0.010117
+- holdout monetary MAPE: 0.010501
+- holdout emissions MAPE: 0.004885
+- observed mode row share: 0.5
+- projection dominant context share: 0.0
+- full identity share: 0.0
 - fit window: `2026-02-22T18:45:40Z` to `2026-03-30T15:07:23Z`
 - holdout window: `2026-02-22T18:46:42Z` to `2026-03-30T15:07:37Z`
 
@@ -1554,11 +1558,11 @@ This is much richer than a single rush-hour multiplier.
 
 From `backend/assets/uk/fuel_prices_uk.json`:
 
-- as of `2026-03-23T00:00:00Z`
-- refreshed at `2026-03-30T00:20:29Z`
+- as of `2026-04-06T00:00:00Z`
+- refreshed at `2026-04-10T15:16:54Z`
 - provider contract `fuel-live-v1`
-- diesel 1.6688 GBP/L
-- petrol 1.4416 GBP/L
+- diesel 1.8675 GBP/L
+- petrol 1.5465 GBP/L
 - LNG 1.015 GBP/L
 - grid electricity 0.248 GBP/kWh
 
@@ -2383,7 +2387,7 @@ This is a strong sign that the project intentionally tests both relaxed determin
 
 ### Test coverage themes
 
-The backend test surface now includes 92 tracked Python test modules and 428 tracked files under `backend/tests` once fixtures and truth corpora are included. The executable test modules cover the following major families:
+The backend test surface now includes 110 tracked Python test modules and 446 tracked files under `backend/tests` once fixtures and truth corpora are included. The executable test modules cover the following major families:
 
 - API and streaming behavior
 - cost model and emissions
@@ -2436,7 +2440,7 @@ Important local quality evidence from docs and scripts:
 - model-quality scoring enforces a threshold of 95 across risk aversion, dominance, scenario profile, departure time, stochastic sampling, terrain profile, toll classification, fuel price, carbon price, and toll cost
 - robustness analysis varies seeds
 - sensitivity analysis varies fuel, carbon, and toll assumptions
-- the latest strict preflight (`2026-04-04T15:48:39Z`) passed with zero required failures
+- the latest local strict preflight artifact in `backend/out/model_assets/preflight_live_runtime.json` (`2026-04-12T13:33:57Z`) passed with zero required failures
 - the latest graph coverage report passed with 16,782,614 nodes and 17,271,476 edges
 - the latest checked thesis lane has `strict_live_readiness_pass_rate=1.0` and `scenario_profile_unavailable_rate=0.0`
 
@@ -2797,6 +2801,7 @@ From the local evidence, the main limitations are:
 | `GET` | `/metrics` | backend endpoint metrics snapshot |
 | `GET` | `/cache/stats` | route-cache stats |
 | `DELETE` | `/cache` | clear route cache |
+| `POST` | `/cache/hot-rerun/restore` | restore/reseed hot-rerun cache state for checked cache-reuse evaluation |
 | `POST` | `/oracle/quality/check` | record/check external-source quality |
 | `GET` | `/oracle/quality/dashboard` | JSON oracle-quality dashboard |
 | `GET` | /oracle/quality/dashboard.csv | CSV oracle-quality dashboard |
@@ -2804,6 +2809,7 @@ From the local evidence, the main limitations are:
 | `POST` | `/pareto/stream` | stream Pareto events |
 | `POST` | `/api/pareto/stream` | alternate streaming path |
 | `POST` | `/route` | compute the public `DecisionPackage` route decision |
+| `POST` | `/route/preference` | apply a preference elicitation/update action against the route decision state |
 | `POST` | `/route/baseline` | OSRM quick baseline |
 | `POST` | `/route/baseline/ors` | ORS reference or ORS-proxy baseline |
 | `POST` | `/departure/optimize` | search best departure slot |
@@ -2843,6 +2849,7 @@ From the local evidence, the main limitations are:
 | `PUT` | `/api/vehicles/custom/[vehicleId]` | proxy custom vehicle update |
 | `DELETE` | `/api/vehicles/custom/[vehicleId]` | proxy custom vehicle delete |
 | `POST` | `/api/route` | proxy route compute |
+| `POST` | `/api/route/preference` | proxy route preference update |
 | `POST` | `/api/route/baseline` | proxy OSRM baseline |
 | `POST` | `/api/route/baseline/ors` | proxy ORS/proxy baseline |
 | `POST` | `/api/pareto` | proxy JSON Pareto compute |
@@ -3336,8 +3343,12 @@ Importance legend used below:
 | `.gitignore` | `reference` | declares caches, OSRM data, and runtime outputs as non-tracked noise |
 | `../.github/workflows/backend-ci.yml` | `supporting` | defines fast and strict-live CI lanes |
 | `../.vscode/settings.json` | `reference` | local editor performance and interpreter settings |
+| `../AGENTS.md` | `core` | repo-scoped Codex operating manual: startup, six-child coordination, work/file claims, Python leases, verification, and cleanup |
 | `../README.md` | `supporting` | top-level architecture, startup flow, and operations guidance |
-| `docker-compose.yml` | `core` | service graph for OSRM, backend, and frontend |
+| `../backend/README.md` | `supporting` | backend-specific runtime contract and `DecisionPackage` evidence-surface summary |
+| `../frontend/README.md` | `supporting` | frontend-specific proof, preference, governance, and reporting-surface summary |
+| `../notebooks/NOTEBOOKS_POLICY.md` | `reference` | policy that notebooks are not part of the maintained proof/reporting surface |
+| `docker-compose.yml` | `core` | seven-service graph for OSRM, ORS, readiness checks, backend, and frontend |
 | `paper_artifact_index.json` | `supporting` | reviewer-facing map from indexed headline table/figure surfaces to checked local artifact paths |
 | `project-dump.txt` | `reference` | stale/high-level directory snapshot; useful background, not authoritative over current code |
 | `data/.gitkeep` | `reference` | keeps placeholder data directory in Git |
@@ -3353,27 +3364,38 @@ Importance legend used below:
 | `docs/appendix-graph-theory-notes.md` | `reference` | graph-theory background notes for the route graph |
 | `docs/backend-api-tools.md` | `core` | backend endpoint and tooling documentation |
 | `docs/co2e-validation.md` | `supporting` | CO2e validation notes |
+| `docs/data_card.md` | `core` | evidence-corpus boundary, source/proxy status, raw-data policy, and generated artifact boundaries |
 | `docs/dissertation-math-overview.md` | `supporting` | thesis-oriented math summary |
 | `docs/eta-concept-drift.md` | `supporting` | ETA drift monitoring concepts |
+| `docs/evaluation_card.md` | `core` | reviewer lane, cohort, gate, and evidence-state definitions |
 | `docs/frontend-accessibility-i18n.md` | `supporting` | accessibility and i18n behavior |
 | `docs/frontend-dev-tools.md` | `supporting` | frontend devtools and diagnostics panels |
 | `docs/map-overlays-tooltips.md` | `supporting` | UI map overlay semantics |
 | `docs/math-appendix.md` | `supporting` | mathematical appendix beyond high-level overview |
+| `docs/model_card_proxy_audit.md` | `core` | proxy-audit limitations, calibration fields, overlap caveats, and non-adoption status |
 | `docs/model-assets-and-data-sources.md` | `core` | asset families, provenance, and source descriptions |
 | `docs/negative_results.md` | `supporting` | current negative-result and non-claim discipline notes |
 | `docs/performance-profiling-notes.md` | `supporting` | performance measurement notes |
 | `docs/quality-gates-and-benchmarks.md` | `core` | explicit quality thresholds and benchmark expectations |
 | `docs/redesign-implementation-tracker.md` | `core` | live redesign packet tracker and doc-sync map |
 | `docs/reproducibility-capsule.md` | `supporting` | reproducibility capsule workflow |
+| `docs/reviewer_quickstart.md` | `core` | reviewer starting point for checked bundles, export surfaces, and current non-publishable verdict |
 | `docs/run-and-operations.md` | `core` | extended operations guide, rebuild flow, and runtime troubleshooting |
 | `docs/runbook.md` | `supporting` | short operator runbook for startup, readiness, artifacts, and shutdown |
 | `docs/sample-manifest.md` | `supporting` | manifest and artifact bundle examples |
 | `docs/strict-errors-reference.md` | `supporting` | strict error contract reference |
 | `docs/synthetic-incidents-weather.md` | `supporting` | synthetic incident and weather experiment notes |
 | `docs/theorem_map.md` | `core` | theorem/proposition map and proof-gap tracker |
+| `docs/theorem_package.md` | `core` | named partial-proof theorem and lower-bound package |
 | `docs/thesis-codebase-report.md` | `core` | this codebase report |
 | `docs/tutorial-and-reporting.md` | `supporting` | frontend reporting and run-inspector workflow |
 | `docs/voi-pipeline-spec.md` | `core` | DCCS/REFC/VOI artifact and pipeline contract |
+| `docs/agent-ops/README.md` | `core` | coordination overview for parent/child Codex work in this repo |
+| `docs/agent-ops/agent-roles.md` | `supporting` | recommended Planner, Builder, QA, Docs Sync, Evaluator, and Explorer role vocabulary |
+| `docs/agent-ops/commands-and-examples.md` | `supporting` | examples for parent/child registration, claims, heartbeats, and cleanup |
+| `docs/agent-ops/coordination-protocol.md` | `core` | shared-state protocol, six-child compliance, and claim semantics |
+| `docs/agent-ops/python-leases.md` | `supporting` | low-memory Python lease and wrapper policy |
+| `docs/agent-ops/session-lifecycle.md` | `core` | startup, checkpoint, stale recovery, replacement, and shutdown lifecycle |
 | `docs/examples/sample_batch_request.json` | `reference` | batch request example payload |
 | `docs/examples/sample_batch_response.json` | `reference` | batch response example payload |
 | `docs/examples/sample_manifest.json` | `reference` | manifest example payload |
@@ -3383,10 +3405,20 @@ Importance legend used below:
 | File | Importance | Purpose |
 | --- | --- | --- |
 | `backend/app/__init__.py` | `reference` | package marker |
+| `backend/app/abstention.py` | `core` | typed abstention helpers and reason-state normalization for certification-facing outcomes |
+| `backend/app/audit_correction.py` | `core` | proxy-audit correction and overlap/calibration helpers |
 | `backend/app/calibration_loader.py` | `core` | loads and validates scenario, departure, toll, fuel, stochastic, and holiday assets |
+| `backend/app/candidate_bounds.py` | `core` | candidate objective-bound helpers used by certification and safe-elimination logic |
+| `backend/app/candidate_criticality.py` | `core` | candidate criticality and hard-case indicators for DCCS/VOI decisions |
 | `backend/app/carbon_model.py` | `core` | strict carbon schedule loading and pricing context |
+| `backend/app/certificate_witness.py` | `core` | certificate witness payload construction for reviewer-facing proof surfaces |
 | `backend/app/departure_profile.py` | `core` | contextual departure-time multiplier logic |
+| `backend/app/certification_models.py` | `core` | structured certificate, world-support, and proof-surface models |
+| `backend/app/certified_set.py` | `core` | certified-set construction and singleton-versus-set downgrade semantics |
+| `backend/app/confidence_sequences.py` | `core` | confidence-sequence utilities for anytime-valid certification evidence |
 | `backend/app/experiment_store.py` | `supporting` | filesystem-backed CRUD for saved experiments |
+| `backend/app/fidelity_model.py` | `core` | multi-fidelity evidence and refinement-cost model support |
+| `backend/app/flip_radius.py` | `core` | flip-radius computation and robustness-to-preference perturbation summaries |
 | `backend/app/fuel_energy_model.py` | `core` | fuel/energy/emissions computation over calibrated surfaces |
 | `backend/app/incident_simulator.py` | `supporting` | seeded synthetic incident generation for experiments |
 | `backend/app/k_shortest.py` | `core` | Yen-style K-shortest path search with budgets |
@@ -3406,11 +3438,17 @@ Importance legend used below:
 | `backend/app/objectives_emissions.py` | `supporting` | simpler/demo emissions-speed objective helpers |
 | `backend/app/objectives_selection.py` | `supporting` | simple weighted-sum selector helper |
 | `backend/app/oracle_quality_store.py` | `supporting` | source-quality dashboard persistence |
+| `backend/app/pairwise_gap_model.py` | `core` | pairwise gap and challenger-separation support for preference/certification decisions |
 | `backend/app/pareto.py` | `core` | Pareto dominance filter |
 | `backend/app/pareto_methods.py` | `core` | epsilon filter, crowding truncation, knee annotation |
+| `backend/app/preference_model.py` | `core` | preference-state and utility interpretation model |
+| `backend/app/preference_queries.py` | `core` | pairwise, threshold, ratio, veto, and time-guard query construction |
+| `backend/app/preference_runtime.py` | `core` | `/route/preference` runtime update path and preference-action application |
+| `backend/app/preference_state.py` | `core` | preference state, query evidence, and compatibility tracking |
+| `backend/app/preference_update.py` | `core` | preference-update validation and state transition logic |
 | `backend/app/provenance_store.py` | `supporting` | run provenance event persistence |
 | `backend/app/rbac.py` | `reference` | disabled RBAC shim preserving endpoint signatures |
-| `backend/scripts/compose_thesis_suite_report.py` | `supporting` | thesis-suite report composition |
+| `backend/app/replay_oracle.py` | `supporting` | replay/check helpers for artifact-backed oracle and evaluation surfaces |
 | `backend/app/risk_model.py` | `core` | quantiles, CVaR, normalized utility, robust objective math |
 | `backend/app/route_cache.py` | `supporting` | in-memory route-result cache with stats |
 | `backend/app/route_option_cache.py` | `supporting` | cache for post-refinement route-option builds |
@@ -3422,6 +3460,7 @@ Importance legend used below:
 | `backend/app/scenario.py` | `core` | scenario modes, context keys, and scenario policy application |
 | `backend/app/settings.py` | `core` | validated runtime settings surface |
 | `backend/app/signatures.py` | `supporting` | canonical payload signing and verification |
+| `backend/app/support_model.py` | `core` | world-support summaries, support status, overlap, and support-downgrade logic |
 | `backend/app/terrain_dem.py` | `core` | terrain sampling, coverage checks, and route summaries |
 | `backend/app/terrain_dem_index.py` | `core` | terrain manifest/live-tile indexing and tile fetch diagnostics |
 | `backend/app/terrain_physics.py` | `core` | grade, drag, rolling resistance, and terrain uplift formulas |
@@ -3431,6 +3470,7 @@ Importance legend used below:
 | `backend/app/voi_controller.py` | `core` | deterministic VOI-AD2R action scoring and stop-certificate logic |
 | `backend/app/voi_dccs_cache.py` | `supporting` | cache for VOI/DCCS intermediate bundles |
 | `backend/app/weather_adapter.py` | `supporting` | weather-to-speed and weather-to-incident transforms |
+| `backend/app/world_policies.py` | `core` | bounded-world policy definitions and world-support assumptions for certificate validity |
 
 ### Backend scripts (`backend/scripts`)
 
@@ -11261,9 +11301,3690 @@ The aim is to explain how the repo moves from one nominal route estimate to a ca
 - In plain English, a hard-to-separate winner usually costs more certification effort than an easy one.
 - In thesis terms, this is local engineering evidence for gap-sensitive certification effort, not a closed formal lower-bound proof.
 
+# Appendix AI: Consolidated README And Markdown Source Ledger
+
+This appendix was added so the master report absorbs the maintained README and Markdown surfaces instead of requiring a reader to open every other documentation file. It does not replace the detailed file inventory in Appendix J or the documentation absorption ledger in Appendix Q; it makes their content explicit as a final consolidation pass.
+
+The maintained Markdown set currently includes 45 tracked files:
+
+- Root and package guides: `AGENTS.md`, `README.md`, `backend/README.md`, `frontend/README.md`, `claim_matrix.md`, `negative_results.md`, and `notebooks/NOTEBOOKS_POLICY.md`.
+- First-level docs: `docs/DOCS_INDEX.md`, `docs/api-cookbook.md`, `docs/appendix-graph-theory-notes.md`, `docs/backend-api-tools.md`, `docs/claim_matrix.md`, `docs/co2e-validation.md`, `docs/data_card.md`, `docs/dissertation-math-overview.md`, `docs/eta-concept-drift.md`, `docs/evaluation_card.md`, `docs/frontend-accessibility-i18n.md`, `docs/frontend-dev-tools.md`, `docs/map-overlays-tooltips.md`, `docs/math-appendix.md`, `docs/model_card_proxy_audit.md`, `docs/model-assets-and-data-sources.md`, `docs/negative_results.md`, `docs/performance-profiling-notes.md`, `docs/quality-gates-and-benchmarks.md`, `docs/redesign-implementation-tracker.md`, `docs/reproducibility-capsule.md`, `docs/reviewer_quickstart.md`, `docs/run-and-operations.md`, `docs/runbook.md`, `docs/sample-manifest.md`, `docs/strict-errors-reference.md`, `docs/synthetic-incidents-weather.md`, `docs/theorem_map.md`, `docs/theorem_package.md`, `docs/thesis-codebase-report.md`, `docs/tutorial-and-reporting.md`, and `docs/voi-pipeline-spec.md`.
+- Agent operations docs: `docs/agent-ops/README.md`, `docs/agent-ops/agent-roles.md`, `docs/agent-ops/commands-and-examples.md`, `docs/agent-ops/coordination-protocol.md`, `docs/agent-ops/python-leases.md`, and `docs/agent-ops/session-lifecycle.md`.
+
+## AI1. Root README Consolidation
+
+The root `README.md` defines the system as an auditable, tri-source, selective minimum-cost certification engine for freight routing under incomplete search, biased evidence, and ambiguous preferences. That wording is not ornamental. It fixes the thesis-level objective: minimize expected action cost until the system reaches a justified terminal decision. The three action families are search actions, evidence actions, and preference actions. The terminal outcomes are certified singleton, certified set, and typed abstention.
+
+The abstention vocabulary from the README is fully absorbed here: `uncertified_due_to_search`, `uncertified_due_to_evidence`, `uncertified_due_to_preference`, `uncertified_due_to_out_of_support_world_model`, `uncertified_due_to_budget`, and `uncertified_due_to_model_assumption`. These names matter because they separate "the route engine failed" from "the system intentionally refused to overclaim." A result can therefore be operationally useful even when it is not a singleton recommendation.
+
+The root README also defines the practical developer topology. The default local script is `.\\scripts\\dev.ps1`, which creates `.env` from `.env.example` when needed, starts OSRM through Docker, waits for OSRM, runs strict preflight, starts the backend, and starts the frontend unless ports are already occupied. It exposes the frontend at `http://localhost:3000`, backend docs at `http://localhost:8000/docs`, backend readiness at `http://localhost:8000/health/ready`, and OSRM at `http://localhost:5000`. The script does not start ORS. The full container topology is `docker-compose.yml`, where ORS is an explicit `ors` service with an `ors_ready` gate.
+
+The README's current route contract is now part of this report: live thesis-facing `/route` uses the redesigned certification engine, resolves supported non-waypoint requests through `dccs_refc`, rejects `pipeline_mode=legacy`, and rejects waypoint requests. Baseline and comparison traffic belongs to `/route/baseline` and `/route/baseline/ors`. The public response model is `DecisionPackage`, not the older internal `RouteResponse` compatibility shape. The public response can carry a route, certificate, preference state, support state, witness, action trace, and artifact pointers.
+
+The README also records the live runtime fallback contract. Frontend and backend compute waits use long bounded timeouts: `COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`, `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`, `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`, `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`, and `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS=12,6,3`. Backend route compute uses `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S=1200` and `ROUTE_COMPUTE_SINGLE_ATTEMPT_TIMEOUT_S=900`. Lightweight route-context probing is bounded by `ROUTE_CONTEXT_PROBE_TIMEOUT_MS=2500` and `ROUTE_CONTEXT_PROBE_MAX_PATHS=2`. Strict live mode uses `LIVE_RUNTIME_DATA_ENABLED=true` and `STRICT_LIVE_DATA_REQUIRED=true`. In strict mode, HTTP 4xx business failures are terminal for frontend fallback because they encode unsupported or invalid decision states rather than transient transport failures.
+
+Validation dates must be read carefully. The root README still documents an older strict preflight snapshot, while current generated local state and later docs report newer snapshots. This report resolves that by citing the generated artifact when it speaks about the current workspace: `backend/out/model_assets/preflight_live_runtime.json` currently records `checked_at_utc=2026-04-12T13:33:57Z`, `required_ok=true`, and `required_failure_count=0`.
+
+## AI2. Backend README Consolidation
+
+`backend/README.md` narrows the backend identity. The FastAPI service is the strict runtime service for the certification-facing route path. The public `/route` route is not a generic shortest-path endpoint; it is a certificate-producing decision endpoint whose default live pipeline is `dccs_refc`.
+
+The backend README's evidence-surface distinction is absorbed here:
+
+- `/route` returns `DecisionPackage` for live certification-facing requests.
+- `/route/baseline` and `/route/baseline/ors` exist for baseline comparison and should not be confused with the proof-facing result.
+- Internal compatibility shapes can still exist for older code paths, but the public thesis-facing shape is the package that contains certificate, support, preference, witness, trace, and artifact pointers.
+- Typed abstention can still carry useful reviewer information, including normalized certified-set summaries, confidence state, certificate witnesses, and artifact references.
+
+The backend README also defines the bundle contract. The route result is not only an HTTP response. It can write route artifacts, certificate/proof artifacts, preference artifacts, support artifacts, and provenance artifacts. This is why generated bundle files such as `certificate_summary.json`, `world_support_summary.json`, `certificate_witness.json`, `voi_action_trace.json`, and `final_route_trace.json` are part of the codebase understanding.
+
+## AI3. Frontend README Consolidation
+
+`frontend/README.md` defines the frontend as a proof and governance UI over `DecisionPackage`, not only a map UI. Flat route-response normalization exists as compatibility glue; the current UI reads decision-state slices that correspond to the terminal outcome model.
+
+The frontend README surfaces are absorbed as follows:
+
+- `DecisionStateSummary` is the read-only preference and decision-state summary surface. It shows terminal type, certificate basis, certified-set visibility, support summary, abstention reason, preference state, compatible-set summary, query evidence, shrinkage, and why-query / why-no-query text.
+- `PreferenceElicitationPanel` is the live preference-action surface. It handles pairwise, threshold, ratio, veto, and time-guard actions through `/route/preference`.
+- `RouteCertificationPanel` shows controller context, artifact-backed controller traces, support/governance details, evidence audit, and exports for CSV/SVG-style reviewer inspection.
+- `ProofDashboardPanel` is the proof-demo and checked-bundle surface for V0/A/B/C slices, broad/focused lanes, cold/hot reruns, OSRM/ORS comparisons, theorem-to-artifact references, and run-inspector links.
+
+The frontend README therefore expands the thesis claim beyond "there is a web app." The UI is part of the auditable system because it exposes why a recommendation, certified set, or abstention occurred.
+
+## AI4. API And Tooling Docs Consolidation
+
+`docs/backend-api-tools.md` and `docs/api-cookbook.md` define the backend API surface now represented in Appendices A and X2. The current endpoint families are:
+
+- Root and health: `GET /`, `GET /health`, `GET /health/ready`.
+- Diagnostics: `GET /debug/live-calls/{request_id}`, `GET /metrics`.
+- Cache: `GET /cache/stats`, `DELETE /cache`, `POST /cache/hot-rerun/restore`.
+- Vehicles: `GET /vehicles`, `GET /vehicles/custom`, `POST /vehicles/custom`, `PUT /vehicles/custom/{vehicle_id}`, `DELETE /vehicles/custom/{vehicle_id}`.
+- Route and decision: `POST /route`, `POST /route/preference`, `POST /route/baseline`, `POST /route/baseline/ors`.
+- Pareto and streaming: `POST /pareto`, `POST /pareto/stream`, `POST /api/pareto/stream`.
+- Planning helpers: `POST /departure/optimize`, `POST /duty/chain`, `POST /scenario/compare`.
+- Experiments: `GET /experiments`, `POST /experiments`, `GET /experiments/{experiment_id}`, `PUT /experiments/{experiment_id}`, `DELETE /experiments/{experiment_id}`, `POST /experiments/{experiment_id}/compare`.
+- Batch: `POST /batch/import/csv`, `POST /batch/pareto`.
+- Artifact and signature: `GET /runs/{run_id}/manifest`, `GET /runs/{run_id}/scenario-manifest`, `GET /runs/{run_id}/provenance`, `GET /runs/{run_id}/signature`, `GET /runs/{run_id}/scenario-signature`, `POST /verify/signature`, `GET /runs/{run_id}/artifacts`, and the artifact file endpoints.
+- Oracle quality: `POST /oracle/quality/check`, `GET /oracle/quality/dashboard`, `GET /oracle/quality/dashboard.csv`.
+
+The API docs also define request-level knobs that must be understood as part of the model: origin/destination/waypoints, vehicle type, scenario mode, weights, cost toggles, terrain profile, stochastic settings, optimization mode, risk aversion, emissions context, weather, incident simulation, departure time, Pareto method, epsilon, and OD ambiguity priors such as ambiguity index, confidence, engine disagreement, hard-case prior, source mix, entropy, support ratio, prior strength, family density, margin pressure, spread pressure, toll instability, candidate path count, corridor family count, objective spread, nominal margin proxy, toll disagreement, ambiguity budget prior, and ambiguity budget band.
+
+For `/route`, the docs add pipeline-level controls: `pipeline_mode`, `refinement_policy`, `pipeline_seed`, `search_budget`, `evidence_budget`, `cert_world_count`, `certificate_threshold`, `tau_stop`, and `evaluation_lean_mode`.
+
+## AI5. Operations, Runbook, And CI Consolidation
+
+`docs/run-and-operations.md`, `docs/runbook.md`, `README.md`, and `AGENTS.md` agree on the operational rule: prefer the smallest valid check first, then escalate. The backend verification surface is `uv run --project backend pytest ...`. The frontend verification surface is `pnpm --dir frontend exec tsc --noEmit` and `pnpm --dir frontend build`. The docs consistency gate is `python scripts/check_docs.py`. The full local stack smoke is `.\\scripts\\dev.ps1`.
+
+Backend-only operation is intentionally from the `backend` directory:
+
+```powershell
+Set-Location backend
+uv sync --dev
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+The docs warn against running the backend from repo root with `uv run --project backend uvicorn ...` because module resolution is not stable for this layout.
+
+Frontend-only operation is:
+
+```powershell
+Set-Location frontend
+pnpm install
+pnpm dev
+```
+
+The full container check is `docker compose up --build`, which is different from `.\\scripts\\dev.ps1` because Compose includes ORS and ORS readiness. Avoid running both topologies against the same ports at once.
+
+CI is backend-only in the [backend CI workflow](../.github/workflows/backend-ci.yml). The `fast-lane` uses `STRICT_RUNTIME_TEST_BYPASS=1` for deterministic backend checks. The `strict-live-lane` uses `STRICT_RUNTIME_TEST_BYPASS=0`, disables signed fallbacks for strict feeds, and validates strict reason-code / fail-closed behavior. The frontend is expected to be checked locally because CI does not currently cover it.
+
+The low-resource backend suite is `.\\scripts\\run_backend_tests_safe.ps1 -MaxCores 1 -PriorityClass Idle -MaxWorkingSetMB 4096`. The script runs per-file pytest, forces common numeric-library thread counts to `1`, tracks timeout/stall/RAM behavior, and writes summaries under `backend/out/test_runs/<timestamp>/`.
+
+## AI6. Agent-Ops Consolidation
+
+`AGENTS.md` and `docs/agent-ops/*` define a shared coordination protocol for Codex work in this repo. The parent-controller model is not optional when used: startup requires `python tools/codex_coord.py status`, `python tools/codex_coord.py doctor`, `python tools/codex_coord.py start-parent --task-summary "<summary>"`, active snapshot inspection, work-item ledger creation, six real child subagents, and `python tools/codex_coord.py ensure-six-subagents --session-id <parent_session_id>`.
+
+The six-child model is exact: a parent-controller session must maintain exactly six live parent-local child slots backed by real child sessions. A slot file or `.codex/config.toml` setting does not prove compliance. A live child needs identity, active status, fresh heartbeat, role, activity status, and either work-item assignment or explicit standby/watch summary.
+
+Edits require exclusive file claims. Read-only inspection and QA review do not require file claims. Long or memory-heavy Python jobs should use `python tools/codex_run_python.py --session-id <id> --purpose "<why>" -- <command>`, which records a Python lease, targets a 5 percent RAM cap, sets common numeric-library thread counts to `1`, and records any OS-level enforcement limitation honestly.
+
+Normal cleanup is final checkpoint, child shutdown or replacement, work-claim release, file-claim release, Python lease closure, message cleanup, and `end-parent`. Stale state must be handled through `reap-stale`; fresh claims must not be stolen.
+
+## AI7. Data Card, Model Card, Evaluation Card, And Reviewer Quickstart Consolidation
+
+`docs/data_card.md` defines the evidence boundary. Raw UK evidence lives in `backend/data/raw/uk`, curated runtime source assets live in `backend/assets/uk`, generated strict runtime assets live in `backend/out/model_assets`, and generated run artifacts live under `backend/out/artifacts` or `out/headline_exports`. The report must not treat generated output as hand-maintained source, and it must not treat repo-local proxy evidence as equivalent to a fully external audited dataset.
+
+`docs/model_card_proxy_audit.md` defines the proxy-audit caveat: current proxy-audit surfaces support calibration and observability language, but they do not green-light adoption. The checked C-row proxy audit is proxy-only in the relevant local slice; `proxy_only_fraction=1.0`, audited route-pair coverage is not established there, and positivity/overlap must be treated as a limitation unless a checked artifact says otherwise.
+
+`docs/evaluation_card.md` defines lanes and cohorts. The lane vocabulary includes `broad_cold_proof`, `focused_refc_proof`, `focused_voi_proof`, `dccs_diagnostic_probe`, `hot_rerun_cold_source`, `hot_rerun`, `preference_proof`, `optional_stopping_coverage`, `proxy_audit_calibration`, `perturbation_flip_radius`, `threshold_sensitivity`, `public_transfer`, and `synthetic_ground_truth`. Cohorts include collapse-prone, OSRM-brittle, ORS-brittle, refresh-sensitive, time-preserving-conflict, low-ambiguity-fast-path, preference-sensitive, support-fragile, audit-heavy, and proxy-friendly cases. Support-fragile is derived/overlapping rather than an independent natural population.
+
+`docs/reviewer_quickstart.md` defines the current reviewer starting point. The checked reviewer package lives under `out/headline_exports/current_checked`, with the full-suite bundle `full_suite_curated_latest_20260411` and companion lane bundles for broad cold proof, threshold sensitivity, optional stopping, perturbation flip radius, public transfer, and hot rerun. The quickstart also makes the current verdict explicit: not all gates are green, `publishable_on_current_evidence=false`, and `adoption_claim_supported=false`.
+
+## AI8. Proof, Claim, And Negative-Result Consolidation
+
+`docs/theorem_package.md` and `docs/theorem_map.md` are absorbed as the proof-status front door. The theorem package is `partial-proof`, not theorem-backed closure for the full system. The theorem/lower-bound families are:
+
+- THM-01 safe elimination.
+- THM-02 anytime-valid winner certification.
+- THM-03 pairwise challenger separation.
+- THM-04 flip radius.
+- THM-05 preference-robust extension.
+- THM-06 preference irrelevance.
+- THM-07 certified-set-safe / singleton-not-justified.
+- THM-08 hidden-challenger / search impossibility.
+- THM-09 proxy-audit correction validity.
+- THM-10 controller near-optimality under calibrated surrogate assumptions.
+- LB-01 certification cost scaling with decisive gap and confidence.
+- LB-02 preference impossibility.
+- LB-03 search impossibility.
+- LB-04 audit necessity under proxy bias.
+
+The claim matrices separate theorem-backed claims, empirical claims, heuristic-but-measured surfaces, and non-claims. The report therefore cannot silently convert a checked local artifact into a universal theorem, or a heuristic score blend into a claimed optimum. The root `claim_matrix.md` is the reviewer-facing index; `docs/claim_matrix.md` is the detailed implementation ledger.
+
+`negative_results.md` and `docs/negative_results.md` are also part of the positive understanding of the system. They say the project does not support universal OSRM/ORS superiority, unconditional claims outside the UK-focused runtime assumptions, full high-fidelity vehicle simulation, a completely green reviewer package, or theorem-backed closure for the entire pipeline. Newer negative-result updates also say some observability rows are no longer negative on current checked evidence, but the full suite remains red because DCCS, refine-cost forecasting, and VOI hard gates remain blockers.
+
+## AI9. Frontend Accessibility, I18n, Tooling, And Map Docs Consolidation
+
+`docs/frontend-accessibility-i18n.md` defines the UI responsibility beyond visual presentation. The frontend has `en` and `es` locale support, skip-link behavior, focus-visible styling, live-region status reporting, keyboard-operable controls, custom `Select`, `CollapsibleCard`, `FieldInfo`, `TutorialOverlay`, and map interaction affordances.
+
+`docs/frontend-dev-tools.md` defines the developer and reviewer panels. These include run inspector, route certification, proof dashboard, scenario comparison, oracle quality, departure optimization, duty-chain, debug live calls, and compute diagnostics. These panels are not proof by themselves, but they are the surfaces through which proof artifacts and runtime traces are made inspectable.
+
+`docs/map-overlays-tooltips.md` defines the route-map overlays: stops, preview connectors, incidents, segment overlays, route badges, OSRM/ORS/reference routes, and failure overlays. Toggle names include `showStopOverlay`, `showIncidentOverlay`, `showSegmentTooltips`, `showPreviewConnector`, `showBaselineRoute`, `showGoogleBaselineRoute`, and `showReferenceRoute`. Segment tooltips can expose distance, ETA, cost, CO2e, incident delay, and route context.
+
+`docs/synthetic-incidents-weather.md` defines controlled weather and incident request fields. Weather profiles are `clear`, `rain`, `storm`, `snow`, and `fog`; intensity is bounded to `0.0..2.0`. Synthetic incidents use dwell, accident, and closure rates, seeded determinism, sorted event ordering, default rates `0.8`, `0.25`, and `0.05` per 100 km, default delays `120`, `480`, and `900` seconds, and default `max_events_per_route=12`. Strict live mode disables synthetic incident generation when `STRICT_LIVE_DATA_REQUIRED=true`.
+
+## AI10. Math, Graph, CO2e, Drift, And Performance Docs Consolidation
+
+`docs/math-appendix.md`, `docs/dissertation-math-overview.md`, and `docs/appendix-graph-theory-notes.md` provide the mathematical support language. The route engine uses multi-objective optimization, Pareto filtering, epsilon-constraint filtering, weighted and scalarized selectors, risk summaries, CVaR, quantiles, uncertainty sampling, K-shortest-path logic, A*-style heuristics, and graph coverage checks. These are established methods adapted into a practical engineering system rather than newly invented mathematical theory.
+
+`docs/co2e-validation.md` defines CO2e handling. Physical emissions and carbon pricing are separated. Current strict carbon policy records the 2026 central carbon price as `0.101 GBP/kg`, low as `0.08282`, high as `0.11918`, and the non-EV WTW scope factor as `1.121`. The generated fuel snapshot currently records diesel `1.8675 GBP/L`, petrol `1.5465 GBP/L`, LNG `1.015 GBP/L`, and grid electricity `0.248 GBP/kWh` as of `2026-04-06T00:00:00Z`.
+
+`docs/eta-concept-drift.md` defines a simple deterministic monitoring script for external prediction/observation CSVs. It does not call the route engine. The documented default alert thresholds are `--mae-threshold-s 120` and `--mape-threshold-pct 10`. The output fields include count, MAE, MAPE, RMSE, max absolute error, thresholds, and alert state.
+
+`docs/performance-profiling-notes.md` and `docs/quality-gates-and-benchmarks.md` define benchmark expectations. `backend/scripts/benchmark_model_v2.py` profiles `build_option()` over `backend/tests/fixtures/uk_routes`, with 8 iterations by default, `rigid_hgv`, `ScenarioMode.NO_SHARING`, `use_tolls=false`, `toll_cost_per_km=0.2`, `carbon_price_per_kg=0.12`, stochastic `enabled=true`, `seed=42`, `sigma=0.08`, `samples=32`, emissions context `diesel/euro6/ambient_temp_c=12`, departure `2026-02-18T08:30:00Z`, and flat/hilly terrain passes. The route-option p95 gate defaults to `2000 ms`. Quality scoring enforces score threshold `95` across the documented subsystems.
+
+# Appendix AJ: Generated Results, Bundles, And Artifact Ledger
+
+This appendix consolidates generated results named by the maintained docs and visible local generated surfaces. The key distinction is source versus generated evidence. Source code, source docs, and source assets are stable explanation inputs. Generated artifacts are run evidence. They are citable only with path, date, configuration, and gate state.
+
+## AJ1. Generated Output Roots
+
+The generated-output roots used by this repository are:
+
+- `backend/out/model_assets`: compiled strict runtime assets, manifests, preflight JSON, routing graph coverage, terrain assets, and model signatures.
+- `backend/out/artifacts/{run_id}`: per-run result bundles and proof artifacts.
+- `backend/out/manifests/{run_id}.json`: signed run manifests.
+- `backend/out/scenario_manifests/{run_id}.json`: scenario manifests.
+- `backend/out/provenance/{run_id}.jsonl`: provenance events.
+- `backend/out/thesis_campaigns/*`: thesis campaign bundles, campaign reports, lane summaries, and paper artifact indices.
+- `backend/out/benchmarks/*`: benchmark and profiling outputs.
+- `backend/out/test_runs/{timestamp}`: safe-test runner outputs.
+- `out/headline_exports/current_checked`: reviewer-facing exported figures, tables, source data, provenance, and companion bundles.
+- `out/artifacts/full_suite_curated_latest_20260411*`: source full-suite and focused-VOI proof bundles used by reviewer exports.
+- `.tmp/*` and `.codex_tmp/*`: scratch/debug generated bundles, useful for diagnostics but not canonical citable evidence unless explicitly promoted.
+
+## AJ2. Current Model Asset Results
+
+`backend/out/model_assets/manifest.json` records:
+
+- version `model-v2-uk`
+- source `backend/scripts/build_model_assets.py`
+- generated and as-of timestamp `2026-04-10T15:18:10.176657Z`
+- source policy `repo_local_fresh`
+- 19 assets
+- manifest signature `580e01e2da3350bf83182cc7900a82c54a0424a31146bc7e58911bbe3fd444ac`
+
+The manifest asset set is:
+
+- `backend/out/model_assets/scenario_profiles_uk.json`
+- `backend/out/model_assets/scenario_profiles_uk_compiled.json`
+- `backend/out/model_assets/departure_profiles_uk.json`
+- `backend/out/model_assets/departure_profile_uk_compiled.json`
+- `backend/out/model_assets/toll_tariffs_uk_compiled.json`
+- `backend/out/model_assets/toll_segments_seed_compiled.json`
+- `backend/out/model_assets/toll_confidence_calibration_uk.json`
+- `backend/out/model_assets/osm_toll_assets.geojson`
+- `backend/out/model_assets/fuel_prices_uk_compiled.json`
+- `backend/out/model_assets/fuel_consumption_surface_uk_compiled.json`
+- `backend/out/model_assets/fuel_uncertainty_surface_uk_compiled.json`
+- `backend/out/model_assets/carbon_intensity_hourly_uk.json`
+- `backend/out/model_assets/risk_normalization_refs_uk.json`
+- `backend/out/model_assets/stochastic_residual_priors_uk.json`
+- `backend/out/model_assets/stochastic_regimes_uk_compiled.json`
+- `backend/out/model_assets/stochastic_regimes_uk.json`
+- `backend/out/model_assets/routing_graph_uk.json`
+- `backend/out/model_assets/terrain/terrain_manifest.json`
+- `backend/out/model_assets/terrain/tiles/uk_dem_main.tif`
+
+`backend/out/model_assets/preflight_live_runtime.json` currently records:
+
+- checked at `2026-04-12T13:33:57Z`
+- `strict_live_data_required=true`
+- `live_runtime_data_enabled=true`
+- source policy `repo_local_fresh`
+- `required_ok=true`
+- `required_failure_count=0`
+- scenario profile version `scenario_profiles_uk_v2_live`
+- scenario profile source `repo_local:scenario_profiles_uk.json`
+- resolved scenario source locator `backend/assets/uk/scenario_profiles_uk.json`
+- scenario contexts `192`
+- scenario live context as of `2026-04-10T13:53:23Z`
+- WebTRIS, Traffic England, DfT, Open-Meteo, and overall coverage all `1.0`
+- fuel source `repo_local:fuel_prices_uk.json`, as of `2026-04-06T00:00:00Z`, signature prefix `39e656b5ca83`
+- toll tariff rule count `220`
+- toll topology segment count `28`
+- stochastic regime count `18`
+- departure profile region count `11`
+- bank holiday count `134`
+- carbon price per kg `0.101`
+- scope-adjusted emissions factor `1.121`
+- OSRM smoke distance/duration `189471.0 m / 8794.2 s`
+- ORS smoke distance/duration `203868.1 m / 12280.8 s`, engine version `9.7.1`, graph date `2026-03-22T16:39:30Z`, manifest hash `6bbc27f2cff7983598de1ee9fe5272c67b4b3fab6c732dd696d909151261d063`, identity `graph_identity_verified`
+
+`backend/out/model_assets/routing_graph_coverage_report.json` records:
+
+- graph path `backend\out\model_assets\routing_graph_uk.json`
+- nodes `16,782,614`
+- edges `17,271,476`
+- worst fixture nearest-node gap `2545.053 m`
+- bbox latitude `49.75..61.1`
+- bbox longitude `-8.75..2.25`
+- `coverage_passed=true`
+- graph size `4123.27 MB`
+
+## AJ3. Current Top-Level Generated Backend Output Names
+
+The current `backend/out` root contains generated directories and files from model assets, benchmarks, thesis runs, targeted probes, focused one-OD experiments, and server/debug runs. The important point is not that each directory is a separate source claim; it is that each directory is a generated evidence container whose contents need the run manifest or summary file to be cited safely.
+
+Top-level generated directories currently visible include:
+
+```text
+_lease_manifest_repro
+artifacts
+benchmarks
+config
+coord
+dccs_loop1_dominance8
+dccs_loop1_dominance8_repo_local
+direct_eval_debug_faulthandler
+direct_eval_debug1
+direct_eval_streaming_graph_1od
+logs
+loop2_dominance8_repo_local
+loop2_dominance8b_repo_local
+manifests
+model_assets
+provenance
+route_graph_subsets
+selector_loop1_dominance8_repo_local
+selector_loop2_london_newcastle4_repo_local
+selector_loop3_london_newcastle4_repo_local
+selector_loop3b_london_newcastle4_repo_local
+selector_loop4_london_newcastle4_repo_local
+selector_loop5_london_newcastle4_repo_local
+selector_loop5b_london_newcastle4_repo_local
+selector_loop6_london_newcastle4_repo_local
+selector_loop7_london_newcastle4_repo_local
+selector_loop8_london_newcastle4_repo_local
+selector_loop9_london_newcastle4_repo_local_aligned
+single_od_london_newcastle_b10_fresh_cap1152_raw_strict_rerun
+single_od_london_newcastle_b10_fresh_cap1280_raw_strict_rerun
+single_od_london_newcastle_b10_fresh_cap1536_raw_strict_rerun
+single_od_london_newcastle_b10_fresh_cap1600_raw_strict_rerun
+single_od_london_newcastle_b15_fullproof_guard_r4_cap2048
+single_od_london_newcastle_b15_fullproof_guard_r5_normctx_cap2048
+single_od_london_newcastle_b15_fullproof_postfix_r7_cap2048
+single_od_london_newcastle_b15_fullproof_postfix_r8_cap2048
+single_od_london_newcastle_b15_fullproof_postfix_r9_nocachewrites_cap2048
+single_od_london_newcastle_b15_fullproof_r1
+single_od_london_newcastle_b15_fullproof_r2
+single_od_london_newcastle_b15_fullproof_r3
+single_od_london_newcastle_b15_fullproof_r3_cap2048
+single_od_london_newcastle_b15_fullproof_repo_local_seed_r6_cap2048
+single_od_london_newcastle_b15_splitproc_r10_cap2048_backend1024_eval
+single_od_london_newcastle_b15_splitproc_r11_cap2304_backend768_eval
+single_od_london_newcastle_b15_splitproc_r12_admitprooffix
+single_od_london_newcastle_b15_splitproc_r13_avoidsigs
+single_od_london_newcastle_b15_splitproc_r14_deeperalts
+single_od_london_newcastle_b15_splitproc_r15_combo
+single_od_london_newcastle_b15_splitproc_r16_faraday
+single_od_london_newcastle_b15_splitproc_r17_cap2400
+single_od_london_newcastle_b15_splitproc_r18_cap2432
+single_od_london_newcastle_b15_splitproc_r19_A_only
+single_od_london_newcastle_b15_splitproc_r20_A_nomicroprobe
+single_od_london_newcastle_b15_splitproc_r21_B_nomicroprobe
+single_od_london_newcastle_b15_splitproc_r22_A_materialized
+single_od_london_newcastle_b15_splitproc_r24_A_materialized_clean
+single_od_london_newcastle_b15_splitproc_r25_B_materialized_clean
+single_od_london_newcastle_b15_splitproc_r27_A_preserved_clean
+single_od_london_newcastle_b15_splitproc_r28_B_preserved_clean
+single_od_london_newcastle_b15_splitproc_r29_C_preserved_clean
+single_od_london_newcastle_b15_splitproc_r30_A_rawretained_clean
+single_od_london_newcastle_b15_splitproc_r31_B_rawretained_clean
+single_od_london_newcastle_b15_splitproc_r32_C_rawretained_clean
+single_od_london_newcastle_fast_b15
+single_od_london_newcastle_fast_b15_r2
+single_od_london_newcastle_fast_b15_r3
+single_od_london_newcastle_fast_b15_r4
+single_od_london_newcastle_fast_b15_r5
+single_random_od_seed20260405_r5_asset120
+single_random_od_seed20260405_r6_asset120
+thesis
+thesis_1200_s01_repo_local
+thesis_campaign_backend_8011
+thesis_campaign_backend_8012
+thesis_campaigns
+thesis_corpus
+thesis_eval_cardiff_liverpool_tollfix
+thesis_eval_core120_final
+thesis_eval_core120_green
+thesis_eval_core120_green_repaired
+thesis_eval_probe10_core120
+thesis_eval_smoke_core120
+thesis_eval_smoke_core120_cap12288
+thesis_eval_smoke_core120_cap13312
+thesis_eval_smoke_core120_cap13312_fix1
+thesis_eval_smoke_core120_cap13312_fix2
+thesis_eval_smoke_core120_cap13312_fix3
+thesis_eval_smoke_generated
+```
+
+Top-level generated files currently visible include logs, PIDs, targeted CSVs, JSON summaries, and temporary repro helpers. The citable generated-result files named by docs and this report include:
+
+- `backend/out/compare_r12_vs_r15_combo_summary.json`
+- `backend/out/compare_r12_vs_r15_combo.csv`
+- `backend/out/focused_one_od_r4_vs_cap1600_diff.summary.json`
+- `backend/out/focused_one_od_r4_vs_cap1600_diff.csv`
+- `backend/out/corpus_ambiguity_refresh_summary.json`
+- `backend/out/support_aware_probe.csv`
+- `backend/out/targeted_live_support_long.csv`
+- `backend/out/targeted_r27_recovery.csv`
+- `backend/out/targeted_runtime_probe_20260325.csv`
+- `backend/out/targeted_shorthaul_support_probe.csv`
+- `backend/out/uk_od_corpus_thesis_ambiguity_subset.csv`
+- `backend/out/benchmarks/batch_pareto_benchmark_20260409T053840Z.json`
+
+The server logs and PID files under `backend/out` are operational byproducts. They are useful for debugging but should not be treated as thesis evidence unless tied to a named run.
+
+## AJ4. Canonical Route And Thesis Bundle File Contract
+
+The generic route bundle contract includes:
+
+- `results.json`
+- `results.csv`
+- `metadata.json`
+- `index.json`
+- `index.md`
+- `routes.geojson`
+- `results_summary.csv`
+- `manifest.json`
+- scenario manifest
+- signature metadata
+- provenance JSONL
+
+The DCCS/REFC/VOI thesis bundle contract adds:
+
+- `dccs_candidates.jsonl`
+- `dccs_summary.json`
+- `refined_routes.jsonl`
+- `strict_frontier.jsonl`
+- `winner_summary.json`
+- `certificate_summary.json`
+- `world_support_summary.json`
+- `flip_radius_summary.json`
+- `decision_region_summary.json`
+- `certificate_witness.json`
+- `certified_set_summary.json`
+- `route_fragility_map.json`
+- `competitor_fragility_breakdown.json`
+- `value_of_refresh.json`
+- `sampled_world_manifest.json`
+- `evidence_snapshot_manifest.json`
+- `voi_action_trace.json`
+- `voi_controller_state.jsonl`
+- `voi_action_scores.csv`
+- `voi_stop_certificate.json`
+- `final_route_trace.json`
+- `od_corpus.*`
+- `ors_snapshot.json`
+- `thesis_results.*`
+- `thesis_summary.*`
+- `thesis_summary_by_cohort.*`
+- `thesis_metrics.json`
+- `thesis_plots.json`
+- `methods_appendix.md`
+- `thesis_report.md`
+- `evaluation_manifest.json`
+
+These files define the difference between an ordinary route answer and an auditable certification run. They expose candidate lineage, raw-versus-refined state, frontier strictness, certificate basis, world sampling, support status, action scores, stop certificates, final trace, cohort membership, metrics, and reviewer-facing tables/figures.
+
+## AJ5. Focused VOI Bundle Result
+
+The checked focused-VOI bundle named in the maintained docs is `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi`. Its `index.md`, `evaluation_manifest`, `thesis_metrics`, `thesis_summary`, and `thesis_report` surfaces are the local focused-VOI proof slice.
+
+The bundle records:
+
+- created at `2026-04-01T01:09:48.771286+01:00`
+- model version `thesis-script-v3`
+- strict evidence policy `no_synthetic_no_proxy_no_fallback`
+- cache/reset policy `thesis_cold`
+- scope `variant`
+- reset count `80`
+- 20 OD/variant rows and 80 total rows in the focused variant evaluation surface
+- scenario-profile-unavailable rate `0.0`
+- strict-live-readiness pass rate `1.0`
+- evaluation rerun success rate `1.0`
+- OSRM and ORS smoke identities copied into the bundle
+- route evidence success surfaces at `1.0` for the relevant focused slice
+
+The focused-VOI bundle is a strong citable local slice. It does not by itself green the full suite.
+
+## AJ6. Latest Thesis Campaign Result
+
+The maintained docs point to `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2` as the current thesis campaign bundle.
+
+The campaign result state is:
+
+- 20 evaluation rows
+- 4 summary rows
+- scenario profile unavailable rate `0.0`
+- strict live readiness pass rate `1.0`
+- evaluation rerun success rate `0.8`
+- ready wait about `161.38 ms`
+- warmup `10000 ms`
+- V0 mean runtime `9176.741`
+- A mean runtime `5315.91825`
+- B mean runtime `5787.824`
+- C mean runtime `2794.579`
+- V0 hypervolume `1954475824.173189`
+- A/B/C hypervolume `2234025023.091551`
+- B certificate `0.950546`
+- C certificate `0.8`
+- weighted-margin gain versus V0 `1.5225`
+- balanced-gain delta `0.015621`
+- duration gain `1227.32 s`
+- monetary gain `2.47`
+- emissions gain `-1.4795 kg`
+
+This result supports local campaign narratives about DCCS/REFC/VOI behavior but still needs to be interpreted under the full-suite verdict.
+
+## AJ7. Generated Comparison And Ambiguity Refresh Outputs
+
+The generated comparison outputs currently named by the README and docs are:
+
+- `backend/out/compare_r12_vs_r15_combo_summary.json`: variant count `4`, retained success rows `2`, regressions for `london_newcastle|C` and `london_newcastle|V0`.
+- `backend/out/focused_one_od_r4_vs_cap1600_diff.summary.json`: variants A/B/C/V0 after-state success `1.0` and route-evidence-ok `1.0` in the focused one-OD diff surface.
+- `backend/out/corpus_ambiguity_refresh_summary.json`: row count `19`, mean ambiguity `0.239727`, max ambiguity `0.420932`, mean engine disagreement `0.413061`, mean hard-case prior `0.419982`, confidence `0.899552`.
+
+These are generated diagnostic outputs. They are useful for explaining how parameter and cap experiments changed specific slices, not for making universal claims.
+
+## AJ8. Reviewer Headline Exports
+
+`out/headline_exports/current_checked` is the reviewer-facing export root. It includes `index.md`, `index.json`, figure/table exports, source data, provenance, and companion bundles.
+
+Focused VOI exported figures include:
+
+- `figure.focused_voi.certificate_vs_variant.*`
+- `figure.focused_voi.runtime_vs_variant.*`
+
+Latest checked campaign exported figures include:
+
+- `figure.latest_checked_campaign.ambiguity_alignment_vs_variant.*`
+- `figure.latest_checked_campaign.baseline_smoke.*`
+- `figure.latest_checked_campaign.certificate_margin_vs_variant.*`
+- `figure.latest_checked_campaign.cohort_composition.*`
+- `figure.latest_checked_campaign.controller_refresh_split_vs_variant.*`
+- `figure.latest_checked_campaign.gain_vs_v0.*`
+- `figure.latest_checked_campaign.hard_case_transfer_vs_variant.*`
+- `figure.latest_checked_campaign.performance_vs_variant.*`
+- `figure.latest_checked_campaign.run_validity.*`
+- `figure.latest_checked_campaign.runtime_breakdown_vs_variant.*`
+- `figure.latest_checked_campaign.runtime_distribution_vs_variant.*`
+- `figure.latest_checked_campaign.runtime_stage_quantiles_vs_stage.*`
+- `figure.latest_checked_campaign.startup_and_warmup.*`
+- `figure.latest_checked_campaign.win_rate_vs_variant.*`
+
+Focused VOI exported tables include:
+
+- `table.focused_voi.aggregate_variant_evidence.*`
+- `table.focused_voi.cohort_summary.*`
+- `table.focused_voi.cohort_support_composition.*`
+- `table.focused_voi.preference_burden_by_cohort.*`
+- `table.focused_voi.preference_burden_summary.*`
+- `table.focused_voi.variant_summary.*`
+
+Latest checked campaign exported tables include:
+
+- `table.latest_checked_campaign.cohort_support_composition.*`
+- `table.latest_checked_campaign.runtime_action_observability_summary.*`
+- `table.latest_checked_campaign.runtime_observability_summary.*`
+- `table.latest_checked_campaign.runtime_stage_quantiles.*`
+- `table.latest_checked_campaign.summary_and_metrics.*`
+
+For each `.*` surface, the export convention is to provide reviewer-visible render(s), print HTML, source CSV or JSON where applicable, and provenance JSON. The report should cite the source/provenance companion when using a number from a rendered table or figure.
+
+## AJ9. Full-Suite And Companion Verdicts
+
+The current checked full-suite reviewer bundle is `out/headline_exports/current_checked/full_suite_curated_latest_20260411`.
+
+The verdict is:
+
+- `publishable_on_current_evidence=false`
+- `adoption_claim_supported=false`
+- `hot_rerun_all_green=true`
+- `sample_size_failure_count=0`
+- `fairness_failure_count=0`
+- `optional_stopping_gate_failure_count=0`
+- `perturbation_gate_failure_count=0`
+- blockers: `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, `voi_hard_gates_not_all_green`
+
+The companion bundle roots are:
+
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot`
+
+Threshold sensitivity uses axes for certificate threshold, low-ambiguity fast-path threshold, and certified-set cap. The configured values surfaced by the docs are `0.8`, `0.22`, and `24`, with 52 summary rows in the threshold-sensitivity summary.
+
+Optional stopping, perturbation, public transfer, and hot rerun companions are useful because they remove several possible objections. Optional stopping gates and perturbation gates are not current full-suite blockers. Public-transfer row count clears the maintained minimum in the checked companion. Hot rerun is green with `all_green=true`, semantic parity `1.0`, and controller reuse delta `0.052631`. The full-suite red state therefore rests on DCCS, refine-cost forecasting, and VOI hard gates, not on those companion families.
+
+## AJ10. Failure Atlas And Negative Results
+
+The failure-atlas lane in `out/headline_exports/current_checked/full_suite_curated_latest_20260411` is generated evidence for why the suite is not green. The maintained summaries record:
+
+- failure atlas row count `82`
+- lane status `present_complete`
+- required kind counts for wrong-singleton, support-downgrade, and abstention coverage
+- support-downgrade rows present
+- root cause dominated by support failure in the checked slice
+- certified-set violation case count surfaced by reviewer metadata
+
+This is not an embarrassment to be hidden. It is part of the thesis contribution: the system can identify and preserve failure modes rather than silently collapsing them into a false success narrative.
+
+## AJ11. Benchmark And Debug Outputs
+
+`backend/out/benchmarks/batch_pareto_benchmark_20260409T053840Z.json` is a generated benchmark/debug result. It records an `inprocess-fake` batch Pareto run with pair count `10`, duration `4163932.432 ms`, error count `10`, `no_route_candidates`, and zero candidates/options/Pareto outputs. It is therefore a negative/debug result, not a performance win.
+
+This matters because generated benchmark output can be evidence in either direction. A citable failure result is still a result and should remain in the master report.
+
+## AJ12. Reproducibility Capsule And Artifact Index
+
+`docs/reproducibility-capsule.md` defines `.\\scripts\\demo_repro_run.ps1` as the one-command capsule route. The command runs `benchmark_batch_pareto.py` with fixed seed `20260212`, pair count `100`, max alternatives `3`, and an output capsule directory. As of the maintained docs, no checked `backend/out/capsule` is claimed as publication-ready.
+
+`paper_artifact_index.json` is the reviewer-facing map from table/figure identifiers to checked artifact paths. It is the bridge between generated files and manuscript-style references. If a claim cites a table or figure from `out/headline_exports/current_checked`, the artifact index and provenance file should remain available so the number is not detached from its source bundle.
+
+# Appendix AK: Fine-Tuning, Runtime Knob, And Calibration Ledger
+
+This appendix consolidates every documented variable, threshold, tuning value, and calibration control that materially changes generated results. Some values are runtime defaults from `.env.example`; some are fitted parameters from assets; some are evaluation-lane knobs. A reader should treat each as part of the experimental design.
+
+## AK1. Strict Live Runtime Knobs
+
+Strict runtime defaults:
+
+- `LIVE_RUNTIME_DATA_ENABLED=true`
+- `STRICT_LIVE_DATA_REQUIRED=true`
+- `LIVE_ROUTE_COMPUTE_REFRESH_MODE=route_compute`
+- `LIVE_ROUTE_COMPUTE_REQUIRE_ALL_EXPECTED=true`
+- `LIVE_ROUTE_COMPUTE_FORCE_NO_CACHE_HEADERS=false`
+- `LIVE_ROUTE_COMPUTE_FORCE_UNCACHED=false`
+- `LIVE_ROUTE_COMPUTE_PREFETCH_TIMEOUT_MS=300000`
+- `LIVE_ROUTE_COMPUTE_PREFETCH_MAX_CONCURRENCY=8`
+- `LIVE_ROUTE_COMPUTE_PROBE_TERRAIN=true`
+- `LIVE_DATA_CACHE_TTL_S=120`
+
+Live HTTP retry defaults:
+
+- `LIVE_HTTP_MAX_ATTEMPTS=6`
+- `LIVE_HTTP_RETRY_DEADLINE_MS=30000`
+- `LIVE_HTTP_RETRY_BACKOFF_BASE_MS=200`
+- `LIVE_HTTP_RETRY_BACKOFF_MAX_MS=2500`
+- `LIVE_HTTP_RETRY_JITTER_MS=150`
+- `LIVE_HTTP_RETRY_RESPECT_RETRY_AFTER=true`
+- `LIVE_HTTP_RETRYABLE_STATUS_CODES=429,500,502,503,504`
+
+Route cache defaults:
+
+- `LIVE_SCENARIO_CACHE_TTL_SECONDS=120`
+- `ROUTE_CACHE_TTL_S=3600`
+
+These values explain why route compute can be slow but auditably bounded. Strict mode tries to refresh required evidence, retries transient source failures, then fails closed after bounded attempts.
+
+## AK2. Route Compute, Frontend Fallback, And Probe Knobs
+
+Backend compute limits:
+
+- `ROUTE_COMPUTE_ATTEMPT_TIMEOUT_S=1200`
+- `ROUTE_COMPUTE_SINGLE_ATTEMPT_TIMEOUT_S=900`
+
+Frontend attempt orchestration:
+
+- `COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`
+- `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`
+- `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`
+- `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`
+- `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS=12,6,3`
+- `NEXT_PUBLIC_ROUTE_GRAPH_WARMUP_BASELINE_MS=480000`
+
+Route-context probe:
+
+- `ROUTE_CONTEXT_PROBE_ENABLED=false`
+- `ROUTE_CONTEXT_PROBE_TIMEOUT_MS=2500`
+- `ROUTE_CONTEXT_PROBE_MAX_PATHS=2`
+- `ROUTE_CONTEXT_PROBE_MAX_STATE_BUDGET=15000`
+- `ROUTE_CONTEXT_PROBE_MAX_HOPS=320`
+
+The degrade sequence `12,6,3` is a user-visible fine-tuning choice. It means the frontend can retry with fewer alternatives after timeout, but strict 4xx failures still stop fallback because they are business-rule failures, not compute overload.
+
+## AK3. Route Graph Warmup, Coverage, And Search Knobs
+
+Graph warmup and readiness:
+
+- `ROUTE_GRAPH_WARMUP_ON_STARTUP=1`
+- `ROUTE_GRAPH_WARMUP_FAILFAST=1`
+- `ROUTE_GRAPH_WARMUP_TIMEOUT_S=1200`
+- `ROUTE_GRAPH_FAST_STARTUP_ENABLED=true`
+- `ROUTE_GRAPH_FAST_STARTUP_LONG_CORRIDOR_BYPASS_KM=120`
+- `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS=1000`
+- `ROUTE_GRAPH_OD_FEASIBILITY_TIMEOUT_MS=30000`
+- `ROUTE_GRAPH_PRECHECK_TIMEOUT_FAIL_CLOSED=false`
+- `ROUTE_GRAPH_BINARY_CACHE_ENABLED=true`
+
+State budget and rescue:
+
+- `ROUTE_GRAPH_MAX_STATE_BUDGET=1200000`
+- `ROUTE_GRAPH_STATE_BUDGET_PER_HOP=1600`
+- `ROUTE_GRAPH_STATE_BUDGET_RETRY_MULTIPLIER=2.5`
+- `ROUTE_GRAPH_STATE_BUDGET_RETRY_CAP=8000000`
+- `ROUTE_GRAPH_SEARCH_INITIAL_TIMEOUT_MS=30000`
+- `ROUTE_GRAPH_SEARCH_RETRY_TIMEOUT_MS=120000`
+- `ROUTE_GRAPH_SEARCH_RESCUE_TIMEOUT_MS=150000`
+- `ROUTE_GRAPH_STATE_SPACE_RESCUE_ENABLED=true`
+- `ROUTE_GRAPH_STATE_SPACE_RESCUE_MODE=reduced`
+- `ROUTE_GRAPH_REDUCED_INITIAL_FOR_LONG_CORRIDOR=true`
+- `ROUTE_GRAPH_LONG_CORRIDOR_THRESHOLD_KM=150`
+- `ROUTE_GRAPH_LONG_CORRIDOR_MAX_PATHS=4`
+- `ROUTE_GRAPH_SKIP_INITIAL_SEARCH_LONG_CORRIDOR=true`
+
+Coverage and OD candidate gates:
+
+- `ROUTE_GRAPH_SCENARIO_SEPARABILITY_FAIL=false`
+- `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES=50000`
+- `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO=0.20`
+- `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M=10000`
+- `ROUTE_GRAPH_OD_CANDIDATE_LIMIT=2048`
+- `ROUTE_GRAPH_OD_CANDIDATE_MAX_RADIUS=12`
+
+Hop and heuristic controls:
+
+- `ROUTE_GRAPH_MAX_HOPS=220`
+- `ROUTE_GRAPH_ADAPTIVE_HOPS_ENABLED=true`
+- `ROUTE_GRAPH_HOPS_PER_KM=18.0`
+- `ROUTE_GRAPH_HOPS_DETOUR_FACTOR=1.35`
+- `ROUTE_GRAPH_EDGE_LENGTH_ESTIMATE_M=75.0`
+- `ROUTE_GRAPH_HOPS_SAFETY_FACTOR=1.8`
+- `ROUTE_GRAPH_MAX_HOPS_CAP=15000`
+- `ROUTE_GRAPH_A_STAR_HEURISTIC_ENABLED=true`
+- `ROUTE_GRAPH_HEURISTIC_MAX_SPEED_KPH=220`
+- `ROUTE_GRAPH_SEARCH_APPLY_SCENARIO_EDGE_COSTS=false`
+
+These values tune the trade-off between graph completeness, long-corridor feasibility, memory pressure, and search time. They are not incidental constants.
+
+## AK4. Candidate, Option, And Selection Knobs
+
+Candidate and option controls:
+
+- `ROUTE_CANDIDATE_PREFILTER_MULTIPLIER=3`
+- `ROUTE_CANDIDATE_PREFILTER_MULTIPLIER_LONG=2`
+- `ROUTE_CANDIDATE_PREFILTER_LONG_DISTANCE_THRESHOLD_KM=180`
+- `ROUTE_OPTION_SEGMENT_CAP=160`
+- `ROUTE_OPTION_SEGMENT_CAP_LONG=40`
+- `ROUTE_OPTION_LONG_DISTANCE_THRESHOLD_KM=160`
+- `ROUTE_OPTION_REUSE_SCENARIO_POLICY=true`
+- `ROUTE_OPTION_TOD_BUCKET_S=900`
+- `ROUTE_OPTION_ENERGY_SPEED_BIN_KPH=3.0`
+- `ROUTE_OPTION_ENERGY_GRADE_BIN_PCT=0.5`
+
+Baseline multipliers:
+
+- `ROUTE_BASELINE_DURATION_MULTIPLIER=1.16`
+- `ROUTE_BASELINE_DISTANCE_MULTIPLIER=1.13`
+- `ROUTE_ORS_BASELINE_DURATION_MULTIPLIER=1.24`
+- `ROUTE_ORS_BASELINE_DISTANCE_MULTIPLIER=1.18`
+- `ROUTE_ORS_BASELINE_ALLOW_PROXY_FALLBACK=true`
+
+Selection math profile:
+
+- `ROUTE_SELECTION_MATH_PROFILE=modified_vikor_distance`
+- `ROUTE_SELECTION_MODIFIED_REGRET_WEIGHT=0.35`
+- `ROUTE_SELECTION_MODIFIED_BALANCE_WEIGHT=0.10`
+- `ROUTE_SELECTION_MODIFIED_DISTANCE_WEIGHT=0.22`
+- `ROUTE_SELECTION_MODIFIED_ETA_DISTANCE_WEIGHT=0.18`
+- `ROUTE_SELECTION_MODIFIED_ENTROPY_WEIGHT=0.08`
+- `ROUTE_SELECTION_MODIFIED_KNEE_WEIGHT=0.12`
+- `ROUTE_SELECTION_TCHEBYCHEFF_RHO=0.001`
+- `ROUTE_SELECTION_VIKOR_V=0.5`
+
+Pareto backfill:
+
+- `ROUTE_PARETO_BACKFILL_ENABLED=true`
+- `ROUTE_PARETO_BACKFILL_MIN_ALTERNATIVES=6`
+
+These values define the current heuristic ranking surface. The report should not describe the selector as mathematically novel; it is a practical blend of known multi-objective ideas with tuned weights.
+
+## AK5. ORS And External Direction Knobs
+
+ORS settings:
+
+- `ORS_DIRECTIONS_API_KEY=` empty by default
+- `ORS_DIRECTIONS_URL_TEMPLATE=https://api.openrouteservice.org/v2/directions/{profile}/geojson`
+- `ORS_DIRECTIONS_TIMEOUT_MS=25000`
+- `ORS_DIRECTIONS_PROFILE_DEFAULT=driving-car`
+- `ORS_DIRECTIONS_PROFILE_HGV=driving-hgv`
+
+In Compose, self-hosted ORS uses `openrouteservice/openrouteservice:v9.7.1`, exposes port `8082`, mounts PBF inputs from `osrm/data/pbf`, stores graphs under `ors/data`, and is waited on by `ors_ready`. Backend strict preflight records ORS engine version, graph date, manifest hash, and identity status so ORS is not an anonymous external baseline.
+
+## AK6. Terrain Knobs
+
+Strict terrain and sampling:
+
+- `TERRAIN_DEM_FAIL_CLOSED_UK=true`
+- `TERRAIN_DEM_COVERAGE_MIN_UK=0.96`
+- `TERRAIN_SAMPLE_SPACING_M=180`
+- `TERRAIN_LONG_ROUTE_THRESHOLD_KM=180`
+- `TERRAIN_LONG_ROUTE_SAMPLE_SPACING_M=320`
+- `TERRAIN_LONG_ROUTE_MAX_SAMPLES_PER_ROUTE=900`
+- `TERRAIN_MAX_SAMPLES_PER_ROUTE=1500`
+- `TERRAIN_SEGMENT_BOUNDARY_PROBE_MAX_SEGMENTS=1200`
+
+Live terrain:
+
+- `LIVE_TERRAIN_DEM_URL_TEMPLATE=https://s3.amazonaws.com/elevation-tiles-prod/geotiff/{z}/{x}/{y}.tif`
+- `LIVE_TERRAIN_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_TERRAIN_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_TERRAIN_ALLOWED_HOSTS=s3.amazonaws.com`
+- `LIVE_TERRAIN_TILE_ZOOM=8`
+- `LIVE_TERRAIN_TILE_MAX_AGE_DAYS=7`
+- `LIVE_TERRAIN_CACHE_MAX_TILES=1024`
+- `LIVE_TERRAIN_CACHE_MAX_MB=2048`
+- `LIVE_TERRAIN_FETCH_RETRIES=2`
+- `LIVE_TERRAIN_MAX_REMOTE_TILES_PER_ROUTE=96`
+- `LIVE_TERRAIN_CIRCUIT_BREAKER_FAILURES=8`
+- `LIVE_TERRAIN_CIRCUIT_BREAKER_COOLDOWN_S=30`
+- `LIVE_TERRAIN_ENABLE_IN_TESTS=false`
+- `LIVE_TERRAIN_PREFETCH_PROBE_FRACTIONS=0.5,0.35,0.65,0.2,0.8`
+- `LIVE_TERRAIN_PREFETCH_MIN_COVERED_POINTS=1`
+
+These values are why terrain is strict enough to fail closed while still being bounded for long routes and remote tile fetches.
+
+## AK7. Scenario Live And Scenario Calibration Knobs
+
+Scenario live-source settings:
+
+- `LIVE_SCENARIO_COEFFICIENT_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/scenario_profiles_uk.json`
+- `LIVE_SCENARIO_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_SCENARIO_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_SCENARIO_ALLOWED_HOSTS=webtris.nationalhighways.co.uk,www.trafficengland.com,roadtraffic.dft.gov.uk,api.open-meteo.com,archive-api.open-meteo.com,raw.githubusercontent.com`
+- `LIVE_SCENARIO_WEBTRIS_NEAREST_SITES=2`
+- `LIVE_SCENARIO_DFT_MAX_PAGES=2`
+- `LIVE_SCENARIO_DFT_NEAREST_LIMIT=48`
+- `LIVE_SCENARIO_DFT_MIN_STATION_COUNT=3`
+- `LIVE_SCENARIO_COEFFICIENT_MAX_AGE_MINUTES=4320`
+- `LIVE_SCENARIO_ALLOW_PARTIAL_SOURCES_STRICT=false`
+- `LIVE_SCENARIO_MIN_SOURCE_COUNT_STRICT=4`
+- `LIVE_SCENARIO_MIN_COVERAGE_OVERALL_STRICT=1.0`
+- `SCENARIO_MIN_OBSERVED_MODE_ROW_SHARE=0.20`
+- `SCENARIO_MAX_PROJECTION_DOMINANT_CONTEXT_SHARE=0.80`
+- `SCENARIO_REQUIRE_SIGNATURE=true`
+
+Current scenario asset fit:
+
+- version `scenario_profiles_uk_v2_live`
+- source `free_live_apis+holdout_fit`
+- generated `2026-04-13T22:52:49Z`
+- as-of `2026-04-13T22:36:36Z`
+- calibration basis `empirical_live_fit`
+- selected source observation rows `576`
+- observed mode rows `288`
+- context families `96`
+- holdout context count `96`
+- coverage `1.0`
+- hour slot coverage `6`
+- corridor coverage `8`
+- mode separation mean `0.191077`
+- duration MAPE `0.010117`
+- monetary MAPE `0.010501`
+- emissions MAPE `0.004885`
+- observed mode row share `0.5`
+- projection dominant context share `0.0`
+- full identity share `0.0`
+- split strategy `temporal_forward_plus_corridor_block`
+- blocked corridors `6cd3f`, `9ad74`
+
+Scenario transform parameters:
+
+- `traffic_pressure`: bias `0.0`, flow-index weight `0.5`, speed-inverse weight `0.5`, min `0.5`, max `2.8`, sample count `576`, fit mode `default_weights_fallback`, fallback reason `insufficient_feature_complete_samples`.
+- `incident_pressure`: bias `-40.704336`, delay-pressure weight `0.978975`, severity-index weight `0.021025`, min `0.5`, max `3.5`, sample count `576`, fit mode `covariance`.
+- `weather_pressure`: bias `0.0125`, weather-severity weight `1.0`, min `0.5`, max `1.0185`, sample count `576`, fit mode `covariance`.
+- mode effect scales: no sharing `1.0`, partial sharing `0.52`, full sharing `0.05`.
+- duration multiplier policy: incident weight `0.962655`, weather weight `0.037345`, gain `0.05`, min `0.9506`, max `1.66551`.
+- incident rate multiplier policy: incident weight `0.961946`, weather weight `0.038054`, gain `0.05`, min `0.9506`, max `1.58929`.
+- incident delay multiplier policy: incident weight `0.9622`, weather weight `0.0378`, gain `0.05`, min `0.9506`, max `1.47599`.
+- fuel consumption multiplier policy: incident weight `0.570342`, weather weight `0.429658`, gain `0.05`, min `0.9506`, max `1.289674`.
+- emissions multiplier policy: incident weight `0.570342`, weather weight `0.429658`, gain `0.05`, min `0.9506`, max `1.275445`.
+- stochastic sigma multiplier policy: incident weight `0.961946`, weather weight `0.038054`, gain `0.05`, min `0.9506`, max `1.54191`.
+- context similarity strategy `weighted_l1_v1`, weights `geo_distance=0.34`, `hour_distance=0.12`, `day_penalty=0.12`, `weather_penalty=0.12`, `road_penalty=0.16`, `vehicle_penalty=0.10`, `road_mix_distance=0.04`, max distance `1.25`.
+- scenario edge scaling version `v4_empirical_transform`.
+- fit strategy `covariance_projection+fitted_live_feature_transform`.
+
+## AK8. Fuel, Carbon, Departure, Stochastic, Toll, And Vehicle Knobs
+
+Fuel live settings:
+
+- `LIVE_FUEL_PRICE_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/fuel_prices_uk.json`
+- `LIVE_FUEL_AUTH_TOKEN=`
+- `LIVE_FUEL_API_KEY=`
+- `LIVE_FUEL_API_KEY_HEADER=X-API-Key`
+- `LIVE_FUEL_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_FUEL_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_FUEL_REQUIRE_SIGNATURE=true`
+- `LIVE_FUEL_ALLOWED_HOSTS=raw.githubusercontent.com`
+- `LIVE_FUEL_MAX_AGE_DAYS=14`
+
+Current fuel values:
+
+- as of `2026-04-06T00:00:00Z`
+- refreshed at `2026-04-10T15:16:54Z`
+- diesel `1.8675 GBP/L`
+- petrol `1.5465 GBP/L`
+- LNG `1.015 GBP/L`
+- grid electricity `0.248 GBP/kWh`
+- provider contract `fuel-live-v1`
+
+Fuel surface axes:
+
+- vehicle class: `van`, `rigid_hgv`, `artic_hgv`, `ev`
+- load factor: `0.6`, `0.8`, `1.0`, `1.2`
+- speed km/h: `20`, `40`, `60`, `80`, `100`
+- grade percent: `-6`, `-3`, `0`, `3`, `6`
+- ambient temperature C: `-5`, `5`, `15`, `25`, `35`
+
+Carbon live settings:
+
+- `LIVE_CARBON_SCHEDULE_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/carbon_price_schedule_uk.json`
+- `LIVE_CARBON_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_CARBON_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_CARBON_ALLOWED_HOSTS=raw.githubusercontent.com`
+- `LIVE_BANK_HOLIDAYS_URL=https://www.gov.uk/bank-holidays.json`
+- `LIVE_BANK_HOLIDAYS_ALLOWED_HOSTS=www.gov.uk,gov.uk`
+
+Carbon schedule values:
+
+- 2026 central `0.101 GBP/kg`
+- 2026 high `0.11918 GBP/kg`
+- 2026 low `0.08282 GBP/kg`
+- 2026 non-EV WTW scope factor `1.121`
+- central schedule rises from `0.095` in 2025 to `0.245` in 2050
+- uncertainty percentages: central `0.08`, high `0.12`, low `0.10`
+
+Departure, stochastic, and toll live settings:
+
+- `LIVE_DEPARTURE_PROFILE_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/departure_profiles_uk.json`
+- `LIVE_DEPARTURE_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_DEPARTURE_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_DEPARTURE_ALLOWED_HOSTS=raw.githubusercontent.com`
+- `LIVE_STOCHASTIC_REGIMES_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/stochastic_regimes_uk.json`
+- `LIVE_STOCHASTIC_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_STOCHASTIC_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_STOCHASTIC_ALLOWED_HOSTS=raw.githubusercontent.com`
+- `LIVE_TOLL_TOPOLOGY_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/toll_topology_uk.json`
+- `LIVE_TOLL_TOPOLOGY_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_TOLL_TOPOLOGY_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_TOLL_TARIFFS_URL=https://raw.githubusercontent.com/snaker938/whatif-freight-router/main/backend/assets/uk/toll_tariffs_uk.json`
+- `LIVE_TOLL_TARIFFS_REQUIRE_URL_IN_STRICT=true`
+- `LIVE_TOLL_TARIFFS_ALLOW_SIGNED_FALLBACK=false`
+- `LIVE_TOLL_ALLOWED_HOSTS=raw.githubusercontent.com`
+
+Stochastic calibration:
+
+- copula id `gaussian_5x5_uk_v3_calibrated`
+- calibration version `v4-uk-residual-fit`
+- calibration basis `empirical`
+- generated `2026-04-10T15:18:04.366131Z`
+- as-of `2026-04-10T15:18:04.366145Z`
+- split strategy `temporal_forward_plus_corridor_block`
+- 18 regimes
+- 2,832 posterior context-to-regime probability keys
+- feature order `corridor_bucket`, `day_kind`, `local_time_slot`, `road_bucket`, `weather_profile`, `vehicle_type`
+- holdout coverage `1.0`
+- PIT mean `0.5149096244101729`
+- CRPS mean `0.47377558811984366`
+- duration MAPE `0.14058663646867195`
+- holdout rows `50000`
+- hour slot coverage `12`
+- corridor coverage `9`
+
+Toll confidence calibration:
+
+- version `uk-toll-confidence-v2-empirical`
+- source `backend\tests\fixtures\toll_classification`
+- generated/as-of `2026-03-20T23:42:44Z`
+- logit intercept `0.074138`
+- class signal `0.07386`
+- seed signal `0.0`
+- segment signal `0.107248`
+- source bonuses `0.0`
+- reliability bins: `0.0..0.2 -> 0.1`, `0.2..0.4 -> 0.3`, `0.4..0.6 -> 0.5455`, `0.6..0.8 -> 0.7`, `0.8..1.0 -> 0.9`
+
+## AK9. Weather And Incident Knobs
+
+Weather request model:
+
+- `WeatherImpactConfig(enabled, profile, intensity, apply_incident_uplift)`
+- profile literal: `clear | rain | storm | snow | fog`
+- intensity range `0.0..2.0`
+- weather is a request-level multiplier, not a separate route mode
+- `apply_incident_uplift` keeps weather coupled to incident-adjusted travel time unless explicitly turned off
+
+Incident request model:
+
+- `IncidentSimulatorConfig(enabled, seed, dwell_rate_per_100km, accident_rate_per_100km, closure_rate_per_100km, dwell_delay_s, accident_delay_s, closure_delay_s, max_events_per_route)`
+- default dwell rate `0.8` per 100 km
+- default accident rate `0.25` per 100 km
+- default closure rate `0.05` per 100 km
+- default dwell delay `120 s`
+- default accident delay `480 s`
+- default closure delay `900 s`
+- default max events per route `12`
+- generated events are deterministic for a seed and sorted by start offset, segment index, event type, and event id
+- synthetic incidents are forcibly disabled in strict live runtime when `STRICT_LIVE_DATA_REQUIRED=true`
+
+## AK10. Thesis Pipeline, Certification, And Evaluation Knobs
+
+Pipeline modes:
+
+- `legacy`
+- `dccs`
+- `dccs_refc`
+- `voi`
+
+Thesis variant mapping:
+
+- `V0 -> legacy`
+- `A -> dccs`
+- `B -> dccs_refc`
+- `C -> voi`
+
+Core route/pipeline knobs:
+
+- `pipeline_mode`
+- `refinement_policy`
+- `pipeline_seed`
+- `search_budget`
+- `evidence_budget`
+- `cert_world_count`
+- `certificate_threshold`
+- `tau_stop`
+- `evaluation_lean_mode`
+
+Maintained thesis-lane defaults and anchors:
+
+- `search_budget=4`
+- `evidence_budget=2`
+- `cert_world_count=64`
+- `certificate_threshold=0.8`
+- `tau_stop=0.02`
+- baseline refinement policy `corridor_uniform`
+- secondary baseline `local_service`
+- strict evidence policy `no_synthetic_no_proxy_no_fallback`
+- maximum alternatives `8`
+- backend readiness timeout `1800 s`
+- backend readiness poll interval `5 s`
+- route-graph subset corridor width `12.5 km`
+- route-graph subset nodes `1,515,878`
+- route-graph subset edges `1,568,264`
+- adaptive world caps used in proof slices: `24`, `48`, `72`
+- threshold sensitivity axes: certificate threshold, low-ambiguity fast-path threshold, and certified-set cap
+- configured threshold-sensitivity values: `0.8`, `0.22`, and `24`
+
+VOI action menu:
+
+- `refine_top1_dccs`
+- `refine_topk_dccs`
+- value-of-refresh family refresh
+- increase stochastic samples near ties
+- pairwise preference query
+- threshold preference query
+- ratio preference query
+- veto preference query
+- time-guard preference query
+- stop
+
+Preference burden current focused repeated-seed surfaces:
+
+- median preference query count `0.0`
+- p90 preference query count `<= 1.0`
+- max preference query count `<= 1.0`
+- preference certification success rate reported in the focused family-specific bundle
+
+These values explain how a certified singleton, certified set, or typed abstention was produced. Changing any of them changes the evidential meaning of generated results.
+
+## AK11. Quality, Benchmark, Drift, And Test Knobs
+
+Backend benchmark defaults:
+
+- fixture corpus `backend/tests/fixtures/uk_routes`
+- 8 iterations
+- vehicle `rigid_hgv`
+- scenario `ScenarioMode.NO_SHARING`
+- `use_tolls=false`
+- `toll_cost_per_km=0.2`
+- `carbon_price_per_kg=0.12`
+- stochastic `enabled=true`
+- stochastic seed `42`
+- stochastic sigma `0.08`
+- stochastic samples `32`
+- emissions context `diesel/euro6/ambient_temp_c=12`
+- departure time `2026-02-18T08:30:00Z`
+- flat and hilly terrain passes
+- p95 route-option gate `2000 ms`
+
+Model quality:
+
+- score threshold `95`
+- strict target dropped-route cap effectively `0`
+- strict live mode expects raw scenario, fuel, and carbon evidence files to exist
+
+ETA concept drift:
+
+- `--mae-threshold-s 120`
+- `--mape-threshold-pct 10`
+- output includes count, MAE, MAPE, RMSE, max absolute error, thresholds, and alerts
+
+Coordination/test resource knobs:
+
+- CI `fast-lane` uses `STRICT_RUNTIME_TEST_BYPASS=1`
+- CI `strict-live-lane` uses `STRICT_RUNTIME_TEST_BYPASS=0`
+- low-resource backend safe runner default example uses `-MaxCores 1`, `-PriorityClass Idle`, `-MaxWorkingSetMB 4096`
+- Python lease wrapper target cap is 5 percent of total RAM and common numeric-library thread counts are forced to `1`
+
+# Appendix AL: Code Snippet Thesis Evidence Ledger
+
+This appendix records source-level snippets that are important enough that a thesis reader should be able to connect
+the prose claims in this report to the actual implementation. Snippets are intentionally compact. They are excerpts,
+not replacement source files. Each item states what the code proves or operationalizes.
+
+## AL.1 Runtime Configuration And Strict-Mode Contracts
+
+Snippet AL.1.1 - the default route-compute research pipeline and headline budgets are not implicit UI choices.
+They are typed settings with explicit environment variable aliases in `backend/app/settings.py`.
+
+```python
+route_pipeline_default_mode: str = Field(default="dccs_refc", alias="ROUTE_PIPELINE_DEFAULT_MODE")
+route_pipeline_default_seed: int = Field(default=20260320, ge=0, alias="ROUTE_PIPELINE_DEFAULT_SEED")
+route_pipeline_search_budget: int = Field(default=6, ge=1, le=128, alias="ROUTE_PIPELINE_SEARCH_BUDGET")
+route_pipeline_evidence_budget: int = Field(default=3, ge=0, le=64, alias="ROUTE_PIPELINE_EVIDENCE_BUDGET")
+route_pipeline_cert_world_count: int = Field(default=64, ge=10, le=500, alias="ROUTE_PIPELINE_CERT_WORLD_COUNT")
+route_pipeline_certificate_threshold: float = Field(default=0.70, ge=0.0, le=1.0, alias="ROUTE_PIPELINE_CERTIFICATE_THRESHOLD")
+route_pipeline_tau_stop: float = Field(default=0.03, ge=0.0, alias="ROUTE_PIPELINE_TAU_STOP")
+route_pipeline_search_completeness_threshold: float = Field(default=0.84, ge=0.0, le=1.0, alias="ROUTE_PIPELINE_SEARCH_COMPLETENESS_THRESHOLD")
+```
+
+Why it matters: the report's DCCS plus REFC baseline is configured as `dccs_refc` with a fixed replay seed,
+six search refinements, three evidence refinements, 64 certificate worlds, and a 0.70 singleton threshold unless a
+request explicitly overrides those values.
+
+Snippet AL.1.2 - DCCS calibration knobs are first-class settings, not magic constants hidden in tests.
+
+```python
+route_dccs_overlap_threshold: float = Field(default=0.82, ge=0.0, le=1.0, alias="ROUTE_DCCS_OVERLAP_THRESHOLD")
+route_dccs_bootstrap_count: int = Field(default=3, ge=1, le=32, alias="ROUTE_DCCS_BOOTSTRAP_COUNT")
+route_dccs_default_baseline_policy: str = Field(default="first_n", alias="ROUTE_DCCS_DEFAULT_BASELINE_POLICY")
+route_dccs_pflip_bias: float = Field(default=-0.15, alias="ROUTE_DCCS_PFLIP_BIAS")
+route_dccs_pflip_gap_weight: float = Field(default=2.1, ge=0.0, alias="ROUTE_DCCS_PFLIP_GAP_WEIGHT")
+route_dccs_pflip_mechanism_weight: float = Field(default=1.2, ge=0.0, alias="ROUTE_DCCS_PFLIP_MECHANISM_WEIGHT")
+route_dccs_pflip_overlap_weight: float = Field(default=1.4, ge=0.0, alias="ROUTE_DCCS_PFLIP_OVERLAP_WEIGHT")
+route_dccs_pflip_detour_weight: float = Field(default=0.9, ge=0.0, alias="ROUTE_DCCS_PFLIP_DETOUR_WEIGHT")
+```
+
+Why it matters: a thesis reader can identify exactly how overlap, bootstrap count, baseline policy, objective gap,
+mechanism gap, overlap, and detour influence the DCCS hidden-challenger score.
+
+Snippet AL.1.3 - the REFC evidence family and state universe is configured, bounded, and enumerated.
+
+```python
+route_refc_evidence_families: str = Field(
+    default="scenario,toll,terrain,fuel,carbon,weather,stochastic",
+    alias="ROUTE_REFC_EVIDENCE_FAMILIES",
+)
+route_refc_state_catalog: str = Field(
+    default="nominal,mildly_stale,severely_stale,low_confidence,proxy,refreshed",
+    alias="ROUTE_REFC_STATE_CATALOG",
+)
+```
+
+Why it matters: REFC certificates are not over arbitrary noise. They range over a defined seven-family, six-state
+stress catalog.
+
+Snippet AL.1.4 - strict runtime rewrites unsafe defaults into hard live-runtime requirements.
+
+```python
+self.live_runtime_data_enabled = True
+self.strict_live_data_required = True
+self.live_route_compute_require_all_expected = True
+self.route_graph_enabled = True
+self.route_graph_strict_required = True
+self.route_graph_fast_startup_enabled = False
+self.route_graph_skip_initial_search_long_corridor = False
+self.departure_require_empirical_profiles = True
+self.departure_allow_synthetic_profiles = False
+self.terrain_allow_synthetic_grid = False
+self.live_fuel_require_signature = True
+self.scenario_require_signature = True
+```
+
+Why it matters: the strict route-compute path rejects synthetic or skipped evidence paths for thesis runs. The
+large generated outputs in Appendix AJ must therefore be read as strict-runtime artifacts, not toy fixtures.
+
+Snippet AL.1.5 - strict mode also validates categorical settings and bounds terrain sampling.
+
+```python
+rf = str(self.risk_family or "cvar_excess").strip().lower()
+if rf not in {"cvar_excess", "entropic", "downside_semivariance"}:
+    rf = "cvar_excess"
+self.risk_family = rf
+
+pipeline_mode = str(self.route_pipeline_default_mode or "legacy").strip().lower()
+if pipeline_mode not in {"legacy", "dccs", "dccs_refc", "voi"}:
+    pipeline_mode = "legacy"
+self.route_pipeline_default_mode = pipeline_mode
+
+baseline_policy = str(self.route_dccs_default_baseline_policy or "first_n").strip().lower()
+if baseline_policy not in {"first_n", "random_n", "corridor_uniform"}:
+    baseline_policy = "first_n"
+self.route_dccs_default_baseline_policy = baseline_policy
+```
+
+Why it matters: invalid runtime categories degrade to explicit supported values. That is why experiments can be
+replayed under controlled named policy families.
+
+## AL.2 Request, Response, Endpoint, And Artifact Contracts
+
+Snippet AL.2.1 - the route request is a thesis experiment packet: route geometry, vehicle, objective weights,
+uncertainty, certification, and VOI controls all travel in the same API object.
+
+```python
+class RouteRequest(AmbiguityContextFields):
+    origin: LatLng
+    destination: LatLng
+    waypoints: list[Waypoint] = Field(default_factory=list, max_length=48)
+    vehicle_type: str = Field(default="rigid_hgv")
+    scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
+    max_alternatives: int = Field(default=24, ge=1, le=48)
+    weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
+    pipeline_mode: PipelineMode | None = None
+    pipeline_seed: int | None = None
+    search_budget: int | None = Field(default=None, ge=1, le=128)
+    evidence_budget: int | None = Field(default=None, ge=0, le=64)
+    cert_world_count: int | None = Field(default=None, ge=10, le=500)
+    certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    tau_stop: float | None = Field(default=None, ge=0.0)
+```
+
+Why it matters: a single `/route` request can reproduce route choice, candidate budget, evidence budget, certificate
+world count, certificate threshold, and VOI stopping tolerance.
+
+Snippet AL.2.2 - the response surface is a certification-native `DecisionPackage`, not merely a shortest path.
+
+```python
+class DecisionPackage(BaseModel):
+    terminal_type: Literal["certified_singleton", "certified_set", "typed_abstention"] = "certified_singleton"
+    selected: "RouteOption | None" = None
+    candidates: list["RouteOption"] = Field(default_factory=list)
+    certified_set: list["RouteOption"] = Field(default_factory=list)
+    abstention: AbstentionRecord | None = None
+    selected_certificate: "RouteCertificationSummary | None" = None
+    preference_state: PreferenceState = Field(default_factory=PreferenceState)
+    preference_query_trace: dict[str, Any] = Field(default_factory=dict)
+    support_summary: dict[str, Any] = Field(default_factory=dict)
+    artifact_pointers: dict[str, str] = Field(default_factory=dict)
+    run_id: str | None = None
+    pipeline_mode: PipelineMode | None = None
+    voi_stop_summary: "VoiStopSummary | None" = None
+```
+
+Why it matters: the final decision can be a singleton, set, or typed abstention, and it carries certificates, VOI
+state, preferences, support diagnostics, artifact pointers, and the run id required to audit the evidence bundle.
+
+Snippet AL.2.3 - individual route certificates expose winner robustness and fragility hooks.
+
+```python
+class RouteCertificationSummary(BaseModel):
+    route_id: str
+    certificate: float = Field(ge=0.0, le=1.0)
+    certified: bool = False
+    threshold: float = Field(ge=0.0, le=1.0)
+    active_families: list[str] = Field(default_factory=list)
+    top_fragility_families: list[str] = Field(default_factory=list)
+    top_competitor_route_id: str | None = None
+    top_value_of_refresh_family: str | None = None
+```
+
+Why it matters: the selected route is not only reported with a scalar score. It reports which evidence families
+threaten the certificate and which refresh family has the largest estimated value.
+
+Snippet AL.2.4 - the VOI stop payload records both budgets and rejected actions.
+
+```python
+class VoiStopSummary(BaseModel):
+    final_route_id: str
+    certificate: float = Field(ge=0.0, le=1.0)
+    certified: bool = False
+    iteration_count: int = Field(ge=0)
+    search_budget_used: int = Field(ge=0)
+    evidence_budget_used: int = Field(ge=0)
+    stop_reason: str
+    best_rejected_action: str | None = None
+    best_rejected_q: float | None = None
+    search_completeness_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    credible_search_uncertainty: bool | None = None
+```
+
+Why it matters: "VOI stopped" is explainable. The report can show whether stopping followed certification,
+exhausted budgets, low action value, or incomplete search with no worthwhile action.
+
+Snippet AL.2.5 - the backend API endpoints used by the thesis are explicit FastAPI contracts.
+
+```python
+@app.post("/route", response_model=DecisionPackage)
+async def compute_route(...)
+
+@app.post("/route/preference", response_model=PreferenceRuntimeUpdateResponse)
+async def update_route_preference_runtime(...)
+
+@app.post("/route/baseline", response_model=RouteBaselineResponse)
+async def compute_route_baseline(...)
+
+@app.get("/runs/{run_id}/manifest")
+async def get_manifest(run_id: str)
+
+@app.get("/runs/{run_id}/artifacts/{artifact_name}")
+async def get_artifact_generic(run_id: str, artifact_name: str)
+```
+
+Why it matters: the thesis does not depend on hidden notebooks for final decisions. The evidence path is an API path
+with route computation, preference update, baseline comparison, manifest retrieval, and artifact retrieval.
+
+Snippet AL.2.6 - run manifests are signed before being written to disk.
+
+```python
+def _write_signed_manifest(run_id: str, manifest: dict[str, Any], *, out_dir: Path) -> Path:
+    enriched = {
+        "run_id": run_id,
+        "created_at": datetime.now(UTC).isoformat(),
+        **manifest,
+    }
+    enriched["signature"] = build_signature_metadata(enriched)
+    path = out_dir / f"{run_id}.json"
+    path.write_text(json.dumps(enriched, indent=2), encoding="utf-8")
+    return path
+```
+
+Why it matters: manifest integrity is part of the runtime artifact contract. Thesis artifacts can be checked against
+their signed metadata.
+
+Snippet AL.2.7 - signatures use canonical JSON and HMAC-SHA256.
+
+```python
+SIGNATURE_ALGORITHM = "HMAC-SHA256"
+
+def sign_payload(payload: Any, *, secret: str | None = None) -> str:
+    key = (secret or settings.manifest_signing_secret).encode("utf-8")
+    msg = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+def verify_payload_signature(payload: Any, signature: str, *, secret: str | None = None) -> tuple[bool, str]:
+    expected = sign_payload(payload, secret=secret)
+    valid = hmac.compare_digest(expected, signature.strip().lower())
+    return valid, expected
+```
+
+Why it matters: verification compares canonical payloads, not pretty-printed file bytes, so whitespace changes do not
+invalidate the scientific content.
+
+Snippet AL.2.8 - the artifact allow-list shows exactly what a route or thesis bundle may expose.
+
+```python
+ARTIFACT_FILES: tuple[str, ...] = (
+    "results.json",
+    "results.csv",
+    "metadata.json",
+    "routes.geojson",
+    "dccs_candidates.jsonl",
+    "dccs_summary.json",
+    "sampled_world_manifest.json",
+    "evidence_snapshot_manifest.json",
+    "preference_state.json",
+    "preference_query_trace.json",
+    "voi_action_trace.json",
+    "voi_stop_certificate.json",
+    "thesis_results.csv",
+    "thesis_summary.json",
+    "evaluation_manifest.json",
+)
+```
+
+Why it matters: the run-store contract explains why the generated result inventory in Appendix AJ includes candidate
+ledgers, manifests, preference state, VOI traces, and thesis summary tables.
+
+## AL.3 DCCS Candidate Search, Scoring, And Calibration
+
+Snippet AL.3.1 - DCCS pipeline aliases preserve old experiment labels while normalizing to the current variants.
+
+```python
+_REFINE_COST_PIPELINE_ALIASES: dict[str, str] = {
+    "": "dccs",
+    "dccs": "dccs",
+    "a": "dccs",
+    "dccs_refc": "dccs_refc",
+    "b": "dccs_refc",
+    "voi": "voi",
+    "voi_ad2r": "voi",
+    "c": "voi",
+}
+```
+
+Why it matters: thesis variant labels `A`, `B`, and `C` correspond to DCCS, DCCS+REFC, and VOI even when artifacts
+store legacy or abbreviated labels.
+
+Snippet AL.3.2 - refine-cost prediction has per-pipeline fixed coefficients.
+
+```python
+_REFINE_COST_COMMON_MODEL: dict[str, dict[str, float]] = {
+    "dccs": {"intercept": 8.316544948883, "log_len": -1.781208564289, "slow_segment_share": 1.491476411796},
+    "dccs_refc": {"intercept": 12.346727119479, "log_len": -3.750638983277, "slow_segment_share": 1.887340140024},
+    "voi": {"intercept": 0.869653438579, "log_len": 1.319459457179, "slow_segment_share": 0.489105359189},
+}
+```
+
+Why it matters: DCCS does not use vague "complexity" estimates. It records a deterministic auditable cost model, with
+variant-specific terms learned or calibrated offline and then fixed in source.
+
+Snippet AL.3.3 - unlabeled stageless graph candidates are deliberately shrunk rather than hidden.
+
+```python
+_REFINE_COST_UNLABELED_STAGELESS_LEGACY_SCALE: dict[str, float] = {
+    "dccs": 0.08,
+    "dccs_refc": 0.04,
+    "voi": 0.066,
+}
+```
+
+Why it matters: the report's refine-cost metrics include graph candidates that lack source labels. The model scales
+their legacy estimates instead of dropping them from evaluation.
+
+Snippet AL.3.4 - DCCS scoring weights are declared in one dataclass.
+
+```python
+@dataclass(frozen=True)
+class DCCSConfig:
+    mode: str = "bootstrap"
+    pipeline_variant: str = "dccs"
+    search_budget: int = 3
+    near_duplicate_threshold: float = 0.82
+    objective_gap_weight: float = 1.0
+    mechanism_gap_weight: float = 0.45
+    overlap_penalty_weight: float = 1.25
+    stretch_penalty_weight: float = 0.5
+    flip_bias: float = -0.35
+    flip_logistic_scale: float = 2.35
+    challenger_hidden_challenger_weight: float = 0.12
+```
+
+Why it matters: the code exposes the exact trade-off between objective improvement, mechanism novelty, overlap
+penalty, detour penalty, and hidden-challenger terms.
+
+Snippet AL.3.5 - the refine-cost formula combines graph length, non-motorway length, urban length, node count,
+stretch, road mechanism features, long-haul flags, and source-label effects.
+
+```python
+log_cost = (
+    weights["intercept"]
+    + (weights["log_len"] * math.log1p(graph_length_km))
+    + (weights["log_non_mw_len"] * math.log1p(graph_length_km * max(0.0, 1.0 - motorway_share)))
+    + (weights["log_urban_len"] * math.log1p(graph_length_km * urban_share))
+    + (weights["log_nodes"] * math.log1p(path_nodes))
+    + (weights["stretch_excess"] * max(0.0, stretch - 1.0))
+    + (weights["slow_segment_share"] * max(0.0, _as_float(mechanism.get("slow_segment_share"))))
+    + (weights["shape_detour_factor"] * max(0.0, _as_float(mechanism.get("shape_detour_factor"))))
+    + (weights["longhaul"] * float(graph_length_km >= 200.0))
+    + (weights["log_len_sq"] * (math.log1p(graph_length_km) ** 2))
+    + effective_label_weight
+)
+complexity = math.exp(log_cost)
+```
+
+Why it matters: the thesis can describe exactly why a candidate is considered expensive to refine. It is not only
+longer distance; route class, urban share, path-node count, source label, and long-haul behavior all matter.
+
+Snippet AL.3.6 - measured refine costs can blend into predicted costs on a log scale.
+
+```python
+return math.exp(
+    ((1.0 - weight) * math.log(predicted))
+    + (weight * math.log(seed_cost))
+)
+```
+
+Why it matters: seed-observed refine timings influence subsequent predictions multiplicatively, which prevents a
+single outlier from dominating the cost model linearly.
+
+Snippet AL.3.7 - hidden-challenger probability is an auditable logistic heuristic.
+
+```python
+raw = (
+    (config.flip_objective_weight * objective_gap)
+    + (config.flip_mechanism_weight * mechanism_gap)
+    + (config.flip_overlap_weight * (1.0 - overlap))
+    + (config.flip_stretch_weight * max(0.0, stretch - 1.0))
+    + (config.flip_confidence_weight * confidence)
+    + viability
+)
+raw = config.flip_bias + raw
+return 1.0 / (1.0 + math.exp(-config.flip_logistic_scale * raw))
+```
+
+Why it matters: this is not presented as a learned probability. It is a deterministic score that turns objective
+gap, mechanism gap, non-overlap, detour, and confidence into a bounded allocation signal.
+
+Snippet AL.3.8 - each DCCS candidate record keeps the full candidate evidence trail.
+
+```python
+@dataclass(frozen=True)
+class DCCSCandidateRecord:
+    candidate_id: str
+    graph_path: tuple[str, ...]
+    graph_length_km: float
+    road_class_mix: dict[str, float]
+    proxy_objective: tuple[float, float, float]
+    overlap: float
+    stretch: float
+    predicted_refine_cost: float
+    flip_probability: float
+    score_terms: dict[str, float]
+    final_score: float
+    decision: str
+    quota_assignment: str = "unassigned"
+    hidden_challenger_risk: float = 0.0
+    observed_refine_cost: float | None = None
+    refine_cost_error: float | None = None
+```
+
+Why it matters: DCCS is auditable because candidate generation, scoring, quota assignment, final selection, and
+observed-vs-predicted refine costs are serialized.
+
+Snippet AL.3.9 - DCCS result serialization includes selected, skipped, and full candidate ledger rows.
+
+```python
+def as_dict(self) -> dict[str, Any]:
+    return {
+        "mode": self.mode,
+        "search_budget": self.search_budget,
+        "transition_reason": self.transition_reason,
+        "selected": [item.as_dict() for item in self.selected],
+        "skipped": [item.as_dict() for item in self.skipped],
+        "candidate_ledger": [item.as_dict() for item in self.candidate_ledger],
+        "summary": dict(self.summary),
+    }
+```
+
+Why it matters: "not selected" routes are still retained. This is essential for a thesis claim about search
+completeness and hidden-challenger risk.
+
+Snippet AL.3.10 - DCCS tests assert exact ledger keys and candidate envelope semantics.
+
+```python
+assert record.candidate_id == stable_candidate_id(cand)
+assert 0.0 <= record.flip_probability <= 1.0
+assert record.predicted_refine_cost > 0.0
+assert isinstance(record.candidate_envelope, CandidateEnvelope)
+assert isinstance(record.candidate_criticality, CandidateCriticalityEstimate)
+assert record.candidate_envelope.provenance == "proxy_objective_envelope_v1"
+assert record.candidate_criticality.provenance == "candidate_criticality_v1"
+```
+
+Why it matters: the test suite validates not just route output, but the explanatory DCCS machinery that a thesis
+reader needs to inspect.
+
+## AL.4 REFC Evidence Worlds, Certificates, Fragility, And Support
+
+Snippet AL.4.1 - REFC begins with a bounded evidence family and state universe.
+
+```python
+EVIDENCE_FAMILIES = ("scenario", "toll", "terrain", "fuel", "carbon", "weather", "stochastic")
+EVIDENCE_STATES = ("nominal", "mildly_stale", "severely_stale", "low_confidence", "proxy", "refreshed")
+
+DEFAULT_STATE_EFFECTS = {
+    "nominal": (0.00, 0.00, 0.00),
+    "mildly_stale": (0.040, 0.030, 0.032),
+    "severely_stale": (0.140, 0.110, 0.095),
+    "low_confidence": (0.078, 0.062, 0.056),
+    "proxy": (0.185, 0.152, 0.132),
+    "refreshed": (-0.038, -0.030, -0.024),
+}
+```
+
+Why it matters: these bounded perturbations define how evidence condition changes perturb time, money, and CO2
+objectives.
+
+Snippet AL.4.2 - family sensitivity maps evidence sources onto objectives.
+
+```python
+DEFAULT_FAMILY_SENSITIVITY = {
+    "scenario": (0.82, 0.34, 0.24),
+    "toll": (0.05, 1.00, 0.12),
+    "terrain": (0.52, 0.22, 0.78),
+    "fuel": (0.12, 0.94, 0.30),
+    "carbon": (0.00, 0.90, 0.78),
+    "weather": (0.72, 0.18, 0.18),
+    "stochastic": (0.68, 0.62, 0.52),
+}
+```
+
+Why it matters: the certificate stress worlds do not treat all evidence families as identical. Toll primarily
+impacts money, terrain impacts time and CO2, fuel impacts money and CO2, and weather impacts time.
+
+Snippet AL.4.3 - operational route context can override generic family-objective weights.
+
+```python
+scenario_time_pressure = _clamp01(
+    abs(duration_multiplier - 1.0)
+    + (0.35 * abs(incident_rate_multiplier - 1.0))
+    + (0.35 * abs(incident_delay_multiplier - 1.0)),
+)
+scenario_money_pressure = _clamp01(abs(fuel_multiplier - 1.0) + (0.30 * abs(duration_multiplier - 1.0)))
+scenario_co2_pressure = _clamp01(abs(emissions_multiplier - 1.0) + (0.25 * abs(fuel_multiplier - 1.0)))
+stochastic_time_pressure = _clamp01(std_duration_s / max(1.0, max(duration_s, 0.0) * 0.25))
+```
+
+Why it matters: if a route is currently sensitive to scenario, stochastic, weather, terrain, fuel, or toll inputs,
+the certificate dependency tensor reflects that route-specific exposure.
+
+Snippet AL.4.4 - evidence-state weights combine default priors, provenance weakness, and ambiguity pressure.
+
+```python
+base = {"nominal": 0.36, "mildly_stale": 0.18, "severely_stale": 0.10, "low_confidence": 0.10, "proxy": 0.06, "refreshed": 0.20}
+weakness = (
+    (0.45 * (1.0 - confidence_mean))
+    + (0.25 * (1.0 - coverage_mean))
+    + (0.20 * (1.0 - freshness_share))
+    + (0.10 * min(1.0, (proxy_marked + fallback_used) / float(len(rows) or 1)))
+)
+weights["severely_stale"] += 0.12 * weakness
+weights["proxy"] += 0.10 * weakness
+```
+
+Why it matters: stale, low-confidence, proxy, and fallback evidence shifts sampling mass toward stress states. Strong
+fresh provenance shifts mass toward nominal and refreshed states.
+
+Snippet AL.4.5 - ambiguity support strength is a weighted composite, not a single boolean.
+
+```python
+support_strength = _clamp01(
+    (0.35 * ambiguity_confidence)
+    + (0.18 * source_count_strength)
+    + (0.12 * source_mix_strength)
+    + (0.20 * support_ratio)
+    + (0.15 * source_entropy),
+    0.0,
+)
+```
+
+Why it matters: REFC uses confidence, number of sources, source mix, support ratio, and source entropy to decide
+whether an ambiguity case is supported enough to stress.
+
+Snippet AL.4.6 - targeted stress worlds respond to close winners and family-specific exposure gaps.
+
+```python
+score_gap = max(0.0, runner_up_score - winner_score)
+score_scale = max(abs(winner_score), abs(runner_up_score), 1.0)
+closeness = max(0.0, min(1.0, 1.0 - (score_gap / score_scale)))
+multi_frontier_pressure = _clamp01(
+    (0.48 * closeness)
+    + (0.18 * min(1.0, max(0.0, len(routes) - 1.0) / 3.0))
+    + (0.16 * _clamp01(context.get("od_ambiguity_family_density"), 0.0))
+)
+```
+
+Why it matters: hard-case stress packs are stronger when the winner and runner-up are close, multiple frontier routes
+exist, and evidence ambiguity is dense.
+
+Snippet AL.4.7 - hard-case stress fraction is bounded and context dependent.
+
+```python
+stress_fraction = max(
+    0.0,
+    min(
+        max_fraction,
+        0.10
+        + (0.16 * context["context_strength"])
+        + (0.10 * support_strength)
+        + (0.10 * support_ratio)
+        + (0.08 * source_entropy)
+        + (0.16 * closeness)
+        + (0.12 * multi_frontier_pressure),
+    ),
+)
+```
+
+Why it matters: REFC does not flood every route with worst-case worlds. It selectively injects stress based on
+context strength, support richness, close-call pressure, and frontier pressure.
+
+Snippet AL.4.8 - the certificate is winner frequency over the bounded world set.
+
+```python
+certificate_counts: dict[str, int] = {route_id: 0 for route_id in route_scores}
+for score_map, winner in zip(evaluated.score_maps, evaluated.winners, strict=True):
+    for route_id, score in score_map.items():
+        route_scores[route_id].append(float(score))
+    certificate_counts[winner] += 1
+world_count = len(evaluated.world_rows)
+certificate = {route_id: certificate_counts[route_id] / float(world_count) for route_id in certificate_counts}
+winner_id = min(certificate.items(), key=lambda item: (-item[1], item[0]))[0]
+certified = certificate.get(winner_id, 0.0) >= float(threshold)
+```
+
+Why it matters: the thesis should call this a sample-average robustness certificate over explicit worlds. It is not
+a posterior probability of global optimality.
+
+Snippet AL.4.9 - the world manifest records reuse and targeted-stress fractions.
+
+```python
+world_manifest = {
+    "world_count": len(evaluated.world_rows),
+    "unique_world_count": int(evaluated.unique_world_count or len(evaluated.world_rows)),
+    "world_signatures": [_world_signature(world) for world in evaluated.world_rows],
+    "world_reuse_rate_within_manifest": within_manifest_reuse_rate,
+    "targeted_stress_pack_count": targeted_stress_pack_count,
+    "hard_case_stress_pack_count": hard_case_stress_pack_count,
+    "supported_ambiguity_stress_pack_count": supported_ambiguity_stress_pack_count,
+    "stress_world_fraction": round(targeted_stress_pack_count / float(max(1, len(evaluated.world_rows))), 6),
+    "manifest_hash": _stable_hash([json.dumps(evaluated.world_rows, sort_keys=True, separators=(",", ":"), default=str)]),
+}
+```
+
+Why it matters: Appendix AJ's manifest fields come directly from the certificate builder and can be used to audit
+whether stress-world reuse or targeting affected a result.
+
+Snippet AL.4.10 - family fragility is isolated stress plus forced-refresh counterfactuals.
+
+```python
+stressed_world_rows = _stressed_worlds(route_scoped_analysis_world_rows, family, stress_state="severely_stale", target_route_id=route_id)
+analysis_refreshed_world_rows = _refreshed_worlds(route_scoped_analysis_world_rows, family, target_route_id=route_id)
+stressed = _certificate_from_evaluated_bundle(routes, stressed_bundle, selector_weights=selector_weights, threshold=0.67)
+refreshed = _certificate_from_evaluated_bundle(routes, analysis_refreshed_bundle, selector_weights=selector_weights, threshold=0.67)
+fragility_value = _fragility_from_certificates(
+    baseline.certificate.get(route_id, 0.0),
+    stressed.certificate.get(route_id, 0.0),
+)
+```
+
+Why it matters: value-of-refresh and top-fragility-family claims come from explicit counterfactual certificate
+bundles, not hand labels.
+
+Snippet AL.4.11 - fragility details store baseline, stressed, refreshed, margin, and refresh-gain components.
+
+```python
+route_fragility_details[route_id][family] = {
+    "baseline_certificate": baseline.certificate.get(route_id, 0.0),
+    "stressed_certificate": stressed.certificate.get(route_id, 0.0),
+    "refreshed_certificate": refreshed.certificate.get(route_id, 0.0),
+    "absolute_drop": fragility_value,
+    "margin_fragility": margin_fragility,
+    "certificate_refresh_gain": certificate_refresh_gain,
+    "winner_recoverable_floor": recoverable_winner_floor,
+    "family_fully_refreshed": family_fully_refreshed,
+    "refresh_gain": actionable_refresh_gain,
+}
+```
+
+Why it matters: the artifact stores both certificate drops and margin-based fragility, plus whether a family was
+already refreshed and therefore not actionable.
+
+Snippet AL.4.12 - winner confidence intervals are anytime-valid under optional stopping.
+
+```python
+def anytime_hoeffding_interval(success_count: int, sample_count: int, *, delta: float = 0.05) -> tuple[float, float]:
+    n = max(0, int(sample_count))
+    if n <= 0:
+        return 0.0, 1.0
+    successes = min(max(0, int(success_count)), n)
+    delta_value = _coerce_delta(delta)
+    empirical = successes / float(n)
+    log_term = math.log((2.0 * n * (n + 1)) / delta_value)
+    radius = math.sqrt(max(0.0, log_term) / (2.0 * n))
+    return max(0.0, empirical - radius), min(1.0, empirical + radius)
+```
+
+Why it matters: the confidence sequence uses a summable time schedule so certificates can be inspected after
+sequential world expansion without pretending the stopping time was fixed in advance.
+
+Snippet AL.4.13 - certified-set and abstention states are typed terminal objects.
+
+```python
+@dataclass(frozen=True)
+class CertifiedSetState:
+    member_route_ids: list[str] = field(default_factory=list)
+    excluded_route_ids: list[str] = field(default_factory=list)
+    certified: bool = False
+    threshold: float = 0.0
+    support_flag: bool = True
+    set_size: int = 0
+
+TypedAbstentionReason = Literal[
+    "uncertified_due_to_search",
+    "uncertified_due_to_evidence",
+    "uncertified_due_to_preference",
+    "uncertified_due_to_out_of_support_world_model",
+    "uncertified_due_to_budget",
+    "uncertified_due_to_model_assumption",
+]
+```
+
+Why it matters: the project distinguishes "not certified because search is incomplete" from "not certified because
+evidence support is weak" or "not certified because preferences are unresolved."
+
+Snippet AL.4.14 - support and multi-fidelity summaries make proxy/audit status explicit.
+
+```python
+class MultiFidelitySummary:
+    proxy_world_count: int = 0
+    audit_world_count: int = 0
+    proxy_bias_model_version: str = ""
+    audit_propensity_version: str = ""
+    proxy_correction_active: bool = False
+    multi_fidelity_certificate_basis: str = "proxy_only"
+    proxy_only_fraction: float = 1.0
+    audit_correction_mass: float = 0.0
+    positivity_diagnostics: PositivityDiagnostics = field(default_factory=PositivityDiagnostics)
+```
+
+Why it matters: the report can distinguish empirical, proxy-only, and proxy-audit-corrected certificate bases.
+
+Snippet AL.4.15 - REFC tests verify seed replayability and world-group separation.
+
+```python
+manifest_a = sample_world_manifest(active_families=["scenario", "toll", "weather"], seed=17, world_count=5)
+manifest_b = sample_world_manifest(active_families=["scenario", "toll", "weather"], seed=17, world_count=5)
+assert manifest_a == manifest_b
+
+payload = build_sampled_world_manifest_artifact_payload(manifest)
+assert [world["world_id"] for world in payload["probabilistic_worlds"]] == ["w0", "w1"]
+assert [world["world_id"] for world in payload["audit_worlds"]] == ["w2", "w2"]
+assert [world["world_id"] for world in payload["proxy_only_worlds"]] == ["w1"]
+```
+
+Why it matters: tests cover both deterministic replay and artifact grouping, which are central to the thesis'
+traceability argument.
+
+## AL.5 VOI-AD2R Controller And Preference Elicitation
+
+Snippet AL.5.1 - VOI controller budgets and objective weights are declared in source.
+
+```python
+@dataclass(frozen=True)
+class VOIConfig:
+    certificate_threshold: float = 0.67
+    stop_threshold: float = 0.02
+    search_budget: int = 3
+    evidence_budget: int = 2
+    max_iterations: int = 8
+    top_k_refine: int = 2
+    lambda_certificate: float = 0.60
+    lambda_margin: float = 0.25
+    lambda_frontier: float = 0.15
+    search_completeness_threshold: float = 0.84
+    search_completeness_action_bonus: float = 0.22
+```
+
+Why it matters: VOI action choice is a myopic deterministic controller with visible weights for certificate lift,
+margin lift, frontier expansion, search completeness, and budget.
+
+Snippet AL.5.2 - each VOI action carries predicted metric deltas, costs, feasibility, and trace metadata.
+
+```python
+@dataclass(frozen=True)
+class VOIAction:
+    action_id: str
+    kind: str
+    target: str
+    action_family: str = ""
+    action_modality: str = ""
+    cost_search: int = 0
+    cost_evidence: int = 0
+    predicted_delta_certificate: float = 0.0
+    predicted_delta_margin: float = 0.0
+    predicted_delta_frontier: float = 0.0
+    predicted_delta_search_completeness: float = 0.0
+    q_score: float = 0.0
+```
+
+Why it matters: every action in `voi_action_trace.json` can be interpreted in terms of predicted gain and budget cost.
+
+Snippet AL.5.3 - VOI controller state stores the certification and uncertainty variables used for action gating.
+
+```python
+class VOIControllerState:
+    certificate_margin: float = 0.0
+    certificate_lcb: float = 0.0
+    certificate_ucb: float = 0.0
+    minimum_flip_budget: float = 0.0
+    certified_set_size: int = 0
+    weight_set_volume: float = 1.0
+    unresolved_possible_frontier_mass: float = 0.0
+    support_flag: bool = True
+    search_completeness_score: float = 1.0
+    pending_challenger_mass: float = 0.0
+    best_pending_flip_probability: float = 0.0
+    top_refresh_gain: float = 0.0
+    credible_search_uncertainty: bool = False
+    credible_evidence_uncertainty: bool = False
+```
+
+Why it matters: the controller uses literal uncertainty and support fields, not only current route score, to decide
+whether to refine search, refresh evidence, query preferences, or stop.
+
+Snippet AL.5.4 - VOI action-score rows are exported as a tabular artifact.
+
+```python
+def build_voi_action_score_row(*, iteration: int, action: VOIAction, selected_route_id: str, selected_certificate: float) -> dict[str, Any]:
+    return {
+        "iteration": int(iteration),
+        "action_id": action.action_id,
+        "kind": action.kind,
+        "cost_search": int(action.cost_search),
+        "cost_evidence": int(action.cost_evidence),
+        "predicted_delta_certificate": _as_voi_metric(action.predicted_delta_certificate),
+        "predicted_delta_margin": _as_voi_metric(action.predicted_delta_margin),
+        "predicted_delta_frontier": _as_voi_metric(action.predicted_delta_frontier),
+        "q_score": _as_voi_metric(action.q_score),
+        "selected_certificate": _as_voi_metric(selected_certificate),
+    }
+```
+
+Why it matters: `voi_action_scores.csv` can be used directly in the thesis to explain why the controller chose,
+rejected, or stopped an action.
+
+Snippet AL.5.5 - credible search uncertainty combines pending flip, pending mass, completeness gap, ambiguity,
+near ties, stress-world fraction, and frontier pressure.
+
+```python
+supported_search_pressure = _clamp01(
+    (0.26 * pending_flip)
+    + (0.18 * pending_mass)
+    + (0.16 * completeness_gap)
+    + (0.14 * ambiguity_pressure)
+    + (0.10 * near_tie)
+    + (0.08 * max(0.0, 1.0 - frontier_recall))
+    + (0.05 * stress_world_fraction)
+    + (0.03 * frontier_pressure)
+)
+```
+
+Why it matters: a certified-looking winner can still be reopened if supported ambiguity and unresolved challenger
+signals are high enough.
+
+Snippet AL.5.6 - action application consumes only the relevant budget channel.
+
+```python
+if action.kind in {"refine_top1_dccs", "refine_topk_dccs"}:
+    return _normalize_updated_state(replace(
+        state,
+        remaining_search_budget=max(0, state.remaining_search_budget - action.cost_search),
+    ))
+if action.kind == "refresh_top1_vor":
+    refreshed = list(dict.fromkeys([*state.refreshed_evidence_families, action.target]))
+    return _normalize_updated_state(replace(
+        state,
+        remaining_evidence_budget=max(0, state.remaining_evidence_budget - action.cost_evidence),
+        refreshed_evidence_families=refreshed,
+    ))
+```
+
+Why it matters: search actions do not spend evidence budget, and evidence refresh actions do not spend search budget.
+
+Snippet AL.5.7 - the controller loop stops for certified, budget-exhausted, no-action, missing-hook, or iteration-cap
+outcomes.
+
+```python
+while state.iteration_index < cfg.max_iterations:
+    state = enrich_controller_state_for_actioning(state, dccs=dccs, fragility=fragility, config=cfg)
+    current_certificate = _as_float(state.certificate.get(state.winner_id, certificate_value))
+    credible_uncertainty = _credible_search_uncertainty(state, config=cfg, current_certificate=current_certificate)
+    credible_evidence = _credible_evidence_uncertainty(state, fragility=fragility, config=cfg, current_certificate=current_certificate)
+    if should_stop_as_certified(...):
+        return _build_stop_certificate(..., stop_reason="certified", ...)
+    if state.remaining_search_budget <= 0 and state.remaining_evidence_budget <= 0:
+        return _build_stop_certificate(..., stop_reason="budget_exhausted", ...)
+    actions = build_action_menu(state, dccs=dccs, fragility=fragility, config=cfg)
+    if not feasible_actions or top_action.q_score < cfg.stop_threshold:
+        return _build_stop_certificate(..., stop_reason="no_action_worth_it", ...)
+```
+
+Why it matters: this is the core VOI-AD2R operational loop behind variant `C`.
+
+Snippet AL.5.8 - stop certificates include hindsight and realized metric deltas.
+
+```python
+return VOIStopCertificate(
+    final_winner_route_id=state.winner_id,
+    certificate_value=current_certificate,
+    certified=bool(stop_reason == "certified"),
+    search_budget_used=config.search_budget - state.remaining_search_budget,
+    evidence_budget_used=config.evidence_budget - state.remaining_evidence_budget,
+    stop_reason=stop_reason,
+    best_rejected_action=best_rejected_action,
+    predicted_winner_lcb_gain=predicted_winner_lcb_gain(terminal_action),
+    realized_certificate_delta=_rounded_controller_state_value(terminal_realized_fields.get("realized_certificate_delta")) or 0.0,
+    hindsight_necessity_label=terminal_hindsight_label,
+    replay_oracle_summary=replay_evaluation.summary.as_dict(),
+)
+```
+
+Why it matters: VOI artifacts support post-hoc analysis of whether actions were necessary and whether predicted gains
+materialized.
+
+Snippet AL.5.9 - preference query types are a discriminated union.
+
+```python
+PreferenceQuery = Annotated[
+    Union[
+        PairwisePreferenceQuery,
+        ThresholdPreferenceQuery,
+        RatioPreferenceQuery,
+        VetoPreferenceQuery,
+        TimeGuardPreferenceQuery,
+    ],
+    Field(discriminator="query_type"),
+]
+```
+
+Why it matters: pairwise route choices, thresholds, ratios, vetoes, and time guards are all typed and validated.
+
+Snippet AL.5.10 - preference updates are monotone: compatible set size and volume cannot increase.
+
+```python
+if after_size_int > before_size_int:
+    raise ValueError("valid preference updates cannot increase compatible set size")
+if after_volume_value > before_volume_value + 1e-12:
+    raise ValueError("valid preference updates cannot increase compatible-set volume")
+updated.shrinkage_trace.append(
+    build_preference_shrinkage_trace(
+        before_size=before_size_int,
+        after_size=after_size_int,
+        before_volume_proxy=before_volume_value,
+        after_volume_proxy=after_volume_value,
+    )
+)
+```
+
+Why it matters: the thesis can claim preference elicitation is monotone with respect to the compatible route set.
+
+Snippet AL.5.11 - backend preference runtime re-emits normalized state and query trace.
+
+```python
+return {
+    "schema_version": "preference-query-trace-v1",
+    "selected_route_id": effective_selected_route_id,
+    "selected_certificate_basis": effective_basis,
+    "terminal_type": preference_state.terminal_type,
+    "query_count": int(summary.get("query_count", 0) or 0),
+    "query_history": _serialize_records(preference_state.query_history),
+    "shrinkage_trace": shrinkage_trace,
+    "compatible_set_summary": summary.get("compatible_set_summary", {}),
+    "query_selection_reason": last_trace.get("query_reason") or summary.get("query_selection_reason"),
+}
+```
+
+Why it matters: the UI's live preference edits round-trip through the backend and preserve the same trace shape used
+by route-compute artifacts.
+
+Snippet AL.5.12 - the frontend route-preference proxy preserves backend error semantics.
+
+```ts
+resp = await fetchBackend('/route/preference', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body,
+  requestSignal: req.signal,
+  timeoutMs: computeRouteFallbackTimeoutMs(),
+});
+```
+
+Why it matters: the Next.js frontend does not implement a separate preference model for persisted responses. It
+forwards the request to the backend route-preference endpoint and returns the backend payload.
+
+Snippet AL.5.13 - the frontend live preference panel applies the same monotone filters locally for responsive UX.
+
+```ts
+if (query.query_type === 'pairwise') blocked.add(query.challenger_route_id);
+if (query.query_type === 'threshold') {
+  const failed =
+    value === null ||
+    (query.direction === 'gte' ? value < query.threshold_value : value > query.threshold_value);
+  if (failed) blocked.add(query.route_id);
+}
+if (query.query_type === 'veto' && query.active !== false) blocked.add(query.route_id);
+const survivors = routes.filter((route) => !blocked.has(route.id));
+```
+
+Why it matters: the UI can show immediate feedback while still syncing the canonical preference state back to the
+backend.
+
+Snippet AL.5.14 - preference API tests assert selected-route correction and query trace preservation.
+
+```python
+assert response.selected_route_id == "route_a"
+assert response.terminal_type == "certified"
+assert response.preference_state.compatible_set_summary.compatible_set_size == 1
+assert response.preference_query_trace["query_count"] == 1
+assert response.preference_query_trace["query_history"][0]["query_type"] == "pairwise"
+assert response.preference_summary["selected_certificate_basis"] == "selected_certificate"
+```
+
+Why it matters: tests prove that the runtime preference endpoint can change the selected route when the compatible
+set collapses to a different route.
+
+## AL.6 Physical, Cost, Risk, Stochastic, And Scenario Calculations
+
+Snippet AL.6.1 - fuel and energy use are interpolated over a four-dimensional surface.
+
+```python
+def _interp_grid4d(grid: Grid4D, *, load_factor: float, speed_kmh: float, grade_pct: float, ambient_temp_c: float) -> float:
+    i0, i1, tx = _axis_bracket(load_axis, load_factor)
+    j0, j1, ty = _axis_bracket(speed_axis, speed_kmh)
+    k0, k1, tz = _axis_bracket(grade_axis, grade_pct)
+    l0, l1, tw = _axis_bracket(temp_axis, ambient_temp_c)
+    value = 0.0
+    for i_idx, wi in ((i0, 1.0 - tx), (i1, tx)):
+        for j_idx, wj in ((j0, 1.0 - ty), (j1, ty)):
+            for k_idx, wk in ((k0, 1.0 - tz), (k1, tz)):
+                for l_idx, wl in ((l0, 1.0 - tw), (l1, tw)):
+                    value += float(grid[i_idx][j_idx][k_idx][l_idx]) * wi * wj * wk * wl
+    return max(0.0, value)
+```
+
+Why it matters: fuel/energy results depend on load factor, speed, grade, and ambient temperature rather than a single
+flat liters-per-km constant.
+
+Snippet AL.6.2 - diesel/petrol/LNG fuel use converts liters into cost and emissions with uncertainty bands.
+
+```python
+liters_per_100km = _interp_grid4d(fuel_grid, load_factor=load_factor, speed_kmh=speed_value, grade_pct=grade_value, ambient_temp_c=temp_value)
+liters = max(0.0, (distance_km * liters_per_100km) / 100.0)
+fuel_price = max(0.0, float(fuel_prices.get(fuel_type, fuel_prices.get("diesel", 0.0))))
+base_cost = liters * fuel_price * region_mult * price_mult
+emissions_factor = FUEL_EMISSIONS_KG_PER_L.get(fuel_type, FUEL_EMISSIONS_KG_PER_L["diesel"])
+emissions_kg = liters * emissions_factor
+```
+
+Why it matters: the monetary and CO2 values reported for a route are tied to fuel type, regional multiplier, live fuel
+snapshot, and route-specific consumption.
+
+Snippet AL.6.3 - EV energy use follows the same surface pattern but uses grid price and grid carbon intensity.
+
+```python
+energy_kwh = max(0.0, (distance_km * kwh_per_100km) / 100.0)
+base_cost = energy_kwh * snapshot.grid_price_gbp_per_kwh * region_mult * price_mult
+grid_factor = (
+    float(vehicle.grid_co2_kg_per_kwh)
+    if vehicle.grid_co2_kg_per_kwh is not None and vehicle.grid_co2_kg_per_kwh >= 0
+    else 0.20
+)
+emissions_kg = energy_kwh * grid_factor
+```
+
+Why it matters: EV routes are not treated as zero emission in the route objective. They use electricity price and grid
+CO2 factor.
+
+Snippet AL.6.4 - terrain duration multiplier is a physics-inspired force calculation.
+
+```python
+rolling_force = params.mass_kg * G_MPS2 * params.c_rr
+aero_force = 0.5 * AIR_DENSITY_KG_M3 * params.drag_area_m2 * (v_ms ** 2)
+grade_force = params.mass_kg * G_MPS2 * grade
+baseline_force = max(250.0, rolling_force + aero_force)
+raw_force = rolling_force + aero_force + max(grade_force, -0.85 * baseline_force)
+uplift = raw_force / baseline_force
+```
+
+Why it matters: hilly routes alter route time through vehicle mass, rolling resistance, drag area, speed, grade, and
+drivetrain efficiency.
+
+Snippet AL.6.5 - terrain emissions multiplier uses uphill penalty and downhill relief.
+
+```python
+uphill_penalty = mean_grade_up * (5.3 + (params.mass_kg / 16_000.0))
+downhill_relief = mean_grade_down * (1.7 + (params.regen_efficiency * 1.5))
+mult = 1.0 + ((uphill_penalty - downhill_relief) * weight)
+return _clamp(mult, 1.0, 1.85)
+```
+
+Why it matters: grade affects CO2 separately from duration, so terrain can change a route's environmental ranking.
+
+Snippet AL.6.6 - legacy emissions fallback uses speed penalties and idle emissions.
+
+```python
+total += (
+    vehicle.mass_tonnes
+    * d_km
+    * vehicle.emission_factor_kg_per_tkm
+    * speed_factor(speed_kmh)
+)
+if speed_kmh < idle_speed_threshold_kmh and t_s > 0:
+    total += (t_s / 3600.0) * vehicle.idle_emissions_kg_per_hour
+```
+
+Why it matters: when segment-level fuel surface data is not the active path, the fallback still penalizes inefficient
+speed and very low-speed idling.
+
+Snippet AL.6.7 - toll matching combines class-based signals and open-data seed-segment overlap.
+
+```python
+contains_toll = (
+    bool(route.get("contains_toll", False))
+    or (classified_toll_distance_km > 0.0)
+    or bool(matched_seeds)
+)
+toll_distance_km = max(
+    classified_toll_distance_km,
+    seeded_toll_distance_km if classified_toll_distance_km <= 0 else 0.0,
+)
+```
+
+Why it matters: toll costs are not only a route-level flag. The engine estimates toll distance using OSRM classes and
+known UK toll assets.
+
+Snippet AL.6.8 - toll pricing uses matched tariff rules and calibrated confidence.
+
+```python
+total_crossing_fee += max(0.0, crossing_fee)
+total_distance_fee += max(0.0, distance_fee_per_km) * max(0.0, overlap_km)
+logit = (
+    float(confidence_calibration.intercept)
+    + (float(confidence_calibration.class_signal_coef) * class_signal)
+    + (float(confidence_calibration.seed_signal_coef) * seed_signal)
+    + (float(confidence_calibration.segment_signal_coef) * segment_signal)
+)
+confidence = 1.0 / (1.0 + math.exp(-logit))
+```
+
+Why it matters: toll monetary cost and toll provenance confidence are computed and exposed separately.
+
+Snippet AL.6.9 - scenario route context is built from corridor geohash, local hour, day kind, road mix, vehicle, and
+weather regime.
+
+```python
+return ScenarioRouteContext(
+    corridor_geohash5=_geohash5(centroid_lat, centroid_lon),
+    hour_slot_local=_hour_slot_local(departure_time_utc),
+    day_kind=_day_kind_uk(departure_time_utc),
+    road_mix_bucket=road_bucket,
+    road_mix_vector=road_vector,
+    vehicle_class=(vehicle_class or "rigid_hgv"),
+    weather_regime=(weather_bucket or "clear"),
+)
+```
+
+Why it matters: scenario multipliers are context-sensitive. A London weekday mixed-road HGV route can resolve to a
+different profile from a rural weekend van route.
+
+Snippet AL.6.10 - scenario profile nearest-neighbour distance is weighted across geography, hour, day, weather,
+road mix, vehicle, and road-vector distance.
+
+```python
+return (
+    (float(norm.get("geo_distance", 0.0)) * geo_distance)
+    + (float(norm.get("hour_distance", 0.0)) * hour_distance)
+    + (float(norm.get("day_penalty", 0.0)) * day_penalty)
+    + (float(norm.get("weather_penalty", 0.0)) * weather_penalty)
+    + (float(norm.get("road_penalty", 0.0)) * road_penalty)
+    + (float(norm.get("vehicle_penalty", 0.0)) * vehicle_penalty)
+    + (float(norm.get("road_mix_distance", 0.0)) * road_mix_distance)
+)
+```
+
+Why it matters: the observed-vs-transfer scenario-profile results in Appendix AJ depend on this distance function.
+
+Snippet AL.6.11 - stochastic uncertainty uses deterministic seeds for replay.
+
+```python
+def _stable_seed(*, route_signature: str, departure_slot: str, user_seed: int) -> int:
+    material = f"{route_signature}|{departure_slot}|{user_seed}"
+    return int(hashlib.sha1(material.encode("utf-8")).hexdigest()[:16], 16)
+
+def _departure_slot(departure_time_utc: datetime | None) -> str:
+    minute_bucket = (local.minute // 15) * 15
+    return local.strftime(f"%Y-%m-%dT%H:{minute_bucket:02d}%z")
+```
+
+Why it matters: stochastic route evaluations are stable for the same route signature, 15-minute departure slot, and
+user seed.
+
+Snippet AL.6.12 - correlated uncertainty draws are produced by Cholesky factorization.
+
+```python
+z = [rng.gauss(0.0, 1.0) for _ in range(5)]
+out = [0.0] * 5
+for i in range(5):
+    total = 0.0
+    for j in range(i + 1):
+        total += l_factor[i][j] * z[j]
+    out[i] = total
+return (out[0], out[1], out[2], out[3], out[4])
+```
+
+Why it matters: duration, monetary, emission, incident, and scenario shocks can be correlated rather than sampled as
+independent one-dimensional noise.
+
+Snippet AL.6.13 - uncertainty sample counts and sigma are bounded in the runtime calculation.
+
+```python
+requested_sigma = max(0.0, float(sigma))
+sample_count = max(8, min(requested_samples, 600))
+sigma_clamped = _bounded(requested_sigma, low=0.0, high=0.6)
+rng = random.Random(seed)
+```
+
+Why it matters: route uncertainty is reproducible and bounded. The system records clip ratios so a thesis result can
+show when a requested sample count or sigma was clipped.
+
+Snippet AL.6.14 - CVaR uses empirical tail integration rather than only the max sample.
+
+```python
+for start, end in zip(knots, knots[1:], strict=False):
+    q_start = quantile(ordered, start)
+    q_end = quantile(ordered, end)
+    tail_integral += 0.5 * (q_start + q_end) * (end - start)
+denom = max(1e-12, 1.0 - alpha_clamped)
+result = tail_integral / denom
+threshold = quantile(ordered, alpha_clamped)
+return max(result, threshold)
+```
+
+Why it matters: robust objectives use an expected-shortfall-style tail metric rather than a brittle single worst
+sample.
+
+Snippet AL.6.15 - robust objective supports three thesis risk families.
+
+```python
+if family == "entropic":
+    penalty = math.log1p(risk * math.expm1(theta * tail_excess)) / theta
+    return float(mean_value) + penalty
+if family == "downside_semivariance":
+    penalty = (tail_excess * tail_excess) / scale
+    return float(mean_value) + (risk * penalty)
+return float(mean_value) + (risk * tail_excess)
+```
+
+Why it matters: route ranking can be evaluated under CVaR-excess, entropic-style, or downside-semivariance-style
+risk penalties.
+
+## AL.7 Evaluation Metrics, Preflight, Generated Results, And Tests
+
+Snippet AL.7.1 - the thesis runner maps variant labels to pipeline modes.
+
+```python
+VARIANTS: tuple[str, ...] = ("V0", "A", "B", "C")
+VARIANT_PIPELINE_MODE = {"V0": "legacy", "A": "dccs", "B": "dccs_refc", "C": "voi"}
+STRICT_EVIDENCE_POLICY = "no_synthetic_no_proxy_no_fallback"
+```
+
+Why it matters: every result table can be interpreted as legacy baseline, DCCS, DCCS+REFC, or VOI using a stable
+mapping.
+
+Snippet AL.7.2 - evaluation lanes encode row-count requirements and purpose.
+
+```python
+"broad_cold_proof": {
+    "scope": "broad",
+    "focus": "all",
+    "label": "Broad cold thesis proof",
+    "evaluation_size_requirement": {"requirement_id": "G11.47", "unit": "rows", "minimum": 200},
+    "headline_seed_repeat_required": True,
+},
+"focused_refc_proof": {
+    "scope": "focused",
+    "focus": "refc",
+    "evaluation_size_requirement": {"requirement_id": "G11.48", "unit": "rows", "minimum": 50},
+},
+```
+
+Why it matters: generated proof lanes are not ad hoc runs. They carry labels, purpose, minimum size requirements, and
+seed-repeat policy.
+
+Snippet AL.7.3 - Pareto dominance is strictly multi-objective.
+
+```python
+def dominates(lhs: dict[str, float], rhs: dict[str, float]) -> bool:
+    return (
+        lhs["duration_s"] <= rhs["duration_s"]
+        and lhs["monetary_cost"] <= rhs["monetary_cost"]
+        and lhs["emissions_kg"] <= rhs["emissions_kg"]
+        and (
+            lhs["duration_s"] < rhs["duration_s"]
+            or lhs["monetary_cost"] < rhs["monetary_cost"]
+            or lhs["emissions_kg"] < rhs["emissions_kg"]
+        )
+    )
+```
+
+Why it matters: the frontier logic follows the standard "no worse in all objectives and better in at least one"
+definition.
+
+Snippet AL.7.4 - balanced gain averages clipped relative improvements over all three objectives.
+
+```python
+def balanced_gain_score(route: dict[str, float], baseline: dict[str, float]) -> float:
+    improvements = []
+    for field in OBJECTIVE_FIELDS:
+        denom = max(abs(baseline[field]), 1e-9)
+        improvements.append((baseline[field] - route[field]) / denom)
+    clipped = [max(-1.0, min(1.0, value)) for value in improvements]
+    return float(sum(clipped) / len(clipped))
+```
+
+Why it matters: this prevents one objective from dominating a headline gain metric by scale alone.
+
+Snippet AL.7.5 - 3D hypervolume is computed by slicing one objective and integrating 2D dominated area.
+
+```python
+xs = sorted({point[0] for point in points} | {reference["duration_s"]})
+volume = 0.0
+for idx in range(len(xs) - 1):
+    x_left = xs[idx]
+    x_right = xs[idx + 1]
+    yz_points = [(y, z) for x, y, z in points if x <= x_left]
+    area = _area_2d(yz_points, ref_y=reference["monetary_cost"], ref_z=reference["emissions_kg"])
+    volume += (x_right - x_left) * area
+return round(volume, 6)
+```
+
+Why it matters: hypervolume results are computed from all three route objectives: duration, money, and CO2.
+
+Snippet AL.7.6 - frontier diversity normalizes distances by observed objective ranges.
+
+```python
+scales = [max(1e-9, maxs[idx] - mins[idx]) for idx in range(3)]
+def _distance(lhs: tuple[float, float, float], rhs: tuple[float, float, float]) -> float:
+    return math.sqrt(sum((((lhs[idx] - rhs[idx]) / scales[idx]) ** 2) for idx in range(3)))
+spread = sum(pairwise) / len(pairwise) if pairwise else 0.0
+crowding = sum(nearest) / len(nearest) if nearest else 0.0
+```
+
+Why it matters: diversity metrics are dimensionless and not dominated by seconds versus pounds versus kilograms.
+
+Snippet AL.7.7 - preflight denies synthetic/proxy/bootstrap/fallback provenance under the active policy.
+
+```python
+STRICT_PROVENANCE_DENY_TOKENS = ("synthetic", "proxy", "fallback", "legacy", "bootstrap", "fixture")
+REPO_LOCAL_PROVENANCE_DENY_TOKENS = ("synthetic", "legacy", "fallback")
+
+def _validate_check_provenance(name: str, details: dict[str, Any]) -> None:
+    serialized = json.dumps(details, sort_keys=True, default=str)
+    if _contains_provenance_deny_token(serialized):
+        raise ModelDataError(
+            reason_code="strict_source_provenance_invalid",
+            message=f"{name} exposes synthetic/proxy/bootstrap/fallback provenance markers.",
+        )
+```
+
+Why it matters: the preflight artifact listed in Appendix AJ is a runtime provenance guard, not only a presence check.
+
+Snippet AL.7.8 - preflight records scenario profile source and context count.
+
+```python
+def _scenario_profile_details() -> dict[str, Any]:
+    profiles = _call_uncached(load_scenario_profiles)
+    return {
+        "version": profiles.version,
+        "source": profiles.source,
+        "resolved_source_locator": _resolved_scenario_profile_locator(profiles),
+        "calibration_basis": getattr(profiles, "calibration_basis", None),
+        "mode_observation_source": getattr(profiles, "mode_observation_source", None),
+        "contexts": len(profiles.contexts),
+    }
+```
+
+Why it matters: the report's current scenario profile counts and source labels should match preflight output, not
+manual notes.
+
+Snippet AL.7.9 - preflight records fuel snapshot source, as-of date, and signature prefix.
+
+```python
+def _fuel_snapshot_details() -> dict[str, Any]:
+    snapshot = _call_uncached(load_fuel_price_snapshot)
+    return {
+        "source": snapshot.source,
+        "as_of": snapshot.as_of,
+        "signature_prefix": (snapshot.signature or "")[:12],
+    }
+```
+
+Why it matters: fuel prices in Appendix AJ are traceable to a signed snapshot with as-of metadata.
+
+Snippet AL.7.10 - the route-preference endpoint test verifies the real FastAPI route.
+
+```python
+with TestClient(app) as client:
+    resp = client.post(
+        "/route/preference",
+        json={
+            "candidate_routes": [route_a.model_dump(mode="json"), route_b.model_dump(mode="json")],
+            "selected_route_id": "route_b",
+            "selected_certificate_basis": "selected_certificate",
+            "pipeline_mode": "dccs_refc",
+            "support_flag": True,
+            "preference_state": updated_state.model_dump(mode="json"),
+        },
+    )
+
+assert resp.status_code == 200
+payload = resp.json()
+assert payload["selected_route_id"] == "route_a"
+```
+
+Why it matters: frontend and backend preference sync is tested through the deployed API surface, not only a helper
+function.
+
+Snippet AL.7.11 - VOI tests assert literal controller metrics are surfaced exactly.
+
+```python
+assert fields["certificate_lcb"] == pytest.approx(0.612345, rel=0.0, abs=1e-6)
+assert fields["certificate_ucb"] == pytest.approx(0.934567, rel=0.0, abs=1e-6)
+assert fields["necessary_best_probability"] == pytest.approx(0.44, rel=0.0, abs=1e-6)
+assert fields["possible_best_probability"] == pytest.approx(0.72, rel=0.0, abs=1e-6)
+assert fields["minimum_flip_budget"] == pytest.approx(3.0, rel=0.0, abs=1e-6)
+```
+
+Why it matters: the variables the controller reasons over are directly exposed and tested for exact values.
+
+Snippet AL.7.12 - VOI tests cover overconfidence caps when search is incomplete.
+
+```python
+capped_value, applied = main_module._initial_controller_overconfidence_cap(
+    controller_state=state,
+    current_certificate=1.0,
+    threshold=0.8,
+)
+
+assert applied is True
+assert capped_value == pytest.approx(0.45, rel=0.0, abs=1e-6)
+```
+
+Why it matters: a nominal 1.0 certificate can be capped when pending challenger and search-completeness evidence
+contradict overconfident termination.
+
+Snippet AL.7.13 - frontend API helpers preserve backend structured error messages.
+
+```ts
+if (detailMessage && warningSummary) {
+  const core = reasonCode ? `${detailMessage} (${reasonCode})` : detailMessage;
+  return cause ? `${core} ${warningSummary} cause=${cause}` : `${core} ${warningSummary}`;
+}
+if (reasonCode) return cause ? `${reasonCode} cause=${cause}` : reasonCode;
+```
+
+Why it matters: strict runtime failures reach the UI as reason-coded messages, which helps debugging and explains
+why a route request failed.
+
+Snippet AL.7.14 - proof dashboards resolve artifact pointers against the route artifact endpoint.
+
+```ts
+function artifactHref(
+  routeArtifactsEndpoint: string | null | undefined,
+  artifactPointer: string | null | undefined,
+  fallbackName?: string,
+): string | null {
+  const raw = textOrNull(artifactPointer) ?? fallbackName ?? null;
+  if (!raw) return null;
+  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith('/')) return raw;
+  if (!routeArtifactsEndpoint) return null;
+  const base = routeArtifactsEndpoint.replace(/\/$/, '');
+  return `${base}/${raw}`;
+}
+```
+
+Why it matters: artifact links in the UI are generated from the backend run id and pointer fields, so the visual
+inspection path follows the same artifact bundle as the thesis report.
+
+Snippet AL.7.15 - the current large generated-result facts to keep synchronized with code and artifacts are:
+
+```text
+preflight checked_at_utc: 2026-04-12T13:33:57Z
+preflight scenario contexts: 192
+fuel snapshot as_of: 2026-04-06
+fuel signature prefix: 39e656
+scenario profile generated_at_utc: 2026-04-13T22:52:49Z
+scenario profile context families: 96
+scenario observed rows: 288
+scenario source rows: 576
+holdout_mode_separation: 0.191077
+duration_mape: 0.010117
+monetary_mape: 0.010501
+emissions_mape: 0.004885
+```
+
+Why it matters: these are not code snippets, but they are the concrete result values a thesis reader should compare
+against the generated assets and the prose tables in the earlier appendices.
+
+Snippet AL.7.16 - focused test-output snapshot for the modules quoted in this appendix.
+
+```text
+Command:
+uv run --project backend pytest -q backend/tests/test_dccs.py backend/tests/test_refc.py backend/tests/test_voi_controller.py backend/tests/test_preference_runtime_api.py
+
+Observed output on May 5, 2026:
+300 passed
+19 failed
+
+Failure groups:
+- DCCS challenger-selection tests currently expect one selected challenger under search_budget=1, but the current implementation refines additional candidates.
+- DCCS refine-cost MAPE test reports 0.9142465843621399, above the test threshold of 0.25.
+- REFC cache-payload test calls _global_certification_cache_payload without the current required frontier_signatures keyword argument.
+- VOI support-rich bridge and certified/no-gain controller tests currently disagree with the active controller behavior.
+```
+
+Why it matters: this is a current verification snapshot, not a theorem claim. The docs consistency checker now has
+truthful theorem-map anchors for the hidden-challenger rows, so `python scripts/check_docs.py` should be treated as
+the live pass/fail gate rather than as having an accepted missing-symbol exception.
+
+## Appendix AM: Thesis Rationale, Alternative Designs, And Source-Backed Justification
+
+This appendix is written for the thesis question the source tree alone does not always answer:
+
+why was the system built this way?
+
+It should be read as a rationale layer over the code snippets in Appendix AL.
+
+Appendix AL shows the concrete source evidence.
+
+This appendix explains why those choices are preferable for this project, and what would have been weaker about common alternatives.
+
+The word "better" here means better for this dissertation's actual goal: a UK freight-routing research system that is auditable, rerunnable, multi-objective, uncertainty-aware, and honest about live-data limits.
+
+It does not mean every choice would be better for every commercial navigation product.
+
+### AM.1 Current-Source Reconciliation
+
+The report must not copy stale documentation values just because an older README section exists.
+
+The current generated workspace state takes precedence over older prose snapshots when they disagree.
+
+The reconciliation rule used in this report is:
+
+- live/generated artifact values beat older README summaries
+- source code defaults beat prose when code and prose disagree
+- `docs/voi-pipeline-spec.md` is authoritative for the DCCS, REFC, and VOI thesis pipeline contract
+- stale docs are still cited as historical context when they explain intent, but not as the current numeric truth
+
+Current validation-snapshot reconciliation after the May 5 docs pass:
+
+| Source | Current value after alignment | Thesis-report treatment |
+|---|---:|---|
+| `README.md` Latest Local Validation | `checked_at_utc=2026-04-12T13:33:57Z`, `scenario_profiles.contexts=192`, fuel snapshot `2026-04-06`, signature prefix `39e656b5ca83` | aligned to the generated preflight evidence used by this report |
+| `docs/run-and-operations.md` Latest Local Validation Snapshot | `checked_at_utc=2026-04-12T13:33:57Z`, `scenario_profiles.contexts=192`, fuel signature prefix `39e656b5ca83` | aligned to the generated preflight evidence used by this report |
+| `backend/out/model_assets/preflight_live_runtime.json` | `checked_at_utc=2026-04-12T13:33:57Z`, `required_ok=true`, `required_failure_count=0` | current generated preflight evidence used by this report |
+
+Why this matters:
+
+- A thesis examiner may read multiple repository files and check whether README dates differ from generated artifacts.
+- The current docs now point to the same generated preflight timestamp for the latest local validation snapshot.
+- If future generated validation artifacts change, this table should be updated at the same time as `README.md` and `docs/run-and-operations.md`.
+- This is better than leaving stale snapshot numbers in secondary docs because it keeps the audit trail visible while making the current generated artifact the shared source of truth.
+
+### AM.2 Why This Is Not A Plain Route-Provider Wrapper
+
+Many student routing projects are thin wrappers around a provider:
+
+- send origin and destination to OSRM, Google, Mapbox, or ORS
+- draw the returned polyline
+- maybe add a cost estimate after the fact
+
+This project deliberately does more than that.
+
+The thesis problem is not "can I call a routing API?"
+
+The thesis problem is:
+
+- can the system generate candidate corridors
+- can it reason about time, money, CO2, terrain, tolls, fuel, carbon, weather, stochastic variation, and sharing scenario effects
+- can it compare alternatives on a Pareto frontier
+- can it explain when the winner is fragile
+- can it produce artifacts that another reader can replay
+
+Plain provider routing is strong at road realization, but weak as a research object because the provider's search space and decision logic are mostly hidden.
+
+The project therefore uses OSRM and ORS where they are valuable, while keeping the thesis logic in project-owned code.
+
+Why this is better for the thesis:
+
+- it separates provider path realization from thesis-specific decision logic
+- it creates auditable intermediate sets such as `K_raw`, refined routes, strict frontier, certificate, and VOI trace
+- it allows ablation against provider baselines instead of pretending provider output is the same thing as the research system
+- it supports claims about the project pipeline rather than unsupported claims about a black-box external provider
+
+Key evidence:
+
+```markdown
+preflight and OD feasibility -> K_raw -> DCCS -> R -> F -> REFC -> VOI-AD2R -> stop certificate
+```
+
+Source: `docs/voi-pipeline-spec.md`.
+
+Explanation:
+
+- `K_raw` is the graph-led candidate set.
+- `R` is the refined route set after provider realization.
+- `F` is the strict Pareto frontier.
+- `REFC` and `VOI-AD2R` only make sense because the project owns the intermediate evidence.
+- A thin provider wrapper would not have these citable stages.
+
+### AM.3 Why Live `/route` Rejects Legacy Mode
+
+The live `/route` endpoint no longer allows `pipeline_mode=legacy`.
+
+That is not an accidental inconvenience.
+
+It is a thesis-facing quality boundary.
+
+The code makes legacy behavior available through baseline endpoints instead of allowing it to masquerade as the current live research pipeline.
+
+Source excerpt:
+
+```python
+if effective_pipeline_mode == "legacy":
+    return effective_pipeline_mode, {
+        "reason_code": "legacy_pipeline_live_route_disabled",
+        "message": (
+            "Live /route no longer supports pipeline_mode=legacy; "
+            "use /route/baseline or /route/baseline/ors for ablation, replay, "
+            "and historical comparison flows."
+        ),
+        "supported_live_pipeline_modes": ["dccs", "dccs_refc", "voi"],
+        "baseline_endpoints": ["/route/baseline", "/route/baseline/ors"],
+    }
+```
+
+Source: `backend/app/main.py`.
+
+Why this is better than allowing every mode everywhere:
+
+- It prevents a user from accidentally producing a thesis result with an obsolete pipeline.
+- It keeps ablation routes explicit.
+- It means a "live route" result has a predictable research meaning.
+- It avoids a common failure in research software where old and new algorithms remain selectable without warning, making experiments hard to interpret.
+
+Alternative design:
+
+- Keep `legacy` as a silent valid `/route` mode and ask users to remember what it means.
+
+Why that alternative is weaker:
+
+- It makes thesis evidence easier to contaminate.
+- It pushes correctness onto the operator instead of encoding it in the API.
+- It creates ambiguity about whether a route was a research-pipeline output or a historical baseline output.
+
+### AM.4 Why Waypoints Are Blocked On Live Thesis `/route`
+
+Waypoint routing is supported through baseline, replay, and historical comparison flows, but live thesis `/route` rejects waypoint requests.
+
+Source excerpt:
+
+```python
+if int(waypoint_count) > 0:
+    return effective_pipeline_mode, {
+        "reason_code": "waypoints_not_supported_on_live_route",
+        "message": (
+            "Waypoint requests are not supported on live /route; "
+            "use /route/baseline or /route/baseline/ors for waypoint ablation, "
+            "replay, and historical comparison flows."
+        ),
+        "supported_live_pipeline_modes": ["dccs", "dccs_refc", "voi"],
+    }
+```
+
+Source: `backend/app/main.py`.
+
+Why this choice is defensible:
+
+- The current DCCS/REFC/VOI evidence contract is route-candidate and frontier based.
+- Multi-stop routing changes the problem into a sequence-planning or duty-chain problem.
+- Letting waypoint requests enter the same live thesis endpoint would blur the evaluation surface.
+
+Why other people might do it differently:
+
+- A production navigation app often accepts waypoints everywhere because user flexibility matters more than a clean research contract.
+- That would be reasonable for a consumer trip planner.
+
+Why this project's choice is better for the thesis:
+
+- It preserves the meaning of the DCCS/REFC/VOI route certificate.
+- It stops multi-leg constraints from being mixed into single-route frontier claims.
+- It makes waypoint support an explicit comparison or replay workflow rather than a hidden mode switch.
+
+### AM.5 Why Strict Fail-Closed Live Data Is A Strength
+
+Many routing demos degrade gracefully:
+
+- if fuel prices are missing, use a default
+- if carbon schedules are stale, keep using the previous value
+- if terrain is missing, assume flat terrain
+- if scenario profiles fail, continue with a neutral multiplier
+
+That is convenient, but dangerous for a thesis that claims evidence-backed freight decisions.
+
+This repository instead uses strict live-data policy by default.
+
+Source excerpt:
+
+```python
+live_source_policy: str = Field(default="repo_local_fresh", alias="LIVE_SOURCE_POLICY")
+live_runtime_data_enabled: bool = Field(default=True, alias="LIVE_RUNTIME_DATA_ENABLED")
+strict_live_data_required: bool = Field(default=True, alias="STRICT_LIVE_DATA_REQUIRED")
+live_route_compute_refresh_mode: str = Field(
+    default="route_compute",
+    alias="LIVE_ROUTE_COMPUTE_REFRESH_MODE",
+)
+```
+
+Source: `backend/app/settings.py`.
+
+Route finalization also validates evidence before returning a result:
+
+```python
+evidence_validation = _validate_route_options_evidence(pareto_options)
+if evidence_validation["status"] != "ok":
+    raise HTTPException(
+        status_code=422,
+        detail=_strict_error_detail(
+            reason_code=reason_code,
+            message="Strict evidence policy rejected the route because its provenance was not live/snapshot-clean.",
+            warnings=warnings,
+            extra={
+                "strict_evidence_policy": {
+                    "mode": "no_synthetic_no_proxy_no_fallback",
+                    "allow_snapshot": True,
+                },
+                "evidence_validation": evidence_validation,
+            },
+        ),
+    )
+```
+
+Source: `backend/app/main.py`.
+
+Why this is better for the thesis:
+
+- The result either has acceptable provenance or it fails with a reason.
+- The system does not silently convert a live-evidence thesis into a proxy-data demo.
+- Failures are citable because they carry reason codes and stage details.
+- It makes threat-to-validity analysis stronger because the code enforces the boundary the thesis describes.
+
+Tradeoff:
+
+- Availability is lower than a permissive demo.
+- Some requests fail even when a rough fallback answer would be visually pleasing.
+
+Why that tradeoff is acceptable:
+
+- A dissertation should prefer an honest blocked result over a confident but untraceable route.
+- Freight cost, emissions, and route-risk calculations can be materially distorted by stale inputs.
+
+### AM.6 Why Settings Use Explicit Budgets Instead Of Hidden Heuristics
+
+The DCCS, REFC, and VOI pipeline is budgeted.
+
+Those budgets are explicit environment-backed settings and request fields.
+
+Source excerpt:
+
+```python
+route_pipeline_search_budget: int = Field(
+    default=6,
+    ge=1,
+    le=128,
+    alias="ROUTE_PIPELINE_SEARCH_BUDGET",
+)
+route_pipeline_evidence_budget: int = Field(
+    default=3,
+    ge=0,
+    le=64,
+    alias="ROUTE_PIPELINE_EVIDENCE_BUDGET",
+)
+route_pipeline_cert_world_count: int = Field(
+    default=64,
+    ge=10,
+    le=500,
+    alias="ROUTE_PIPELINE_CERT_WORLD_COUNT",
+)
+route_pipeline_certificate_threshold: float = Field(
+    default=0.70,
+    ge=0.0,
+    le=1.0,
+    alias="ROUTE_PIPELINE_CERTIFICATE_THRESHOLD",
+)
+route_pipeline_tau_stop: float = Field(
+    default=0.03,
+    ge=0.0,
+    alias="ROUTE_PIPELINE_TAU_STOP",
+)
+```
+
+Source: `backend/app/settings.py`.
+
+The request model exposes the same thesis knobs:
+
+```python
+pipeline_seed: int | None = None
+search_budget: int | None = Field(default=None, ge=1, le=128)
+evidence_budget: int | None = Field(default=None, ge=0, le=64)
+cert_world_count: int | None = Field(default=None, ge=10, le=500)
+certificate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+tau_stop: float | None = Field(default=None, ge=0.0)
+```
+
+Source: `backend/app/models.py`.
+
+Why this is better than hidden constants:
+
+- The thesis can state exactly how much search and evidence effort a route received.
+- Experiments can vary budgets intentionally.
+- A reader can reproduce a run by matching request payload, seed, and budget.
+- Budget exhaustion becomes a meaningful stop condition, not a vague performance problem.
+
+Common alternative:
+
+- Run until "good enough" according to an undocumented internal heuristic.
+
+Why that is weaker:
+
+- It is difficult to compare routes across different OD pairs.
+- It is hard to know whether a poor certificate is caused by route ambiguity or by insufficient search effort.
+- It makes runtime and quality claims less defensible.
+
+### AM.7 Why The Default Pipeline Is `dccs_refc`, Not `voi`
+
+The default live pipeline is `dccs_refc`.
+
+Source excerpt:
+
+```python
+route_pipeline_default_mode: str = Field(
+    default="dccs_refc",
+    alias="ROUTE_PIPELINE_DEFAULT_MODE",
+)
+```
+
+Source: `backend/app/settings.py`.
+
+This is an important engineering compromise.
+
+`voi` is the fullest thesis pipeline, but it can take more actions because it may refine, refresh, resample, or query preferences.
+
+`dccs_refc` gives the live route endpoint:
+
+- decision-critical candidate selection
+- strict-frontier certification
+- uncertainty and evidence explanation
+- lower operational complexity than always running the full VOI controller
+
+Why this is better for the default:
+
+- The everyday live route path remains thesis-grade without forcing every request through the most expensive loop.
+- The full VOI mode remains available for study runs and high-ambiguity demonstrations.
+- The default is conservative and explainable.
+
+Why other people might default to the full loop:
+
+- It can sound more impressive to always run the most advanced controller.
+
+Why that alternative is weaker:
+
+- It increases latency and makes the default product experience harder to trust.
+- It uses extra budget even when the strict frontier is already sufficiently certified.
+- It makes "normal route" and "research stress experiment" harder to distinguish.
+
+### AM.8 Why DCCS Is Deterministic And Ledger-Based
+
+DCCS is not a black-box learned selector.
+
+It builds candidate records with stable IDs, objective proxies, mechanism descriptors, confidence fields, criticality estimates, and refinement outcomes.
+
+Source excerpt:
+
+```python
+OBJECTIVE_NAMES: tuple[str, str, str] = ("time", "money", "co2")
+ROAD_CLASS_NAMES: tuple[str, ...] = ("motorway_share", "a_road_share", "urban_share", "other_share")
+BASELINE_SELECTION_POLICIES: tuple[str, ...] = ("first_n", "random_n", "uniform_corridor_n", "corridor_uniform")
+```
+
+Source: `backend/app/decision_critical.py`.
+
+Candidate identity is stable:
+
+```python
+def _stable_hash(parts: Iterable[str]) -> str:
+    digest = hashlib.sha1()
+    for part in parts:
+        digest.update(part.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+```
+
+Source: `backend/app/decision_critical.py`.
+
+Why this is better than a purely learned ranker:
+
+- It does not require a large labelled training set of human route choices.
+- Its decisions can be explained per candidate.
+- It can expose why a candidate was selected, skipped, rescued, or safe-eliminated.
+- It can be replayed with the same seed and candidate set.
+
+Why this is better than refining every candidate:
+
+- Refining every graph candidate with OSRM is wasteful on broad candidate sets.
+- DCCS spends refinement budget on candidates that are likely to affect the winner, frontier, or certificate.
+- The ledger still records skipped candidates, so the thesis can analyse what was not refined.
+
+Why this is better than random or first-N baselines:
+
+- Random and first-N selection are useful ablations but weak production policies.
+- They do not prioritize frontier impact, hidden challenger risk, or certificate-critical candidates.
+- The repo keeps them as baselines precisely so DCCS can be compared against them.
+
+### AM.9 Why DCCS Uses Calibrated Refine-Cost Terms
+
+The project does not pretend refinement cost is free.
+
+It models refine-cost pressure directly.
+
+Source excerpt:
+
+```python
+_REFINE_COST_COMMON_MODEL: dict[str, dict[str, float]] = {
+    "dccs": {
+        "intercept": 8.316544948883,
+        "log_len": -1.781208564289,
+        "log_non_mw_len": 0.02833934631,
+        "log_urban_len": -0.117792505745,
+        "log_nodes": -0.751996656961,
+        "stretch_excess": -0.330332649015,
+        "slow_segment_share": 1.491476411796,
+        "speed_variability": -0.531748490181,
+        "shape_detour_factor": 0.338682866708,
+        "longhaul": -0.17855074699,
+        "log_len_sq": 0.24330902265,
+    },
+}
+```
+
+Source: `backend/app/decision_critical.py`.
+
+Why this is better than counting candidates only:
+
+- Two candidate routes can have very different refinement costs.
+- Long, urban, slow, or shape-complex routes can consume more time than simple motorway-heavy routes.
+- A budget controller should care about expected value per cost, not only candidate count.
+
+Why this is better than runtime-only measurement:
+
+- Runtime-only feedback arrives after the cost has already been paid.
+- A predictor lets DCCS reason before refinement.
+- Observed refine costs are still recorded later, so prediction quality can be tested.
+
+Important limitation:
+
+- Current focused tests recorded a refine-cost MAPE failure for one slice.
+- This report therefore treats the cost model as an auditable engineered predictor, not a fully validated universal runtime law.
+
+### AM.10 Why DCCS Uses Anti-Collapse Quotas
+
+Candidate selection can collapse onto one corridor family if the objective proxy says many candidates are similar.
+
+That is dangerous because the best refined route may be a structurally different challenger.
+
+The DCCS module names explicit anti-collapse mechanisms:
+
+```python
+_ANTI_COLLAPSE_FAMILY_QUOTA = "high_significance_corridor_family"
+_ANTI_COLLAPSE_DISAGREEMENT_QUOTA = "disagreement_driven_challenger"
+_ANTI_COLLAPSE_RESCUE_QUOTA = "representative_capital_rescue"
+```
+
+Source: `backend/app/decision_critical.py`.
+
+Why this is better than plain top-N proxy ranking:
+
+- Top-N ranking can repeatedly select near-duplicates.
+- Corridor diversity matters because a route can be similar in objective proxy but different in mechanism.
+- A challenger that matters for certification may not be the closest route by scalar score.
+
+Why other people might not include this:
+
+- It makes the selector more complicated.
+- It requires extra candidate metadata and tests.
+
+Why this project benefits:
+
+- Freight routing often has corridor-level alternatives, not just tiny geometry variations.
+- Anti-collapse quotas support the thesis claim that the candidate generator is looking for meaningful alternatives.
+- They help explain why DCCS is not just "pick the shortest few routes".
+
+### AM.11 Why REFC Uses Evidence Families Instead Of One Confidence Number
+
+A common route-quality UI shows one confidence score.
+
+This project does not reduce evidence quality to one opaque percentage.
+
+It separates uncertainty by evidence family.
+
+Source excerpt:
+
+```python
+EVIDENCE_FAMILIES: tuple[str, ...] = (
+    "scenario",
+    "toll",
+    "terrain",
+    "fuel",
+    "carbon",
+    "weather",
+    "stochastic",
+)
+EVIDENCE_STATES: tuple[str, ...] = (
+    "nominal",
+    "mildly_stale",
+    "severely_stale",
+    "low_confidence",
+    "proxy",
+    "refreshed",
+)
+```
+
+Source: `backend/app/evidence_certification.py`.
+
+Why this is better:
+
+- It tells the reader what kind of evidence is fragile.
+- Fuel uncertainty is not the same as terrain uncertainty.
+- Toll uncertainty affects money differently from weather uncertainty affecting duration.
+- The thesis can explain route fragility by mechanism, not just by a scalar confidence display.
+
+Alternative:
+
+- Collapse everything into `confidence=0.82`.
+
+Why that alternative is weaker:
+
+- It hides whether the risk comes from stale fuel data, missing terrain, weather, carbon price, or stochastic route variation.
+- It gives the user less diagnostic power.
+- It makes value-of-refresh decisions impossible to justify.
+
+### AM.12 Why REFC Uses Bounded Stress Worlds
+
+REFC models uncertainty through explicit states and family sensitivities.
+
+Source excerpt:
+
+```python
+DEFAULT_STATE_EFFECTS: dict[str, tuple[float, float, float]] = {
+    "nominal": (0.00, 0.00, 0.00),
+    "mildly_stale": (0.040, 0.030, 0.032),
+    "severely_stale": (0.140, 0.110, 0.095),
+    "low_confidence": (0.078, 0.062, 0.056),
+    "proxy": (0.185, 0.152, 0.132),
+    "refreshed": (-0.038, -0.030, -0.024),
+}
+```
+
+Source: `backend/app/evidence_certification.py`.
+
+Family sensitivities are also explicit:
+
+```python
+DEFAULT_FAMILY_SENSITIVITY: dict[str, tuple[float, float, float]] = {
+    "scenario": (0.82, 0.34, 0.24),
+    "toll": (0.05, 1.00, 0.12),
+    "terrain": (0.52, 0.22, 0.78),
+    "fuel": (0.12, 0.94, 0.30),
+    "carbon": (0.00, 0.90, 0.78),
+    "weather": (0.72, 0.18, 0.18),
+    "stochastic": (0.68, 0.62, 0.52),
+}
+```
+
+Source: `backend/app/evidence_certification.py`.
+
+Why this is better than Gaussian noise around each metric:
+
+- Gaussian noise is easy, but it can be detached from evidence provenance.
+- Bounded stress worlds map directly to evidence states the rest of the system understands.
+- The same route can be stressed differently depending on whether it depends on terrain, tolls, fuel, carbon, weather, scenario profiles, or stochastic timing.
+
+Why this is better than a fully Bayesian model for this project:
+
+- A fully Bayesian model would require strong priors and enough validation data for every evidence family.
+- That would be a major thesis on its own.
+- The bounded stress-world approach is more transparent and more replayable for a codebase-centered dissertation.
+
+Important limitation:
+
+- The stress-world parameters are thesis-defined priors, not proof of real-world probability distributions.
+- That is why the report should call them certificate and fragility analysis, not omniscient prediction.
+
+### AM.13 Why The Certificate Is A Winner-Frequency Estimate
+
+The REFC certificate asks how often the selected route remains the winner under sampled evidence worlds.
+
+This is better than simply saying "route A has the lowest expected cost."
+
+Reason:
+
+- Expected-value winners can be fragile.
+- A route can win narrowly under nominal evidence but lose under many plausible evidence states.
+- A certificate exposes that fragility.
+
+The thesis-facing semantics are:
+
+```markdown
+C(r) is the fraction of sampled worlds in which route r wins under the fixed selector.
+r* is certified only when C(r*) >= certificate_threshold.
+If budgets are exhausted before certification, the result remains uncertified.
+```
+
+Source: `docs/voi-pipeline-spec.md`.
+
+Why this is better than a one-route recommendation:
+
+- It tells the reader whether the chosen route is stable under evidence perturbation.
+- It distinguishes "best under current assumptions" from "certified enough to trust."
+- It creates a clear abstention/uncertified state for the frontend and artifacts.
+
+### AM.14 Why VOI Is Myopic And Deterministic Instead Of Reinforcement Learning
+
+VOI-AD2R uses a deterministic value-per-cost controller.
+
+Source excerpt:
+
+```python
+# VOI-AD2R uses a deterministic myopic value-per-cost controller. The design is
+# inspired by decision-theoretic control of computation and one-step
+# value-of-information policies rather than by learned RL.
+```
+
+Source: `backend/app/voi_controller.py`.
+
+The action families are explicit:
+
+```python
+def _action_family_for_kind(kind: str) -> str:
+    if kind in {"refine_top1_dccs", "refine_topk_dccs"}:
+        return "search"
+    if kind in {"refresh_top1_vor", "increase_stochastic_samples"}:
+        return "evidence"
+    if kind in _PREFERENCE_ACTION_KINDS:
+        return "preference"
+    if kind == "stop":
+        return "terminal"
+    return "unknown"
+```
+
+Source: `backend/app/voi_controller.py`.
+
+Why not reinforcement learning:
+
+- There is no large historical interaction dataset for training a reliable RL policy.
+- Learned policies are harder to defend in a thesis unless the learning problem itself is the contribution.
+- RL can obscure why an action was selected.
+- Deterministic VOI action scoring is easier to replay and audit.
+
+Why myopic VOI is acceptable here:
+
+- The controller's job is not to learn human driving behavior.
+- Its job is to decide whether another refinement, refresh, resample, or preference query is worth its budget.
+- A one-step value-per-cost policy fits that operational role.
+
+Why this is better for the thesis:
+
+- The action trace can be printed, inspected, and cited.
+- A reader can see which rejected action was next best.
+- The stop certificate can explain whether the controller stopped because certification succeeded, budget expired, or no action cleared `tau_stop`.
+
+### AM.15 Why Preference Queries Are Separate From Static Weights
+
+The request model still accepts weights:
+
+```python
+weights: Weights = Field(default_factory=lambda: Weights(time=1, money=0, co2=0))
+```
+
+Source: `backend/app/models.py`.
+
+But the VOI controller also includes preference-query actions:
+
+```python
+_PREFERENCE_ACTION_MODALITY_BY_KIND: dict[str, str] = {
+    "preference_pairwise_route_query": "pairwise_route_query",
+    "preference_tradeoff_threshold_query": "tradeoff_threshold_query",
+    "preference_ratio_query": "ratio_query",
+    "preference_veto_query": "veto_query",
+    "preference_time_guard_query": "time_guard_query",
+}
+```
+
+Source: `backend/app/voi_controller.py`.
+
+Why this is better than only sliders:
+
+- Sliders are useful, but users often do not know their exact time-money-CO2 tradeoff before seeing route alternatives.
+- Pairwise or threshold questions can resolve ambiguity at the point where it matters.
+- Preference queries can be treated as budgeted actions, not as informal UI decoration.
+
+Alternative:
+
+- Hard-code one weight vector or ask the user to adjust sliders until the result "looks right."
+
+Why that is weaker:
+
+- It hides preference uncertainty.
+- It makes route choice look more objective than it is.
+- It does not create a citable preference trace.
+
+### AM.16 Why Strict Frontier And Presentation Backfill Are Kept Separate
+
+A frontend sometimes needs enough routes to be visually useful.
+
+A certificate, however, must be computed on the strict frontier.
+
+Those are different responsibilities.
+
+The pipeline spec says:
+
+```markdown
+F must be strict, meaning no presentation-layer backfill should contaminate the frontier used for certification.
+```
+
+Source: `docs/voi-pipeline-spec.md`.
+
+Why this is better:
+
+- The UI can remain usable without weakening certification semantics.
+- Backfilled routes can be shown as additional context, but they should not become evidence that a route is Pareto-optimal.
+- The thesis can separate product ergonomics from mathematical/evidential claims.
+
+Common alternative:
+
+- Merge all displayed alternatives into one list and call it the frontier.
+
+Why that is weaker:
+
+- It confuses "shown to the user" with "nondominated under the objective model."
+- It can inflate the apparent size of the frontier.
+- It makes certificate claims less precise.
+
+### AM.17 Why The Docker Topology Uses Explicit Readiness Containers
+
+The Compose file does not simply start backend and hope OSRM/ORS are ready.
+
+It has readiness gate services.
+
+Source excerpt:
+
+```yaml
+osrm_ready:
+  image: curlimages/curl:8.7.1
+  depends_on:
+    osrm:
+      condition: service_started
+  command: >
+    sh -c 'echo "Waiting for OSRM on :5000..."; until curl -sS http://osrm:5000/ >/dev/null; do sleep 2; done; echo "OSRM is up."'
+
+ors_ready:
+  image: curlimages/curl:8.7.1
+  depends_on:
+    ors:
+      condition: service_started
+  command: >
+    sh -c 'echo "Waiting for ORS on :8082..."; until curl -sS http://ors:8082/ors/v2/health >/dev/null; do sleep 5; done; echo "ORS is up."'
+```
+
+Source: `docker-compose.yml`.
+
+The backend depends on those readiness services:
+
+```yaml
+backend:
+  depends_on:
+    osrm_ready:
+      condition: service_completed_successfully
+    ors_ready:
+      condition: service_completed_successfully
+```
+
+Source: `docker-compose.yml`.
+
+Why this is better than only `depends_on: service_started`:
+
+- Service startup does not mean the routing engine can answer requests.
+- Graph builds and health endpoints can lag behind container start.
+- The backend should not be considered ready while provider engines are still warming.
+
+Why this matters for the thesis:
+
+- It makes local reproduction less timing-sensitive.
+- It reduces false failures during demonstrations.
+- It supports the broader project theme that readiness is a real part of the system, not an afterthought.
+
+### AM.18 Why Caches Are Bounded And Policy-Aware
+
+The project uses several route and VOI caches, but they are bounded by TTL, entry count, and estimated bytes.
+
+Source excerpt:
+
+```python
+route_option_cache_enabled: bool = Field(default=True, alias="ROUTE_OPTION_CACHE_ENABLED")
+route_option_cache_ttl_s: int = Field(default=1800, alias="ROUTE_OPTION_CACHE_TTL_S")
+route_option_cache_max_entries: int = Field(default=256, alias="ROUTE_OPTION_CACHE_MAX_ENTRIES")
+route_option_cache_max_estimated_bytes: int = Field(
+    default=192_000_000,
+    ge=0,
+    alias="ROUTE_OPTION_CACHE_MAX_ESTIMATED_BYTES",
+)
+voi_dccs_cache_ttl_s: int = Field(default=1800, alias="VOI_DCCS_CACHE_TTL_S")
+voi_dccs_cache_max_entries: int = Field(default=256, alias="VOI_DCCS_CACHE_MAX_ENTRIES")
+voi_dccs_cache_max_estimated_bytes: int = Field(
+    default=96_000_000,
+    ge=0,
+    alias="VOI_DCCS_CACHE_MAX_ESTIMATED_BYTES",
+)
+```
+
+Source: `backend/app/settings.py`.
+
+Why this is better than unbounded caching:
+
+- Route candidates, geometry, and artifact traces can become large.
+- Unbounded caches are risky in long-running local experiments.
+- TTLs stop stale computation from becoming invisible hidden state.
+
+Why this is better than disabling caches entirely:
+
+- DCCS/REFC/VOI runs can repeat expensive candidate and evidence work.
+- Bounded caches improve responsiveness without abandoning auditability.
+- Cache keys and runtime metadata still let the thesis discuss whether a result came from cached or fresh work.
+
+### AM.19 Why Physical Cost Modelling Is Not A Flat Per-Kilometre Constant
+
+A common simple freight model is:
+
+`cost = distance_km * constant`
+
+or:
+
+`emissions = distance_km * emission_factor`
+
+This project goes further because freight cost and emissions depend on more than distance.
+
+Evidence families include terrain, fuel, carbon, tolls, weather, and scenario effects.
+
+The request model exposes vehicle, terrain, stochastic, emissions, weather, incident, departure, and optimization controls:
+
+```python
+vehicle_type: str = Field(default="rigid_hgv")
+scenario_mode: ScenarioMode = Field(default=ScenarioMode.NO_SHARING)
+terrain_profile: TerrainProfile = "flat"
+stochastic: StochasticConfig = Field(default_factory=StochasticConfig)
+optimization_mode: OptimizationMode = "expected_value"
+risk_aversion: float = Field(default=1.0, ge=0.0)
+emissions_context: EmissionsContext = Field(default_factory=EmissionsContext)
+weather: WeatherImpactConfig = Field(default_factory=WeatherImpactConfig)
+incident_simulation: IncidentSimulatorConfig = Field(default_factory=IncidentSimulatorConfig)
+departure_time_utc: datetime | None = None
+```
+
+Source: `backend/app/models.py`.
+
+Why this is better for this project:
+
+- Heavy freight is sensitive to grade, speed, vehicle type, fuel price, tolls, and timing.
+- CO2 is not only a display field; it is part of the objective vector.
+- The route ranking can change when physical and policy inputs change.
+
+Why a flat model is weaker:
+
+- It can make two routes with different elevation, road mix, and toll exposure look falsely similar.
+- It cannot support credible scenario, carbon, or fuel sensitivity analysis.
+- It gives the thesis fewer mechanisms to explain route differences.
+
+### AM.20 Why Scenario Profiles Are Context-Conditioned
+
+The project could have used one fixed multiplier for each sharing mode.
+
+Example weak design:
+
+```text
+no_sharing = 1.00
+partial_sharing = 0.95
+full_sharing = 0.90
+```
+
+The repository instead uses scenario profiles whose effects depend on route context.
+
+The current generated profile state recorded in this report includes:
+
+- generated at `2026-04-13T22:52:49Z`
+- source rows `576`
+- observed rows `288`
+- context families `96`
+- preflight live-usable contexts `192`
+- duration MAPE `0.010117`
+- monetary MAPE `0.010501`
+- emissions MAPE `0.004885`
+
+Why this is better:
+
+- The effect of sharing can differ by corridor, departure period, weather, vehicle class, and road mix.
+- A global multiplier would be easy to explain but too blunt for a thesis about operational context.
+- Context-conditioned profiles let the thesis discuss where sharing matters, not only whether it matters on average.
+
+Important limitation:
+
+- Context-conditioned profiles can become stale and must be rebuilt.
+- That is why this report cites generation times, source rows, holdout metrics, and live-usable context counts.
+
+### AM.21 Why Artifacts Are The Unit Of Thesis Evidence
+
+The repository does not rely on screenshots or narrative claims as its main evidence.
+
+Route runs produce structured artifacts.
+
+The VOI pipeline spec identifies the citable bundle contents:
+
+```markdown
+dccs_candidates.jsonl
+dccs_summary.json
+strict_frontier.jsonl
+final_route_trace.json
+certificate_summary.json
+route_fragility_map.json
+competitor_fragility_breakdown.json
+value_of_refresh.json
+sampled_world_manifest.json
+voi_controller_state.jsonl
+voi_action_trace.json
+voi_stop_certificate.json
+```
+
+Source: `docs/voi-pipeline-spec.md`.
+
+Why this is better than screenshots:
+
+- Screenshots prove what was displayed, but not how it was calculated.
+- Artifacts preserve candidate-level, route-level, certificate-level, and action-level evidence.
+- CSV and JSON outputs support independent analysis.
+- The thesis can include tables and figures generated from the same underlying evidence.
+
+Why this is better than one giant JSON response:
+
+- A bundle separates concerns.
+- A candidate ledger is not the same thing as a stop certificate.
+- A reviewer can inspect only the artifact relevant to a claim.
+
+### AM.22 Why The Frontend Is A Research Instrument, Not Only A Map
+
+The frontend is intentionally dense because the backend produces more than a polyline.
+
+A simple map-first frontend would hide most of the thesis contribution.
+
+The UI needs to expose:
+
+- Pareto frontier alternatives
+- selected route and objective tradeoffs
+- scenario comparison
+- departure optimization
+- strict evidence errors
+- artifact pointers
+- proof/certification summaries
+- baseline comparison
+- segment and counterfactual explanations
+
+Why this is better than a minimal map demo:
+
+- It lets a reader see the decision process, not just the selected route.
+- It demonstrates that uncertainty and certification are first-class outputs.
+- It supports thesis figures and walkthroughs from the same operator surface.
+
+Tradeoff:
+
+- The frontend is more complex than a small demo app.
+
+Why that tradeoff is acceptable:
+
+- The project is a decision-support system, not a route drawing exercise.
+- A thin UI would underrepresent the actual codebase and make the thesis look less substantial than the implementation.
+
+### AM.23 Why Baselines Remain Visible
+
+The project keeps OSRM and ORS baseline endpoints and baseline comparison flows.
+
+This is methodologically important.
+
+Alternative weak design:
+
+- only show the smart route
+- never expose provider baselines
+- imply improvement without giving the reader a comparison surface
+
+Why the current design is better:
+
+- Baselines make ablation possible.
+- They help identify whether the custom pipeline changed the result meaningfully.
+- They prevent the thesis from making unsupported superiority claims.
+- They let old or legacy flows exist without contaminating live thesis `/route`.
+
+Important wording for the thesis:
+
+- The system can compare against OSRM and ORS on specific requests and study bundles.
+- The repository should not claim universal superiority over OSRM or ORS everywhere.
+- The strongest claim is that the project adds auditable multi-objective, uncertainty, scenario, and artifact layers that provider baselines do not provide by themselves.
+
+### AM.24 Why The Project Is Script-And-Test First Instead Of Notebook First
+
+Notebook-heavy research projects are common.
+
+They are useful for exploration, but weaker as the main evidence chain.
+
+This project is mostly script, artifact, and test driven.
+
+Why this is better for the thesis:
+
+- Commands can be rerun.
+- Generated artifacts have paths, timestamps, and signatures.
+- Tests can enforce contracts that prose cannot.
+- It avoids hidden notebook state.
+
+Alternative:
+
+- Put scenario calibration, route evaluation, plots, and thesis tables inside notebooks.
+
+Why that alternative is weaker:
+
+- Execution order can become unclear.
+- Intermediate state can persist invisibly.
+- CI and automated docs checks are harder to enforce.
+- A reader has to trust that notebook cells were run in the right order.
+
+This does not mean notebooks are bad.
+
+It means they are not the best primary evidence mechanism for this specific codebase-centered dissertation.
+
+### AM.25 Why Tests Include Current Failures Instead Of Hiding Them
+
+The report records a focused test slice with failures:
+
+```text
+300 passed, 19 failed
+```
+
+The failure groups are already listed in Appendix AL.
+
+This is important because the thesis report is not marketing copy.
+
+Why listing failures is better:
+
+- It prevents overclaiming.
+- It shows exactly which parts of the pipeline need further validation.
+- It distinguishes implemented mechanisms from fully passing proof obligations.
+
+Why hiding failures would be weaker:
+
+- A reader who runs the tests would immediately discover the mismatch.
+- The thesis would look less trustworthy.
+- It would blur the difference between source coverage and current verification status.
+
+How to discuss this in the thesis:
+
+- State that the backend has broad passing coverage in the focused slice, but current DCCS/REFC/VOI expectations include unresolved test failures.
+- Treat those failures as evidence of active validation boundaries, not as irrelevant noise.
+- Do not use failing test areas as if they were fully verified theorem claims.
+
+### AM.26 Why This Rationale Matters For The Writeup
+
+The central thesis argument should not be:
+
+this repository has many files.
+
+The stronger argument is:
+
+this repository implements a governed freight-routing decision system where route generation, evidence freshness, uncertainty certification, value-of-information control, preference elicitation, physical cost modelling, and artifact replay are all connected by explicit contracts.
+
+The most defensible "why my way is better" statements are therefore:
+
+- Better than a plain provider wrapper because the project owns the decision evidence, not only the displayed path.
+- Better than a global multiplier model because scenario effects are context-conditioned and validated with generated profile metrics.
+- Better than a single scalar confidence score because REFC decomposes fragility by evidence family and state.
+- Better than a hidden learned policy because DCCS and VOI produce ledgers, action traces, budgets, and stop certificates.
+- Better than permissive fallback routing because strict live policy avoids confident results from stale or proxy data.
+- Better than screenshot-based evaluation because route bundles are machine-readable, replayable, and citable.
+- Better than notebook-only research because scripts, tests, artifacts, and docs checks create a reproducible evidence chain.
+
+The limitations are equally important:
+
+- UK scope is deliberate and should not be generalized without new assets.
+- Snapshot docs have been realigned to the current generated preflight values, and future generated artifacts must be cited when those values change.
+- Some focused backend tests are currently failing and should be disclosed.
+- DCCS refine-cost prediction should be described as an engineered auditable predictor with current validation gaps, not a universal law.
+- Certification is empirical over sampled stress worlds, not a proof that the selected route is best in reality.
+
+Those caveats make the writeup stronger because they align the thesis claims with what the code actually proves.
+
 ## Related Docs
 
 - [Documentation Index](DOCS_INDEX.md)
+- [API Cookbook](api-cookbook.md)
+- [Appendix Graph Theory Notes](appendix-graph-theory-notes.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
+- [Claim Matrix](claim_matrix.md)
+- [CO2e Validation](co2e-validation.md)
+- [Data Card](data_card.md)
+- [Dissertation Math Overview](dissertation-math-overview.md)
+- [ETA Concept Drift](eta-concept-drift.md)
+- [Evaluation Card](evaluation_card.md)
+- [Frontend Accessibility and i18n](frontend-accessibility-i18n.md)
+- [Frontend Dev Tools](frontend-dev-tools.md)
+- [Map Overlays and Tooltips](map-overlays-tooltips.md)
+- [Math Appendix](math-appendix.md)
+- [Proxy Audit Model Card](model_card_proxy_audit.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)
+- [Negative Results](negative_results.md)
+- [Performance Profiling Notes](performance-profiling-notes.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
+- [Redesign Implementation Tracker](redesign-implementation-tracker.md)
+- [Reproducibility Capsule](reproducibility-capsule.md)
+- [Reviewer Quickstart](reviewer_quickstart.md)
+- [Run and Operations](run-and-operations.md)
+- [Runbook](runbook.md)
+- [Sample Manifest](sample-manifest.md)
+- [Strict Errors Reference](strict-errors-reference.md)
+- [Synthetic Incidents and Weather](synthetic-incidents-weather.md)
+- [Theorem Map](theorem_map.md)
+- [Theorem Package](theorem_package.md)
+- [Tutorial and Reporting](tutorial-and-reporting.md)
+- [VOI Pipeline Spec](voi-pipeline-spec.md)
+- [Agent Ops Overview](agent-ops/README.md)
+- [Agent Roles](agent-ops/agent-roles.md)
+- [Agent Commands and Examples](agent-ops/commands-and-examples.md)
+- [Coordination Protocol](agent-ops/coordination-protocol.md)
+- [Python Leases](agent-ops/python-leases.md)
+- [Session Lifecycle](agent-ops/session-lifecycle.md)

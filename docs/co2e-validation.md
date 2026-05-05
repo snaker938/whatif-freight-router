@@ -1,6 +1,6 @@
 # CO2e Validation Notes
 
-Last Updated: 2026-04-09
+Last Updated: 2026-05-05
 Applies To: emissions and carbon-cost calculations in backend route outputs
 
 ## Purpose
@@ -13,11 +13,11 @@ Capture the current backend validation focus for emissions and carbon-pricing se
 
 `backend/assets/uk/fuel_prices_uk.json` currently records:
 
-- as-of `2026-03-23T00:00:00Z`
-- refreshed `2026-03-30T00:20:29Z`
+- as-of `2026-04-06T00:00:00Z`
+- refreshed `2026-04-10T15:16:54Z`
 - provider contract version `fuel-live-v1`
-- diesel `1.6688 GBP/L`
-- petrol `1.4416 GBP/L`
+- diesel `1.8675 GBP/L`
+- petrol `1.5465 GBP/L`
 - LNG `1.015 GBP/L`
 - grid electricity `0.248 GBP/kWh`
 

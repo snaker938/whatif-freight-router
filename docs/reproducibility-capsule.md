@@ -71,7 +71,7 @@ For thesis-lane reproduction, use the same OD corpus, budgets, and strict-eviden
 
 ### Strict-readiness anchors
 
-The latest checked local strict preflight is `backend/out/model_assets/preflight_live_runtime.json` at `2026-04-10T16:03:44Z`, with `required_ok: true` and `0` required failures.
+The latest checked local strict preflight is `backend/out/model_assets/preflight_live_runtime.json` at `2026-04-12T13:33:57Z`, with `required_ok: true` and `0` required failures.
 
 The checked passing slice includes:
 

@@ -150,12 +150,12 @@ Repeated same-tile terrain route-cache hits are deduplicated in trace rows per r
 
 The most recent local strict-live preflight is `backend/out/model_assets/preflight_live_runtime.json`:
 
-- `checked_at_utc`: `2026-04-04T15:48:39Z`
+- `checked_at_utc`: `2026-04-12T13:33:57Z`
 - `required_ok`: `true`
 - `required_failure_count`: `0`
-- `scenario_profiles`: `scenario_profiles_uk_v2_live` with `contexts=384`
+- `scenario_profiles`: `scenario_profiles_uk_v2_live` with `contexts=192`
 - `scenario_live_context` coverage: `webtris=1.0`, `traffic_england=1.0`, `dft=1.0`, `open_meteo=1.0`, `overall=1.0`
-- `fuel_snapshot`: `as_of=2026-03-23T00:00:00Z`, `signature_prefix=6092b11ca3f7`
+- `fuel_snapshot`: `as_of=2026-04-06T00:00:00Z`, `signature_prefix=39e656b5ca83`
 - `toll_tariffs`: `rule_count=220`
 - `toll_topology`: `segment_count=28`
 - `stochastic_regimes`: `regime_count=18`

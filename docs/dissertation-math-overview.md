@@ -30,8 +30,8 @@ Utility fields in route outputs:
 
 The current thesis-facing calibration assets are empirical rather than synthetic:
 
-- `scenario_profiles_uk_v2_live` is calibrated with `empirical_live_fit` over 384 contextual profiles and a 192-context holdout slice, using `temporal_forward_plus_corridor_block` with 6 hour slots and 16 corridors in the holdout partition.
-- That scenario fit currently reports `mode_separation_mean=0.169764`, zero holdout MAPE on duration/monetary/emissions, `full_identity_share=0.291667`, and an even split between observed and projected mode contexts at `0.5` each.
+- `scenario_profiles_uk_v2_live` is calibrated with `empirical_live_fit` over 96 current context families, while the strict preflight exposes 192 live-usable scenario contexts. It uses `temporal_forward_plus_corridor_block` with 6 hour slots and 8 corridors in the current holdout partition.
+- That scenario fit currently reports `mode_separation_mean=0.191077`, holdout MAPE values `duration_mape=0.010117`, `monetary_mape=0.010501`, and `emissions_mape=0.004885`, with `full_identity_share=0.0`, `projection_dominant_context_share=0.0`, `observed_mode_context_share=1.0`, and `observed_mode_row_share=0.5`.
 - `gaussian_5x5_uk_v3_calibrated` is calibrated with `v4-uk-residual-fit` over 50,000 holdout rows, with holdout coverage `1.0`, PIT mean `0.5149096244101729`, CRPS mean `0.47377558811984366`, and duration MAPE `0.14058663646867195`.
 - The fuel-consumption surface used in objective decomposition is `uk_fuel_surface_v1` with a 4 x 4 x 5 x 5 x 5 axis grid, and the current toll-confidence calibration is `uk-toll-confidence-v2-empirical` with five calibrated reliability bins.
 
