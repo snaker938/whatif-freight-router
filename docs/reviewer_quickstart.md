@@ -2,14 +2,16 @@
 
 This page gives a conservative reviewer path for the current checked publication slice.
 
-It does not claim that all gates are green. It documents the current checked bundle, the source files behind the currently indexed headline tables and figure sources, the checked full-suite verdict companion bundle, the checked threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane companions, and the commands used to inspect, rerun, and export that slice.
+It does not claim that all gates are green. It documents the current checked bundle, the source files behind the currently indexed headline tables and figure sources, the checked full-suite verdict companion bundle, the checked broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane companions, and the commands used to inspect, rerun, and export that slice.
 
 ## Current Checked Reviewer Bundle
 
 The current checked local bundle used in this quickstart is:
 
 - `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/`
+- `out/headline_exports/current_checked/index.md`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/`
@@ -20,12 +22,14 @@ There is still no checked local `backend/out/artifacts/full_latest_suite_*` bund
 
 The reviewer-facing artifact map for this slice lives at:
 
+- [`out/headline_exports/current_checked/index.md`](../out/headline_exports/current_checked/index.md)
 - [`paper_artifact_index.json`](../paper_artifact_index.json)
 
 Scope note:
 
-- This quickstart reproduces the maintained checked reviewer package: the focused-VOI checked bundle, the latest checked campaign-backed source surfaces indexed in `paper_artifact_index.json`, a checked local companion copy of the latest full-suite publishability/adoption verdict bundle under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`, and checked local companion copies of the threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane bundles under `out/headline_exports/current_checked/`.
-- The full-suite companion now mirrors the checked suite-root verdict exactly: optional-stopping and perturbation are surfaced and green on the copied proof surfaces, while publishability/adoption remain blocked by the current hot-rerun, DCCS, refine-cost, and VOI families.
+- This quickstart reproduces the maintained checked reviewer package: the focused-VOI checked bundle, the latest checked campaign-backed source surfaces indexed in `paper_artifact_index.json`, a checked local companion copy of the latest full-suite publishability/adoption verdict bundle under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`, and checked local companion copies of the broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane bundles under `out/headline_exports/current_checked/`.
+- The full-suite companion now mirrors the checked suite-root verdict exactly: optional-stopping and perturbation are surfaced and green on the copied proof surfaces, while publishability/adoption remain blocked by the current DCCS, refine-cost forecasting, and VOI families.
+- That suite-root blocker list is narrower than the broader redesign and publication ledger tracked elsewhere in the maintained docs.
 
 ## End-To-End Thesis Lane Reproduction
 
@@ -67,7 +71,7 @@ If the suite completes, it writes a fresh `backend/out/artifacts/full_latest_sui
 - a publishability-verdict JSON artifact
 - a publishability-assessment Markdown report
 
-Treat this as regeneration guidance for local reruns. The maintained reviewer package indexed in `paper_artifact_index.json` still points at the checked focused-VOI bundle and the latest checked campaign slice, while the newer checked full-suite assessment now exposes green optional-stopping and perturbation proofs but still records publishability/adoption blockers from the hot-rerun, DCCS, refine-cost, and VOI families. A successful local rerun of the quickstart package should reproduce that same checked suite-level verdict, not a weaker surrogate.
+Treat this as regeneration guidance for local reruns. The maintained reviewer package indexed in `paper_artifact_index.json` still points at the checked focused-VOI bundle and the latest checked campaign slice, while the newer checked full-suite assessment now exposes green optional-stopping and perturbation proofs but still records publishability/adoption blockers from the DCCS, refine-cost forecasting, and VOI families. A successful local rerun of the quickstart package should reproduce that same checked suite-level verdict, not a weaker surrogate.
 
 ## Checked Full-Suite Verdict Companion
 
@@ -452,9 +456,31 @@ node .\scripts\export_headline_surfaces.mjs
 Get-ChildItem .\out\headline_exports\current_checked
 ```
 
-These commands produce one `*.svg`, one `*.print.html`, one `*.pdf`, one co-packaged `*.source.csv` or `*.source.json` file, and one co-packaged `*.provenance.json` file for every headline table or figure surface currently listed under `paper_artifact_index.json` `headline_surfaces`, plus the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables and the runtime-observability / runtime-action / runtime-stage-quantiles / preference-burden reviewer tables. They also refresh the checked local full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and broad-cold runtime-observability companion directories under `out/headline_exports/current_checked/`, including the full-suite `lane_artifact_generation_summary.*` files and the copied lane `thesis_metrics.json` payloads they summarize.
+These commands produce one `*.svg`, one `*.print.html`, one `*.pdf`, one co-packaged `*.source.csv` or `*.source.json` file, and one co-packaged `*.provenance.json` file for every headline table or figure surface currently listed under `paper_artifact_index.json` `headline_surfaces`, plus the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables and the runtime-observability / runtime-action / runtime-stage-quantiles / preference-burden reviewer tables. They also refresh the checked local full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and broad-cold runtime-observability companion directories under `out/headline_exports/current_checked/`, add a root reviewer-package landing page at `out/headline_exports/current_checked/index.md`, and preserve the full-suite `lane_artifact_generation_summary.*` files and copied lane `thesis_metrics.json` payloads they summarize.
 
 They also refresh the corresponding `paper_artifact_index.json` headline entries so `rendered_outputs`, `packaged_source_companions`, `packaged_provenance_companions`, `export_formats_available`, and `quickstart_reference` point at the checked export files and this command block, while the reviewer-package companion entries for the checked full-suite verdict, broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun bundles point at the staged local copies.
+
+## Checked Runtime-Observability Lane
+
+The checked broad-cold runtime-observability companion bundle at `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/` is the maintained reviewer surface for the broad-cold lane runtime quantiles, action-family budget-share, and stage-timing evidence. It is staged from the repo-local bundle `backend/out/artifacts/full_suite_curated_latest_20260411_broad_cold_proof/`, and it now carries a staged local `index.json` / `index.md` landing page alongside the copied `evaluation_manifest.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/lane_metadata.json`, `thesis_summary.csv`, `thesis_summary.json`, `thesis_results.json`, `thesis_metrics.json`, and `thesis_plots.json` surfaces.
+
+The root reviewer-package landing page at `out/headline_exports/current_checked/index.md` lists this bundle together with the full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun companions.
+
+From the repo root:
+
+```powershell
+node .\scripts\export_headline_surfaces.mjs
+Get-ChildItem .\out\headline_exports\current_checked\full_suite_curated_latest_20260411_broad_cold_proof
+```
+
+What to check in that companion:
+
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/index.json` and `index.md` exist as landing pages for reviewer navigation
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/lane_metadata.json` records the `broad_cold_proof` role and broad-corpus provenance for this lane
+- `thesis_summary.csv` / `thesis_summary.json` preserve the broad-cold aggregate and per-variant summary rows used by the maintained reviewer tables
+- `thesis_results.json`, `thesis_metrics.json`, and `thesis_plots.json` preserve the copied runtime-observability evaluator payloads behind the reviewer-facing runtime quantile, action-family, and stage-timing tables
+
+This companion proves the checked lane surfaces exist locally for review, but it does not by itself close the broader DCCS, forecasting, or VOI hard gates. Those canonical gate readings remain in the full-suite verdict companion under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`.
 
 ## Checked Hot Rerun Benchmark Companion
 
@@ -488,6 +514,8 @@ After the run or bundle inspection, confirm that:
 - each checked focused-VOI and latest-checked-campaign composition table export contains both `composition_family = cohort` rows and `composition_family = support_bin` rows with explicit row counts
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` contains the checked copied `index.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_assessment.md`, `lane_publishability_summary.csv/json`, `sample_size_gate_summary.csv/json`, `headline_seed_claims_summary.csv/json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas_lane_metadata.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas.json` / `.md`, and `universal_baseline_audit.csv/json` files; `sample_size_gate_summary.*` now records the maintained row-count requirement, direct `evaluation_requirement_observed_count`, `evaluation_requirement_observed_count_source`, and `evaluation_requirement_total_minimum`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` also contains the checked copied `out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.json` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.json` attachments for the headline baseline-comparison surface; those manifests preserve graph date, graph digest, image/config identity, and source graph metadata for the preserved OSRM/ORS baseline engines
+- `out/headline_exports/current_checked/index.json` / `index.md` exist as a reviewer-facing landing page across the staged current checked bundle entrypoints
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/` contains the checked copied `index.json`, `index.md`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/lane_metadata.json`, `thesis_summary.csv` / `.json`, `thesis_results.json`, `thesis_metrics.json`, and `thesis_plots.json` files for the broad-cold runtime-observability lane
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/` contains the checked copied `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/lane_metadata.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.csv` / `.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_report.md`, and `thesis_plots.json` files
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/` contains the checked copied `out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/lane_metadata.json`, `results.json`, `thesis_results.json`, `thesis_summary.csv` / `.json`, and `thesis_plots.json` files, while the canonical `G11.17-G11.19` and `G11.54` gate rows remain in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.csv` / `.json` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.csv` / `.json`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/` contains the checked copied `out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/lane_metadata.json`, `results.json`, `thesis_results.json`, `thesis_summary.csv` / `.json`, and `thesis_plots.json` files, while the canonical `G11.20`, `G11.21`, and `G11.55` gate rows remain in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.csv` / `.json` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.csv` / `.json`
@@ -504,7 +532,7 @@ If the run stops early, the most likely causes are:
 
 - The exact artifact names depend on the lane and selected mode when you rerun the evaluator.
 - This quickstart is intentionally narrow and does not attempt to restate the full claim matrix.
-- The current reviewer slice stays source-artifact first: CSV and JSON files remain the checked truth anchors for the table and figure surfaces listed in `paper_artifact_index.json`, while `scripts/export_headline_surfaces.mjs` generates additive SVG, print-ready HTML, PDF, co-packaged `*.source.csv` / `*.source.json` companions, and co-packaged `*.provenance.json` companions for the current headline slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables and the checked full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun companion bundles.
+- The current reviewer slice stays source-artifact first: CSV and JSON files remain the checked truth anchors for the table and figure surfaces listed in `paper_artifact_index.json`, while `scripts/export_headline_surfaces.mjs` generates additive SVG, print-ready HTML, PDF, co-packaged `*.source.csv` / `*.source.json` companions, and co-packaged `*.provenance.json` companions for the current headline slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables, a root `out/headline_exports/current_checked/index.md` landing page, and the checked full-suite verdict, broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun companion bundles.
 - The latest checked campaign composition artifact currently preserves cohort counts directly in `cohort_composition.json`; the export helper derives support-bin counts from checked `results.json` `support_richness` rows using the maintained weak/mid/strong thresholds when those counts are not already saved in the campaign composition file.
 - When a headline source artifact already carries `artifact_provenance.headline_identity`, the exporter copies that identity into the headline provenance companion. Older checked campaign-backed headline surfaces that predate embedded headline identity are reconstructed from the checked `evaluation_manifest.json` plus sibling `metadata.json` together with the current workspace git, lockfile, and container context.
 - The latest checked campaign-backed source anchors in `paper_artifact_index.json` currently resolve to `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/`, and the campaign command block above materializes their table and figure source surfaces into a runtime-created temp directory without manual editing.

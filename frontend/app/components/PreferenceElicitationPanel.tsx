@@ -57,11 +57,24 @@ function cloneQuery(query: PreferenceQuery): PreferenceQuery {
     : { ...query };
 }
 
+function cloneRouteIds(routeIds: string[] | null | undefined): string[] | undefined {
+  return routeIds ? [...routeIds] : undefined;
+}
+
+function cloneCompatibleSetSummary(summary: PreferenceCompatibleSetSummary | null | undefined): PreferenceCompatibleSetSummary | null {
+  return summary
+    ? {
+        ...summary,
+        route_ids: cloneRouteIds(summary.route_ids),
+        necessary_best_route_ids: cloneRouteIds(summary.necessary_best_route_ids),
+        possible_best_route_ids: cloneRouteIds(summary.possible_best_route_ids),
+      }
+    : null;
+}
+
 function cloneState(state: PreferenceState | null | undefined): PreferenceState {
   return {
-    compatible_set_summary: state?.compatible_set_summary
-      ? { ...state.compatible_set_summary, route_ids: state.compatible_set_summary.route_ids ? [...state.compatible_set_summary.route_ids] : undefined }
-      : null,
+    compatible_set_summary: cloneCompatibleSetSummary(state?.compatible_set_summary),
     compatible_weights: state?.compatible_weights ? state.compatible_weights.map((item) => ({ ...item })) : undefined,
     pairwise_constraints: state?.pairwise_constraints ? state.pairwise_constraints.map((item) => ({ ...item })) : undefined,
     threshold_constraints: state?.threshold_constraints ? state.threshold_constraints.map((item) => ({ ...item })) : undefined,
@@ -198,16 +211,35 @@ function pickRoutes(state: PreferenceState, routes: RouteOption[], selectedRoute
     }
   }
   const survivors = routes.filter((route) => !blocked.has(route.id));
+  const survivorIds = survivors.map((route) => route.id);
   const survivorCount = survivors.length;
   const selected = routes.find((route) => route.id === selectedRouteId) ?? routes[0] ?? null;
   const rank = selected ? [...survivors].sort((a, b) => scoreRoute(b, routes) - scoreRoute(a, routes)).findIndex((route) => route.id === selected.id) + 1 : 0;
+  const preservedPossibleRouteIds =
+    state.compatible_set_summary?.possible_best_route_ids?.filter((routeId) => survivorIds.includes(routeId)) ?? [];
+  const preservedNecessaryRouteIds =
+    state.compatible_set_summary?.necessary_best_route_ids?.filter((routeId) => survivorIds.includes(routeId)) ?? [];
+  const possibleBestRouteIds = survivorCount
+    ? preservedPossibleRouteIds.length
+      ? preservedPossibleRouteIds
+      : survivorIds
+    : [];
+  const necessaryBestRouteIds = survivorCount
+    ? preservedNecessaryRouteIds.length
+      ? preservedNecessaryRouteIds
+      : survivorCount === 1
+        ? survivorIds
+        : []
+    : [];
   const volumeProxy = routes.length ? Math.min(1, Math.max(0, (survivorCount / routes.length) * (survivorCount <= 1 ? 0.25 : 0.6))) : 0;
   return {
-    route_ids: survivors.map((route) => route.id),
+    route_ids: survivorIds,
     compatible_set_size: survivorCount,
     compatible_set_volume_proxy: volumeProxy,
     necessary_best_prob: survivorCount && rank === 1 ? 1 / survivorCount : 0,
     possible_best_prob: rank > 0 ? 1 / rank : 0,
+    necessary_best_route_ids: necessaryBestRouteIds,
+    possible_best_route_ids: possibleBestRouteIds,
     support_flag: survivorCount > 0,
     support_reason: survivorCount > 0 ? `${survivorCount} / ${routes.length} routes survive the live monotone filters.` : 'No route survives the current live monotone filters.',
   };
@@ -295,8 +327,28 @@ function mergeInitialState(
   preferenceSummary: PreferenceSummary | null | undefined,
 ): PreferenceState {
   const draft = cloneState(preferenceState ?? preferenceSummary?.preference_state ?? null);
+  const traceCompatibleSetSummary = cloneCompatibleSetSummary(
+    preferenceTrace?.compatible_set_summary ?? preferenceSummary?.compatible_set_summary ?? null,
+  );
   if (!draft.compatible_set_summary) {
-    draft.compatible_set_summary = preferenceTrace?.compatible_set_summary ?? preferenceSummary?.compatible_set_summary ?? null;
+    draft.compatible_set_summary = traceCompatibleSetSummary;
+  } else if (traceCompatibleSetSummary) {
+    draft.compatible_set_summary = {
+      ...traceCompatibleSetSummary,
+      ...draft.compatible_set_summary,
+      route_ids:
+        draft.compatible_set_summary.route_ids?.length
+          ? cloneRouteIds(draft.compatible_set_summary.route_ids)
+          : cloneRouteIds(traceCompatibleSetSummary.route_ids),
+      necessary_best_route_ids:
+        draft.compatible_set_summary.necessary_best_route_ids?.length
+          ? cloneRouteIds(draft.compatible_set_summary.necessary_best_route_ids)
+          : cloneRouteIds(traceCompatibleSetSummary.necessary_best_route_ids),
+      possible_best_route_ids:
+        draft.compatible_set_summary.possible_best_route_ids?.length
+          ? cloneRouteIds(draft.compatible_set_summary.possible_best_route_ids)
+          : cloneRouteIds(traceCompatibleSetSummary.possible_best_route_ids),
+    };
   }
   if (!draft.query_history?.length) {
     draft.query_history = preferenceTrace?.query_history?.map(cloneQuery) ?? [];
@@ -369,6 +421,13 @@ export default function PreferenceElicitationPanel({
   const queryHistory = draftState.query_history ?? [];
   const shrinkageTrace = draftState.shrinkage_trace ?? [];
   const compatibleSetSummary = draftState.compatible_set_summary ?? null;
+  const compatibleRouteIds = compatibleSetSummary?.route_ids?.length ? compatibleSetSummary.route_ids : routes.map((route) => route.id);
+  const possibleBestRouteIds = compatibleSetSummary?.possible_best_route_ids?.length
+    ? compatibleSetSummary.possible_best_route_ids
+    : compatibleRouteIds;
+  const necessaryBestRouteIds = compatibleSetSummary?.necessary_best_route_ids?.length
+    ? compatibleSetSummary.necessary_best_route_ids
+    : [];
   const selectedCertificateBasis =
     preferenceSummary?.selected_certificate_basis ??
     preferenceQueryTrace?.selected_certificate_basis ??
@@ -687,10 +746,31 @@ export default function PreferenceElicitationPanel({
             <div><span>Possible best</span><strong>{pct(locale, compatibleSetSummary?.possible_best_prob ?? 0)}</strong></div>
           </div>
           <p>{compatibleSetSummary?.support_reason ?? 'No compatible-set summary yet.'}</p>
-          <div className="pepChips">
-            {(compatibleSetSummary?.route_ids?.length ? compatibleSetSummary.route_ids : routes.map((route) => route.id)).map((routeId) => (
-              <span key={routeId}>{routeId}</span>
-            ))}
+          <div className="pepField">
+            <span>Compatible routes</span>
+            <div className="pepChips">
+              {compatibleRouteIds.map((routeId) => (
+                <span key={routeId}>{routeId}</span>
+              ))}
+            </div>
+          </div>
+          <div className="pepSubgrid">
+            <div className="pepField">
+              <span>Possible best routes</span>
+              <div className="pepChips">
+                {possibleBestRouteIds.map((routeId) => (
+                  <span key={routeId}>{routeId}</span>
+                ))}
+              </div>
+            </div>
+            <div className="pepField">
+              <span>Necessary best routes</span>
+              <div className="pepChips">
+                {(necessaryBestRouteIds.length ? necessaryBestRouteIds : ['None pinned yet']).map((routeId) => (
+                  <span key={routeId}>{routeId}</span>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 

@@ -978,7 +978,69 @@ def test_proxy_audit_lane_metadata_reports_explicit_cell_structure() -> None:
         ],
     }
     assert lane_metadata["observed_sample_size"]["audited_route_pair_count"] == 1800
-    assert lane_metadata["observed_sample_size"]["evaluation_size_requirement_met"] is True
+    assert lane_metadata["observed_sample_size"]["proxy_audit_cell_count"] == 18
+    assert lane_metadata["observed_sample_size"]["proxy_audit_cells_meeting_audited_route_pair_minimum"] == 2
+    assert lane_metadata["observed_sample_size"]["proxy_audit_missing_or_underfilled_cell_count"] == 16
+    assert lane_metadata["observed_sample_size"]["proxy_audit_min_observed_audited_route_pair_count_per_cell"] == 0
+    assert (
+        lane_metadata["observed_sample_size"]["proxy_audit_audited_route_pair_count_per_cell_requirement_met"]
+        is False
+    )
+    assert lane_metadata["observed_sample_size"]["evaluation_size_requirement_met"] is False
+
+
+def test_proxy_audit_lane_metadata_requires_per_cell_coverage_not_just_total_count() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "backend/out/uk_od_corpus_proxy_audit_calibration_40.csv",
+            "--evaluation-suite-role",
+            "proxy_audit_calibration",
+            "--seed",
+            "7",
+        ]
+    )
+    evaluation_suite = thesis_module._resolve_evaluation_suite_metadata(
+        args=args,
+        corpus_source_path=str(args.corpus_csv),
+        run_id="proxy_audit_calibration_full_grid_run",
+    )
+    rows: list[dict[str, object]] = []
+    row_index = 0
+    for support_bin, support_richness in (("weak_support", 0.20), ("strong_support", 0.82)):
+        for proxy_only_fraction in (0.10, 0.50, 0.90):
+            for audited_route_pair_count, repeat_count in ((20, 5), (100, 1), (500, 1)):
+                for _ in range(repeat_count):
+                    rows.append(
+                        {
+                            "variant_id": "C",
+                            "od_id": f"od-{row_index}",
+                            "seed": 7,
+                            "cohort_label": "proxy_audit",
+                            "support_bin": support_bin,
+                            "support_richness": support_richness,
+                            "proxy_only_fraction": proxy_only_fraction,
+                            "audited_route_pair_count": audited_route_pair_count,
+                            "candidate_route_pair_count": max(audited_route_pair_count, 100),
+                            "audit_world_count": 96,
+                        }
+                    )
+                    row_index += 1
+
+    lane_metadata = thesis_module._lane_metadata(
+        args=args,
+        evaluation_suite=evaluation_suite,
+        rows=rows,
+        cohort_composition=thesis_module._cohort_composition(rows),
+    )
+
+    observed = lane_metadata["observed_sample_size"]
+    assert observed["proxy_audit_cell_count"] == 18
+    assert observed["proxy_audit_cells_meeting_audited_route_pair_minimum"] == 18
+    assert observed["proxy_audit_missing_or_underfilled_cell_count"] == 0
+    assert observed["proxy_audit_min_observed_audited_route_pair_count_per_cell"] == 100
+    assert observed["proxy_audit_audited_route_pair_count_per_cell_requirement_met"] is True
+    assert observed["evaluation_size_requirement_met"] is True
 
 
 def test_proxy_audit_calibration_payload_surfaces_support_conditioned_metrics_with_sufficient_rows() -> None:
@@ -999,6 +1061,9 @@ def test_proxy_audit_calibration_payload_surfaces_support_conditioned_metrics_wi
             "od_ambiguity_support_ratio": 0.20,
             "od_ambiguity_source_entropy": 0.70,
             "od_ambiguity_confidence": 0.40,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
         },
         {
             "certified": False,
@@ -1016,6 +1081,9 @@ def test_proxy_audit_calibration_payload_surfaces_support_conditioned_metrics_wi
             "od_ambiguity_support_ratio": 0.25,
             "od_ambiguity_source_entropy": 0.68,
             "od_ambiguity_confidence": 0.45,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
         },
         {
             "certified": True,
@@ -1033,6 +1101,9 @@ def test_proxy_audit_calibration_payload_surfaces_support_conditioned_metrics_wi
             "od_ambiguity_support_ratio": 0.80,
             "od_ambiguity_source_entropy": 0.35,
             "od_ambiguity_confidence": 0.80,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
         },
         {
             "certified": True,
@@ -1050,6 +1121,9 @@ def test_proxy_audit_calibration_payload_surfaces_support_conditioned_metrics_wi
             "od_ambiguity_support_ratio": 0.85,
             "od_ambiguity_source_entropy": 0.25,
             "od_ambiguity_confidence": 0.88,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
         },
     ]
 
@@ -1070,6 +1144,193 @@ def test_proxy_audit_calibration_payload_surfaces_support_conditioned_metrics_wi
     assert "in_support" in support_conditioned
     assert support_conditioned["in_support"]["row_count"] == 2
     assert support_conditioned["in_support"]["low_sample_bin_count"] >= 1
+
+
+def test_proxy_audit_calibration_payload_uses_explicit_row_level_leakage_safe_state() -> None:
+    rows = [
+        {
+            "certified": False,
+            "support_bin": "weak_support",
+            "support_richness": 0.25,
+            "proxy_only_fraction": 0.45,
+            "audit_correction_mass": 0.20,
+            "minimum_propensity": 0.12,
+            "mean_propensity": 0.21,
+            "maximum_propensity": 0.34,
+            "audited_route_pair_count": 80,
+            "candidate_route_pair_count": 150,
+            "audit_coverage_ratio": 0.53,
+            "od_ambiguity_index": 0.78,
+            "od_ambiguity_support_ratio": 0.22,
+            "od_ambiguity_source_entropy": 0.69,
+            "od_ambiguity_confidence": 0.44,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
+        },
+        {
+            "certified": False,
+            "support_bin": "weak_support",
+            "support_richness": 0.28,
+            "proxy_only_fraction": 0.50,
+            "audit_correction_mass": 0.22,
+            "minimum_propensity": 0.13,
+            "mean_propensity": 0.24,
+            "maximum_propensity": 0.36,
+            "audited_route_pair_count": 82,
+            "candidate_route_pair_count": 152,
+            "audit_coverage_ratio": 0.54,
+            "od_ambiguity_index": 0.74,
+            "od_ambiguity_support_ratio": 0.24,
+            "od_ambiguity_source_entropy": 0.66,
+            "od_ambiguity_confidence": 0.46,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
+        },
+        {
+            "certified": True,
+            "support_bin": "strong_support",
+            "support_richness": 0.80,
+            "proxy_only_fraction": 0.42,
+            "audit_correction_mass": 0.18,
+            "minimum_propensity": 0.31,
+            "mean_propensity": 0.52,
+            "maximum_propensity": 0.71,
+            "audited_route_pair_count": 84,
+            "candidate_route_pair_count": 154,
+            "audit_coverage_ratio": 0.55,
+            "od_ambiguity_index": 0.31,
+            "od_ambiguity_support_ratio": 0.79,
+            "od_ambiguity_source_entropy": 0.33,
+            "od_ambiguity_confidence": 0.79,
+            "correction_training_leakage_safe": False,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": False,
+        },
+        {
+            "certified": True,
+            "support_bin": "strong_support",
+            "support_richness": 0.85,
+            "proxy_only_fraction": 0.40,
+            "audit_correction_mass": 0.16,
+            "minimum_propensity": 0.34,
+            "mean_propensity": 0.56,
+            "maximum_propensity": 0.74,
+            "audited_route_pair_count": 86,
+            "candidate_route_pair_count": 156,
+            "audit_coverage_ratio": 0.56,
+            "od_ambiguity_index": 0.28,
+            "od_ambiguity_support_ratio": 0.82,
+            "od_ambiguity_source_entropy": 0.29,
+            "od_ambiguity_confidence": 0.83,
+            "correction_training_leakage_safe": True,
+            "propensity_training_leakage_safe": True,
+            "leakage_safe_training": True,
+        },
+    ]
+
+    payload = thesis_module._proxy_audit_calibration_payload(rows)
+
+    assert payload is not None
+    assert payload["calibration_leakage_safe_training"] is False
+
+
+def test_proxy_audit_grid_cell_metrics_requires_explicit_leakage_safe_state_for_corrected_beats_naive() -> None:
+    rows = [
+        {
+            "variant_id": "C",
+            "certified": False,
+            "support_bin": "weak_support",
+            "support_richness": 0.24,
+            "proxy_only_fraction": 0.48,
+            "audit_correction_mass": 0.19,
+            "minimum_propensity": 0.11,
+            "mean_propensity": 0.22,
+            "maximum_propensity": 0.33,
+            "audited_route_pair_count": 90,
+            "candidate_route_pair_count": 160,
+            "audit_coverage_ratio": 0.56,
+            "od_ambiguity_index": 0.77,
+            "od_ambiguity_support_ratio": 0.20,
+            "od_ambiguity_source_entropy": 0.70,
+            "od_ambiguity_confidence": 0.43,
+            "weak_overlap_detected": True,
+            "positivity_ok": True,
+        },
+        {
+            "variant_id": "C",
+            "certified": False,
+            "support_bin": "weak_support",
+            "support_richness": 0.27,
+            "proxy_only_fraction": 0.44,
+            "audit_correction_mass": 0.18,
+            "minimum_propensity": 0.12,
+            "mean_propensity": 0.24,
+            "maximum_propensity": 0.35,
+            "audited_route_pair_count": 92,
+            "candidate_route_pair_count": 162,
+            "audit_coverage_ratio": 0.57,
+            "od_ambiguity_index": 0.75,
+            "od_ambiguity_support_ratio": 0.22,
+            "od_ambiguity_source_entropy": 0.68,
+            "od_ambiguity_confidence": 0.45,
+            "weak_overlap_detected": True,
+            "positivity_ok": True,
+        },
+        {
+            "variant_id": "C",
+            "certified": True,
+            "support_bin": "weak_support",
+            "support_richness": 0.71,
+            "proxy_only_fraction": 0.41,
+            "audit_correction_mass": 0.17,
+            "minimum_propensity": 0.29,
+            "mean_propensity": 0.48,
+            "maximum_propensity": 0.69,
+            "audited_route_pair_count": 94,
+            "candidate_route_pair_count": 164,
+            "audit_coverage_ratio": 0.57,
+            "od_ambiguity_index": 0.34,
+            "od_ambiguity_support_ratio": 0.74,
+            "od_ambiguity_source_entropy": 0.38,
+            "od_ambiguity_confidence": 0.74,
+            "weak_overlap_detected": True,
+            "positivity_ok": True,
+        },
+        {
+            "variant_id": "C",
+            "certified": True,
+            "support_bin": "weak_support",
+            "support_richness": 0.76,
+            "proxy_only_fraction": 0.39,
+            "audit_correction_mass": 0.15,
+            "minimum_propensity": 0.31,
+            "mean_propensity": 0.51,
+            "maximum_propensity": 0.72,
+            "audited_route_pair_count": 96,
+            "candidate_route_pair_count": 166,
+            "audit_coverage_ratio": 0.58,
+            "od_ambiguity_index": 0.30,
+            "od_ambiguity_support_ratio": 0.78,
+            "od_ambiguity_source_entropy": 0.34,
+            "od_ambiguity_confidence": 0.79,
+            "weak_overlap_detected": True,
+            "positivity_ok": True,
+        },
+    ]
+
+    plot_rows = thesis_module._proxy_audit_grid_cell_metrics(rows)
+    plot_row = next(
+        row
+        for row in plot_rows
+        if row["variant_id"] == "C"
+        and row["bias_regime"] == "medium_bias"
+        and row["audit_budget_level"] == "low_budget"
+        and row["support_condition"] == "weak_support"
+    )
+
+    assert plot_row["corrected_beats_naive"] is None
 
 
 def test_optional_stopping_lane_metadata_uses_world_sample_totals_for_gate() -> None:
@@ -4958,7 +5219,9 @@ def test_run_thesis_evaluation_writes_preference_burden_fields_into_summary_arti
         rel=0.0,
         abs=1e-6,
     )
-    assert json.loads(adversarial_slice_row["failure_handling_counts_json"]) == {"support_downgrade": 1}
+    assert json.loads(adversarial_slice_row["failure_handling_counts_json"]) == {
+        "certified_set_downgrade": 1
+    }
     assert support_split_plot_row["row_count"] == 1
     assert support_split_plot_row["mean_preference_last_realized_shrinkage"] == pytest.approx(0.5, rel=0.0, abs=1e-6)
     assert support_split_plot_row["mean_preference_last_realized_widening"] == pytest.approx(0.0, rel=0.0, abs=1e-6)
@@ -9159,6 +9422,104 @@ def test_result_row_keeps_supported_weak_overlap_rows_when_audited_pairs_exist()
     assert row["positivity_ok"] is False
     assert row["audited_route_pair_count"] == 53
     assert row["proxy_only_fraction"] == pytest.approx(0.0, rel=0.0, abs=1e-6)
+
+
+def test_result_row_downgrades_proxy_only_out_of_support_regimes() -> None:
+    args = thesis_module._build_parser().parse_args(
+        [
+            "--corpus-csv",
+            "dummy.csv",
+            "--backend-url",
+            "http://backend.test",
+        ]
+    )
+    od = {
+        "od_id": "od-proxy-only-out-of-support",
+        "origin_lat": 52.0,
+        "origin_lon": -1.5,
+        "destination_lat": 51.5,
+        "destination_lon": -1.2,
+        "straight_line_km": 55.0,
+        "trip_length_bin": "30-100 km",
+        "seed": 7,
+        "profile_id": "proxy_only_out_of_support_profile",
+        "corpus_group": "support_fragile",
+        "corpus_kind": "ambiguity",
+    }
+    request_config = thesis_module._effective_request_config(args, od, variant_seed=19)
+    selected = _route_payload("r-proxy-only", duration_s=100.0, cost=20.0, emissions=5.0)
+    route_response = {
+        "selected": selected,
+        "candidates": [selected],
+        "selected_certificate": {"certificate": 0.91, "certified": True},
+        "artifact_validation": {"status": "ok", "required": [], "missing": []},
+        "route_evidence_validation": {"status": "ok", "issues": []},
+        "run_id": "run-proxy-only-out-of-support",
+        "manifest_endpoint": "/runs/run-proxy-only-out-of-support/manifest",
+        "artifacts_endpoint": "/runs/run-proxy-only-out-of-support/artifacts",
+    }
+    artifacts = _artifact_bundle(
+        "run-proxy-only-out-of-support",
+        selected_id="r-proxy-only",
+        selected_certificate=0.91,
+        pipeline_mode="dccs_refc",
+        certified_set_size=1,
+    )
+    artifacts["world_support_summary.json"].update(
+        {
+            "support_flag": True,
+            "support_status": "supported",
+            "out_of_support_reason": None,
+            "proxy_only_fraction": 1.0,
+        }
+    )
+    artifacts["world_support_summary.json"]["multi_fidelity_summary"].update(
+        {
+            "proxy_only_fraction": 1.0,
+            "proxy_world_count": 12,
+            "audit_world_count": 0,
+        }
+    )
+    artifacts["world_support_summary.json"]["positivity_diagnostics"].update(
+        {
+            "weak_overlap_detected": True,
+            "positivity_ok": False,
+            "audited_route_pair_count": 0,
+            "candidate_route_pair_count": 37,
+            "audit_coverage_ratio": 0.0,
+            "minimum_propensity": 0.0,
+            "mean_propensity": 0.0,
+            "maximum_propensity": 0.0,
+        }
+    )
+    baseline = thesis_module.BaselineResult(
+        route={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        metrics={"distance_km": 12.0, "duration_s": 140.0, "monetary_cost": 22.0, "emissions_kg": 6.0},
+        method="baseline",
+        compute_ms=10.0,
+        provider_mode="repo_local",
+    )
+
+    row = thesis_module._result_row(
+        args,
+        od,
+        thesis_module.VariantSpec("B", "dccs_refc"),
+        route_response,
+        120.0,
+        artifacts,
+        baseline,
+        baseline,
+        request_config=request_config,
+    )
+
+    assert row["failure_reason"] == "support_flag_false"
+    assert row["support_flag"] is False
+    assert row["support_status"] == "unsupported"
+    assert row["out_of_support_reason"] == "out_of_support_world_model"
+    assert row["audited_route_pair_count"] == 0
+    assert row["proxy_only_fraction"] == pytest.approx(1.0, rel=0.0, abs=1e-6)
+    assert thesis_module._is_silent_proxy_only_certification_row(row) is False
+    assert thesis_module._proxy_audit_failure_handling_label(row) == "support_downgrade"
 
 
 def test_result_row_derives_replay_oracle_metrics_from_voi_artifacts() -> None:

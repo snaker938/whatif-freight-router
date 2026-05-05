@@ -108,3 +108,53 @@ def test_theorem_mentions_fail_when_mapped_family_lacks_required_fields(tmp_path
 
     assert any("Negative / property test anchor" in error for error in errors)
     assert any("Evaluator metric(s)" in error for error in errors)
+
+
+def test_theorem_anchor_validation_fails_when_constructive_or_counterexample_anchor_missing() -> None:
+    module = _load_check_docs_module()
+
+    rows = {
+        "THM-01": {
+            "ID": "THM-01",
+            "Family": "Safe elimination",
+            "Unit test anchor": "backend/tests/test_docs_check.py::test_check_docs_passes_repo_consistency_checks",
+            "Negative / property test anchor": "backend/tests/test_docs_check.py::test_theorem_and_claim_docs_are_semantically_consistent",
+            "Constructive exact-synthetic example anchor": "",
+            "Counterexample / assumption-failure example anchor": "",
+            "Artifact field(s)": "dccs_candidates.jsonl.safe_eliminated",
+            "Evaluator metric(s)": "mean_dccs_false_safe_prune_rate",
+            "Report appendix location": "Appendix N",
+        }
+    }
+
+    errors = module.validate_theorem_anchor_references(rows)
+
+    assert any("Constructive exact-synthetic example anchor" in error for error in errors)
+    assert any("Counterexample / assumption-failure example anchor" in error for error in errors)
+
+
+def test_theorem_anchor_validation_fails_when_symbol_is_missing() -> None:
+    module = _load_check_docs_module()
+
+    rows = {
+        "THM-01": {
+            "ID": "THM-01",
+            "Family": "Safe elimination",
+            "Unit test anchor": "backend/tests/test_docs_check.py::test_check_docs_passes_repo_consistency_checks",
+            "Negative / property test anchor": "backend/tests/test_docs_check.py::test_theorem_and_claim_docs_are_semantically_consistent",
+            "Constructive exact-synthetic example anchor": (
+                "Constructive exact-synthetic: backend/tests/test_docs_check.py::missing_constructive_anchor"
+            ),
+            "Counterexample / assumption-failure example anchor": (
+                "Counterexample: backend/tests/test_docs_check.py::test_theorem_mentions_fail_when_theorem_id_is_unknown"
+            ),
+            "Artifact field(s)": "dccs_candidates.jsonl.safe_eliminated",
+            "Evaluator metric(s)": "mean_dccs_false_safe_prune_rate",
+            "Report appendix location": "Appendix N",
+        }
+    }
+
+    errors = module.validate_theorem_anchor_references(rows)
+
+    assert any("missing python symbol" in error for error in errors)
+    assert any("missing_constructive_anchor" in error for error in errors)

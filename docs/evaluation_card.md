@@ -71,7 +71,7 @@ What is currently evidenced:
 
 - the docs and report explicitly name these cohorts as part of the evaluation story
 - the quality-gates page records current local artifacts and thesis bundles
-- the claim matrix and theorem map distinguish scaffold-only surfaces from empirical ones
+- the claim matrix, theorem package, and theorem map distinguish current `partial-proof` theorem surfaces from empirical, heuristic-but-measured, and theorem-backed ones
 
 What is not yet evidenced as a blanket claim:
 
@@ -98,9 +98,11 @@ The strongest current evidence is recorded in the following places:
 - `docs/reproducibility-capsule.md`
   - repro controls and artifact provenance anchors
 - `docs/claim_matrix.md`
-  - current surfaces marked `scaffold-only`, `empirical`, or `theorem-backed`
+  - current surfaces marked `partial-proof`, `empirical`, `heuristic-but-measured`, `non-claim`, or `theorem-backed`, as appropriate
+- `docs/theorem_package.md`
+  - named theorem and lower-bound statement inventory at current `partial-proof` maturity
 - `docs/theorem_map.md`
-  - theorem slots that are still open
+  - reviewer-readable theorem-to-artifact map and current proof gaps
 
 The evaluator is therefore best understood as a set of evidence surfaces with different maturity levels, not as a single all-green scorecard.
 
@@ -122,7 +124,7 @@ The current repo supports the following evaluator-facing facts:
 - the checked full-suite reviewer companion at `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` now also carries `out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas_lane_metadata.json`, whose current payload records `lane_status = present_complete`, `required_kind_counts = { wrong_singleton: 82, support_downgrade: 82, abstention: 40 }`, and root-cause family counts that now include support-downgrade coverage; the atlas family is complete and green
 - when a headline lane is actually rerun across multiple configured seeds, the runner emits dedicated seed-summary, BCa-bootstrap CI, Holm-adjusted claim-summary, and report-table artifacts that aggregate the repeated runs, report between-seed spread, and flag sign disagreement or claim-narrowing conditions instead of only recording the seed plan
 - those repeated-run artifacts also include a reviewer-facing summary table derived from the structured claim summary, but only when the repeated runs themselves are present
-- the docs deliberately separate scaffold-only surfaces from empirical ones
+- the docs deliberately separate `partial-proof` theorem surfaces from empirical ones
 
 For maintained docs consumption of those repeated-run outputs:
 
@@ -193,7 +195,7 @@ When reviewing evaluator output, use these questions:
 
 - Which lane produced the artifact?
 - Which cohort slice does the row or bundle belong to?
-- Is the evidence a checked artifact, a scaffold-only surface, or a theorem-backed claim?
+- Is the evidence a checked artifact, a `partial-proof` theorem surface, an empirical or heuristic-but-measured surface, or a theorem-backed claim?
 - Does the doc point to a concrete file in `backend/out/` or only to a conceptual surface?
 - Are the claims scoped to the observed bundle, or do they drift toward universal language?
 
@@ -215,4 +217,5 @@ That is the right level of honesty for the current repository state.
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
 - [Reviewer Quickstart](reviewer_quickstart.md)
 - [Claim Matrix](claim_matrix.md)
+- [Theorem Package](theorem_package.md)
 - [Theorem Map](theorem_map.md)

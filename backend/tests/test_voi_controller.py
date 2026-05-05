@@ -22,6 +22,7 @@ from app.voi_controller import (
     compute_search_completeness_metrics,
     refresh_controller_state_after_action,
     run_controller,
+    should_stop_as_certified,
 )
 
 pytestmark = pytest.mark.thesis_modules
@@ -9384,6 +9385,82 @@ def test_uncertified_post_route_change_refresh_bridge_can_override_second_refine
     assert adjusted_refine.metadata["winner_side_refresh_refine_discount_applied"] is True
 
 
+def test_uncertified_structured_refresh_bridge_can_bypass_support_ratio_floor() -> None:
+    state = VOIControllerState(
+        iteration_index=0,
+        frontier=[
+            {"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)},
+            {"route_id": "route_b", "objective_vector": (10.08, 10.02, 10.01)},
+        ],
+        certificate={"route_a": 0.7, "route_b": 0.3},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=2,
+        remaining_evidence_budget=2,
+        ambiguity_context={
+            "od_ambiguity_support_ratio": 0.474005,
+            "od_ambiguity_source_entropy": 0.836641,
+            "od_hard_case_prior": 0.61,
+            "ambiguity_budget_prior": 0.52,
+        },
+        support_richness=0.532858,
+        prior_support_strength=0.532858,
+        ambiguity_pressure=0.66,
+        pending_challenger_mass=0.638315,
+        best_pending_flip_probability=0.998246,
+        top_refresh_gain=0.633333,
+        top_fragility_mass=0.333333,
+        competitor_pressure=1.0,
+    )
+    assert voi_module._support_rich_ambiguity_window(state) is False
+    refine = voi_module.VOIAction(
+        action_id="refine_top1_dccs:test",
+        kind="refine_top1_dccs",
+        target="candidate",
+        q_score=0.263455,
+        predicted_delta_certificate=0.33,
+        predicted_delta_margin=0.21,
+        predicted_delta_frontier=0.06,
+        metadata={
+            "mean_flip_probability": 0.996632,
+            "normalized_objective_gap": 0.02,
+            "normalized_mechanism_gap": 0.08,
+            "normalized_overlap_reduction": 0.904762,
+        },
+        reason="refine_candidate",
+    )
+    refresh = voi_module.VOIAction(
+        action_id="refresh:scenario",
+        kind="refresh_top1_vor",
+        target="scenario",
+        q_score=0.245326,
+        predicted_delta_certificate=0.30,
+        predicted_delta_margin=0.18,
+        metadata={
+            "structured_refresh_signal": True,
+            "empirical_refresh_certificate_uplift": 0.30,
+        },
+        reason="refresh_evidence_family",
+    )
+
+    adjusted_actions = voi_module._apply_strong_winner_side_refresh_preference(
+        [refine, refresh],
+        state=state,
+        current_certificate=0.7,
+        config=VOIConfig(certificate_threshold=0.8),
+        evidence_uncertainty=True,
+        supported_fragility_uncertainty=True,
+        recent_no_gain_refine_streak=0,
+    )
+
+    adjusted_refine = next(action for action in adjusted_actions if action.kind == "refine_top1_dccs")
+    adjusted_refresh = next(action for action in adjusted_actions if action.kind == "refresh_top1_vor")
+    assert adjusted_refresh.metadata["winner_side_refresh_preference_applied"] is True
+    assert adjusted_refresh.metadata["winner_side_refresh_preference_support_ratio_relief_bridge"] is True
+    assert adjusted_refine.metadata["winner_side_refresh_refine_discount_applied"] is True
+    assert adjusted_refresh.q_score > adjusted_refine.q_score
+
+
 def test_uncertified_first_iteration_near_tie_resample_preference_can_override_non_novel_refine() -> None:
     state = VOIControllerState(
         iteration_index=0,
@@ -11479,6 +11556,44 @@ def test_controller_stops_when_certified_and_residual_search_uncertainty_is_weak
     assert stop_certificate.stop_reason == "certified"
     assert stop_certificate.controller_state is not None
     assert stop_certificate.controller_state["search_completeness_score"] < 0.95
+
+
+def test_should_stop_as_certified_allows_immediate_post_action_stop_when_uncertainty_clears() -> None:
+    state = VOIControllerState(
+        iteration_index=1,
+        frontier=[{"route_id": "route_a", "objective_vector": (10.0, 10.0, 10.0)}],
+        certificate={"route_a": 0.82},
+        winner_id="route_a",
+        selected_route_id="route_a",
+        remaining_search_budget=1,
+        remaining_evidence_budget=1,
+        search_completeness_score=0.52,
+    )
+
+    assert should_stop_as_certified(
+        state,
+        fragility=_fragility_result(),
+        config=VOIConfig(certificate_threshold=0.8, search_completeness_threshold=0.95),
+        current_certificate=0.82,
+        search_uncertainty=False,
+        evidence_uncertainty=False,
+    )
+    assert not should_stop_as_certified(
+        state,
+        fragility=_fragility_result(),
+        config=VOIConfig(certificate_threshold=0.8, search_completeness_threshold=0.95),
+        current_certificate=0.82,
+        search_uncertainty=True,
+        evidence_uncertainty=False,
+    )
+    assert not should_stop_as_certified(
+        state,
+        fragility=_fragility_result(),
+        config=VOIConfig(certificate_threshold=0.8, search_completeness_threshold=0.95),
+        current_certificate=0.82,
+        search_uncertainty=False,
+        evidence_uncertainty=True,
+    )
 
 
 def test_saturated_certified_supported_hard_case_without_refresh_stops_search_only_reveal() -> None:

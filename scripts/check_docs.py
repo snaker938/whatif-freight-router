@@ -81,6 +81,7 @@ CODE_FILE_LITERAL_RE = re.compile(
     r"`([A-Za-z0-9_./\\-]+\.(?:py|ps1|json|csv|yaml|yml|geojson|md))`"
 )
 THEOREM_ID_RE = re.compile(r"\b(?:THM|LB)-\d{2}\b")
+PYTHON_ANCHOR_RE = re.compile(r"([A-Za-z0-9_./\\-]+\.py)((?:::[A-Za-z_][A-Za-z0-9_]*)+)")
 EXTRA_MAINTAINED_MARKDOWN = (
     BACKEND_README,
     FRONTEND_README,
@@ -90,7 +91,17 @@ THEOREM_TABLE_HEADING = "## Required Theorem / Proposition Families"
 LOWER_BOUND_TABLE_HEADING = "## Required Lower-Bound / Impossibility Families"
 ROOT_CLAIMS_HEADING = "## Headline Claims"
 DETAIL_CLAIMS_HEADING = "## Current Certification Slice"
-REQUIRED_THEOREM_TABLE_COLUMNS = {
+THEOREM_TEST_ANCHOR_COLUMNS = (
+    "Unit test anchor",
+    "Negative / property test anchor",
+    "Constructive exact-synthetic example anchor",
+    "Counterexample / assumption-failure example anchor",
+)
+LOWER_BOUND_TEST_ANCHOR_COLUMNS = (
+    "Unit test anchor",
+    "Negative / property test anchor",
+)
+COMMON_THEOREM_TABLE_COLUMNS = {
     "ID",
     "Family",
     "Current status",
@@ -103,15 +114,17 @@ REQUIRED_THEOREM_TABLE_COLUMNS = {
     "Report appendix location",
     "Current gap",
 }
+REQUIRED_THEOREM_TABLE_COLUMNS = COMMON_THEOREM_TABLE_COLUMNS | set(
+    THEOREM_TEST_ANCHOR_COLUMNS[2:]
+)
+REQUIRED_LOWER_BOUND_TABLE_COLUMNS = set(COMMON_THEOREM_TABLE_COLUMNS)
 REQUIRED_CLAIM_TABLE_COLUMNS = {
     "Claim status",
     "Theorem / proposition id",
     "Evaluator metric(s)",
     "Artifact path(s)",
 }
-THEOREM_MENTION_REQUIRED_COLUMNS = (
-    "Unit test anchor",
-    "Negative / property test anchor",
+COMMON_THEOREM_MENTION_REQUIRED_COLUMNS = (
     "Artifact field(s)",
     "Evaluator metric(s)",
     "Report appendix location",
@@ -136,8 +149,6 @@ NON_THEOREM_REFERENCE_MARKERS = {"not-applicable", "none-published-in-this-slice
 PROOF_REQUIRED_COLUMNS = {
     "Assumptions / scope",
     "Code objects",
-    "Unit test anchor",
-    "Negative / property test anchor",
     "Artifact field(s)",
     "Evaluator metric(s)",
     "Report appendix location",
@@ -257,9 +268,26 @@ def load_theorem_map_rows() -> dict[str, dict[str, str]]:
     return rows_by_id
 
 
-def theorem_row_missing_mention_fields(row: dict[str, str]) -> list[str]:
+def theorem_anchor_columns_for_row(row_id: str) -> tuple[str, ...]:
+    if normalize_md_cell(row_id).startswith("THM-"):
+        return THEOREM_TEST_ANCHOR_COLUMNS
+    return LOWER_BOUND_TEST_ANCHOR_COLUMNS
+
+
+def theorem_required_columns_for_heading(heading: str) -> set[str]:
+    if heading == THEOREM_TABLE_HEADING:
+        return REQUIRED_THEOREM_TABLE_COLUMNS
+    return REQUIRED_LOWER_BOUND_TABLE_COLUMNS
+
+
+def theorem_proof_required_columns_for_row(row_id: str) -> set[str]:
+    return PROOF_REQUIRED_COLUMNS | set(theorem_anchor_columns_for_row(row_id))
+
+
+def theorem_row_missing_mention_fields(row_id: str, row: dict[str, str]) -> list[str]:
     missing: list[str] = []
-    for column in THEOREM_MENTION_REQUIRED_COLUMNS:
+    required_columns = theorem_anchor_columns_for_row(row_id) + COMMON_THEOREM_MENTION_REQUIRED_COLUMNS
+    for column in required_columns:
         value = normalize_md_cell(row.get(column, ""))
         if not value or contains_placeholder(value):
             missing.append(column)
@@ -282,7 +310,7 @@ def _mention_resolution_error(
     theorem_id: str,
     row: dict[str, str],
 ) -> str | None:
-    missing_columns = theorem_row_missing_mention_fields(row)
+    missing_columns = theorem_row_missing_mention_fields(theorem_id, row)
     if not missing_columns:
         return None
     return (
@@ -374,6 +402,94 @@ def extract_theorem_ids(value: str) -> list[str]:
     if not normalized or normalized in NON_THEOREM_REFERENCE_MARKERS:
         return []
     return THEOREM_ID_RE.findall(normalized)
+
+
+def extract_python_anchor_references(value: str) -> list[tuple[str, tuple[str, ...]]]:
+    references: list[tuple[str, tuple[str, ...]]] = []
+    for path_text, symbol_text in PYTHON_ANCHOR_RE.findall(value or ""):
+        symbols = tuple(part for part in symbol_text.split("::") if part)
+        if symbols:
+            references.append((normalize_candidate(path_text), symbols))
+    return references
+
+
+def _find_python_symbol_in_nodes(nodes: list[ast.stmt], symbols: tuple[str, ...]) -> bool:
+    current_nodes = nodes
+    for index, symbol in enumerate(symbols):
+        match = next(
+            (
+                node
+                for node in current_nodes
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and node.name == symbol
+            ),
+            None,
+        )
+        if match is None:
+            return False
+        if index == len(symbols) - 1:
+            return True
+        if not isinstance(match, ast.ClassDef):
+            return False
+        current_nodes = list(match.body)
+    return False
+
+
+def validate_theorem_anchor_references(
+    rows_by_id: dict[str, dict[str, str]],
+    *,
+    theorem_map_path: Path | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    source_path = theorem_map_path or THEOREM_MAP
+    parsed_modules: dict[Path, ast.Module] = {}
+
+    for row_id, row in rows_by_id.items():
+        for column in theorem_anchor_columns_for_row(row_id):
+            cell_value = normalize_md_cell(row.get(column, ""))
+            if not cell_value:
+                errors.append(
+                    f"{format_path(source_path)} row {row_id} missing required cell for column: {column}"
+                )
+                continue
+            references = extract_python_anchor_references(cell_value)
+            if not references:
+                errors.append(
+                    f"{format_path(source_path)} row {row_id} column {column} "
+                    "must include at least one anchored python reference (path.py::symbol)"
+                )
+                continue
+            for path_text, symbols in references:
+                resolved = resolve_path_token(path_text, source_path)
+                if resolved is None or not resolved.exists():
+                    errors.append(
+                        f"{format_path(source_path)} row {row_id} column {column} "
+                        f"references missing python path: {path_text}::{'::'.join(symbols)}"
+                    )
+                    continue
+                if resolved.suffix != ".py":
+                    errors.append(
+                        f"{format_path(source_path)} row {row_id} column {column} "
+                        f"references non-python anchor target: {path_text}::{'::'.join(symbols)}"
+                    )
+                    continue
+                module = parsed_modules.get(resolved)
+                if module is None:
+                    try:
+                        module = ast.parse(resolved.read_text(encoding="utf-8"))
+                    except (OSError, SyntaxError) as exc:
+                        errors.append(
+                            f"{format_path(source_path)} row {row_id} column {column} "
+                            f"could not parse python anchor target {format_path(resolved)}: {exc}"
+                        )
+                        continue
+                    parsed_modules[resolved] = module
+                if not _find_python_symbol_in_nodes(list(module.body), symbols):
+                    errors.append(
+                        f"{format_path(source_path)} row {row_id} column {column} "
+                        f"references missing python symbol: {format_path(resolved)}::{'::'.join(symbols)}"
+                    )
+    return errors
 
 
 def load_declared_artifact_names() -> set[str]:
@@ -633,7 +749,7 @@ def run_theorem_claim_consistency_check() -> list[str]:
         (THEOREM_TABLE_HEADING, theorem_headers),
         (LOWER_BOUND_TABLE_HEADING, lower_headers),
     ):
-        missing_columns = sorted(REQUIRED_THEOREM_TABLE_COLUMNS - set(headers))
+        missing_columns = sorted(theorem_required_columns_for_heading(heading) - set(headers))
         for column in missing_columns:
             errors.append(
                 f"{THEOREM_MAP.relative_to(ROOT)} table '{heading}' missing required column: {column}"
@@ -658,13 +774,16 @@ def run_theorem_claim_consistency_check() -> list[str]:
             errors.append(
                 f"{THEOREM_MAP.relative_to(ROOT)} row {row_id} has invalid current status: {status or '<missing>'}"
             )
-        for column in REQUIRED_THEOREM_TABLE_COLUMNS:
+        required_columns = theorem_required_columns_for_heading(
+            THEOREM_TABLE_HEADING if row_id.startswith("THM-") else LOWER_BOUND_TABLE_HEADING
+        )
+        for column in required_columns:
             if not normalize_md_cell(row.get(column, "")):
                 errors.append(
                     f"{THEOREM_MAP.relative_to(ROOT)} row {row_id} missing required cell for column: {column}"
                 )
         if status == "theorem-backed":
-            for column in PROOF_REQUIRED_COLUMNS:
+            for column in theorem_proof_required_columns_for_row(row_id):
                 if contains_placeholder(row.get(column, "")):
                     errors.append(
                         f"{THEOREM_MAP.relative_to(ROOT)} row {row_id} is theorem-backed but still has placeholder text in {column}"
@@ -675,6 +794,8 @@ def run_theorem_claim_consistency_check() -> list[str]:
     missing_ids = sorted(REQUIRED_THEOREM_IDS - set(rows_by_id))
     for row_id in missing_ids:
         errors.append(f"{THEOREM_MAP.relative_to(ROOT)} missing required theorem-map row: {row_id}")
+
+    errors.extend(validate_theorem_anchor_references(rows_by_id))
 
     for claim_path, heading in (
         (ROOT_CLAIM_MATRIX, ROOT_CLAIMS_HEADING),

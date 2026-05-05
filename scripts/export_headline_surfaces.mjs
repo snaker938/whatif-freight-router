@@ -9,6 +9,8 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const artifactIndexPath = path.join(repoRoot, 'paper_artifact_index.json');
 const outputDir = path.join(repoRoot, 'out', 'headline_exports', 'current_checked');
+const SCRIPT_FLAGS = new Set(process.argv.slice(2));
+const SKIP_ARTIFACT_INDEX = SCRIPT_FLAGS.has('--skip-artifact-index');
 const ARTIFACT_ROOT_CANDIDATES = [
   path.join(repoRoot, 'backend', 'out', 'artifacts'),
   path.join(repoRoot, 'out', 'artifacts'),
@@ -70,6 +72,21 @@ const FULL_SUITE_BASELINE_IDENTITY_SOURCE_ROOT = path.join(
 const FULL_SUITE_BASELINE_IDENTITY_FILES = [
   'osrm_baseline_identity_manifest.json',
   'ors_baseline_identity_manifest.json',
+];
+const BUNDLE_INDEX_ARTIFACTS = new Set(['index.json', 'index.md']);
+const THESIS_EXPORT_STATUS_FILES = [
+  'thesis_results.csv',
+  'thesis_summary.csv',
+  'thesis_summary_by_cohort.csv',
+  'thesis_summary_by_transfer_slice.csv',
+  'thesis_summary_by_weather_regime_transfer_slice.csv',
+  'methods_appendix.md',
+  'thesis_report.md',
+  'evaluation_manifest.json',
+  'thesis_plots.json',
+  'index.json',
+  'index.md',
+  'results.csv',
 ];
 const FULL_SUITE_COMPANION_FILES = [
   'index.json',
@@ -548,6 +565,263 @@ function stageCompanionBundle({
   };
 }
 
+function readBundleJsonIfExists(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function buildArtifactEndpoint(runId, artifactName) {
+  return `/runs/${runId}/artifacts/${artifactName}`;
+}
+
+function listTopLevelFiles(rootDir) {
+  return fs
+    .readdirSync(rootDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function buildBundleArtifactEntry({ runId, targetRoot, artifactName }) {
+  const artifactPath = path.join(targetRoot, artifactName);
+  const entry = {
+    name: artifactName,
+    relative_path: artifactName,
+    endpoint: buildArtifactEndpoint(runId, artifactName),
+    present: fs.existsSync(artifactPath),
+    size_bytes: fs.existsSync(artifactPath) ? fs.statSync(artifactPath).size : null,
+  };
+  if (!artifactName.endsWith('.json') || BUNDLE_INDEX_ARTIFACTS.has(artifactName)) {
+    return entry;
+  }
+  const summaryName = `${path.parse(artifactName).name}.summary.md`;
+  const summaryPath = path.join(targetRoot, summaryName);
+  entry.markdown_summary_name = summaryName;
+  entry.markdown_summary_relative_path = fs.existsSync(summaryPath) ? summaryName : null;
+  entry.markdown_summary_endpoint = fs.existsSync(summaryPath)
+    ? buildArtifactEndpoint(runId, summaryName)
+    : null;
+  entry.markdown_summary_present = fs.existsSync(summaryPath);
+  return entry;
+}
+
+function buildBundleExportStatus({ runId, targetRoot, artifactName }) {
+  const artifactPath = path.join(targetRoot, artifactName);
+  const present = fs.existsSync(artifactPath);
+  return {
+    name: artifactName,
+    present,
+    relative_path: present ? artifactName : null,
+    endpoint: present ? buildArtifactEndpoint(runId, artifactName) : null,
+    size_bytes: present ? fs.statSync(artifactPath).size : null,
+  };
+}
+
+function renderBundleIndexMarkdown(payload) {
+  const lines = [
+    `# ${payload.title}`,
+    '',
+    `- Run ID: \`${payload.run_id}\``,
+    `- Bundle Type: \`${payload.bundle_type}\``,
+  ];
+  if (payload.source_root_relative) {
+    lines.push(`- Source Root: \`${payload.source_root_relative}\``);
+  }
+  if (payload.staged_bundle_path) {
+    lines.push(`- Staged Bundle Path: \`${payload.staged_bundle_path}\``);
+  }
+  if (Array.isArray(payload.notes) && payload.notes.length) {
+    lines.push('', '## Notes', '');
+    for (const note of payload.notes) {
+      lines.push(`- ${note}`);
+    }
+  }
+  lines.push('', '## Artifacts', '');
+  for (const artifact of payload.artifacts ?? []) {
+    const summarySuffix =
+      artifact.markdown_summary_name && artifact.markdown_summary_endpoint
+        ? `; summary \`${artifact.markdown_summary_name}\` -> \`${artifact.markdown_summary_endpoint}\``
+        : '';
+    lines.push(
+      `- \`${artifact.name}\` (${artifact.size_bytes} bytes) -> \`${artifact.endpoint}\`${summarySuffix}`,
+    );
+  }
+  lines.push('', '## Export Status', '');
+  for (const artifact of payload.export_status ?? []) {
+    const status = artifact.present ? 'present' : 'absent';
+    const sizeSuffix =
+      artifact.present && artifact.size_bytes != null ? ` (${artifact.size_bytes} bytes)` : '';
+    lines.push(`- \`${artifact.name}\`: ${status}${sizeSuffix}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function ensureSyntheticBundleIndex({ sourceRoot, targetDirName, runId, noteLines = [] }) {
+  const targetRoot = path.join(outputDir, targetDirName);
+  const indexJsonPath = path.join(targetRoot, 'index.json');
+  const indexMdPath = path.join(targetRoot, 'index.md');
+  if (fs.existsSync(indexJsonPath) && fs.existsSync(indexMdPath)) {
+    return;
+  }
+  const metadata = readBundleJsonIfExists(path.join(targetRoot, 'metadata.json'));
+  const artifactNames = listTopLevelFiles(targetRoot).filter(
+    (artifactName) => !BUNDLE_INDEX_ARTIFACTS.has(artifactName),
+  );
+  const payload = {
+    schema_version: 'run-bundle-index-v1',
+    run_id: runId,
+    bundle_type: 'thesis_evaluation',
+    metadata_schema_version: metadata?.schema_version ?? null,
+    manifest_endpoint: metadata?.manifest_endpoint ?? null,
+    artifacts_endpoint: buildArtifactEndpoint(runId, ''),
+    provenance_endpoint: metadata?.provenance_endpoint ?? null,
+    provenance_file: metadata?.provenance_file ?? null,
+    artifact_pointers: {},
+    artifact_names: artifactNames,
+    artifacts: artifactNames.map((artifactName) =>
+      buildBundleArtifactEntry({ runId, targetRoot, artifactName }),
+    ),
+    export_status: THESIS_EXPORT_STATUS_FILES.map((artifactName) =>
+      buildBundleExportStatus({ runId, targetRoot, artifactName }),
+    ),
+    title: 'Thesis Evaluation Bundle Index',
+    source_root_relative: toPosixPath(path.relative(repoRoot, sourceRoot)),
+    staged_bundle_path: relativeOutputPath(targetDirName),
+    notes: noteLines,
+  };
+  fs.writeFileSync(indexJsonPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(indexMdPath, renderBundleIndexMarkdown(payload), 'utf8');
+}
+
+function countRootOutputMatches(predicate) {
+  return fs
+    .readdirSync(outputDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && predicate(entry.name)).length;
+}
+
+function writeReviewerRootIndex() {
+  const bundleEntries = [
+    {
+      id: 'full_suite_verdict',
+      title: 'Checked full-suite verdict companion',
+      dirName: FULL_SUITE_COMPANION_DIR_NAME,
+      description:
+        'Suite-level publishability verdict, lane summaries, sample-size gates, and failure-atlas surfaces.',
+    },
+    {
+      id: 'runtime_observability',
+      title: 'Checked runtime-observability lane companion',
+      dirName: FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME,
+      description:
+        'Broad-cold runtime quantiles, action-family budget-share, stage timing, and supporting thesis metrics.',
+    },
+    {
+      id: 'threshold_sensitivity',
+      title: 'Checked threshold-sensitivity lane companion',
+      dirName: THRESHOLD_SENSITIVITY_COMPANION_DIR_NAME,
+      description: 'One-factor-at-a-time sweeps for certificate thresholds and certified-set caps.',
+    },
+    {
+      id: 'optional_stopping',
+      title: 'Checked optional-stopping coverage lane companion',
+      dirName: OPTIONAL_STOPPING_COMPANION_DIR_NAME,
+      description: 'REFC optional-stopping validity, CS-method, and lane-size proof surfaces.',
+    },
+    {
+      id: 'perturbation',
+      title: 'Checked perturbation / flip-radius lane companion',
+      dirName: PERTURBATION_COMPANION_DIR_NAME,
+      description: 'Real-lane and exact-synthetic fragility / flip-radius proof surfaces.',
+    },
+    {
+      id: 'public_transfer',
+      title: 'Checked public-transfer lane companion',
+      dirName: PUBLIC_TRANSFER_COMPANION_DIR_NAME,
+      description:
+        'Leave-one-corridor-family-out and leave-one-weather-regime-out transfer slices.',
+    },
+    {
+      id: 'hot_rerun',
+      title: 'Checked hot-rerun benchmark companion',
+      dirName: HOT_RERUN_COMPANION_DIR_NAME,
+      description: 'Runtime reuse, hot-vs-cold comparison, and pair-benchmark gate surfaces.',
+    },
+  ].map((entry) => {
+    const indexJsonPath = path.join(outputDir, entry.dirName, 'index.json');
+    const indexMdPath = path.join(outputDir, entry.dirName, 'index.md');
+    return {
+      ...entry,
+      relative_path: relativeOutputPath(entry.dirName),
+      index_json: fs.existsSync(indexJsonPath)
+        ? relativeOutputPath(path.join(entry.dirName, 'index.json'))
+        : null,
+      index_md: fs.existsSync(indexMdPath)
+        ? relativeOutputPath(path.join(entry.dirName, 'index.md'))
+        : null,
+    };
+  });
+  const payload = {
+    schema_version: 'reviewer-package-root-v1',
+    generated_at_utc: new Date().toISOString(),
+    output_root: toPosixPath(path.relative(repoRoot, outputDir)),
+    stage_only_mode: SKIP_ARTIFACT_INDEX,
+    paper_artifact_index_path: toPosixPath(path.relative(repoRoot, artifactIndexPath)),
+    headline_export_counts: {
+      svg: countRootOutputMatches((name) => name.endsWith('.svg')),
+      pdf: countRootOutputMatches((name) => name.endsWith('.pdf')),
+      html: countRootOutputMatches((name) => name.endsWith('.print.html')),
+      source_companions: countRootOutputMatches(
+        (name) => name.endsWith('.source.csv') || name.endsWith('.source.json'),
+      ),
+      provenance_companions: countRootOutputMatches((name) => name.endsWith('.provenance.json')),
+    },
+    bundle_entrypoints: bundleEntries,
+    notes: [
+      'This landing page is a reviewer-facing index over the staged current_checked bundle entrypoints.',
+      SKIP_ARTIFACT_INDEX
+        ? 'This run used --skip-artifact-index, so the staged companion bundles and root index were refreshed without rewriting paper_artifact_index.json.'
+        : 'This run refreshed the staged companion bundles, headline exports, and paper_artifact_index.json together.',
+    ],
+  };
+  const markdown = [
+    '# Current Checked Reviewer Package Index',
+    '',
+    `- Output Root: \`${payload.output_root}\``,
+    `- Stage-Only Mode: \`${payload.stage_only_mode}\``,
+    `- Paper Artifact Index: \`${payload.paper_artifact_index_path}\``,
+    '',
+    '## Headline Export Counts',
+    '',
+    `- SVG: \`${payload.headline_export_counts.svg}\``,
+    `- PDF: \`${payload.headline_export_counts.pdf}\``,
+    `- Print HTML: \`${payload.headline_export_counts.html}\``,
+    `- Source companions: \`${payload.headline_export_counts.source_companions}\``,
+    `- Provenance companions: \`${payload.headline_export_counts.provenance_companions}\``,
+    '',
+    '## Companion Bundles',
+    '',
+    ...bundleEntries.map((entry) => {
+      const indexSuffix = entry.index_md
+        ? `; landing pages \`${entry.index_md}\` and \`${entry.index_json}\``
+        : '';
+      return `- ${entry.title}: \`${entry.relative_path}\`${indexSuffix}. ${entry.description}`;
+    }),
+    '',
+    '## Notes',
+    '',
+    ...payload.notes.map((note) => `- ${note}`),
+    '',
+  ].join('\n');
+  fs.writeFileSync(path.join(outputDir, 'index.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(path.join(outputDir, 'index.md'), markdown, 'utf8');
+}
+
 function stageFullSuiteVerdictCompanion() {
   const bundle = stageCompanionBundle({
     sourceRoot: FULL_SUITE_SOURCE_BUNDLE,
@@ -580,13 +854,23 @@ function stageFullSuiteVerdictCompanion() {
 }
 
 function stageRuntimeObservabilityCompanion() {
-  return stageCompanionBundle({
+  const bundle = stageCompanionBundle({
     sourceRoot: FULL_SUITE_BROAD_COLD_SOURCE_BUNDLE,
     targetDirName: FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME,
     companionFiles: FULL_SUITE_BROAD_COLD_COMPANION_FILES,
     requiredCompanionFiles: FULL_SUITE_BROAD_COLD_REQUIRED_COMPANION_FILES,
     errorLabel: 'checked runtime-observability',
   });
+  ensureSyntheticBundleIndex({
+    sourceRoot: FULL_SUITE_BROAD_COLD_SOURCE_BUNDLE,
+    targetDirName: FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME,
+    runId: FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME,
+    noteLines: [
+      'This staged local companion copies the checked broad-cold runtime-observability bundle into out/headline_exports/current_checked/.',
+      'It exposes lane metadata, thesis summary/results/metrics/plots, and a lightweight landing page for reviewer navigation only.',
+    ],
+  });
+  return bundle;
 }
 
 function stageThresholdSensitivityCompanion() {
@@ -2270,10 +2554,6 @@ function updateArtifactIndex(
 
 function main() {
   ensureDir(outputDir);
-  const browserPath = findBrowserExecutable();
-  if (!browserPath) {
-    throw new Error('Could not find Microsoft Edge or Google Chrome for PDF export.');
-  }
 
   stageFullSuiteVerdictCompanion();
   stageRuntimeObservabilityCompanion();
@@ -2283,6 +2563,17 @@ function main() {
   stagePublicTransferCompanion();
   stageHotRerunCompanion();
   writeLaneArtifactGenerationSummary(path.join(outputDir, FULL_SUITE_COMPANION_DIR_NAME));
+  writeReviewerRootIndex();
+  if (SKIP_ARTIFACT_INDEX) {
+    console.log(
+      `Staged reviewer companion bundles and root index under ${path.relative(repoRoot, outputDir)} without refreshing paper_artifact_index.json`,
+    );
+    return;
+  }
+  const browserPath = findBrowserExecutable();
+  if (!browserPath) {
+    throw new Error('Could not find Microsoft Edge or Google Chrome for PDF export.');
+  }
   const artifactIndex = JSON.parse(fs.readFileSync(artifactIndexPath, 'utf8'));
   const headlineSurfaceIds =
     artifactIndex.inventory_sections.find((section) => section.section_id === 'headline_surfaces')
@@ -2372,6 +2663,7 @@ function main() {
     provenanceCompanionBySurfaceId,
   );
   fs.writeFileSync(artifactIndexPath, `${JSON.stringify(artifactIndex, null, 2)}\n`, 'utf8');
+  writeReviewerRootIndex();
 
   console.log(
     `Exported ${exportedSurfaces.length} reviewer surfaces to ${path.relative(repoRoot, outputDir)}`,

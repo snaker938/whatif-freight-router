@@ -105,7 +105,7 @@ The current evidence for this surface lives in:
   - live scenario and support assets
   - model asset provenance
 - `docs/claim_matrix.md`
-  - current empirical/scaffold-only status for support and correction surfaces
+  - current empirical / `partial-proof` / non-claim status for support and correction surfaces
 - `docs/theorem_map.md`
   - open theorem slots and non-theorem structural surfaces
 

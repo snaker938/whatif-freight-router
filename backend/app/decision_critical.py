@@ -150,6 +150,7 @@ _REFINE_COST_UNLABELED_STAGELESS_LEGACY_SCALE: dict[str, float] = {
     # overpredicts these graph-only candidates by an order of magnitude, so keep
     # a fixed per-pipeline shrink factor in-repo rather than silently hiding the
     # samples from calibration metrics.
+    "dccs": 0.08,
     "dccs_refc": 0.04,
     "voi": 0.066,
 }
@@ -587,7 +588,7 @@ def _direct_fallback_via_label_shrink_fraction(
     normalized_stage = str(source_stage or "").strip().lower()
     normalized_label = str(source_label or "").strip().lower()
     normalized_variant = _pipeline_variant_key(pipeline_variant)
-    if normalized_variant not in {"dccs_refc", "voi"}:
+    if normalized_variant not in {"dccs", "dccs_refc", "voi"}:
         return 0.0
     if normalized_stage != "direct_k_raw_fallback" or ":via:" not in normalized_label:
         return 0.0
@@ -601,7 +602,12 @@ def _direct_fallback_via_label_shrink_fraction(
         or path_nodes > 14.0
     ):
         return 0.0
-    shrink = 0.55 if normalized_variant == "voi" else 0.45
+    if normalized_variant == "voi":
+        shrink = 0.55
+    elif normalized_variant == "dccs_refc":
+        shrink = 0.45
+    else:
+        shrink = 0.35
     if graph_length_km <= 100.0:
         shrink += 0.08
     if stretch <= 1.75:
@@ -2048,6 +2054,27 @@ def _reserve_anti_collapse_records(
             reserved_paths.add(record.graph_path)
             return
 
+    def _reserve_additional_matching(predicate: Any) -> None:
+        for record in ranked:
+            if not predicate(record):
+                continue
+            if record.candidate_id in reserved_ids or record.graph_path in reserved_paths:
+                continue
+            reserved.append(record)
+            reserved_ids.add(record.candidate_id)
+            reserved_paths.add(record.graph_path)
+            return
+
+    def _is_live_certificate_guard(record: DCCSCandidateRecord) -> bool:
+        return (not record.safe_eliminated) and record.certificate_critical_candidate
+
+    def _is_live_hidden_search_guard(record: DCCSCandidateRecord) -> bool:
+        return (
+            (not record.safe_eliminated)
+            and record.hidden_challenger_risk >= 0.5
+            and record.search_completeness_contribution > 0.0
+        )
+
     def _reserve_frontier_expansion() -> None:
         reserved_families = {
             record.corridor_signature
@@ -2083,6 +2110,8 @@ def _reserve_anti_collapse_records(
     _reserve_matching(lambda record: record.comparator_seeded)
     _reserve_matching(lambda record: record.time_preserving_likely)
     _reserve_matching(lambda record: record.dominance_likely)
+    _reserve_additional_matching(_is_live_certificate_guard)
+    _reserve_additional_matching(_is_live_hidden_search_guard)
     _reserve_matching(lambda record: record.quota_assignment == _ANTI_COLLAPSE_RESCUE_QUOTA)
     _reserve_frontier_expansion()
     return reserved

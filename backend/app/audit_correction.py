@@ -79,6 +79,12 @@ def _leakage_safe_training(metadata: LeakageSafeCorrectionMetadata | AuditPropen
     )
 
 
+def _aggregate_leakage_safe_training(
+    metadatas: Sequence[LeakageSafeCorrectionMetadata | AuditPropensityMetadata],
+) -> bool:
+    return bool(metadatas) and all(_leakage_safe_training(metadata) for metadata in metadatas)
+
+
 def _pairwise_evaluation_tag(*, correction_applied: bool, audit_probability: float, propensity_score: float) -> str:
     if correction_applied:
         return "corrected_from_residual_model"
@@ -269,14 +275,16 @@ def summarize_proxy_audit_records(
     correction_active = any(record.correction_applied for record in record_list)
     correction_mass = sum(abs(float(record.residual_bias)) for record in record_list)
     propensity_scores = [float(record.propensity_score) for record in record_list]
+    correction_metadatas = [record.correction_metadata for record in record_list]
+    propensity_metadatas = [record.propensity_metadata for record in record_list]
     first_correction_meta = (
-        record_list[0].correction_metadata if record_list else LeakageSafeCorrectionMetadata()
+        correction_metadatas[0] if correction_metadatas else LeakageSafeCorrectionMetadata()
     )
     first_propensity_meta = (
-        record_list[0].propensity_metadata if record_list else AuditPropensityMetadata()
+        propensity_metadatas[0] if propensity_metadatas else AuditPropensityMetadata()
     )
-    correction_training_leakage_safe = bool(record_list) and _leakage_safe_training(first_correction_meta)
-    propensity_training_leakage_safe = bool(record_list) and _leakage_safe_training(first_propensity_meta)
+    correction_training_leakage_safe = _aggregate_leakage_safe_training(correction_metadatas)
+    propensity_training_leakage_safe = _aggregate_leakage_safe_training(propensity_metadatas)
     resolved_support_state = (
         support_state
         or (record_list[0].support_state if record_list else WorldSupportState())

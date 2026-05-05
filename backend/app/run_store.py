@@ -102,7 +102,7 @@ _BUNDLE_INDEX_ARTIFACTS = frozenset({"index.json", "index.md"})
 _RUN_BUNDLE_INDEX_SCHEMA_VERSION = "run-bundle-index-v1"
 ROUTE_ARTIFACT_PROVENANCE_SCHEMA_VERSION = "route-artifact-provenance-v1"
 ROUTE_ARTIFACT_IDENTITY_SCHEMA_VERSION = "route-artifact-identity-v1"
-ROUTE_THEOREM_HOOK_SCHEMA_VERSION = "route-theorem-hook-v1"
+ROUTE_THEOREM_HOOK_SCHEMA_VERSION = "route-theorem-hook-v2"
 ROUTE_RUNTIME_LANE_ID = "route_compute_runtime"
 ROUTE_CONTROLLER_POLICY_VERSION = "voi-controller-policy-v1"
 ROUTE_PREFERENCE_MODEL_VERSION = "preference-elicitation-policy-v1"
@@ -157,7 +157,27 @@ _ARTIFACT_SUMMARY_HIGHLIGHT_KEYS: tuple[str, ...] = (
     "frontier_count",
 )
 
-_ROUTE_ARTIFACT_THEOREM_HOOKS: dict[str, list[dict[str, str]]] = {
+def _route_artifact_hook(
+    hook_id: str,
+    *,
+    kind: str,
+    status: str,
+    family_id: str | None = None,
+    artifact_fields: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    hook: dict[str, Any] = {
+        "hook_id": hook_id,
+        "kind": kind,
+        "status": status,
+    }
+    if family_id:
+        hook["family_id"] = family_id
+    if artifact_fields:
+        hook["artifact_fields"] = list(artifact_fields)
+    return hook
+
+
+_ROUTE_ARTIFACT_THEOREM_HOOKS: dict[str, list[dict[str, Any]]] = {
     "decision_package.json": [
         {
             "hook_id": "decision_package_contract",
@@ -169,6 +189,77 @@ _ROUTE_ARTIFACT_THEOREM_HOOKS: dict[str, list[dict[str, str]]] = {
             "kind": "runtime_contract",
             "status": "runtime_backed",
         },
+        _route_artifact_hook(
+            "THM-09",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-09",
+            artifact_fields=(
+                "support_summary.multi_fidelity_summary.proxy_world_count",
+                "support_summary.audit_world_count",
+                "support_summary.multi_fidelity_certificate_basis",
+                "support_summary.audit_correction_mass",
+                "support_summary.proxy_only_fraction",
+                "support_summary.positivity_diagnostics.weak_overlap_detected",
+            ),
+        ),
+        _route_artifact_hook(
+            "LB-04",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="LB-04",
+            artifact_fields=(
+                "support_summary.multi_fidelity_summary.proxy_world_count",
+                "support_summary.audit_world_count",
+                "support_summary.multi_fidelity_certificate_basis",
+                "support_summary.audit_correction_mass",
+                "support_summary.proxy_only_fraction",
+                "support_summary.positivity_diagnostics.weak_overlap_detected",
+            ),
+        ),
+    ],
+    "dccs_candidates.jsonl": [
+        _route_artifact_hook(
+            "THM-01",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-01",
+            artifact_fields=(
+                "safe_eliminated",
+                "necessary_dominated",
+                "dominated_by_route_id",
+                "dominance_margin",
+            ),
+        ),
+        _route_artifact_hook(
+            "THM-08",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-08",
+        ),
+    ],
+    "dccs_summary.json": [
+        _route_artifact_hook(
+            "THM-01",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-01",
+            artifact_fields=("false_safe_prune_rate",),
+        ),
+        _route_artifact_hook(
+            "THM-08",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-08",
+            artifact_fields=("unresolved_possible_winner_mass", "search_completeness_gap"),
+        ),
+        _route_artifact_hook(
+            "LB-03",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="LB-03",
+            artifact_fields=("unresolved_possible_winner_mass", "search_completeness_gap"),
+        ),
     ],
     "certificate_summary.json": [
         {
@@ -176,6 +267,22 @@ _ROUTE_ARTIFACT_THEOREM_HOOKS: dict[str, list[dict[str, str]]] = {
             "kind": "theorem_hook",
             "status": "scaffold_only",
         }
+    ],
+    "initial_certificate_summary.json": [
+        _route_artifact_hook(
+            "THM-02",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-02",
+            artifact_fields=("selected_certificate",),
+        ),
+        _route_artifact_hook(
+            "LB-01",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="LB-01",
+            artifact_fields=("selected_certificate",),
+        ),
     ],
     "world_support_summary.json": [
         {
@@ -246,6 +353,33 @@ _ROUTE_ARTIFACT_THEOREM_HOOKS: dict[str, list[dict[str, str]]] = {
             "kind": "theorem_hook",
             "status": "heuristic_measured",
         }
+    ],
+    "sampled_world_manifest.json": [
+        _route_artifact_hook(
+            "LB-01",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="LB-01",
+            artifact_fields=("world_count",),
+        )
+    ],
+    "replay_oracle_summary.json": [
+        _route_artifact_hook(
+            "THM-10",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-10",
+            artifact_fields=("mean_replay_regret",),
+        )
+    ],
+    "voi_action_trace.json": [
+        _route_artifact_hook(
+            "THM-10",
+            kind="theorem_hook",
+            status="runtime_backed",
+            family_id="THM-10",
+            artifact_fields=("actions",),
+        )
     ],
     "voi_stop_certificate.json": [
         {
@@ -360,7 +494,7 @@ def _bundle_title(bundle_type: Any) -> str:
     return "Run Bundle Index"
 
 
-def route_artifact_theorem_hooks(artifact_name: str) -> list[dict[str, str]]:
+def route_artifact_theorem_hooks(artifact_name: str) -> list[dict[str, Any]]:
     hooks = _ROUTE_ARTIFACT_THEOREM_HOOKS.get(str(artifact_name or "").strip(), [])
     return [dict(hook) for hook in hooks]
 

@@ -12,6 +12,9 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 COORD = ROOT / "tools" / "codex_coord.py"
 RUN_PYTHON = ROOT / "tools" / "codex_run_python.py"
 

@@ -155,13 +155,13 @@ For thesis-grade evaluation:
 - `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/methods_appendix.md`
 - `paper_artifact_index.json`
 
-For the latest checked suite-level verdict outside the local reviewer package:
+For the latest checked suite-level verdict carried in the maintained local reviewer companion bundle:
 
-- `C:\app\out\artifacts\full_suite_curated_latest_20260411\index.md`
-- `C:\app\out\artifacts\full_suite_curated_latest_20260411\publishability_verdict.json`
-- `C:\app\out\artifacts\full_suite_curated_latest_20260411\publishability_assessment.md`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411/index.md`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`
+- `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_assessment.md`
 
-Use those external checked suite artifacts when you need the current publishability/adoption judgment. Use the local reviewer package when you need the checked local table/figure source surfaces and the local campaign-backed evidence family. They are related, but they are not the same evidence scope.
+Use that checked local companion bundle when you need the current publishability/adoption judgment. When present on the current machine, it is exported from `C:\app\out\artifacts\full_suite_curated_latest_20260411\`. The local reviewer package now carries that checked local copy alongside the checked local table/figure source surfaces and the local campaign-backed evidence family; those scopes are related, but they are not identical.
 
 Recommended metadata bundle:
 
@@ -175,7 +175,7 @@ For the current reviewer-facing publication slice, `paper_artifact_index.json` i
 
 The checked focused-VOI bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now also carries additively backfilled `index.json` and `index.md` as bundle-level inspection entrypoints for artifact presence and export-status checks only. Treat those files as current inspection aids for this checked local bundle, not as proof that every older thesis-like bundle originally emitted them; older pre-refresh bundles may still legitimately lack those index files.
 
-That reviewer index now also names `table.focused_voi.preference_burden_summary` and `table.focused_voi.preference_burden_by_cohort` as maintained source surfaces backed by `thesis_summary.*`, `thesis_summary_by_cohort.*`, and `evaluation_manifest.json` from the checked focused-VOI bundle. Those maintained surfaces expose `median_preference_query_count`, `p90_preference_query_count`, `max_preference_query_count`, and `preference_certification_success_rate`. For the current checked local slice, read them as single-bundle descriptive surfaces only: the checked focused-VOI bundle now does populate those burden fields, but that descriptive surface still does not close `P14.17` or `P14.18` on its own.
+That reviewer index now also names `table.focused_voi.preference_burden_summary` and `table.focused_voi.preference_burden_by_cohort` as maintained source surfaces backed by `thesis_summary.*`, `thesis_summary_by_cohort.*`, and `evaluation_manifest.json` from `out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/` plus the `_seed20260421` and `_seed20260522` companions. Those maintained surfaces expose `median_preference_query_count`, `p90_preference_query_count`, `max_preference_query_count`, and `preference_certification_success_rate`. For the current checked local slice, they now support `P14.17-P14.20`: the aggregate burden rows keep `median_preference_query_count = 0.0` with `p90_preference_query_count <= 1.0`, and the cohort split keeps `preference_certification_success_rate` visible alongside the burden counts. This remains a family-specific preference-burden closure surface rather than a claim that the full suite is publishable.
 
 ## Comparing Two Runs
 

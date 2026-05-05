@@ -3425,8 +3425,6 @@ def _apply_strong_winner_side_refresh_preference(
 ) -> list[VOIAction]:
     if not evidence_uncertainty or not supported_fragility_uncertainty:
         return list(actions)
-    if not _support_rich_ambiguity_window(state):
-        return list(actions)
     refresh_entry = _best_refresh_action_entry(actions)
     if refresh_entry is None:
         return list(actions)
@@ -3444,6 +3442,8 @@ def _apply_strong_winner_side_refresh_preference(
         return list(actions)
     best_search_index, best_search_action = best_search_entry
     certificate_threshold = _as_float(config.certificate_threshold)
+    support_rich_window = _support_rich_ambiguity_window(state)
+    ambiguity_context = state.ambiguity_context if isinstance(state.ambiguity_context, Mapping) else {}
     refresh_metadata = refresh_action.metadata if isinstance(refresh_action.metadata, Mapping) else {}
     search_metadata = (
         best_search_action.metadata
@@ -3479,6 +3479,22 @@ def _apply_strong_winner_side_refresh_preference(
         and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.20
         and _clamp01(state.pending_challenger_mass) >= 0.55
     )
+    support_ratio_relief_uncertified_bridge = bool(
+        current_certificate < certificate_threshold
+        and not support_rich_window
+        and _clamp01(ambiguity_context.get("od_ambiguity_support_ratio")) >= 0.44
+        and _clamp01(ambiguity_context.get("od_ambiguity_source_entropy")) >= 0.42
+        and _clamp01(max(state.support_richness, state.prior_support_strength)) >= 0.50
+        and bool(refresh_metadata.get("structured_refresh_signal"))
+        and max(0.0, _as_float(refresh_metadata.get("empirical_refresh_certificate_uplift"))) >= 0.20
+        and _clamp01(search_metadata.get("normalized_objective_gap")) < 0.08
+        and max(0.0, _as_float(best_search_action.predicted_delta_frontier)) < 0.10
+        and top_refresh_gain >= 0.30
+        and top_fragility_mass >= 0.15
+        and competitor_pressure >= 0.75
+        and _clamp01(state.pending_challenger_mass) >= 0.55
+        and _clamp01(state.best_pending_flip_probability) >= 0.95
+    )
     cached_direct_fallback_refresh_bridge = bool(
         current_certificate < certificate_threshold
         and current_certificate >= 0.60
@@ -3509,9 +3525,12 @@ def _apply_strong_winner_side_refresh_preference(
         strong_structured_uncertified_bridge
         or empirical_uncertified_refresh_bridge
         or post_route_change_uncertified_refresh_bridge
+        or support_ratio_relief_uncertified_bridge
         or cached_direct_fallback_refresh_bridge
         or productive_frontier_probe_refresh_bridge
     )
+    if not support_rich_window and not support_ratio_relief_uncertified_bridge:
+        return list(actions)
     if (
         _clamp01(search_metadata.get("normalized_mechanism_gap")) >= 0.12
         and not preferred_uncertified_refresh_bridge
@@ -3561,6 +3580,9 @@ def _apply_strong_winner_side_refresh_preference(
     refresh_metadata["winner_side_refresh_preference_empirical_bridge"] = empirical_uncertified_refresh_bridge
     refresh_metadata["winner_side_refresh_preference_post_route_change_bridge"] = (
         post_route_change_uncertified_refresh_bridge
+    )
+    refresh_metadata["winner_side_refresh_preference_support_ratio_relief_bridge"] = (
+        support_ratio_relief_uncertified_bridge
     )
     refresh_metadata["winner_side_refresh_preference_cached_direct_fallback_bridge"] = (
         cached_direct_fallback_refresh_bridge
@@ -8019,6 +8041,38 @@ def credible_evidence_uncertainty(
     )
 
 
+def should_stop_as_certified(
+    state: VOIControllerState,
+    *,
+    fragility: FragilityResult,
+    config: VOIConfig,
+    current_certificate: float,
+    search_uncertainty: bool | None = None,
+    evidence_uncertainty: bool | None = None,
+) -> bool:
+    threshold = _as_float(config.certificate_threshold)
+    if current_certificate < threshold:
+        return False
+    if search_uncertainty is None:
+        search_uncertainty = credible_search_uncertainty(
+            state,
+            config=config,
+            current_certificate=current_certificate,
+        )
+    if evidence_uncertainty is None:
+        evidence_uncertainty = credible_evidence_uncertainty(
+            state,
+            fragility=fragility,
+            config=config,
+            current_certificate=current_certificate,
+        )
+    search_complete_enough = (
+        _as_float(state.search_completeness_score) >= _as_float(config.search_completeness_threshold)
+        or not bool(search_uncertainty)
+    )
+    return bool(search_complete_enough and not bool(evidence_uncertainty))
+
+
 def _state_snapshot(
     state: VOIControllerState,
     *,
@@ -8227,7 +8281,6 @@ def run_controller(
     while state.iteration_index < cfg.max_iterations:
         state = enrich_controller_state_for_actioning(state, dccs=dccs, fragility=fragility, config=cfg)
         current_certificate = _as_float(state.certificate.get(state.winner_id, certificate_value))
-        strong_certificate = current_certificate >= cfg.certificate_threshold
         credible_uncertainty = _credible_search_uncertainty(
             state,
             config=cfg,
@@ -8244,12 +8297,13 @@ def run_controller(
             credible_search_uncertainty=bool(credible_uncertainty),
             credible_evidence_uncertainty=bool(credible_evidence),
         )
-        if strong_certificate and (
-            (
-                state.search_completeness_score >= cfg.search_completeness_threshold
-                or not credible_uncertainty
-            )
-            and not credible_evidence
+        if should_stop_as_certified(
+            state,
+            fragility=fragility,
+            config=cfg,
+            current_certificate=current_certificate,
+            search_uncertainty=credible_uncertainty,
+            evidence_uncertainty=credible_evidence,
         ):
             return _build_stop_certificate(
                 state=state,

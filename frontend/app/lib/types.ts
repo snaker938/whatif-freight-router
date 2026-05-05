@@ -234,6 +234,8 @@ export type PreferenceCompatibleSetSummary = {
   compatible_set_volume_proxy?: number | null;
   necessary_best_prob?: number | null;
   possible_best_prob?: number | null;
+  necessary_best_route_ids?: string[];
+  possible_best_route_ids?: string[];
   support_flag?: boolean | null;
   support_reason?: string | null;
 };

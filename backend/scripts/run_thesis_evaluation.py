@@ -1532,6 +1532,18 @@ def _bool_or_default(value: Any, default: bool) -> bool:
     return bool(default)
 
 
+def _bool_or_none(value: Any) -> bool | None:
+    text = _text_or_none(value)
+    if text is None:
+        return None
+    lowered = text.lower()
+    if lowered in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return None
+
+
 def _time_preserving_outcome(*, duration_delta_s: Any, quality_win: Any) -> bool | None:
     duration_delta = as_float(duration_delta_s, float("nan"))
     if not math.isfinite(duration_delta):
@@ -9371,6 +9383,94 @@ def _proxy_audit_support_condition_id(row: Mapping[str, Any]) -> str:
     return "weak_support" if _support_bin_label(row) == "weak_support" else "strong_support"
 
 
+def _proxy_audit_cell_axis_ids(
+    values: Any,
+    *,
+    fallback: Sequence[str],
+) -> list[str]:
+    if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+        axis_ids: list[str] = []
+        for value in values:
+            if isinstance(value, Mapping):
+                axis_id = str(value.get("id") or "").strip()
+            else:
+                axis_id = str(value).strip()
+            if axis_id:
+                axis_ids.append(axis_id)
+        if axis_ids:
+            return axis_ids
+    return [str(value) for value in fallback]
+
+
+def _proxy_audit_cell_observation_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    minimum_per_cell: int = 100,
+    cell_structure: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    bias_regimes = _proxy_audit_cell_axis_ids(
+        cell_structure.get("bias_regimes") if isinstance(cell_structure, Mapping) else None,
+        fallback=("low_bias", "medium_bias", "high_bias"),
+    )
+    audit_budget_levels = _proxy_audit_cell_axis_ids(
+        cell_structure.get("audit_budget_levels") if isinstance(cell_structure, Mapping) else None,
+        fallback=("low_budget", "medium_budget", "high_budget"),
+    )
+    support_conditions = _proxy_audit_cell_axis_ids(
+        cell_structure.get("support_conditions") if isinstance(cell_structure, Mapping) else None,
+        fallback=("weak_support", "strong_support"),
+    )
+    cell_counts: dict[tuple[str, str, str], int] = {
+        (bias_regime, audit_budget_level, support_condition): 0
+        for bias_regime in bias_regimes
+        for audit_budget_level in audit_budget_levels
+        for support_condition in support_conditions
+    }
+    for row in rows:
+        audited_route_pair_count = as_float(row.get("audited_route_pair_count"), float("nan"))
+        observed_count = int(round(audited_route_pair_count)) if math.isfinite(audited_route_pair_count) else 0
+        if observed_count < 0:
+            observed_count = 0
+        key = (
+            _proxy_audit_bias_regime_id(row),
+            _proxy_audit_budget_level_id(row),
+            _proxy_audit_support_condition_id(row),
+        )
+        if key not in cell_counts:
+            cell_counts[key] = 0
+        cell_counts[key] += observed_count
+    cell_rows = [
+        {
+            "bias_regime": bias_regime,
+            "audit_budget_level": audit_budget_level,
+            "support_condition": support_condition,
+            "observed_audited_route_pair_count": cell_counts[
+                (bias_regime, audit_budget_level, support_condition)
+            ],
+            "required_audited_route_pair_count_per_cell": int(minimum_per_cell),
+            "meets_requirement": (
+                cell_counts[(bias_regime, audit_budget_level, support_condition)]
+                >= int(minimum_per_cell)
+            ),
+        }
+        for bias_regime in bias_regimes
+        for audit_budget_level in audit_budget_levels
+        for support_condition in support_conditions
+    ]
+    cells_meeting_minimum = sum(1 for row in cell_rows if row["meets_requirement"])
+    observed_counts = [int(row["observed_audited_route_pair_count"]) for row in cell_rows]
+    return {
+        "required_audited_route_pair_count_per_cell": int(minimum_per_cell),
+        "cell_count": len(cell_rows),
+        "cells_meeting_minimum": cells_meeting_minimum,
+        "missing_or_underfilled_cell_count": max(0, len(cell_rows) - cells_meeting_minimum),
+        "min_observed_audited_route_pair_count_per_cell": min(observed_counts) if observed_counts else 0,
+        "max_observed_audited_route_pair_count_per_cell": max(observed_counts) if observed_counts else 0,
+        "requirement_met": bool(cell_rows) and cells_meeting_minimum == len(cell_rows),
+        "cell_rows": cell_rows,
+    }
+
+
 def _is_silent_proxy_only_certification_row(row: Mapping[str, Any]) -> bool:
     proxy_only_fraction = as_float(row.get("proxy_only_fraction"), float("nan"))
     if not math.isfinite(proxy_only_fraction) or proxy_only_fraction < 0.99:
@@ -9451,7 +9551,10 @@ def _proxy_audit_grid_cell_metrics(
                     )
                     corrected_beats_naive = None
                     calibration_payload = _proxy_audit_calibration_payload(batch)
-                    if calibration_payload is not None:
+                    if (
+                        calibration_payload is not None
+                        and calibration_payload.get("calibration_leakage_safe_training") is True
+                    ):
                         corrected_ece = as_float(
                             calibration_payload.get("calibration_ece"),
                             float("nan"),
@@ -9692,6 +9795,33 @@ def _cross_fit_calibration_payload(
     label_key: str = "certified",
     naive_score_key: str = "support_richness",
 ) -> dict[str, Any] | None:
+    def _row_leakage_safe_training_state(row: Mapping[str, Any]) -> bool | None:
+        signals = [
+            signal
+            for signal in (
+                _bool_or_none(row.get("leakage_safe_training")),
+                _bool_or_none(row.get("correction_training_leakage_safe")),
+                _bool_or_none(row.get("propensity_training_leakage_safe")),
+            )
+            if signal is not None
+        ]
+        if not signals:
+            return None
+        return all(signals)
+
+    def _batch_leakage_safe_training_state(
+        batch: Sequence[Mapping[str, Any]],
+    ) -> bool | None:
+        if not batch:
+            return None
+        states: list[bool] = []
+        for row in batch:
+            row_state = _row_leakage_safe_training_state(row)
+            if row_state is None:
+                return None
+            states.append(row_state)
+        return all(states)
+
     labeled_rows: list[dict[str, Any]] = []
     for row in rows:
         label_value = row.get(label_key)
@@ -9718,6 +9848,13 @@ def _cross_fit_calibration_payload(
                 "label": 1.0 if bool(label_value) else 0.0,
                 "naive_score": min(1.0, max(0.0, naive_score)),
                 "support_bin": _support_bin_label(row),
+                "leakage_safe_training": _bool_or_none(row.get("leakage_safe_training")),
+                "correction_training_leakage_safe": _bool_or_none(
+                    row.get("correction_training_leakage_safe")
+                ),
+                "propensity_training_leakage_safe": _bool_or_none(
+                    row.get("propensity_training_leakage_safe")
+                ),
             }
         )
     if len(labeled_rows) < 4 or not feature_names:
@@ -9932,7 +10069,7 @@ def _cross_fit_calibration_payload(
         "intercept": intercept,
         "calibration_bins": bins,
         "support_conditioned": support_payload,
-        "leakage_safe_training": True,
+        "leakage_safe_training": _batch_leakage_safe_training_state(labeled_rows),
         "naive_proxy_field": naive_score_key,
         "label_field": label_key,
         "naive_low_sample_bin_count": naive_low_sample_count,
@@ -10017,6 +10154,7 @@ def _evaluation_size_requirement_met(
     probabilistic_world_count: int | None = None,
     audit_world_count: int | None = None,
     audited_route_pair_count: int | None = None,
+    proxy_audit_cell_summary: Mapping[str, Any] | None = None,
 ) -> bool | None:
     if not isinstance(evaluation_size_requirement, Mapping):
         return None
@@ -10040,6 +10178,10 @@ def _evaluation_size_requirement_met(
         except (TypeError, ValueError):
             return None
     if unit == "audited_route_pair_observations_per_cell" and minimum is not None:
+        if isinstance(proxy_audit_cell_summary, Mapping):
+            requirement_met = proxy_audit_cell_summary.get("requirement_met")
+            if requirement_met is not None:
+                return bool(requirement_met)
         if not isinstance(evaluation_cell_structure, Mapping):
             return None
         cell_count = 1
@@ -10112,6 +10254,22 @@ def _lane_metadata(
     probabilistic_world_count = _sum_numeric(rows, "probabilistic_world_count")
     audit_world_count = _sum_numeric(rows, "audit_world_count")
     audited_route_pair_count = _sum_numeric(rows, "audited_route_pair_count")
+    proxy_audit_cell_summary = None
+    if (
+        _text_or_none(evaluation_suite.get("role")) == "proxy_audit_calibration"
+        and isinstance(evaluation_size_requirement, Mapping)
+        and str(evaluation_size_requirement.get("unit") or "").strip()
+        == "audited_route_pair_observations_per_cell"
+    ):
+        proxy_audit_cell_summary = _proxy_audit_cell_observation_summary(
+            rows,
+            minimum_per_cell=_int_or_default(evaluation_size_requirement.get("minimum"), 100),
+            cell_structure=(
+                descriptor.get("evaluation_cell_structure")
+                if isinstance(descriptor.get("evaluation_cell_structure"), Mapping)
+                else None
+            ),
+        )
     evaluation_size_met = _evaluation_size_requirement_met(
         evaluation_size_requirement=evaluation_size_requirement if isinstance(evaluation_size_requirement, Mapping) else None,
         evaluation_cell_structure=descriptor.get("evaluation_cell_structure") if isinstance(descriptor.get("evaluation_cell_structure"), Mapping) else None,
@@ -10121,6 +10279,7 @@ def _lane_metadata(
         probabilistic_world_count=probabilistic_world_count,
         audit_world_count=audit_world_count,
         audited_route_pair_count=audited_route_pair_count,
+        proxy_audit_cell_summary=proxy_audit_cell_summary,
     )
     transfer_slice_reporting = None
     threshold_sensitivity_reporting = None
@@ -10174,27 +10333,55 @@ def _lane_metadata(
                 for axis in axis_definitions
             ],
         }
+    observed_sample_size = {
+        "row_count": observed_row_count,
+        "unique_od_count": len(unique_od_ids),
+        "unique_row_seed_count": len(unique_row_seeds),
+        "row_seeds": unique_row_seeds,
+        "evaluation_size_requirement_met": evaluation_size_met,
+        "effective_cert_world_count": effective_cert_world_count,
+        "requested_cert_world_count": requested_cert_world_count,
+        "probabilistic_world_count": probabilistic_world_count,
+        "audit_world_count": audit_world_count,
+        "audited_route_pair_count": audited_route_pair_count,
+        "candidate_route_pair_count": _sum_numeric(rows, "candidate_route_pair_count"),
+        "refine_cost_sample_count": _sum_numeric(rows, "refine_cost_sample_count"),
+        "refine_cost_positive_sample_count": _sum_numeric(rows, "refine_cost_positive_sample_count"),
+        "preference_query_count": _sum_numeric(rows, "preference_query_count"),
+    }
+    if isinstance(proxy_audit_cell_summary, Mapping):
+        observed_sample_size.update(
+            {
+                "proxy_audit_required_audited_route_pair_count_per_cell": proxy_audit_cell_summary.get(
+                    "required_audited_route_pair_count_per_cell"
+                ),
+                "proxy_audit_cell_count": proxy_audit_cell_summary.get("cell_count"),
+                "proxy_audit_cells_meeting_audited_route_pair_minimum": proxy_audit_cell_summary.get(
+                    "cells_meeting_minimum"
+                ),
+                "proxy_audit_missing_or_underfilled_cell_count": proxy_audit_cell_summary.get(
+                    "missing_or_underfilled_cell_count"
+                ),
+                "proxy_audit_min_observed_audited_route_pair_count_per_cell": proxy_audit_cell_summary.get(
+                    "min_observed_audited_route_pair_count_per_cell"
+                ),
+                "proxy_audit_max_observed_audited_route_pair_count_per_cell": proxy_audit_cell_summary.get(
+                    "max_observed_audited_route_pair_count_per_cell"
+                ),
+                "proxy_audit_audited_route_pair_count_per_cell_requirement_met": proxy_audit_cell_summary.get(
+                    "requirement_met"
+                ),
+                "proxy_audit_audited_route_pair_count_per_cell_rows": proxy_audit_cell_summary.get(
+                    "cell_rows"
+                ),
+            }
+        )
     metadata = {
         "evaluation_suite": dict(evaluation_suite),
         "why_this_lane_exists": descriptor["why"],
         "evaluation_size_requirement": evaluation_size_requirement,
         "evaluation_cell_structure": descriptor.get("evaluation_cell_structure"),
-        "observed_sample_size": {
-            "row_count": observed_row_count,
-            "unique_od_count": len(unique_od_ids),
-            "unique_row_seed_count": len(unique_row_seeds),
-            "row_seeds": unique_row_seeds,
-            "evaluation_size_requirement_met": evaluation_size_met,
-            "effective_cert_world_count": effective_cert_world_count,
-            "requested_cert_world_count": requested_cert_world_count,
-            "probabilistic_world_count": probabilistic_world_count,
-            "audit_world_count": audit_world_count,
-            "audited_route_pair_count": audited_route_pair_count,
-            "candidate_route_pair_count": _sum_numeric(rows, "candidate_route_pair_count"),
-            "refine_cost_sample_count": _sum_numeric(rows, "refine_cost_sample_count"),
-            "refine_cost_positive_sample_count": _sum_numeric(rows, "refine_cost_positive_sample_count"),
-            "preference_query_count": _sum_numeric(rows, "preference_query_count"),
-        },
+        "observed_sample_size": observed_sample_size,
         "cohort_reporting": {
             "cohort_composition_artifact": "cohort_composition.json",
             "summary_by_cohort_csv": "thesis_summary_by_cohort.csv",

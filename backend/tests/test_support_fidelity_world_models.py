@@ -489,6 +489,66 @@ def test_proxy_audit_record_and_summary_sanitize_sparse_edge_inputs() -> None:
     )
 
 
+def test_proxy_audit_summary_requires_all_records_to_be_leakage_safe() -> None:
+    support_state = build_world_support_state(
+        support_score=0.83,
+        support_ratio=0.61,
+        support_bin="supported",
+        calibration_bin="bin_2",
+        support_source="audit_correction",
+    )
+    safe_correction_meta = build_leakage_safe_correction_metadata(
+        model_version="proxy-v-safe",
+        provenance={"source": "safe"},
+    )
+    safe_propensity_meta = build_audit_propensity_metadata(
+        model_version="audit-v-safe",
+        provenance={"source": "safe"},
+    )
+    unsafe_correction_meta = build_leakage_safe_correction_metadata(
+        model_version="proxy-v-unsafe",
+        cross_fitted=False,
+        provenance={"source": "unsafe"},
+    )
+    unsafe_propensity_meta = build_audit_propensity_metadata(
+        model_version="audit-v-unsafe",
+        out_of_fold_only=False,
+        provenance={"source": "unsafe"},
+    )
+    records = [
+        build_proxy_audit_record(
+            row_id="row-safe",
+            route_id="route-safe",
+            evidence_family="scenario",
+            proxy_value=100.0,
+            audited_value=103.0,
+            audit_probability=0.41,
+            propensity_score=0.32,
+            support_state=support_state,
+            correction_metadata=safe_correction_meta,
+            propensity_metadata=safe_propensity_meta,
+        ),
+        build_proxy_audit_record(
+            row_id="row-unsafe",
+            route_id="route-unsafe",
+            evidence_family="scenario",
+            proxy_value=95.0,
+            audited_value=99.0,
+            audit_probability=0.43,
+            propensity_score=0.28,
+            support_state=support_state,
+            correction_metadata=unsafe_correction_meta,
+            propensity_metadata=unsafe_propensity_meta,
+        ),
+    ]
+
+    summary = summarize_proxy_audit_records(records, proxy_world_count=4, audit_world_count=2)
+
+    assert summary.correction_training_leakage_safe is False
+    assert summary.propensity_training_leakage_safe is False
+    assert summary.leakage_safe_training is False
+
+
 def test_world_bundle_summary_infers_proxy_and_audit_counts_from_manifest_lists() -> None:
     support_state = build_world_support_state(
         support_score=0.82,

@@ -311,6 +311,7 @@ from .voi_controller import (
     predicted_delta_radius_or_flip_budget,
     predicted_preference_shrinkage,
     refresh_controller_state_after_action,
+    should_stop_as_certified,
     voi_artifact_metric_semantics,
 )
 from .voi_dccs_cache import (
@@ -18284,6 +18285,20 @@ async def _compute_direct_route_pipeline(
                 literal_state_fields=controller_state_literal_fields,
             )
 
+        def _should_stop_as_certified_after_action(
+            state: VOIControllerState,
+            *,
+            current_certificate_value: float,
+        ) -> bool:
+            if fragility_result is None:
+                return False
+            return should_stop_as_certified(
+                state,
+                fragility=fragility_result,
+                config=voi_config,
+                current_certificate=float(current_certificate_value),
+            )
+
         def _current_voi_projection_bundle() -> tuple[dict[str, Any], Any]:
             if pipeline_mode != "voi" or certificate_result is None or fragility_result is None:
                 return {}, None
@@ -18921,15 +18936,9 @@ async def _compute_direct_route_pipeline(
                     chosen_action=action_trace[-1].get("chosen_action"),
                     realized_fields=action_trace[-1],
                 )
-                if (
-                    current_selected_cert_value >= certificate_threshold
-                    and certified_no_gain_streak >= 1
-                    and not credible_evidence_uncertainty(
-                        controller_state,
-                        fragility=fragility_result,
-                        config=voi_config,
-                        current_certificate=float(current_selected_cert_value),
-                    )
+                if _should_stop_as_certified_after_action(
+                    controller_state,
+                    current_certificate_value=current_selected_cert_value,
                 ):
                     stop_reason = "certified"
                     break
@@ -19021,15 +19030,9 @@ async def _compute_direct_route_pipeline(
                     chosen_action=action_trace[-1].get("chosen_action"),
                     realized_fields=action_trace[-1],
                 )
-                if (
-                    current_selected_cert_value >= certificate_threshold
-                    and certified_no_gain_streak >= 1
-                    and not credible_evidence_uncertainty(
-                        controller_state,
-                        fragility=fragility_result,
-                        config=voi_config,
-                        current_certificate=float(current_selected_cert_value),
-                    )
+                if _should_stop_as_certified_after_action(
+                    controller_state,
+                    current_certificate_value=current_selected_cert_value,
                 ):
                     stop_reason = "certified"
                     break
@@ -19138,15 +19141,9 @@ async def _compute_direct_route_pipeline(
                     chosen_action=action_trace[-1].get("chosen_action"),
                     realized_fields=action_trace[-1],
                 )
-                if (
-                    current_selected_cert_value >= certificate_threshold
-                    and certified_no_gain_streak >= 1
-                    and not credible_evidence_uncertainty(
-                        controller_state,
-                        fragility=fragility_result,
-                        config=voi_config,
-                        current_certificate=float(current_selected_cert_value),
-                    )
+                if _should_stop_as_certified_after_action(
+                    controller_state,
+                    current_certificate_value=current_selected_cert_value,
                 ):
                     stop_reason = "certified"
                     break
@@ -19250,15 +19247,9 @@ async def _compute_direct_route_pipeline(
                     chosen_action=action_trace[-1].get("chosen_action"),
                     realized_fields=action_trace[-1],
                 )
-                if (
-                    current_selected_cert_value >= certificate_threshold
-                    and certified_no_gain_streak >= 1
-                    and not credible_evidence_uncertainty(
-                        controller_state,
-                        fragility=fragility_result,
-                        config=voi_config,
-                        current_certificate=float(current_selected_cert_value),
-                    )
+                if _should_stop_as_certified_after_action(
+                    controller_state,
+                    current_certificate_value=current_selected_cert_value,
                 ):
                     stop_reason = "certified"
                     break

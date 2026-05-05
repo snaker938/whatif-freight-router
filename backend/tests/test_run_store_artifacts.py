@@ -402,6 +402,34 @@ def test_route_compute_metadata_write_creates_and_refreshes_bundle_index(
             "kind": "runtime_contract",
             "status": "runtime_backed",
         },
+        {
+            "hook_id": "THM-09",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-09",
+            "artifact_fields": [
+                "support_summary.multi_fidelity_summary.proxy_world_count",
+                "support_summary.audit_world_count",
+                "support_summary.multi_fidelity_certificate_basis",
+                "support_summary.audit_correction_mass",
+                "support_summary.proxy_only_fraction",
+                "support_summary.positivity_diagnostics.weak_overlap_detected",
+            ],
+        },
+        {
+            "hook_id": "LB-04",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "LB-04",
+            "artifact_fields": [
+                "support_summary.multi_fidelity_summary.proxy_world_count",
+                "support_summary.audit_world_count",
+                "support_summary.multi_fidelity_certificate_basis",
+                "support_summary.audit_correction_mass",
+                "support_summary.proxy_only_fraction",
+                "support_summary.positivity_diagnostics.weak_overlap_detected",
+            ],
+        },
     ]
     results_entry = next(item for item in index_payload["artifacts"] if item["name"] == "results.json")
     assert results_entry["artifact_provenance"]["payload_schema_version"] == "json-object-v1"
@@ -486,6 +514,95 @@ def test_route_compute_metadata_write_creates_and_refreshes_bundle_index(
     )
     refreshed = json.loads(discovered["index.json"].read_text(encoding="utf-8"))
     assert "certificate_summary.json" in refreshed["artifact_names"]
+
+
+def test_route_artifact_theorem_hooks_cover_theorem_map_followup_artifacts() -> None:
+    assert route_artifact_theorem_hooks("dccs_candidates.jsonl") == [
+        {
+            "hook_id": "THM-01",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-01",
+            "artifact_fields": [
+                "safe_eliminated",
+                "necessary_dominated",
+                "dominated_by_route_id",
+                "dominance_margin",
+            ],
+        },
+        {
+            "hook_id": "THM-08",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-08",
+        },
+    ]
+    assert route_artifact_theorem_hooks("dccs_summary.json") == [
+        {
+            "hook_id": "THM-01",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-01",
+            "artifact_fields": ["false_safe_prune_rate"],
+        },
+        {
+            "hook_id": "THM-08",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-08",
+            "artifact_fields": ["unresolved_possible_winner_mass", "search_completeness_gap"],
+        },
+        {
+            "hook_id": "LB-03",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "LB-03",
+            "artifact_fields": ["unresolved_possible_winner_mass", "search_completeness_gap"],
+        },
+    ]
+    assert route_artifact_theorem_hooks("initial_certificate_summary.json") == [
+        {
+            "hook_id": "THM-02",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-02",
+            "artifact_fields": ["selected_certificate"],
+        },
+        {
+            "hook_id": "LB-01",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "LB-01",
+            "artifact_fields": ["selected_certificate"],
+        },
+    ]
+    assert route_artifact_theorem_hooks("sampled_world_manifest.json") == [
+        {
+            "hook_id": "LB-01",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "LB-01",
+            "artifact_fields": ["world_count"],
+        }
+    ]
+    assert route_artifact_theorem_hooks("replay_oracle_summary.json") == [
+        {
+            "hook_id": "THM-10",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-10",
+            "artifact_fields": ["mean_replay_regret"],
+        }
+    ]
+    assert route_artifact_theorem_hooks("voi_action_trace.json") == [
+        {
+            "hook_id": "THM-10",
+            "kind": "theorem_hook",
+            "status": "runtime_backed",
+            "family_id": "THM-10",
+            "artifact_fields": ["actions"],
+        }
+    ]
 
 
 def test_batch_bundle_metadata_creates_generic_bundle_index(

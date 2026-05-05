@@ -6,13 +6,13 @@
     "This index is conservative. It only lists checked local artifact files that exist in the repository workspace.",
     "Headline surfaces in this slice, plus the indexed focused-VOI and latest-checked-campaign cohort/support-bin composition tables, now have checked SVG, PDF, print-ready HTML, co-packaged CSV/JSON source companions, and co-packaged JSON provenance companions under out/headline_exports/current_checked/. The same reviewer-package boundary now also carries checked local companion bundles for the full-suite verdict, the broad-cold runtime-observability lane, threshold-sensitivity lane, optional-stopping lane, perturbation lane, and public-transfer lane under out/headline_exports/current_checked/.",
     "Checked local companion bundles now exist for the threshold_sensitivity, broad_cold_proof runtime-observability, optional_stopping_coverage, perturbation_flip_radius, and public_transfer suite roles. The threshold bundle backs the one-factor-at-a-time sweep surfaces for certificate threshold, fast-path threshold, and certified-set cap; the broad-cold bundle backs the runtime quantiles, action-family budget-share surfaces, and stage-timing surfaces; the optional-stopping bundle backs the route-level CS method/delta, validity, and lane-size proof surfaces; the perturbation bundle backs the real-lane and exact-synthetic flip-radius proof surfaces; and the public-transfer bundle backs both the leave-one-corridor-family-out and leave-one-weather-regime-out transfer slices. These checked bundles prove the evaluator surfaces exist, but they do not by themselves close the corresponding G11 or P14 gates unless the emitted metrics are green.",
-    "The quickstart command sections at docs/reviewer_quickstart.md#focused-voi-headline-table-and-figure-commands, docs/reviewer_quickstart.md#focused-voi-additional-table-commands, docs/reviewer_quickstart.md#latest-checked-campaign-table-and-figure-commands, docs/reviewer_quickstart.md#checked-full-suite-verdict-companion, docs/reviewer_quickstart.md#checked-threshold-sensitivity-lane, docs/reviewer_quickstart.md#checked-optional-stopping-coverage-lane, docs/reviewer_quickstart.md#checked-perturbation-flip-radius-lane, docs/reviewer_quickstart.md#checked-public-transfer-lane, docs/reviewer_quickstart.md#checked-runtime-observability-lane, and docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands now give one documented command block for every indexed headline table and figure source surface in this slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables, the runtime-observability reviewer surfaces, and the checked reviewer-package companion bundles.",
+    "The quickstart command sections at docs/reviewer_quickstart.md#focused-voi-headline-table-and-figure-commands, docs/reviewer_quickstart.md#focused-voi-additional-table-commands, docs/reviewer_quickstart.md#latest-checked-campaign-table-and-figure-commands, docs/reviewer_quickstart.md#checked-full-suite-verdict-companion, docs/reviewer_quickstart.md#checked-threshold-sensitivity-lane, docs/reviewer_quickstart.md#checked-optional-stopping-coverage-lane, docs/reviewer_quickstart.md#checked-perturbation-flip-radius-lane, docs/reviewer_quickstart.md#checked-public-transfer-lane, docs/reviewer_quickstart.md#checked-hot-rerun-benchmark-companion, and docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands now give one documented command block for every indexed headline table and figure source surface in this slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables, the runtime-observability reviewer surfaces, and the checked reviewer-package companion bundles.",
     "The index now distinguishes reviewer-facing headline surfaces from supporting non-headline paper surfaces while keeping all entries in one machine-readable artifact-path ledger.",
-    "The checked focused-VOI bundle at backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/ now also carries additively backfilled index.json and index.md as bundle-level inspection entrypoints for artifact presence and export-status checks only. Those files do not create new table or figure surfaces and do not imply committed PDF or SVG renders.",
-    "The focused-VOI checked bundle indexed here was additively refreshed on 2026-04-11, but its evaluation_manifest.json still records headline_seed_repeat_required=true, configured_seed_count=1, and status=single_seed_only. This local index does not treat that slice as repeated-seed headline evidence.",
+    "An older checked focused-VOI bundle at backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/ now also carries additively backfilled index.json and index.md as bundle-level inspection entrypoints for artifact presence and export-status checks only. Those files do not create new table or figure surfaces and do not imply committed PDF or SVG renders.",
+    "Most legacy focused-VOI source surfaces in this index still point at the additively refreshed thesis_eval_20260331_r2_focused_voi slice, whose evaluation_manifest.json records headline_seed_repeat_required=true, configured_seed_count=1, and status=single_seed_only. The preference-burden surfaces are a narrower exception: they now point at out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof together with the local seed companions _seed20260421 and _seed20260522, so those burden tables are no longer limited to the single-seed slice. That repeated-seed burden evidence still does not override the remaining full-suite blockers.",
     "A newer checked full-suite assessment bundle exists as full_suite_curated_latest_20260411. The reviewer export helper now stages a checked local companion copy under out/headline_exports/current_checked/full_suite_curated_latest_20260411/ and indexes that local copy as a reviewer-package companion bundle.",
-    "That companion now records the current full-suite verdict directly: publishability_verdict.json reports publishable_on_current_evidence=false and adoption_claim_supported=false, with fairness_failure_count=0, sample_size_failure_count=0, optional_stopping_gate_failure_count=0, perturbation_gate_failure_count=0, hot_rerun_all_green=false, and publishability_blockers = [hot_rerun_reuse_gates_not_all_green, dccs_hard_gates_not_all_green, refine_cost_forecast_gates_not_all_green, voi_hard_gates_not_all_green]. Its sample-size companion records the maintained row-count requirements for preference proof, optional-stopping coverage, perturbation / flip-radius, and proxy-audit calibration from direct observed counts rather than synthesized lower bounds.",
-    "The latest checked campaign-backed reviewer slice still includes a failed baseline_fairness_audit.json surface. That older campaign-backed fairness failure remains relevant to the local reviewer package, but it should not be confused with the newer full-suite assessment, which reports fairness_failure_count=0 while still remaining non-publishable because hot_rerun_all_green=false and the suite-level blocker list remains non-empty. The fairness slice is explicit as older campaign evidence, while the broader suite-level publication verdict now comes from the newer full-suite companion bundle."
+    "That companion now records the current full-suite verdict directly: publishability_verdict.json reports publishable_on_current_evidence=false and adoption_claim_supported=false, with fairness_failure_count=0, sample_size_failure_count=0, optional_stopping_gate_failure_count=0, perturbation_gate_failure_count=0, hot_rerun_all_green=true, and publishability_blockers = [dccs_hard_gates_not_all_green, refine_cost_forecast_gates_not_all_green, voi_hard_gates_not_all_green]. Its sample-size companion records the maintained row-count requirements for preference proof, optional-stopping coverage, perturbation / flip-radius, and proxy-audit calibration from direct observed counts rather than synthesized lower bounds.",
+    "The latest checked campaign-backed reviewer slice still includes a failed baseline_fairness_audit.json surface. That older campaign-backed fairness failure remains relevant to the local reviewer package, but it should not be confused with the newer full-suite assessment, which reports fairness_failure_count=0 while still remaining non-publishable because `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green` remain in the suite-level blocker list. The fairness slice is explicit as older campaign evidence, while the broader suite-level publication verdict now comes from the newer full-suite companion bundle."
   ],
   "inventory_sections": [
     {
@@ -80,23 +80,35 @@
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/index.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/index.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_assessment.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_publishability_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/headline_seed_claims_summary.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/headline_seed_claims_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/headline_seed_claims_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas_lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas_lane_metadata.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/failure_atlas.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/universal_baseline_audit.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/universal_baseline_audit.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/universal_baseline_audit.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/metadata.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/suite_sources.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/suite_sources.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/suite_progress.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411/suite_progress.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411/lane_artifact_generation_summary.md"
       ],
@@ -107,7 +119,7 @@
         "csv"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#checked-full-suite-verdict-companion",
-      "status_note": "Backs the current checked suite-level publishability/adoption judgment inside the maintained reviewer package. This companion copies the checked full-suite assessment bundle into out/headline_exports/current_checked/full_suite_curated_latest_20260411/ and currently preserves `publishable_on_current_evidence = false`, `adoption_claim_supported = false`, `sample_size_failure_count = 0`, `optional_stopping_gate_failure_count = 0`, `perturbation_gate_failure_count = 0`, and the blocker list `hot_rerun_reuse_gates_not_all_green`, `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, `voi_hard_gates_not_all_green` together with the lane publishability summary, sample-size gates, headline-seed claim summary, failure atlas, failure-atlas lane metadata, universal baseline audit, lane artifact-generation summary, and the copied OSRM/ORS baseline identity manifests. The canonical `G11.17-G11.21`, `G11.54`, and `G11.55` readings live in the copied `lane_publishability_summary.*` and `sample_size_gate_summary.*` files."
+      "status_note": "Backs the current checked suite-level publishability/adoption judgment inside the maintained reviewer package. This companion copies the checked full-suite assessment bundle into out/headline_exports/current_checked/full_suite_curated_latest_20260411/ and currently preserves `publishable_on_current_evidence = false`, `adoption_claim_supported = false`, `hot_rerun_all_green = true`, `fairness_failure_count = 0`, `sample_size_failure_count = 0`, `optional_stopping_gate_failure_count = 0`, `perturbation_gate_failure_count = 0`, and the blocker list `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, `voi_hard_gates_not_all_green` together with the lane publishability summary, sample-size gates, headline-seed claim summary, failure atlas, failure-atlas lane metadata, universal baseline audit, lane artifact-generation summary, and the copied OSRM/ORS baseline identity manifests. The canonical `G11.17-G11.21`, `G11.54`, and `G11.55` readings live in the copied `lane_publishability_summary.*` and `sample_size_gate_summary.*` files."
     },
     {
       "surface_id": "bundle.full_suite_curated_latest_20260411.threshold_sensitivity_bundle",
@@ -118,12 +130,17 @@
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/index.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/index.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/evaluation_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/lane_metadata.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_report.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/thesis_plots.json",
-        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/cohort_composition.json"
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/thesis_plots.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/cohort_composition.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/cohort_composition.summary.md"
       ],
       "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_threshold_sensitivity",
       "export_formats_available": [
@@ -143,14 +160,22 @@
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/index.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/index.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/evaluation_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/lane_metadata.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/results.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_metrics.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_metrics.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_results.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_summary.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_plots.json",
-        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/cohort_composition.json"
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/thesis_plots.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/cohort_composition.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/cohort_composition.summary.md"
       ],
       "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_optional_stopping_coverage",
       "export_formats_available": [
@@ -170,14 +195,22 @@
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/index.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/index.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/evaluation_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/lane_metadata.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/results.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_metrics.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_metrics.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_results.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_results.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_summary.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_summary.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_plots.json",
-        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/cohort_composition.json"
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/thesis_plots.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/cohort_composition.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/cohort_composition.summary.md"
       ],
       "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_perturbation_flip_radius",
       "export_formats_available": [
@@ -197,13 +230,19 @@
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/index.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/index.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/evaluation_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/lane_metadata.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/lane_metadata.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.csv",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_plots.json",
-        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/cohort_composition.json"
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_plots.summary.md",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/cohort_composition.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/cohort_composition.summary.md"
       ],
       "origin_bundle_path": "C:/app/out/artifacts/full_suite_curated_latest_20260411_public_transfer",
       "export_formats_available": [
@@ -225,6 +264,7 @@
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/baseline_smoke_summary.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/baseline_smoke_summary.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/evaluation_manifest.json",
+        "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/evaluation_manifest.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_gate.json",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_gate.summary.md",
         "out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/hot_rerun_report.md",
@@ -267,17 +307,21 @@
         "csv"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#checked-hot-rerun-benchmark-companion",
-      "status_note": "Backs the checked hot-rerun pair-benchmark bundle inside the maintained reviewer package. The copied bundle exposes runtime-observability and reuse surfaces including hot-rerun gate checks, hot-versus-cold comparison rows, lane metadata, thesis metrics, thesis plots, and thesis report artifacts. This staged companion is sourced from the repo-local `backend/out/artifacts/full_suite_curated_latest_20260411_hot_rerun_pair_hot/` bundle, whose copied `hot_rerun_gate.json` currently records `all_green = true` with populated `controller_reuse_reporting`. It is a separate runtime-observability proof surface and does not override the full-suite verdict companion, which still records `hot_rerun_reuse_gates_not_all_green` in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`."
+      "status_note": "Backs the checked hot-rerun pair-benchmark bundle inside the maintained reviewer package. The copied bundle exposes runtime-observability and reuse surfaces including hot-rerun gate checks, hot-versus-cold comparison rows, lane metadata, thesis metrics, thesis plots, and thesis report artifacts. This staged companion is sourced from the repo-local `backend/out/artifacts/full_suite_curated_latest_20260411_hot_rerun_pair_hot/` bundle, whose copied `hot_rerun_gate.json` currently records `all_green = true` with populated `controller_reuse_reporting`. It is a separate runtime-observability proof surface and does not override the full-suite verdict companion, which now also records `hot_rerun_all_green = true` while remaining red only on `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green` in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`."
     },
     {
       "surface_id": "table.focused_voi.variant_summary",
       "surface_type": "table",
       "title": "Focused VOI certification-facing variant summary table",
-      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "bundle_path": "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof",
       "source_files": [
-        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.csv",
-        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary.json",
-        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/thesis_summary.csv",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/thesis_summary.json",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/evaluation_manifest.json",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260421/thesis_summary.csv",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260421/evaluation_manifest.json",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260522/thesis_summary.csv",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260522/evaluation_manifest.json"
       ],
       "rendered_outputs": [
         "out/headline_exports/current_checked/table.focused_voi.variant_summary.svg",
@@ -434,7 +478,7 @@
         "html"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
-      "status_note": "Indexes the focused-VOI single-bundle preference-burden aggregate source surface in thesis_summary.*. The maintained fields are median_preference_query_count, p90_preference_query_count, max_preference_query_count, preference_certification_success_rate, and the budget-utilization proxies used in the current checked bundle. The current checked focused-VOI bundle now carries populated burden rows with zero query counts on the available rows, and the export helper stages a checked SVG, PDF, print-ready HTML, source companion, and provenance companion for this surface. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "status_note": "Indexes the focused-VOI repeated-seed preference-burden aggregate source surface in thesis_summary.*. The maintained fields are median_preference_query_count, p90_preference_query_count, max_preference_query_count, preference_certification_success_rate, and the budget-utilization proxies used in the current checked bundle. The local repeated-seed proof slice at out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof together with the seed companions _seed20260421 and _seed20260522 carries B/C burden rows with median_preference_query_count = 0.0, p90_preference_query_count <= 1.0, max_preference_query_count <= 1.0, and preference_certification_success_rate reported alongside them. Read this as the checked local burden surface supporting `P14.17-P14.20`; it does not override the remaining suite-level blockers in publishability_verdict.json. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
       "packaged_source_companions": [
         "out/headline_exports/current_checked/table.focused_voi.preference_burden_summary.source.csv"
       ],
@@ -446,11 +490,15 @@
       "surface_id": "table.focused_voi.preference_burden_by_cohort",
       "surface_type": "table",
       "title": "Focused VOI certification-facing preference-burden by-cohort table",
-      "bundle_path": "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi",
+      "bundle_path": "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof",
       "source_files": [
-        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.csv",
-        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/thesis_summary_by_cohort.json",
-        "backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/evaluation_manifest.json"
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/thesis_summary_by_cohort.csv",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/thesis_summary_by_cohort.json",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/evaluation_manifest.json",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260421/thesis_summary_by_cohort.csv",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260421/evaluation_manifest.json",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260522/thesis_summary_by_cohort.csv",
+        "out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof_seed20260522/evaluation_manifest.json"
       ],
       "rendered_outputs": [
         "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.svg",
@@ -465,7 +513,7 @@
         "html"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
-      "status_note": "Indexes the focused-VOI cohort-split preference-burden source surface in thesis_summary_by_cohort.* for slices such as preference_sensitive when present. The maintained fields are median_preference_query_count, p90_preference_query_count, max_preference_query_count, preference_certification_success_rate, and the available budget-utilization proxies. The current checked focused-VOI bundle now carries populated burden rows with zero query counts on the available rows, and the export helper stages a checked SVG, PDF, print-ready HTML, source companion, and provenance companion for this surface. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "status_note": "Indexes the focused-VOI cohort-split preference-burden source surface in thesis_summary_by_cohort.* for slices such as preference_sensitive when present. The maintained fields are median_preference_query_count, p90_preference_query_count, max_preference_query_count, preference_certification_success_rate, and the available budget-utilization proxies. The local repeated-seed proof slice at out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof together with the seed companions _seed20260421 and _seed20260522 carries preference_sensitive cohort rows with B median/p90/max query counts of 0.0/0.0/0.0 and C median/p90/max query counts of 0.0/1.0/1.0, with preference_certification_success_rate reported alongside both rows. Read this as the checked local cohort evidence supporting `P14.17-P14.20`; it does not override the remaining suite-level blockers in publishability_verdict.json. Checked SVG, PDF, print-ready HTML, a co-packaged CSV source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
       "packaged_source_companions": [
         "out/headline_exports/current_checked/table.focused_voi.preference_burden_by_cohort.source.csv"
       ],
@@ -784,7 +832,7 @@
         "html"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
-      "status_note": "Backs the run-validity metrics cited in docs/thesis-codebase-report.md around line 2502. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "status_note": "Backs the run-validity metrics cited in docs/thesis-codebase-report.md around line 2502. The cited metrics are supported by the checked campaign tranche artifacts in evaluation_manifest.json and thesis_summary.json; the current checked figure source companion under out/headline_exports/current_checked/ is an empty placeholder export rather than populated plot-ready JSON. Checked SVG, PDF, print-ready HTML, an empty co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
       "packaged_source_companions": [
         "out/headline_exports/current_checked/figure.latest_checked_campaign.run_validity.source.json"
       ],
@@ -817,7 +865,7 @@
         "html"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
-      "status_note": "Backs the baseline-smoke metrics cited in docs/thesis-codebase-report.md around line 2503. The checked local source is plot-ready JSON from the latest checked campaign tranche, with attached OSRM/ORS baseline identity manifests and an explicit baseline fairness audit. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "status_note": "Backs the baseline-smoke metrics cited in docs/thesis-codebase-report.md around line 2503. The cited values are supported by the checked campaign tranche artifacts in evaluation_manifest.json and baseline_smoke_summary.json, together with the attached OSRM/ORS baseline identity manifests and baseline fairness audit; the current checked figure source companion under out/headline_exports/current_checked/ is an empty placeholder export rather than populated plot-ready JSON. The fairness audit is conservative and does not claim a 100% pass rate for the current checked slice. Checked SVG, PDF, print-ready HTML, an empty co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
       "packaged_source_companions": [
         "out/headline_exports/current_checked/figure.latest_checked_campaign.baseline_smoke.source.json"
       ],
@@ -1082,7 +1130,7 @@
         "html"
       ],
       "quickstart_reference": "docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands",
-      "status_note": "Backs only the startup-overhead component timings underlying the global startup-overhead metric cited in docs/thesis-codebase-report.md around line 2500. It does not claim the separately cited warmup-amortized metric from that report line. The checked local source is plot-ready JSON from the latest checked campaign tranche. Checked SVG, PDF, print-ready HTML, a co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
+      "status_note": "Backs only the startup-overhead component timings underlying the global startup-overhead metric cited in docs/thesis-codebase-report.md around line 2500. It does not claim the separately cited warmup-amortized metric from that report line. The cited startup values are supported by the checked campaign tranche artifacts in evaluation_manifest.json and thesis_summary.json; the current checked figure source companion under out/headline_exports/current_checked/ is an empty placeholder export rather than populated plot-ready JSON. Checked SVG, PDF, print-ready HTML, an empty co-packaged JSON source companion, and a co-packaged JSON provenance companion with git, lockfile, container, and policy identity exist under out/headline_exports/current_checked/ for this headline surface.",
       "packaged_source_companions": [
         "out/headline_exports/current_checked/figure.latest_checked_campaign.startup_and_warmup.source.json"
       ],

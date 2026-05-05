@@ -996,17 +996,22 @@ def test_unlabeled_bootstrap_refine_cost_uses_pipeline_specific_legacy_shrink_fa
         path_nodes=float(len(candidate["graph_path"])),
     )
 
+    predicted_dccs = _predicted_refine_cost(candidate, config=DCCSConfig(pipeline_variant="dccs"))
     predicted_refc = _predicted_refine_cost(candidate, config=DCCSConfig(pipeline_variant="dccs_refc"))
     predicted_voi = _predicted_refine_cost(candidate, config=DCCSConfig(pipeline_variant="voi"))
     labeled_candidate = dict(candidate)
     labeled_candidate["candidate_source_label"] = "support_fallback:alternatives:direct_k_raw_fallback"
+    labeled_dccs = _predicted_refine_cost(labeled_candidate, config=DCCSConfig(pipeline_variant="dccs"))
     labeled_refc = _predicted_refine_cost(labeled_candidate, config=DCCSConfig(pipeline_variant="dccs_refc"))
     labeled_voi = _predicted_refine_cost(labeled_candidate, config=DCCSConfig(pipeline_variant="voi"))
 
+    assert predicted_dccs == pytest.approx(legacy_cost * 0.08, rel=0.0, abs=1e-9)
     assert predicted_refc == pytest.approx(legacy_cost * 0.04, rel=0.0, abs=1e-9)
     assert predicted_voi == pytest.approx(legacy_cost * 0.066, rel=0.0, abs=1e-9)
+    assert predicted_dccs < legacy_cost
     assert predicted_refc < legacy_cost
     assert predicted_voi < legacy_cost
+    assert predicted_dccs < labeled_dccs
     assert predicted_refc < labeled_refc
     assert predicted_voi < labeled_voi
 
@@ -1064,6 +1069,18 @@ def test_voi_refine_cost_penalizes_detour_heavier_via_fallbacks_over_alternative
 
 
 def test_shorthaul_direct_fallback_via_label_shrink_targets_short_routes_only() -> None:
+    dccs_short_shrink = _direct_fallback_via_label_shrink_fraction(
+        pipeline_variant="dccs",
+        source_label="fallback:via:1:direct_k_raw_fallback",
+        source_stage="direct_k_raw_fallback",
+        graph_length_km=102.7476,
+        stretch=1.7733226193955527,
+        motorway_share=0.580317,
+        urban_share=0.038172,
+        toll_share=0.0,
+        terrain_burden=0.0,
+        path_nodes=11.0,
+    )
     short_shrink = _direct_fallback_via_label_shrink_fraction(
         pipeline_variant="voi",
         source_label="fallback:via:1:direct_k_raw_fallback",
@@ -1101,6 +1118,7 @@ def test_shorthaul_direct_fallback_via_label_shrink_targets_short_routes_only() 
         path_nodes=12.0,
     )
 
+    assert 0.0 < dccs_short_shrink < short_shrink
     assert short_shrink > 0.5
     assert long_shrink == 0.0
     assert alt_shrink == 0.0
@@ -1607,7 +1625,7 @@ def test_challenger_score_ranks_on_candidate_criticality_and_search_deficiency_t
     assert _challenger_score(high, config=cfg) > _challenger_score(low, config=cfg)
 
 
-def test_dccs_summary_flags_hidden_challenger_miss_when_live_candidate_is_left_unresolved() -> None:
+def test_challenger_mode_reserves_single_hidden_challenger_beyond_nominal_budget() -> None:
     candidates = [
         _candidate(
             "cand_primary",
@@ -1636,29 +1654,29 @@ def test_dccs_summary_flags_hidden_challenger_miss_when_live_candidate_is_left_u
         config=DCCSConfig(mode="challenger", search_budget=1, near_duplicate_threshold=0.60),
     )
 
-    skipped_live_record = next(
+    hidden_record = next(
         record
         for record in result.candidate_ledger
         if record.candidate_id == "cand_hidden"
     )
 
-    assert skipped_live_record.safe_eliminated is False
-    assert skipped_live_record.decision == "skip"
-    assert skipped_live_record.hidden_challenger_risk >= 0.5
-    assert skipped_live_record.unresolved_possible_winner_mass_contribution > 0.0
-    assert skipped_live_record.search_completeness_contribution > 0.0
+    assert {record.candidate_id for record in result.selected} == {"cand_primary", "cand_hidden"}
+    assert result.summary["selected_count"] == 2
+    assert hidden_record.safe_eliminated is False
+    assert hidden_record.decision == "refine"
+    assert hidden_record.decision_reason == "selected_by_anti_collapse_quota"
+    assert hidden_record.quota_preserved is True
+    assert hidden_record.hidden_challenger_risk >= 0.5
 
     miss = result.summary["hidden_challenger_miss_diagnostics"]
     assert miss["candidate_count"] >= 1
-    assert miss["selected_count"] < miss["candidate_count"]
-    assert miss["miss_count"] >= 1
-    assert miss["miss_rate"] > 0.0
-    assert result.summary["unresolved_possible_winner_mass"] > 0.0
-    assert result.summary["unresolved_possible_frontier_mass"] > 0.0
-    assert result.summary["search_completeness_gap"] > 0.0
-    assert result.summary["search_completeness_score"] == pytest.approx(
-        1.0 - result.summary["search_completeness_gap"]
-    )
+    assert miss["selected_count"] == miss["candidate_count"]
+    assert miss["miss_count"] == 0
+    assert miss["miss_rate"] == 0.0
+    assert result.summary["unresolved_possible_winner_mass"] == 0.0
+    assert result.summary["unresolved_possible_frontier_mass"] == 0.0
+    assert result.summary["search_completeness_gap"] == 0.0
+    assert result.summary["search_completeness_score"] == 1.0
 
 
 def test_dccs_search_completeness_improves_when_budget_covers_hidden_challenger() -> None:
@@ -1810,6 +1828,72 @@ def test_challenger_mode_reserves_literal_anti_collapse_quota_classes() -> None:
     assert any(record.quota_assignment == "representative_capital_rescue" for record in reserved)
 
 
+def test_challenger_mode_reserves_distinct_certificate_and_hidden_rows() -> None:
+    cfg = DCCSConfig(mode="challenger", search_budget=1)
+    records = [
+        replace(
+            _score_only_record(
+                "time_anchor",
+                objective_gap=0.22,
+                mechanism_gap=0.18,
+                overlap=0.16,
+                stretch=1.10,
+                time_regret_gap=0.12,
+                time_preservation_bonus=0.88,
+                predicted_refine_cost=6.0,
+                flip_probability=0.72,
+            ),
+            quota_assignment="time_preserving_challenger",
+            time_preserving_likely=True,
+            certificate_critical_candidate=True,
+            hidden_challenger_risk=0.74,
+            search_completeness_contribution=0.68,
+            corridor_signature="family_anchor",
+        ),
+        replace(
+            _score_only_record(
+                "cert_extra",
+                objective_gap=0.07,
+                mechanism_gap=0.05,
+                overlap=0.26,
+                stretch=1.07,
+                time_regret_gap=0.28,
+                time_preservation_bonus=0.18,
+                predicted_refine_cost=5.8,
+                flip_probability=0.44,
+            ),
+            certificate_critical_candidate=True,
+            corridor_signature="family_cert",
+        ),
+        replace(
+            _score_only_record(
+                "hidden_extra",
+                objective_gap=0.05,
+                mechanism_gap=0.06,
+                overlap=0.24,
+                stretch=1.08,
+                time_regret_gap=0.31,
+                time_preservation_bonus=0.16,
+                predicted_refine_cost=5.5,
+                flip_probability=0.33,
+            ),
+            hidden_challenger_risk=0.78,
+            search_completeness_contribution=0.72,
+            corridor_signature="family_hidden",
+        ),
+    ]
+
+    reserved = _reserve_anti_collapse_records(records, config=cfg)
+
+    assert {record.candidate_id for record in reserved} == {
+        "time_anchor",
+        "cert_extra",
+        "hidden_extra",
+    }
+    assert sum(1 for record in reserved if record.certificate_critical_candidate) == 2
+    assert sum(1 for record in reserved if record.hidden_challenger_risk >= 0.5) == 2
+
+
 def test_gate_coverage_rates_ignore_safely_pruned_candidates() -> None:
     live_selected = replace(
         _score_only_record(
@@ -1916,6 +2000,96 @@ def test_challenger_mode_reserves_frontier_expansion_candidate_from_new_corridor
     reserved = _reserve_anti_collapse_records(records, config=cfg)
 
     assert {record.candidate_id for record in reserved} == {"time_slot", "frontier_extra"}
+
+
+def test_challenger_mode_reserves_live_certificate_critical_guard_candidate() -> None:
+    cfg = DCCSConfig(mode="challenger", search_budget=1)
+    records = [
+        replace(
+            _score_only_record(
+                "time_slot",
+                objective_gap=0.12,
+                mechanism_gap=0.08,
+                overlap=0.18,
+                stretch=1.05,
+                time_regret_gap=0.10,
+                time_preservation_bonus=0.86,
+                predicted_refine_cost=4.5,
+                flip_probability=0.78,
+            ),
+            quota_assignment="time_preserving_challenger",
+            time_preserving_likely=True,
+            corridor_signature="family_a",
+        ),
+        replace(
+            _score_only_record(
+                "certificate_guard",
+                objective_gap=0.0,
+                mechanism_gap=0.03,
+                overlap=0.24,
+                stretch=1.06,
+                time_regret_gap=0.22,
+                time_preservation_bonus=0.06,
+                predicted_refine_cost=5.2,
+                flip_probability=0.18,
+            ),
+            certificate_critical_candidate=True,
+            corridor_signature="family_b",
+        ),
+    ]
+
+    reserved = _reserve_anti_collapse_records(records, config=cfg)
+    reserved_ids = {record.candidate_id for record in reserved}
+
+    assert reserved_ids == {"time_slot", "certificate_guard"}
+    metrics = _dccs_gate_metrics(records, selected=reserved)
+    assert metrics["certificate_critical_hit_rate"] == 1.0
+
+
+def test_challenger_mode_reserves_live_hidden_search_guard_candidate() -> None:
+    cfg = DCCSConfig(mode="challenger", search_budget=1)
+    records = [
+        replace(
+            _score_only_record(
+                "time_slot",
+                objective_gap=0.12,
+                mechanism_gap=0.08,
+                overlap=0.18,
+                stretch=1.05,
+                time_regret_gap=0.10,
+                time_preservation_bonus=0.86,
+                predicted_refine_cost=4.5,
+                flip_probability=0.78,
+            ),
+            quota_assignment="time_preserving_challenger",
+            time_preserving_likely=True,
+            corridor_signature="family_a",
+        ),
+        replace(
+            _score_only_record(
+                "hidden_search_guard",
+                objective_gap=0.0,
+                mechanism_gap=0.02,
+                overlap=0.26,
+                stretch=1.07,
+                time_regret_gap=0.16,
+                time_preservation_bonus=0.04,
+                predicted_refine_cost=5.4,
+                flip_probability=0.16,
+            ),
+            hidden_challenger_risk=0.82,
+            search_completeness_contribution=0.78,
+            corridor_signature="family_b",
+        ),
+    ]
+
+    reserved = _reserve_anti_collapse_records(records, config=cfg)
+    reserved_ids = {record.candidate_id for record in reserved}
+
+    assert reserved_ids == {"time_slot", "hidden_search_guard"}
+    metrics = _dccs_gate_metrics(records, selected=reserved)
+    assert metrics["hidden_challenger_miss_diagnostics"]["miss_count"] == 0
+    assert metrics["hidden_challenger_miss_diagnostics"]["miss_rate"] == 0.0
 
 
 def test_long_corridor_shortcuts_raise_explicit_search_support_abstention_and_safety_fields() -> None:
