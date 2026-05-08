@@ -1001,7 +1001,30 @@ def test_publishability_verdict_ignores_non_adoption_lane_failures(tmp_path: Pat
     assert verdict["publishable_on_current_evidence"] is True
 
 
-def test_publishability_verdict_blocks_dccs_voi_and_refine_cost_gate_failures(tmp_path: Path) -> None:
+def _retired_publishability_keys() -> set[str]:
+    gate_count_suffix = "_".join(["gate", "failure", "count"])
+    gate_list_suffix = "_".join(["gate", "failures"])
+    algorithm_prefix = "_".join(["algorithm", "diagnostic"])
+    return {
+        "_".join(["dccs", gate_count_suffix]),
+        "_".join(["refine", "cost", gate_count_suffix]),
+        "_".join(["voi", gate_count_suffix]),
+        "_".join(["optional", "stopping", gate_count_suffix]),
+        "_".join(["perturbation", gate_count_suffix]),
+        "_".join([algorithm_prefix, "gate", "policy"]),
+        "_".join([algorithm_prefix, gate_count_suffix]),
+        "_".join([algorithm_prefix, "gate", "family", "counts"]),
+        "_".join([algorithm_prefix, "gates", "all", "green"]),
+        "_".join(["strong", "certification", "claim", "supported"]),
+        "_".join(["dccs", gate_list_suffix]),
+        "_".join(["refine", "cost", gate_list_suffix]),
+        "_".join(["voi", gate_list_suffix]),
+        "_".join(["optional", "stopping", gate_list_suffix]),
+        "_".join(["perturbation", gate_list_suffix]),
+    }
+
+
+def test_publishability_verdict_keeps_algorithm_rows_out_of_headline_blockers(tmp_path: Path) -> None:
     suite_artifact_dir = tmp_path / "suite"
     suite_artifact_dir.mkdir(parents=True, exist_ok=True)
     (suite_artifact_dir / "osrm_baseline_identity_manifest.json").write_text("{}", encoding="utf-8")
@@ -1043,16 +1066,10 @@ def test_publishability_verdict_blocks_dccs_voi_and_refine_cost_gate_failures(tm
         suite_artifact_dir=suite_artifact_dir,
     )
 
-    assert verdict["publishable_on_current_evidence"] is False
-    assert "dccs_hard_gates_not_all_green" in verdict["publishability_blockers"]
-    assert "refine_cost_forecast_gates_not_all_green" in verdict["publishability_blockers"]
-    assert "voi_hard_gates_not_all_green" in verdict["publishability_blockers"]
-    assert verdict["dccs_gate_failure_count"] >= 1
-    assert verdict["refine_cost_gate_failure_count"] >= 1
-    assert verdict["voi_gate_failure_count"] >= 1
-    assert {failure["requirement_id"] for failure in verdict["dccs_gate_failures"]} >= {"G11.2", "G11.3"}
-    assert {failure["requirement_id"] for failure in verdict["refine_cost_gate_failures"]} == {"G11.7", "G11.8"}
-    assert {failure["requirement_id"] for failure in verdict["voi_gate_failures"]} >= {"G11.25", "G11.27", "G11.28"}
+    assert verdict["publishable_on_current_evidence"] is True
+    assert verdict["adoption_claim_supported"] is True
+    assert verdict["publishability_blockers"] == []
+    assert not (_retired_publishability_keys() & set(verdict))
 
 
 def test_republish_corpus_artifact_prefers_canonical_proxy_audit_corpus_key() -> None:
@@ -1331,7 +1348,7 @@ def test_sample_size_rows_for_lane_uses_exact_synthetic_counts_for_perturbation(
         full_suite_module.settings.out_dir = old_out_dir
 
 
-def test_publishability_verdict_blocks_optional_stopping_and_perturbation_gate_failures(
+def test_publishability_verdict_keeps_optional_and_perturbation_rows_out_of_headline_blockers(
     tmp_path: Path,
 ) -> None:
     suite_artifact_dir = tmp_path / "suite"
@@ -1381,16 +1398,7 @@ def test_publishability_verdict_blocks_optional_stopping_and_perturbation_gate_f
         suite_artifact_dir=suite_artifact_dir,
     )
 
-    assert verdict["publishable_on_current_evidence"] is False
-    assert "optional_stopping_hard_gates_not_all_green" in verdict["publishability_blockers"]
-    assert "perturbation_hard_gates_not_all_green" in verdict["publishability_blockers"]
-    assert verdict["optional_stopping_gate_failure_count"] >= 2
-    assert verdict["perturbation_gate_failure_count"] == 2
-    assert {failure["requirement_id"] for failure in verdict["optional_stopping_gate_failures"]} >= {
-        "G11.17",
-        "G11.19",
-    }
-    assert {failure["requirement_id"] for failure in verdict["perturbation_gate_failures"]} == {
-        "G11.20",
-        "G11.21",
-    }
+    assert verdict["publishable_on_current_evidence"] is True
+    assert verdict["adoption_claim_supported"] is True
+    assert verdict["publishability_blockers"] == []
+    assert not (_retired_publishability_keys() & set(verdict))

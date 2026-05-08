@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -78,8 +78,38 @@ class PreferenceContradictionRecord(BaseModel):
     contradiction_reasons: list[str] = Field(default_factory=list)
 
 
+class PreferenceWeights(BaseModel):
+    values: dict[str, float] = Field(default_factory=dict)
+
+    def dominant_objective(self) -> str | None:
+        if not self.values:
+            return None
+        return max(self.values, key=lambda key: float(self.values[key]))
+
+
+class CompatibleSet(BaseModel):
+    route_ids: tuple[str, ...] = Field(default_factory=tuple)
+    blocked_reasons: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+
+
+class PreferenceStopHint(BaseModel):
+    code: str
+    message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PreferenceState(BaseModel):
     compatible_set_summary: CompatibleSetSummary = Field(default_factory=CompatibleSetSummary)
+    compatible_set: CompatibleSet = Field(default_factory=CompatibleSet)
+    weights: PreferenceWeights = Field(default_factory=PreferenceWeights)
+    frontier: list[dict[str, Any]] = Field(default_factory=list)
+    selected_route_id: str | None = None
+    stop_reason: str | None = None
+    irrelevant_axes: tuple[str, ...] = Field(default_factory=tuple)
+    vetoed_targets: tuple[str, ...] = Field(default_factory=tuple)
+    certified_only_required: bool = False
+    time_guard_required: bool = False
+    stop_hints: tuple[PreferenceStopHint, ...] = Field(default_factory=tuple)
     compatible_weights: list[dict[str, float]] = Field(default_factory=list)
     pairwise_constraints: list[PairwisePreferenceQuery] = Field(default_factory=list)
     threshold_constraints: list[ThresholdPreferenceQuery] = Field(default_factory=list)
@@ -123,11 +153,288 @@ class PreferenceState(BaseModel):
         }
         return self
 
+    def top_route_id(self) -> str | None:
+        if self.selected_route_id in self.compatible_set.route_ids:
+            return self.selected_route_id
+        return self.compatible_set.route_ids[0] if self.compatible_set.route_ids else None
+
+    def has_time_guard(self) -> bool:
+        return bool(self.time_guard_required or self.time_preserving_guard_rules)
+
+    def wants_certified_only(self) -> bool:
+        return bool(self.certified_only_required or "uncertified" in self.vetoed_targets)
+
 
 def empty_preference_state(*, route_ids: list[str] | None = None) -> PreferenceState:
     return PreferenceState(
         compatible_set_summary=CompatibleSetSummary(route_ids=list(route_ids or [])),
     )
+
+
+def build_preference_state(
+    request: Mapping[str, Any] | None = None,
+    frontier: Sequence[Any] | None = None,
+    *,
+    elicited_constraints: Sequence[Any] | None = None,
+    selected_route_id: str | None = None,
+    stop_reason: str | None = None,
+    route_ids: Sequence[str] | None = None,
+    weights: Mapping[str, float] | None = None,
+    support_flag: bool = True,
+    support_reason: str | None = None,
+) -> PreferenceState:
+    request_payload = dict(request or {})
+    frontier_rows = [_route_payload(route) for route in (frontier or [])]
+    route_id_list = _dedupe_route_ids(
+        [_route_id(route) for route in frontier_rows] or [str(route_id) for route_id in (route_ids or [])]
+    )
+    request_weights = _normalize_weights(weights or _mapping_or_empty(request_payload.get("weights")))
+    vetoed_targets, time_guard_limit_s = _summarize_elicited_constraints(elicited_constraints or ())
+    certified_only_required = "uncertified" in vetoed_targets
+    blocked_reasons = {
+        route_id: tuple(reasons)
+        for route_id in route_id_list
+        if (reasons := _blocked_reasons(request_payload, _route_by_id(frontier_rows, route_id), vetoed_targets, time_guard_limit_s))
+    }
+    compatible_route_ids = tuple(route_id for route_id in route_id_list if route_id not in blocked_reasons)
+    singleton_irrelevance = len(compatible_route_ids) <= 1
+    certified_count = sum(1 for route in frontier_rows if _route_is_certified(route))
+    stop_hints = _build_stop_hints(
+        certified_only_required=certified_only_required,
+        compatible_route_ids=compatible_route_ids,
+        certified_count=certified_count,
+        stop_reason=stop_reason,
+    )
+    summary = CompatibleSetSummary(
+        route_ids=list(compatible_route_ids),
+        necessary_best_prob=1.0 if singleton_irrelevance and compatible_route_ids and support_flag else 0.0,
+        possible_best_prob=1.0,
+        necessary_best_route_ids=list(compatible_route_ids[:1]) if singleton_irrelevance and support_flag else [],
+        possible_best_route_ids=list(compatible_route_ids[:1] or compatible_route_ids),
+        support_flag=bool(support_flag),
+        support_reason=support_reason,
+    )
+    state = PreferenceState(
+        compatible_set_summary=summary,
+        compatible_set=CompatibleSet(route_ids=compatible_route_ids, blocked_reasons=blocked_reasons),
+        weights=PreferenceWeights(values=request_weights),
+        frontier=frontier_rows,
+        selected_route_id=selected_route_id,
+        stop_reason=stop_reason,
+        irrelevant_axes=_irrelevant_axes(request_weights, frontier_rows),
+        vetoed_targets=tuple(vetoed_targets),
+        certified_only_required=certified_only_required,
+        time_guard_required=time_guard_limit_s is not None,
+        stop_hints=tuple(stop_hints),
+        preference_irrelevance_proven=singleton_irrelevance,
+    )
+    if request_weights:
+        state.compatible_weights = [request_weights]
+    return state
+
+
+def _route_payload(route: Any) -> dict[str, Any]:
+    if isinstance(route, Mapping):
+        return dict(route)
+    if hasattr(route, "model_dump"):
+        return dict(route.model_dump(mode="json"))
+    return {
+        "id": getattr(route, "id", None) or getattr(route, "route_id", None),
+        "metrics": getattr(route, "metrics", {}),
+        "certification": getattr(route, "certification", None),
+        "segment_breakdown": getattr(route, "segment_breakdown", []),
+        "uncertainty": getattr(route, "uncertainty", {}),
+    }
+
+
+def _route_id(route: Mapping[str, Any]) -> str | None:
+    cleaned = str(route.get("id") or route.get("route_id") or "").strip()
+    return cleaned or None
+
+
+def _route_by_id(routes: Sequence[Mapping[str, Any]], route_id: str) -> Mapping[str, Any]:
+    return next((route for route in routes if _route_id(route) == route_id), {})
+
+
+def _mapping_or_empty(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {}
+
+
+def _mapping_or_attr(value: Any, key: str) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _normalize_weights(weights: Mapping[str, Any]) -> dict[str, float]:
+    cleaned = {
+        str(key): float(value)
+        for key, value in weights.items()
+        if value is not None and float(value) >= 0.0 and float(value) == float(value)
+    }
+    total = sum(cleaned.values())
+    if total <= 0.0:
+        return cleaned
+    return {key: round(value / total, 12) for key, value in cleaned.items()}
+
+
+def _summarize_elicited_constraints(
+    constraints: Sequence[Any],
+) -> tuple[tuple[str, ...], float | None]:
+    vetoed_targets: list[str] = []
+    time_guard_limit_s: float | None = None
+    for constraint in constraints:
+        kind = _constraint_kind(constraint)
+        if "veto" in kind:
+            target = _constraint_text(constraint, ("target", "veto_name", "name", "value"))
+            vetoed_targets.append(target or "uncertified")
+        if "time_guard" in kind or "time" in kind:
+            guard = _mapping_or_attr(constraint, "guard") or _mapping_or_attr(constraint, "time_guard") or constraint
+            limit = _numeric_attr(guard, ("max_duration_s", "max_travel_time_s", "max_travel_time"))
+            if limit is not None:
+                time_guard_limit_s = limit if time_guard_limit_s is None else min(time_guard_limit_s, limit)
+    return tuple(_dedupe_route_ids(vetoed_targets)), time_guard_limit_s
+
+
+def _constraint_kind(constraint: Any) -> str:
+    for key in ("kind", "constraint_type", "type", "query_type"):
+        value = _mapping_or_attr(constraint, key)
+        if value:
+            return str(value).strip().lower()
+    if _constraint_text(constraint, ("target", "veto_name", "name")):
+        return "veto"
+    if _numeric_attr(constraint, ("max_duration_s", "max_travel_time_s", "max_travel_time")) is not None:
+        return "time_guard"
+    return ""
+
+
+def _constraint_text(constraint: Any, keys: Sequence[str]) -> str | None:
+    for key in keys:
+        value = _mapping_or_attr(constraint, key)
+        if value:
+            cleaned = str(value).strip()
+            if cleaned:
+                return cleaned
+    return None
+
+
+def _numeric_attr(value: Any, keys: Sequence[str]) -> float | None:
+    for key in keys:
+        raw_value = _mapping_or_attr(value, key)
+        if raw_value is None:
+            continue
+        return float(raw_value)
+    return None
+
+
+def _blocked_reasons(
+    request: Mapping[str, Any],
+    route: Mapping[str, Any],
+    vetoed_targets: Sequence[str],
+    time_guard_limit_s: float | None,
+) -> list[str]:
+    reasons: list[str] = []
+    cost_toggles = _mapping_or_empty(request.get("cost_toggles"))
+    if cost_toggles.get("use_tolls") is False and _route_has_toll(route):
+        reasons.append("toggle_use_tolls")
+    if "uncertified" in vetoed_targets and not _route_is_certified(route):
+        reasons.append("veto_uncertified")
+    duration_s = _metric_value(route, "duration_s")
+    if time_guard_limit_s is not None and duration_s is not None and duration_s > time_guard_limit_s:
+        reasons.append("time_guard:max_duration_s")
+    return reasons
+
+
+def _route_has_toll(route: Mapping[str, Any]) -> bool:
+    for segment in route.get("segment_breakdown") or []:
+        if isinstance(segment, Mapping) and float(segment.get("toll_cost") or 0.0) > 0.0:
+            return True
+    return float(_metric_value(route, "toll_cost") or 0.0) > 0.0
+
+
+def _route_is_certified(route: Mapping[str, Any]) -> bool:
+    certification = _mapping_or_attr(route, "certification")
+    if certification is None:
+        return False
+    certified = _mapping_or_attr(certification, "certified")
+    if certified is not None:
+        return bool(certified)
+    certificate = _mapping_or_attr(certification, "certificate")
+    threshold = _mapping_or_attr(certification, "threshold")
+    if certificate is None or threshold is None:
+        return False
+    return float(certificate) >= float(threshold)
+
+
+def _metric_value(route: Mapping[str, Any], metric_name: str) -> float | None:
+    metrics = _mapping_or_attr(route, "metrics")
+    value = _mapping_or_attr(metrics, metric_name)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _irrelevant_axes(
+    weights: Mapping[str, float],
+    routes: Sequence[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    metric_by_axis = {
+        "time": "duration_s",
+        "money": "monetary_cost",
+        "co2": "emissions_kg",
+    }
+    irrelevant: list[str] = []
+    for axis, metric_name in metric_by_axis.items():
+        if float(weights.get(axis, 0.0)) <= 0.0:
+            irrelevant.append(axis)
+            continue
+        values = [_metric_value(route, metric_name) for route in routes]
+        numeric_values = [value for value in values if value is not None]
+        if len(numeric_values) < 2:
+            continue
+        span = max(numeric_values) - min(numeric_values)
+        scale = max(abs(value) for value in numeric_values) or 1.0
+        if span / scale <= 0.05:
+            irrelevant.append(axis)
+    return tuple(irrelevant)
+
+
+def _build_stop_hints(
+    *,
+    certified_only_required: bool,
+    compatible_route_ids: Sequence[str],
+    certified_count: int,
+    stop_reason: str | None,
+) -> list[PreferenceStopHint]:
+    if not certified_only_required or compatible_route_ids:
+        return []
+    return [
+        PreferenceStopHint(
+            code="typed_abstention_recommended",
+            message="No certified route remains compatible with current preferences.",
+            metadata={
+                "trigger_metric": "certified_route_count",
+                "observed_value": float(certified_count),
+                "recommended_action": "expand_worlds",
+                "severity": "high",
+                "stop_reason": stop_reason,
+            },
+        )
+    ]
+
+
+def _dedupe_route_ids(values: Sequence[str | None]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        deduped.append(cleaned)
+    return deduped
 
 
 def volume_trace_nonincreasing(state: PreferenceState) -> bool:

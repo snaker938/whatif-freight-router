@@ -149,7 +149,7 @@ async def _collect_graph_no_path_failure(**_: Any) -> tuple[list[Any], list[str]
 async def _collect_live_refresh_failure(**_: Any) -> tuple[list[Any], list[str], int, TerrainDiagnostics]:
     return (
         [],
-        ["route_live_prefetch: live_source_refresh_failed (mock strict refresh gate failure)"],
+        ["route_live_prefetch: live_source_refresh_failed (mock strict refresh refusal)"],
         0,
         TerrainDiagnostics(),
     )

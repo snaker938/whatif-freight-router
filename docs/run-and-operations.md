@@ -1,6 +1,6 @@
 # Run and Operations Guide
 
-Last Updated: 2026-02-25
+Last Updated: 2026-05-05
 Applies To: local backend/frontend runtime, full rebuilds, docs checks, and low-resource test execution
 
 This guide is the extended operational reference for running and rebuilding the project safely. For the shortest operator-facing checklist, use `docs/runbook.md`.
@@ -32,6 +32,8 @@ Then review strict live URL/auth settings in `.env`. The checked-in defaults in 
 - route graph warmup and search knobs: `ROUTE_GRAPH_WARMUP_ON_STARTUP=1`, `ROUTE_GRAPH_WARMUP_FAILFAST=1`, `ROUTE_GRAPH_WARMUP_TIMEOUT_S=1200`, `ROUTE_GRAPH_FAST_STARTUP_ENABLED=true`, `ROUTE_GRAPH_FAST_STARTUP_LONG_CORRIDOR_BYPASS_KM=120`, `ROUTE_GRAPH_STATUS_CHECK_TIMEOUT_MS=1000`, `ROUTE_GRAPH_OD_FEASIBILITY_TIMEOUT_MS=30000`, `ROUTE_GRAPH_PRECHECK_TIMEOUT_FAIL_CLOSED=false`, `ROUTE_GRAPH_BINARY_CACHE_ENABLED=true`, `ROUTE_GRAPH_MAX_STATE_BUDGET=1200000`, `ROUTE_GRAPH_STATE_BUDGET_PER_HOP=1600`, `ROUTE_GRAPH_STATE_BUDGET_RETRY_MULTIPLIER=2.5`, `ROUTE_GRAPH_STATE_BUDGET_RETRY_CAP=8000000`, `ROUTE_GRAPH_SEARCH_INITIAL_TIMEOUT_MS=30000`, `ROUTE_GRAPH_SEARCH_RETRY_TIMEOUT_MS=120000`, `ROUTE_GRAPH_SEARCH_RESCUE_TIMEOUT_MS=150000`, `ROUTE_GRAPH_STATE_SPACE_RESCUE_ENABLED=true`, `ROUTE_GRAPH_STATE_SPACE_RESCUE_MODE=reduced`, `ROUTE_GRAPH_REDUCED_INITIAL_FOR_LONG_CORRIDOR=true`, `ROUTE_GRAPH_LONG_CORRIDOR_THRESHOLD_KM=150`, `ROUTE_GRAPH_LONG_CORRIDOR_MAX_PATHS=4`, `ROUTE_GRAPH_SKIP_INITIAL_SEARCH_LONG_CORRIDOR=true`, `ROUTE_GRAPH_SCENARIO_SEPARABILITY_FAIL=false`, `ROUTE_GRAPH_MIN_GIANT_COMPONENT_NODES=50000`, `ROUTE_GRAPH_MIN_GIANT_COMPONENT_RATIO=0.20`, `ROUTE_GRAPH_MAX_NEAREST_NODE_DISTANCE_M=10000`, `ROUTE_GRAPH_OD_CANDIDATE_LIMIT=2048`, `ROUTE_GRAPH_OD_CANDIDATE_MAX_RADIUS=12`, `ROUTE_GRAPH_MAX_HOPS=220`, `ROUTE_GRAPH_ADAPTIVE_HOPS_ENABLED=true`, `ROUTE_GRAPH_HOPS_PER_KM=18.0`, `ROUTE_GRAPH_HOPS_DETOUR_FACTOR=1.35`, `ROUTE_GRAPH_EDGE_LENGTH_ESTIMATE_M=75.0`, `ROUTE_GRAPH_HOPS_SAFETY_FACTOR=1.8`, `ROUTE_GRAPH_MAX_HOPS_CAP=15000`, `ROUTE_GRAPH_A_STAR_HEURISTIC_ENABLED=true`, `ROUTE_GRAPH_HEURISTIC_MAX_SPEED_KPH=220`, `ROUTE_GRAPH_SEARCH_APPLY_SCENARIO_EDGE_COSTS=false`
 - strict terrain and frontend fallback knobs: `TERRAIN_DEM_FAIL_CLOSED_UK=true`, `TERRAIN_DEM_COVERAGE_MIN_UK=0.96`, `COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`, `COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`, `NEXT_PUBLIC_COMPUTE_ATTEMPT_TIMEOUT_MS=1200000`, `NEXT_PUBLIC_COMPUTE_ROUTE_FALLBACK_TIMEOUT_MS=900000`, `NEXT_PUBLIC_COMPUTE_DEGRADE_STEPS=12,6,3`, `NEXT_PUBLIC_ROUTE_GRAPH_WARMUP_BASELINE_MS=480000`
 - dev live-call tracing knobs (development only; sensitive when enabled): `DEV_ROUTE_DEBUG_CONSOLE_ENABLED`, `DEV_ROUTE_DEBUG_INCLUDE_SENSITIVE`, `DEV_ROUTE_DEBUG_MAX_CALLS_PER_REQUEST`, `DEV_ROUTE_DEBUG_TRACE_TTL_SECONDS`, `DEV_ROUTE_DEBUG_MAX_REQUEST_TRACES`, `DEV_ROUTE_DEBUG_RETURN_RAW_PAYLOADS`, `DEV_ROUTE_DEBUG_MAX_RAW_BODY_CHARS`
+
+Runtime-effective scenario strictness is source-policy sensitive. The raw `.env.example` values above match the strict-external posture: `strict_external => allow_partial=false`, `min_source_count=4`, `min_coverage=1.0`. Under the checked repo-local freshness policy, settings validation relaxes the effective scenario-source gate to `repo_local_fresh => allow_partial=true`, `min_source_count=3`, `min_coverage=0.75` so signed fresh repo-local evidence can run without pretending to be full external-live proof.
 
 ## Route Compute Fallback Policy
 
@@ -154,13 +156,14 @@ From repo root:
 .\scripts\dev.ps1
 ```
 
-`dev.ps1` now runs strict live preflight before backend/frontend launch. If a required live payload is stale/invalid, startup stops and writes:
+`dev.ps1` starts OSRM, then runs strict live preflight before backend/frontend launch. The preflight checks both OSRM and ORS; `dev.ps1` does not start ORS, so startup can still stop if ORS is not already available or if a required live payload is stale/invalid. When startup stops, it writes:
 
 - `backend/out/model_assets/preflight_live_runtime.json`
 
 Expected services:
 
 - OSRM: `http://localhost:5000`
+- ORS, pre-existing and not started by `dev.ps1`: `http://localhost:8082/ors`
 - Backend API: `http://localhost:8000`
 - Backend OpenAPI UI: `http://localhost:8000/docs`
 - Backend readiness: `http://localhost:8000/health/ready`
@@ -241,7 +244,7 @@ Under `backend/out/`:
 - `artifacts/{run_id}/`
 - `manifests/{run_id}.json`
 - `scenario_manifests/{run_id}.json`
-- `provenance/{run_id}.jsonl`
+- `provenance/{run_id}.json`
 - `test_runs/{timestamp}/` (safe test runner outputs)
 
 Route-compute bundles may include `index.json` and `index.md` as machine-readable and reviewer-readable bundle indexes. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
@@ -274,11 +277,25 @@ Outputs:
 From repo root:
 
 ```powershell
-.\scripts\serve_docs.ps1
 python scripts/check_docs.py
+.\scripts\serve_docs.ps1
+.\scripts\serve_docs.ps1 -Port 8088 -OpenBrowser
 ```
 
 Docs URL: `http://localhost:8088/`
+
+## Verification Ladder
+
+Prefer the smallest relevant check first, then escalate:
+
+```powershell
+python scripts/check_docs.py
+uv run --project backend pytest ...
+pnpm --dir frontend exec tsc --noEmit
+pnpm --dir frontend build
+.\scripts\run_backend_tests_safe.ps1 -MaxCores 1 -PriorityClass Idle -MaxWorkingSetMB 4096
+.\scripts\dev.ps1
+```
 
 ## Stop Local Stack
 

@@ -25,39 +25,6 @@ This repo runs:
 - `uv` installed (for backend local dev)
 - Node.js and `pnpm` installed (for frontend local dev)
 
-## Codex Agent Ops
-
-This repository now has a repo-scoped Codex operating layer:
-
-- root operating rules live in [`AGENTS.md`](AGENTS.md)
-- project agent config lives under [`.codex/`](.codex/)
-- core coordination logic lives in [`tools/codex_coord_lib.py`](tools/codex_coord_lib.py)
-- coordination docs live under [`docs/agent-ops/`](docs/agent-ops/README.md)
-- live multi-parent coordination state is stored under `<git-common-dir>/codex-coordination/`
-
-Parent-controller mode in this repo means one parent plus exactly 6 live child subagents.
-`status`, `doctor`, and `ensure-six-subagents` mark a parent noncompliant whenever the live child count drops below 6 or a child becomes stale, missing, or otherwise unhealthy.
-`max_threads = 6` in [`.codex/config.toml`](.codex/config.toml) is only a concurrency cap. It is not proof that the six-child invariant is satisfied.
-
-Fast status check:
-
-```powershell
-python tools/codex_coord.py status
-```
-
-Inspect the resolved shared runtime root:
-
-```powershell
-python tools/codex_coord.py runtime-path
-```
-
-Fast parent-session start:
-
-```powershell
-python tools/codex_coord.py start-parent --task-summary "Parse prompt and initialize work ledger"
-python tools/codex_coord.py ensure-six-subagents --session-id <parent_session>
-```
-
 ## Recommended workflow (one command, local dev)
 
 From repo root:
@@ -70,7 +37,7 @@ What `dev.ps1` does:
 - creates `.env` from `.env.example` if missing
 - starts OSRM with Docker (`docker compose up -d osrm`)
 - waits for OSRM to respond on `http://localhost:5000/`
-- runs strict live preflight (`backend/scripts/preflight_live_runtime.py`) and fails fast if required live feeds are invalid/stale
+- runs strict live preflight (`backend/scripts/preflight_live_runtime.py`), which checks OSRM and ORS; `dev.ps1` starts OSRM but does not start ORS, so startup fails fast if ORS is not already reachable or required live feeds are invalid/stale
 - starts backend in a new PowerShell window:
   - `uv sync --dev` (only if `.venv` missing)
   - `uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
@@ -230,6 +197,8 @@ Use this for full containerized verification. Do not run this at the same time a
   - serves markdown docs from `docs/` over a local HTTP server
   - run from repo root:
   - `.\scripts\serve_docs.ps1`
+  - optional browser-opening form:
+  - `.\scripts\serve_docs.ps1 -Port 8088 -OpenBrowser`
   - then open `http://localhost:8088/`
 
 - `backend/scripts/benchmark_batch_pareto.py`
@@ -292,6 +261,14 @@ Use this for full containerized verification. Do not run this at the same time a
   - `python scripts/check_docs.py`
 - serve docs locally from repo root:
   - `.\scripts\serve_docs.ps1`
+  - `.\scripts\serve_docs.ps1 -Port 8088 -OpenBrowser`
+- verification ladder from repo root:
+  - `python scripts/check_docs.py`
+  - `uv run --project backend pytest ...`
+  - `pnpm --dir frontend exec tsc --noEmit`
+  - `pnpm --dir frontend build`
+  - `.\scripts\run_backend_tests_safe.ps1 -MaxCores 1 -PriorityClass Idle -MaxWorkingSetMB 4096`
+  - `.\scripts\dev.ps1`
 - `docs/backend-api-tools.md`
   - backend endpoint inventory, strict contract shape, and tooling commands
 - `docs/api-cookbook.md`

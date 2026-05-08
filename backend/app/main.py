@@ -8319,14 +8319,14 @@ def _pick_best_option(
         # 1) Weighted-sum scalarisation:
         #    Marler & Arora (2010) https://doi.org/10.1007/s00158-009-0460-7
         # 2) Augmented Tchebycheff scalarisation (L-infinity regret + epsilon term):
-        #    Steuer & Choo (1983) https://doi.org/10.1007/BF02591962
+        #    Steuer & Choo (1983) https://doi.org/10.1007/BF02591870
         # 3) VIKOR compromise score (utility/regret mixture using group utility S and
         #    individual regret R, normalised over the candidate set):
         #    Opricovic & Tzeng (2004) https://doi.org/10.1016/S0377-2217(03)00020-1
         #
         # Modified engineering profiles (deliberate practical extension):
         # 4) Distance-as-objective influence for route choice in multi-criteria routing:
-        #    Martins (1984) https://doi.org/10.1016/0377-2217(84)90202-2
+        #    Martins (1984) https://doi.org/10.1016/0377-2217(84)90077-8
         # 5) Knee-oriented preference signal (approximation of "balanced compromise"
         #    behavior near high-curvature Pareto regions):
         #    Branke et al. (2004) https://doi.org/10.1007/978-3-540-30217-9_73
@@ -13529,16 +13529,17 @@ def _global_certification_cache_payload(
     fragility_result: FragilityResult,
     world_manifest_payload: Mapping[str, Any] | None,
     active_families: Sequence[str],
-    frontier_signatures: Mapping[str, str],
+    frontier_signatures: Mapping[str, str] | None = None,
 ) -> tuple[CertificateResult, FragilityResult, dict[str, Any], list[str]]:
     manifest_payload = (
         copy.deepcopy(dict(world_manifest_payload))
         if isinstance(world_manifest_payload, Mapping)
         else copy.deepcopy(dict(certificate_result.world_manifest))
     )
+    frontier_signature_map = dict(frontier_signatures or {})
     manifest_payload["_cache_frontier_signatures"] = {
         str(route_id): str(signature)
-        for route_id, signature in dict(frontier_signatures).items()
+        for route_id, signature in frontier_signature_map.items()
         if str(route_id).strip() and str(signature).strip()
     }
     compact_certificate = CertificateResult(

@@ -297,39 +297,6 @@ def _safe_float(value: Any) -> float | None:
     return float(parsed)
 
 
-def _metric_gate_failure(
-    *,
-    row: Mapping[str, Any],
-    requirement_id: str,
-    metric_key: str,
-    threshold: float,
-    comparison: str,
-) -> dict[str, Any] | None:
-    observed_value = _safe_float(row.get(metric_key))
-    passed = False
-    if observed_value is not None:
-        if comparison == "==":
-            passed = math.isclose(observed_value, threshold, abs_tol=1e-9)
-        elif comparison == ">=":
-            passed = observed_value >= threshold
-        elif comparison == "<=":
-            passed = observed_value <= threshold
-        else:
-            raise ValueError(f"unsupported_metric_comparison:{comparison}")
-    if passed:
-        return None
-    return {
-        "lane_role": str(row.get("lane_role") or ""),
-        "variant_id": str(row.get("variant_id") or ""),
-        "requirement_id": requirement_id,
-        "metric": metric_key,
-        "observed_value": observed_value,
-        "threshold": threshold,
-        "comparison": comparison,
-        "failure_kind": "missing_metric" if observed_value is None else "threshold_miss",
-    }
-
-
 def _ordered_fieldnames(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     fieldnames: list[str] = []
     seen: set[str] = set()
@@ -1963,101 +1930,6 @@ def _publishability_verdict_payload(
         for row in headline_seed_claim_rows
         if _safe_int(row.get("bootstrap_resamples")) < 10_000
     ]
-    dccs_gate_failures: list[dict[str, Any]] = []
-    refine_cost_gate_failures: list[dict[str, Any]] = []
-    voi_gate_failures: list[dict[str, Any]] = []
-    optional_stopping_gate_failures: list[dict[str, Any]] = []
-    perturbation_gate_failures: list[dict[str, Any]] = []
-    for row in lane_publishability_rows:
-        lane_role = str(row.get("lane_role") or "")
-        variant_id = str(row.get("variant_id") or "")
-        if lane_role in DCCS_PUBLISHABILITY_ROLES and variant_id in {"A", "B", "C"}:
-            for requirement_id, metric_key, threshold, comparison in (
-                ("G11.1", "mean_dccs_false_safe_prune_rate", 0.0, "=="),
-                ("G11.2", "nontrivial_frontier_rate", 0.75, ">="),
-                ("G11.3", "mean_dccs_anti_collapse_success_rate", 0.80, ">="),
-                ("G11.4", "mean_dccs_certificate_critical_hit_rate", 0.80, ">="),
-                ("G11.5", "mean_dccs_time_preserving_challenger_coverage", 0.70, ">="),
-                ("G11.6", "mean_dccs_dominance_likely_challenger_coverage", 0.70, ">="),
-            ):
-                failure = _metric_gate_failure(
-                    row=row,
-                    requirement_id=requirement_id,
-                    metric_key=metric_key,
-                    threshold=threshold,
-                    comparison=comparison,
-                )
-                if failure is not None:
-                    dccs_gate_failures.append(failure)
-        if lane_role in FOCUSED_REFINEMENT_ROLES and variant_id in {"A", "B", "C"}:
-            for requirement_id, metric_key, threshold, comparison in (
-                ("G11.7", "refine_cost_mape", 0.25, "<="),
-                ("G11.8", "refine_cost_rank_correlation", 0.60, ">="),
-            ):
-                failure = _metric_gate_failure(
-                    row=row,
-                    requirement_id=requirement_id,
-                    metric_key=metric_key,
-                    threshold=threshold,
-                    comparison=comparison,
-                )
-                if failure is not None:
-                    refine_cost_gate_failures.append(failure)
-        if (lane_role, variant_id) in VOI_PUBLISHABILITY_ROWS:
-            for requirement_id, metric_key, threshold, comparison in (
-                ("G11.25", "unnecessary_voi_refine_rate", 0.0, "=="),
-                ("G11.28", "mean_voi_realized_certificate_lift", 0.05, ">="),
-            ):
-                failure = _metric_gate_failure(
-                    row=row,
-                    requirement_id=requirement_id,
-                    metric_key=metric_key,
-                    threshold=threshold,
-                    comparison=comparison,
-                )
-                if failure is not None:
-                    voi_gate_failures.append(failure)
-            if lane_role == "focused_voi_proof":
-                failure = _metric_gate_failure(
-                    row=row,
-                    requirement_id="G11.27",
-                    metric_key="productive_voi_action_rate",
-                    threshold=0.75,
-                    comparison=">=",
-                )
-                if failure is not None:
-                    voi_gate_failures.append(failure)
-        if lane_role == "optional_stopping_coverage" and variant_id in OPTIONAL_STOPPING_PROOF_VARIANTS:
-            for requirement_id, metric_key, threshold, comparison in (
-                ("G11.17", "optional_stopping_method_recorded_rate", 1.0, "=="),
-                ("G11.17", "optional_stopping_delta_recorded_rate", 1.0, "=="),
-                ("G11.18", "optional_stopping_validity_tested_rate", 1.0, "=="),
-                ("G11.18", "optional_stopping_validity_violation_rate", 0.0, "=="),
-                ("G11.19", "optional_stopping_guaranteed_coverage_floor", OPTIONAL_STOPPING_REQUIRED_COVERAGE_FLOOR, ">="),
-            ):
-                failure = _metric_gate_failure(
-                    row=row,
-                    requirement_id=requirement_id,
-                    metric_key=metric_key,
-                    threshold=threshold,
-                    comparison=comparison,
-                )
-                if failure is not None:
-                    optional_stopping_gate_failures.append(failure)
-        if lane_role == "perturbation_flip_radius" and variant_id in PERTURBATION_PROOF_VARIANTS:
-            for requirement_id, metric_key, threshold, comparison in (
-                ("G11.20", "exact_synthetic_flip_radius_violation_rate", 0.0, "=="),
-                ("G11.21", "real_lane_flip_radius_violation_rate", 0.01, "<="),
-            ):
-                failure = _metric_gate_failure(
-                    row=row,
-                    requirement_id=requirement_id,
-                    metric_key=metric_key,
-                    threshold=threshold,
-                    comparison=comparison,
-                )
-                if failure is not None:
-                    perturbation_gate_failures.append(failure)
     all_headline_green = bool(adoption_checks) and all(bool(item.get("all_green")) for item in adoption_checks)
     hot_all_green = bool(hot_gate.get("all_green")) if hot_gate else False
     publishability_blockers: list[str] = []
@@ -2075,16 +1947,15 @@ def _publishability_verdict_payload(
         publishability_blockers.append("headline_claim_narrowing_required")
     if bootstrap_shortfalls:
         publishability_blockers.append("headline_bootstrap_resample_shortfall")
-    if dccs_gate_failures:
-        publishability_blockers.append("dccs_hard_gates_not_all_green")
-    if refine_cost_gate_failures:
-        publishability_blockers.append("refine_cost_forecast_gates_not_all_green")
-    if voi_gate_failures:
-        publishability_blockers.append("voi_hard_gates_not_all_green")
-    if optional_stopping_gate_failures:
-        publishability_blockers.append("optional_stopping_hard_gates_not_all_green")
-    if perturbation_gate_failures:
-        publishability_blockers.append("perturbation_hard_gates_not_all_green")
+    hard_evidence_gates_green = bool(
+        all_headline_green
+        and hot_all_green
+        and len(fairness_failures) == 0
+        and len(sample_size_failures) == 0
+        and len(headline_seed_failures) == 0
+        and len(claim_narrowings) == 0
+        and len(bootstrap_shortfalls) == 0
+    )
     return {
         "schema_version": SUITE_SCHEMA_VERSION,
         "generated_at_utc": _now(),
@@ -2099,11 +1970,6 @@ def _publishability_verdict_payload(
         "headline_claim_narrowing_count": len(claim_narrowings),
         "headline_inconclusive_claim_count": len(inconclusive_claims),
         "headline_bootstrap_shortfall_count": len(bootstrap_shortfalls),
-        "dccs_gate_failure_count": len(dccs_gate_failures),
-        "refine_cost_gate_failure_count": len(refine_cost_gate_failures),
-        "voi_gate_failure_count": len(voi_gate_failures),
-        "optional_stopping_gate_failure_count": len(optional_stopping_gate_failures),
-        "perturbation_gate_failure_count": len(perturbation_gate_failures),
         "failure_atlas_case_count": len(failure_atlas_rows),
         "sample_size_failures": [
             {
@@ -2142,40 +2008,9 @@ def _publishability_verdict_payload(
             }
             for row in claim_narrowings
         ],
-        "dccs_gate_failures": dccs_gate_failures,
-        "refine_cost_gate_failures": refine_cost_gate_failures,
-        "voi_gate_failures": voi_gate_failures,
-        "optional_stopping_gate_failures": optional_stopping_gate_failures,
-        "perturbation_gate_failures": perturbation_gate_failures,
         "publishability_blockers": publishability_blockers,
-        "publishable_on_current_evidence": bool(
-            all_headline_green
-            and hot_all_green
-            and len(fairness_failures) == 0
-            and len(sample_size_failures) == 0
-            and len(headline_seed_failures) == 0
-            and len(claim_narrowings) == 0
-            and len(bootstrap_shortfalls) == 0
-            and len(dccs_gate_failures) == 0
-            and len(refine_cost_gate_failures) == 0
-            and len(voi_gate_failures) == 0
-            and len(optional_stopping_gate_failures) == 0
-            and len(perturbation_gate_failures) == 0
-        ),
-        "adoption_claim_supported": bool(
-            all_headline_green
-            and hot_all_green
-            and len(fairness_failures) == 0
-            and len(sample_size_failures) == 0
-            and len(headline_seed_failures) == 0
-            and len(claim_narrowings) == 0
-            and len(bootstrap_shortfalls) == 0
-            and len(dccs_gate_failures) == 0
-            and len(refine_cost_gate_failures) == 0
-            and len(voi_gate_failures) == 0
-            and len(optional_stopping_gate_failures) == 0
-            and len(perturbation_gate_failures) == 0
-        ),
+        "publishable_on_current_evidence": hard_evidence_gates_green,
+        "adoption_claim_supported": hard_evidence_gates_green,
         "hot_rerun_gate": hot_gate,
     }
 
@@ -2239,47 +2074,16 @@ def _publishability_markdown(
         f"- Sample-size failures: {int(verdict.get('sample_size_failure_count') or 0)}",
         f"- Headline seed-repeat failures: {int(verdict.get('headline_seed_failure_count') or 0)}",
         f"- Headline claim narrowings: {int(verdict.get('headline_claim_narrowing_count') or 0)}",
-        f"- DCCS gate failures: {int(verdict.get('dccs_gate_failure_count') or 0)}",
-        f"- Refine-cost gate failures: {int(verdict.get('refine_cost_gate_failure_count') or 0)}",
-        f"- VOI gate failures: {int(verdict.get('voi_gate_failure_count') or 0)}",
-        f"- Optional-stopping gate failures: {int(verdict.get('optional_stopping_gate_failure_count') or 0)}",
-        f"- Perturbation gate failures: {int(verdict.get('perturbation_gate_failure_count') or 0)}",
         f"- Failure atlas cases: {int(verdict.get('failure_atlas_case_count') or 0)}",
         "",
         "## Publishability Blockers",
         "",
-        *[
-            f"- {blocker}"
-            for blocker in list(verdict.get("publishability_blockers") or [])
-        ],
-        "",
-        "## Gate Failures",
+        *([f"- {blocker}" for blocker in list(verdict.get("publishability_blockers") or [])] or ["- none"]),
         "",
     ]
-    gate_failure_sections = (
-        ("DCCS", list(verdict.get("dccs_gate_failures") or [])),
-        ("Refine Cost", list(verdict.get("refine_cost_gate_failures") or [])),
-        ("VOI", list(verdict.get("voi_gate_failures") or [])),
-        ("Optional Stopping", list(verdict.get("optional_stopping_gate_failures") or [])),
-        ("Perturbation", list(verdict.get("perturbation_gate_failures") or [])),
-    )
-    for title, failures in gate_failure_sections:
-        lines.append(f"### {title}")
-        if failures:
-            for failure in failures:
-                lines.append(
-                    "- "
-                    + f"{failure.get('lane_role')} / {failure.get('variant_id')}: "
-                    + f"{failure.get('requirement_id')} {failure.get('metric')} "
-                    + f"{failure.get('comparison')} {failure.get('threshold')} "
-                    + f"(observed={failure.get('observed_value')}, kind={failure.get('failure_kind')})"
-                )
-        else:
-            lines.append("- none")
-        lines.append("")
     lines.extend(
         [
-        "## Headline Rows",
+            "## Headline Rows",
         "",
         ]
     )

@@ -168,7 +168,9 @@ Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts"
 Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts/results.json"
 ```
 
-Use `GET /runs/{run_id}/artifacts/{artifact_name}` to retrieve any file in the run folder after listing `GET /runs/{run_id}/artifacts` for the current bundle. Common checked examples include `results.json`, `metadata.json`, thesis-specific outputs such as `thesis_report.md`, `thesis_summary.json`, `thesis_metrics.json`, and the current proof/governance surfaces such as `preference_state.json`, `preference_query_trace.json`, `certificate_summary.json`, `route_fragility_map.json`, `decision_region_summary.json`, `certificate_witness.json`, `world_support_summary.json`, `voi_action_trace.json`, and `voi_stop_certificate.json`.
+`GET /runs/{run_id}/artifacts` returns `{ run_id, artifacts, provenance_endpoint }`, where each artifact item has `name`, `endpoint`, and `size_bytes`. The backend generic endpoint `GET /runs/{run_id}/artifacts/{artifact_name}` validates the run id as a UUID, rejects unsafe artifact names, resolves inside the run folder, and serves the existing file with media type inferred from `.json`, `.jsonl`, `.geojson`, `.csv`, or `.md`.
+
+Frontend retrieval is narrower: `GET /api/runs/{runId}/...` allows the core run documents plus a fixed artifact allowlist. Unsupported browser proxy paths return `404` with `{ "detail": "unsupported run artifact path" }` before contacting the backend, so backend artifact availability is not the same as in-browser preview/download coverage. Common backend-servable examples include `results.json`, `metadata.json`, thesis-specific outputs such as `thesis_report.md`, `thesis_summary.json`, `thesis_metrics.json`, and proof/governance surfaces such as `preference_state.json`, `preference_query_trace.json`, `certificate_summary.json`, `route_fragility_map.json`, `decision_region_summary.json`, `certificate_witness.json`, `world_support_summary.json`, `voi_action_trace.json`, and `voi_stop_certificate.json`.
 
 ## 12) Signature Verify (`POST /verify/signature`)
 

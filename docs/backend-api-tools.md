@@ -54,6 +54,8 @@ This page is the source-of-truth backend API contract for current strict runtime
 
 ## Endpoint Inventory
 
+For endpoint parity, `python scripts/check_docs.py --check-endpoints` compares FastAPI decorators in `backend/app/main.py` with backticked `METHOD /path` entries in this file; the command still also runs the always-on notebook-reference ban. It does not validate frontend Next.js proxy coverage, response-model field details, artifact allowlists, endpoint mentions in `docs/api-cookbook.md`, or thesis prose.
+
 ### System And Admin
 
 - `GET /`
@@ -212,8 +214,18 @@ Endpoint-specific:
   - `weather_summary`
   - `terrain_summary`
   - `incident_events`
-  - `evidence_provenance`
-  - `certification`
+- `DecisionPackage`
+  - `terminal_type`
+  - `selected`, `candidates`, `recommended_route`
+  - `certified_set`, `abstention`
+  - `frontier_summary`, `selected_certificate`, `certificate_summary`
+  - `winner_confidence_state`, `pairwise_gap_states`, `flip_radius_state`, `decision_region_state`, `certificate_witness`
+  - `preference_summary`, `preference_state`, `preference_query_trace`
+  - `support_summary`, `world_support_summary`, `abstention_summary`, `certified_set_summary`
+  - `action_trace_summary`, `witness_summary`, `artifact_pointers`
+  - `selected_certificate_basis`, `run_id`, `pipeline_mode`
+  - `manifest_endpoint`, `artifacts_endpoint`, `provenance_endpoint`
+  - `voi_stop_summary`
 - `ScenarioSummary`
   - `mode`
   - `context_key`
@@ -377,20 +389,22 @@ Successful route payloads include additive scenario fields:
   - thesis_results.json
   - thesis_summary.csv
   - thesis_summary.json
-  - thesis_summary_by_cohort.csv
-  - thesis_summary_by_cohort.json
+  - thesis_summary_by_transfer_slice.csv
+  - thesis_summary_by_transfer_slice.json
+  - thesis_summary_by_weather_regime_transfer_slice.csv
+  - thesis_summary_by_weather_regime_transfer_slice.json
+  - thesis_metrics.json
+  - thesis_plots.json
+  - methods_appendix.md
+  - thesis_report.md
+  - evaluation_manifest.json
 
 - `index.json` is the machine-readable route-bundle index. It summarizes run id, terminal type, selected certificate basis, support state, artifact pointers, and per-artifact endpoints for the current run folder.
 - `index.md` is the reviewer-readable companion summary for the same route bundle.
 - The public `/route` response is the transport contract. In the current smoke-covered direct-REFC slice, that transport can normalize to `terminal_type=typed_abstention` even when the emitted local run bundle preserves richer proof artifacts such as `decision_package.json` and `certified_set_summary.json`.
 - In that same checked local slice, the public `typed_abstention` response can still carry normalized explanation surfaces such as `certified_set_summary`, `winner_confidence_state`, `certificate_witness`, and `artifact_pointers`; those fields remain part of the transport contract even when the emitted bundle keeps a richer local proof surface.
 - Operators who need that richer local proof surface should inspect those emitted artifacts through `GET /runs/{run_id}/artifacts/{artifact_name}`. This is a narrow note about the checked local smoke slice, not a global claim about every `/route` abstention.
-  - `thesis_summary_by_cohort.*` may include a derived `support_fragile` slice, which can overlap with other cohorts under the current evaluator thresholding.
-  - thesis_metrics.json
-  - thesis_plots.json
-  - methods_appendix.md
-  - thesis_report.md
-  - evaluation_manifest.json
+- Older focused-VOI and thesis-like export bundles may still carry `thesis_summary_by_cohort.*`; that is an export/history surface, not a current `ARTIFACT_FILES` entry. Current transfer-generalization artifact names are `thesis_summary_by_transfer_slice.*` and `thesis_summary_by_weather_regime_transfer_slice.*`.
 
 For thesis-like bundles emitted or rewritten through the run store, `index.json` now uses `bundle_type = thesis_evaluation` and includes an `export_status` section for maintained thesis/report artifacts; `index.md` mirrors that same presence/absence view as an `Export Status` section. In the maintained set, this can include files such as `thesis_results.csv`, `thesis_summary.csv`, the thesis summary-by-cohort CSV, `thesis_report.md`, and `evaluation_manifest.json`. Read that behavior as forward-looking for new or rewritten bundles only: it does not imply historical backfill for older checked directories that predate the newer bundle-index emission path.
 - Signed manifests are written to:

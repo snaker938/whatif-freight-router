@@ -45,7 +45,7 @@ The run inspector proxies a strict allowlist of report and artifact paths. Curre
 - `GET /runs/{run_id}/scenario-signature`
 - `GET /runs/{run_id}/artifacts`
 
-Current artifact endpoints exposed through the frontend proxy are:
+Current backend artifact endpoints targeted by the frontend proxy allowlist are (browser requests use `/api/runs/{runId}/...` for the same subpaths):
 
 - `GET /runs/{run_id}/artifacts/results.json`
 - `GET /runs/{run_id}/artifacts/results.csv`

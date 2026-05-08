@@ -45,12 +45,12 @@ For this doc set, the safe default is: every `G11.*` and `P14.*` item is open un
 
 The current evidence set still leaves open:
 
-- no reviewed page in this slice establishes green status for the DCCS, preference, multi-fidelity, REFC/selective-certification, VOI, global route-quality, runtime/reuse, evaluation-size, or test-floor `G11.*` families
-- no reviewed page in this slice establishes `P14.*` statistical-discipline, seed-robustness, calibration-publishability, preference-burden, witness-sparsity, failure-atlas, baseline-fairness, artifact-packaging, sensitivity, or runtime-observability closure
-- explicit suite-role registration now covers `broad cold proof`, `focused REFC proof`, `focused VOI proof`, `DCCS diagnostic probe`, `hot-rerun cold-source`, `hot-rerun`, `preference proof`, `optional-stopping coverage`, `proxy-audit calibration`, `perturbation / flip-radius`, `public transfer`, and `synthetic ground-truth`
-- those newer suite roles still do not have checked artifact bundles cited on the reviewed pages in this slice, so role registration should not be confused with gate closure
-- the current focused `C` evidence is still single-seed only (`seed_repeat_plan.headline_seed_repeat_required = true`, `configured_seed_count = 1`, `status = single_seed_only`), so `P14.8`, `P14.10`, and `P14.43` remain open even though the local checked bundle is useful as a single-run example
-- the current checked `proxy_audit_calibration` bundle is proxy-only for `C` (`mean_audit_world_count = 0.0`, `mean_audited_route_pair_count = 0.0`, `proxy_only_fraction = 1.0`), so `P14.13` and `P14.14` remain open on current evidence and the audited-overlap `P5.2` / `P5.4` rows cannot be closed from this bundle alone
+- the checked full-suite companion is green for the applied-evidence publication/adoption framing: `publishable_on_current_evidence=true`, `adoption_claim_supported=true`, while DCCS, refine-cost forecasting, and VOI remain non-blocking algorithm diagnostics for strong certification
+- do not state blanket green status for all `G11.*` or `P14.*` rows; a row is closed only when a maintained page cites the current artifact path, measured value, required threshold, and required sample size
+- current checked full-suite evidence no longer treats sample size, optional stopping, perturbation, headline narrowing, hot rerun, or `P14.46-P14.50` runtime/report observability as negative results
+- repeated-seed focused-VOI preference-burden support for `P14.17-P14.20` comes from `out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/` plus `_seed20260421` and `_seed20260522`; that family-specific closure supports the applied suite framing but does not make the overall suite deployment-ready or strong-certification-complete
+- the staged `out/headline_exports/current_checked/table.focused_voi.preference_burden_*` source/provenance sidecars still cite the older focused `thesis_eval_20260331_r2_focused_voi/` single-seed bundle, so those staged sidecars should not be cited as repeated-seed proof until regenerated
+- the checked campaign baseline-fairness reviewer lane remains failed, so the campaign-backed OSRM/ORS slice is not a clean adoption or publication green-light
 
 The safe reading is that the repo can demonstrate credible local evidence, but not blanket success across every gate or cohort.
 

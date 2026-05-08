@@ -16,7 +16,7 @@ On successful batch/scenario compare flows, backend writes:
 - manifest: `backend/out/manifests/{run_id}.json`
 - scenario manifest: `backend/out/scenario_manifests/{run_id}.json`
 - artifact folder: `backend/out/artifacts/{run_id}/`
-- provenance stream: `backend/out/provenance/{run_id}.jsonl`
+- provenance file: `backend/out/provenance/{run_id}.json`
 
 Core route bundle files:
 
@@ -145,19 +145,18 @@ Route bundle results.csv rows add selected as an extra column.
    - `GET /runs/{run_id}/artifacts`
    - `GET /runs/{run_id}/artifacts/<name>`
 
-## Latest Thesis Bundle Snapshot
+## Focused-VOI Thesis Bundle Snapshot
 
-A current thesis evaluation bundle in `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` is one of the most complete currently checked local evidence sets. Its evaluation_manifest.json records:
+The checked focused-VOI thesis evaluation bundle in `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` is a preserved, row-level evidence set for the focused-VOI family. It is not the whole-suite publishability verdict; use the current checked full-suite summaries under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` for that broader decision. Its `evaluation_manifest.json` currently records:
 
 - `run_id`: `thesis_eval_20260331_r2_focused_voi`
-- `created_at`: `2026-04-01T01:09:48.771286+01:00`
+- `created_at`: `2026-04-11T00:33:36.069897+00:00`
 - `model_version`: `thesis-script-v3`
 - `strict_evidence_policy`: `no_synthetic_no_proxy_no_fallback`
-- `cache_mode`: `cold`
-- `cache_reset_policy`: `thesis_cold`
-- `cache_reset_scope`: `variant`
-- `cache_reset_count`: `80`
-- `cache_carryover_expected`: `false`
+- `cache_mode`: `preserve`
+- `cache_reset_policy`: `none`
+- `cache_reset_scope`: `none`
+- `cache_reset_count`: `0`
 - `run_validity.scenario_profile_unavailable_rate`: `0.0`
 - `run_validity.strict_live_readiness_pass_rate`: `1.0`
 - `run_validity.evaluation_rerun_success_rate`: `1.0`
@@ -169,28 +168,28 @@ The same manifest also records the strict readiness evidence:
 - `backend_ready_summary.route_graph.nodes_seen`: `16782614`
 - `backend_ready_summary.route_graph.edges_seen`: `32920150`
 - `backend_ready_summary.route_graph.largest_component_ratio`: `0.9274120825277874`
-- `backend_ready_summary.route_graph.elapsed_ms`: `290573.79`
+- `backend_ready_summary.route_graph.elapsed_ms`: `287624.17`
 - `backend_ready_summary.route_graph.asset_size_mb`: `4123.27`
 - `backend_ready_summary.strict_live.dependency_count`: `7`
 - `backend_ready_summary.strict_live.dependencies[0].details.contexts`: `192`
-- `backend_ready_summary.strict_live.dependencies[1].as_of_utc`: `2026-03-23T00:00:00+00:00`
+- `backend_ready_summary.strict_live.dependencies[1].as_of_utc`: `2026-04-06T00:00:00+00:00`
 - `backend_ready_summary.strict_live.dependencies[2].details.rule_count`: `220`
 - `backend_ready_summary.strict_live.dependencies[3].details.segment_count`: `28`
 - `backend_ready_summary.strict_live.dependencies[4].details.regime_count`: `18`
 - `backend_ready_summary.strict_live.dependencies[5].details.region_count`: `11`
 - `backend_ready_summary.strict_live.dependencies[6].details.count`: `134`
-- `backend_ready_summary.compute_ms`: `2504.54`
-- `backend_ready_summary.wait_elapsed_ms`: `284592.65`
-- `backend_ready_summary.attempt_count`: `29`
+- `backend_ready_summary.compute_ms`: `6261.11`
+- `backend_ready_summary.wait_elapsed_ms`: `284185.98`
+- `backend_ready_summary.attempt_count`: `27`
 
 The same bundle’s baseline smoke summary records:
 
-- OSRM `compute_ms`: `943.84`
+- OSRM `compute_ms`: `995.95`
 - OSRM `distance_km`: `189.471`
-- OSRM `duration_s`: `13533.31`
-- ORS `compute_ms`: `335.31`
+- OSRM `duration_s`: `13325.73`
+- ORS `compute_ms`: `531.89`
 - ORS `distance_km`: `203.868`
-- ORS `duration_s`: `18898.8`
+- ORS `duration_s`: `18608.92`
 - ORS `asset_manifest_hash`: `6bbc27f2cff7983598de1ee9fe5272c67b4b3fab6c732dd696d909151261d063`
 - ORS `asset_freshness_status`: `graph_identity_verified`
 - ORS `engine_image`: `openrouteservice/openrouteservice:v9.7.1`

@@ -17,6 +17,33 @@ class CompatibleWeightSetSummary(BaseModel):
     support_reason: str | None = None
 
 
+class TimeGuard(BaseModel):
+    max_duration_s: float | None = Field(default=None, ge=0.0)
+
+
+class ElicitedConstraint(BaseModel):
+    kind: str
+    target: str | None = None
+    guard: TimeGuard | None = None
+    source: str | None = None
+
+    @classmethod
+    def veto(cls, target: str, *, source: str | None = None) -> "ElicitedConstraint":
+        cleaned_target = str(target or "").strip()
+        if not cleaned_target:
+            raise ValueError("veto target must be non-empty")
+        return cls(kind="veto", target=cleaned_target, source=source)
+
+    @classmethod
+    def time_guard(
+        cls,
+        guard: TimeGuard,
+        *,
+        source: str | None = None,
+    ) -> "ElicitedConstraint":
+        return cls(kind="time_guard", guard=guard, source=source)
+
+
 def normalize_weight_vector(weight_vector: dict[str, float] | None) -> dict[str, float]:
     vector = {str(key): float(value) for key, value in (weight_vector or {}).items()}
     cleaned = {key: value for key, value in vector.items() if value >= 0.0 and value == value}

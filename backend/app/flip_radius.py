@@ -165,8 +165,76 @@ class FlipRadiusState:
     support_flag: bool = True
     provenance: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_pairwise_gap(
+        cls,
+        pairwise_gap: Any,
+        *,
+        objective_scale: float = 1.0,
+    ) -> "FlipRadiusState":
+        pairwise_provenance = dict(getattr(pairwise_gap, "provenance", {}) or {})
+        route_id = str(
+            pairwise_provenance.get("winner_id")
+            or pairwise_provenance.get("selected_route_id")
+            or "winner"
+        )
+        challenger_id = str(getattr(pairwise_gap, "challenger_id", "challenger"))
+        mean_gap = _coerce_float(getattr(pairwise_gap, "mean_gap", None))
+        lower_bound = _coerce_float(
+            getattr(pairwise_gap, "pairwise_gap_lower_bound", mean_gap)
+        )
+        raw_radius = getattr(pairwise_gap, "challenger_radius", None)
+        challenger_radius = _rounded_budget(
+            raw_radius if raw_radius is not None else mean_gap
+        ) or 0.0
+        scale = max(abs(_coerce_float(objective_scale)), 1e-12)
+        normalized_radius = round(challenger_radius / scale, 6)
+        minimum_flip_budget = (
+            challenger_radius if lower_bound > 0.0 and challenger_radius > 0.0 else None
+        )
+        challenger_specific_radii = {challenger_id: challenger_radius}
+        return cls(
+            route_id=route_id,
+            deterministic_local_flip_radius=normalized_radius,
+            probabilistic_flip_radius=normalized_radius,
+            challenger_specific_radii=challenger_specific_radii,
+            minimum_flip_budget=minimum_flip_budget,
+            adversarial_degradation_curve=build_adversarial_degradation_curve(
+                challenger_specific_radii=challenger_specific_radii,
+                evidence_family_radii={},
+            ),
+            structured_adversarial_budget=build_structured_adversarial_budget(
+                evidence_budget=minimum_flip_budget,
+                evidence_driver=challenger_id,
+                evidence_source_metric="pairwise_gap",
+                evidence_details={"challenger_count": 1},
+                preference_budget=None,
+                preference_source_metric="most_fragile_preference_direction",
+                search_deficiency_budget=None,
+                search_deficiency_source_metric="search_completeness_gap",
+                provenance={
+                    "selected_route_id": route_id,
+                    "source": "pairwise_gap",
+                },
+            ),
+            support_flag=bool(getattr(pairwise_gap, "support_flag", True)),
+            provenance={
+                "selected_route_id": route_id,
+                "source": "pairwise_gap",
+                "objective_scale": round(scale, 6),
+                "pairwise_gap": mean_gap,
+            },
+        )
+
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), indent=2, sort_keys=True, default=str)
+
+
+def _coerce_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

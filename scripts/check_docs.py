@@ -10,7 +10,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
-AGENT_OPS_DIR = DOCS_DIR / "agent-ops"
 ROOT_README = ROOT / "README.md"
 BACKEND_README = ROOT / "backend" / "README.md"
 FRONTEND_README = ROOT / "frontend" / "README.md"
@@ -165,14 +164,8 @@ THEOREMISH_NAME_RE = re.compile(
 )
 
 
-def list_agent_ops_docs() -> list[Path]:
-    if not AGENT_OPS_DIR.is_dir():
-        return []
-    return sorted(p for p in AGENT_OPS_DIR.glob("*.md") if p.is_file())
-
-
 def list_docs() -> list[Path]:
-    files = [*DOCS_DIR.glob("*.md"), *list_agent_ops_docs()]
+    files = [*DOCS_DIR.glob("*.md")]
     unique_files: list[Path] = []
     seen: set[Path] = set()
     for path in files:
@@ -585,8 +578,6 @@ def run_orphan_check() -> list[str]:
     if not DOC_INDEX.exists():
         return ["docs/DOCS_INDEX.md is missing"]
 
-    agent_ops_root = AGENT_OPS_DIR.resolve()
-
     index_text = read_text(DOC_INDEX)
     linked_docs: set[Path] = set()
     for link in MD_LINK_RE.findall(index_text):
@@ -601,7 +592,6 @@ def run_orphan_check() -> list[str]:
         p.resolve()
         for p in docs
         if p.name.lower() not in {"readme.md", DOC_INDEX.name.lower()}
-        and not p.resolve().is_relative_to(agent_ops_root)
     }
     expected_extra_links = {path.resolve() for path in EXTRA_MAINTAINED_MARKDOWN if path.is_file()}
     missing_from_index = sorted(
@@ -612,8 +602,6 @@ def run_orphan_check() -> list[str]:
         errors.append(f"{path_text} is not linked from docs/DOCS_INDEX.md")
 
     for doc in docs:
-        if doc.resolve().is_relative_to(agent_ops_root):
-            continue
         text = read_text(doc)
         if not RELATED_DOCS_HEADING_RE.search(text):
             errors.append(f"{doc.relative_to(ROOT)} missing '## Related Docs' section")

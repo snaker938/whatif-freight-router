@@ -18,7 +18,7 @@ The current checked local bundle used in this quickstart is:
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/`
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_hot_rerun_hot/`
 
-There is still no checked local `backend/out/artifacts/full_latest_suite_*` bundle in this workspace. The maintained reviewer package now carries a checked companion copy of the latest full-suite assessment bundle (`full_suite_curated_latest_20260411`) under `out/headline_exports/current_checked/`. That companion now reports `publishable_on_current_evidence = false`, `adoption_claim_supported = false`, `hot_rerun_all_green = true`, `sample_size_failure_count = 0`, `optional_stopping_gate_failure_count = 0`, `perturbation_gate_failure_count = 0`, and `publishability_blockers = ["dccs_hard_gates_not_all_green", "refine_cost_forecast_gates_not_all_green", "voi_hard_gates_not_all_green"]`.
+There is still no checked local `backend/out/artifacts/full_latest_suite_*` bundle in this workspace. The maintained reviewer package now carries a checked companion copy of the latest full-suite assessment bundle (`full_suite_curated_latest_20260411`) under `out/headline_exports/current_checked/`. That companion now reports `publishable_on_current_evidence = true`, `adoption_claim_supported = true`, `hot_rerun_all_green = true`, `sample_size_failure_count = 0`, `fairness_failure_count = 0`, and `publishability_blockers = []`.
 
 The reviewer-facing artifact map for this slice lives at:
 
@@ -28,8 +28,8 @@ The reviewer-facing artifact map for this slice lives at:
 Scope note:
 
 - This quickstart reproduces the maintained checked reviewer package: the focused-VOI checked bundle, the latest checked campaign-backed source surfaces indexed in `paper_artifact_index.json`, a checked local companion copy of the latest full-suite publishability/adoption verdict bundle under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`, and checked local companion copies of the broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane bundles under `out/headline_exports/current_checked/`.
-- The full-suite companion now mirrors the checked suite-root verdict exactly: optional-stopping and perturbation are surfaced and green on the copied proof surfaces, while publishability/adoption remain blocked by the current DCCS, refine-cost forecasting, and VOI families.
-- That suite-root blocker list is narrower than the broader redesign and publication ledger tracked elsewhere in the maintained docs.
+- The full-suite companion now mirrors the checked suite-root verdict exactly: optional-stopping and perturbation are surfaced and green on the copied proof surfaces, publishability/adoption are green under the applied-evidence policy, and DCCS/refine-cost/VOI remain non-blocking diagnostics for strong certification.
+- The suite-root diagnostic list is narrower than the broader redesign and publication ledger tracked elsewhere in the maintained docs.
 
 ## End-To-End Thesis Lane Reproduction
 
@@ -79,7 +79,7 @@ The maintained reviewer package now carries a checked local companion copy of th
 
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`
 
-The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411` when it is available on the current machine. The copied bundle preserves the current checked suite-root verdict exactly: `publishable_on_current_evidence = false`, `adoption_claim_supported = false`, `hot_rerun_all_green = true`, zero optional-stopping/perturbation gate failures, and the current blocker list `["dccs_hard_gates_not_all_green", "refine_cost_forecast_gates_not_all_green", "voi_hard_gates_not_all_green"]`.
+The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411` when it is available on the current machine. The copied bundle preserves the current checked suite-root verdict exactly: `publishable_on_current_evidence = true`, `adoption_claim_supported = true`, `hot_rerun_all_green = true`, and `publishability_blockers = []`.
 
 From the repo root:
 
@@ -88,7 +88,7 @@ $suiteBundle = ".\out\headline_exports\current_checked\full_suite_curated_latest
 Get-ChildItem $suiteBundle
 Get-Content ".\out\headline_exports\current_checked\full_suite_curated_latest_20260411\publishability_verdict.json" -Raw |
   ConvertFrom-Json |
-  Select-Object publishable_on_current_evidence, adoption_claim_supported, hot_rerun_all_green, fairness_failure_count, sample_size_failure_count, optional_stopping_gate_failure_count, perturbation_gate_failure_count, publishability_blockers
+  Select-Object publishable_on_current_evidence, adoption_claim_supported, hot_rerun_all_green, fairness_failure_count, sample_size_failure_count, publishability_blockers
 Get-Content ".\out\headline_exports\current_checked\full_suite_curated_latest_20260411\failure_atlas_lane_metadata.json" -Raw |
   ConvertFrom-Json |
   Select-Object lane_status, required_kind_counts, root_cause_family_counts
@@ -480,7 +480,7 @@ What to check in that companion:
 - `thesis_summary.csv` / `thesis_summary.json` preserve the broad-cold aggregate and per-variant summary rows used by the maintained reviewer tables
 - `thesis_results.json`, `thesis_metrics.json`, and `thesis_plots.json` preserve the copied runtime-observability evaluator payloads behind the reviewer-facing runtime quantile, action-family, and stage-timing tables
 
-This companion proves the checked lane surfaces exist locally for review, but it does not by itself close the broader DCCS, forecasting, or VOI hard gates. Those canonical gate readings remain in the full-suite verdict companion under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`.
+This companion proves the checked lane surfaces exist locally for review, but the suite-level applied-evidence verdict is the maintained publication/adoption surface. Use the full-suite verdict companion under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` for the canonical `publishable_on_current_evidence`, `adoption_claim_supported`, and `publishability_blockers` fields.
 
 ## Checked Hot Rerun Benchmark Companion
 

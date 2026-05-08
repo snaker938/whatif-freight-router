@@ -7,6 +7,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, Field
 
 TypedAbstentionReason = Literal[
+    "typed_abstention_recommended",
     "uncertified_due_to_search",
     "uncertified_due_to_evidence",
     "uncertified_due_to_preference",
@@ -28,8 +29,96 @@ class AbstentionRecord(BaseModel):
     model_assumption: str | None = None
     terminal_type: Literal["typed_abstention"] = "typed_abstention"
 
+    @property
+    def recommended_action(self) -> str:
+        action = self.detail.get("recommended_action")
+        if action:
+            return str(action)
+        return {
+            "typed_abstention_recommended": "expand_worlds",
+            "uncertified_due_to_search": "expand_search",
+            "uncertified_due_to_evidence": "refresh_evidence",
+            "uncertified_due_to_preference": "ask_preference",
+            "uncertified_due_to_out_of_support_world_model": "expand_world_model",
+            "uncertified_due_to_budget": "increase_budget",
+            "uncertified_due_to_model_assumption": "review_model_assumptions",
+        }[self.reason_code]
+
+    @property
+    def severity(self) -> str:
+        return str(self.detail.get("severity") or "high")
+
+    @property
+    def trigger_metric(self) -> str | None:
+        value = self.detail.get("trigger_metric")
+        return str(value) if value is not None else None
+
+    @property
+    def observed_value(self) -> Any:
+        return self.detail.get("observed_value")
+
+    @classmethod
+    def from_preference_state(cls, state: Any) -> "AbstentionRecord":
+        for hint in getattr(state, "stop_hints", ()) or ():
+            if getattr(hint, "code", None) != "typed_abstention_recommended":
+                continue
+            metadata = getattr(hint, "metadata", {}) or {}
+            detail = dict(metadata) if hasattr(metadata, "items") else {"metadata": metadata}
+            detail.setdefault("stop_reason", getattr(state, "stop_reason", None))
+            detail.setdefault("certified_only_required", getattr(state, "certified_only_required", None))
+            summary = getattr(state, "compatible_set_summary", None)
+            return cls(
+                reason_code="typed_abstention_recommended",
+                message=getattr(hint, "message", None) or _ABSTENTION_MESSAGES["typed_abstention_recommended"],
+                detail=detail,
+                support_flag=getattr(summary, "support_flag", None),
+            )
+
+        summary = getattr(state, "compatible_set_summary", None)
+        compatible_set = getattr(state, "compatible_set", None)
+        return build_abstention_record(
+            stop_reason=getattr(state, "stop_reason", None),
+            support_flag=getattr(summary, "support_flag", None),
+            support_reason=getattr(summary, "support_reason", None),
+            detail={
+                "certified_only_required": getattr(state, "certified_only_required", None),
+                "vetoed_targets": list(getattr(state, "vetoed_targets", ()) or ()),
+                "compatible_route_ids": list(getattr(compatible_set, "route_ids", ()) or ()),
+            },
+        )
+
+    @classmethod
+    def from_decision_region(cls, decision_region: Any) -> "AbstentionRecord":
+        dominant_evidence_family = getattr(decision_region, "dominant_evidence_family", None)
+        support_flag = getattr(decision_region, "support_flag", None)
+        support_reason = getattr(decision_region, "support_status", None)
+        active_challenger_id = getattr(decision_region, "active_challenger_id", None)
+        route_fragility_family_count = int(getattr(decision_region, "route_fragility_family_count", 0) or 0)
+        top_fragility_families = [dominant_evidence_family] if dominant_evidence_family else []
+        if route_fragility_family_count and not top_fragility_families:
+            top_fragility_families = ["decision_region"]
+        detail = (
+            decision_region.as_dict()
+            if hasattr(decision_region, "as_dict")
+            else {"decision_region": decision_region}
+        )
+        detail.setdefault("recommended_action", "expand_search" if active_challenger_id else "refresh_evidence")
+        detail.setdefault("severity", "high")
+        return build_abstention_record(
+            stop_reason=getattr(decision_region, "nearest_certificate_boundary", None),
+            support_flag=support_flag,
+            support_reason=support_reason,
+            credible_search_uncertainty=bool(active_challenger_id),
+            credible_evidence_uncertainty=bool(top_fragility_families),
+            evidence_family=dominant_evidence_family,
+            active_families=getattr(decision_region, "root_cause_tags", None),
+            top_fragility_families=top_fragility_families,
+            detail=detail,
+        )
+
 
 _ABSTENTION_MESSAGES: dict[TypedAbstentionReason, str] = {
+    "typed_abstention_recommended": "Preference state recommends typed abstention before route certification.",
     "uncertified_due_to_search": "Terminal decision stopped before a certified singleton was justified.",
     "uncertified_due_to_evidence": "Evidence support remained insufficient for certification.",
     "uncertified_due_to_preference": "Preference ambiguity prevented singleton certification.",
@@ -37,6 +126,8 @@ _ABSTENTION_MESSAGES: dict[TypedAbstentionReason, str] = {
     "uncertified_due_to_budget": "Budget was exhausted before certification completed.",
     "uncertified_due_to_model_assumption": "Certification assumptions were not strong enough for a terminal decision.",
 }
+
+ABSTENTION_REASON_CODES: tuple[TypedAbstentionReason, ...] = tuple(_ABSTENTION_MESSAGES)
 
 
 def _as_text(value: Any) -> str:

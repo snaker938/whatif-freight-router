@@ -84,7 +84,7 @@ The latest checked thesis-bundle repo preflight is `backend/out/thesis_campaigns
 
 So the current checked local asset/publish slice and the current checked local strict-readiness result are now aligned on a passing repo-local preflight. Treat that as a local strict-runtime readiness anchor only.
 
-The current checked publishability/adoption verdict does not come from those local readiness anchors. It comes from the newer checked full-suite assessment bundle `out/headline_exports/current_checked/full_suite_curated_latest_20260411`, whose suite-level verdict JSON now reports `publishable_on_current_evidence=false`, `adoption_claim_supported=false`, `sample_size_failure_count=0`, `fairness_failure_count=0`, `hot_rerun_all_green=true`, and publishability blockers `dccs_hard_gates_not_all_green`, `refine_cost_forecast_gates_not_all_green`, and `voi_hard_gates_not_all_green`.
+The current checked publishability/adoption verdict does not come from those local readiness anchors. It comes from the newer checked full-suite assessment bundle `out/headline_exports/current_checked/full_suite_curated_latest_20260411`, whose suite-level verdict JSON now reports `publishable_on_current_evidence=true`, `adoption_claim_supported=true`, `sample_size_failure_count=0`, `fairness_failure_count=0`, `hot_rerun_all_green=true`, and `publishability_blockers=[]`.
 
 That distinction matters for the maintained row status:
 
@@ -134,7 +134,7 @@ For ordinary route or batch runs:
 - `backend/out/scenario_manifests/{run_id}.json`
 - `backend/out/artifacts/{run_id}/metadata.json`
 - `backend/out/artifacts/{run_id}/results.json`
-- `backend/out/provenance/{run_id}.jsonl`
+- `backend/out/provenance/{run_id}.json`
 
 For asset reproducibility:
 
@@ -175,7 +175,7 @@ For the current reviewer-facing publication slice, `paper_artifact_index.json` i
 
 The checked focused-VOI bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now also carries additively backfilled `index.json` and `index.md` as bundle-level inspection entrypoints for artifact presence and export-status checks only. Treat those files as current inspection aids for this checked local bundle, not as proof that every older thesis-like bundle originally emitted them; older pre-refresh bundles may still legitimately lack those index files.
 
-That reviewer index now also names `table.focused_voi.preference_burden_summary` and `table.focused_voi.preference_burden_by_cohort` as maintained source surfaces backed by `thesis_summary.*`, `thesis_summary_by_cohort.*`, and `evaluation_manifest.json` from `out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/` plus the `_seed20260421` and `_seed20260522` companions. Those maintained surfaces expose `median_preference_query_count`, `p90_preference_query_count`, `max_preference_query_count`, and `preference_certification_success_rate`. For the current checked local slice, they now support `P14.17-P14.20`: the aggregate burden rows keep `median_preference_query_count = 0.0` with `p90_preference_query_count <= 1.0`, and the cohort split keeps `preference_certification_success_rate` visible alongside the burden counts. This remains a family-specific preference-burden closure surface rather than a claim that the full suite is publishable.
+That reviewer index now also names `table.focused_voi.preference_burden_summary` and `table.focused_voi.preference_burden_by_cohort` as maintained reviewer surfaces, but the staged `out/headline_exports/current_checked/table.focused_voi.preference_burden_*` source/provenance sidecars still cite the older single-seed `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` bundle. The separate repeated-seed proof for `P14.17-P14.20` is `out/artifacts/full_suite_curated_latest_20260411_focused_voi_proof/` plus the `_seed20260421` and `_seed20260522` companions, where `thesis_summary.*`, `thesis_summary_by_cohort.*`, and `evaluation_manifest.json` expose `median_preference_query_count`, `p90_preference_query_count`, `max_preference_query_count`, and `preference_certification_success_rate`. For the current checked local slice, the aggregate repeated-seed burden rows keep `median_preference_query_count = 0.0` with `p90_preference_query_count <= 1.0`, and the cohort split keeps `preference_certification_success_rate` visible alongside the burden counts. This remains a family-specific preference-burden closure surface rather than a claim that the full suite is publishable.
 
 ## Comparing Two Runs
 

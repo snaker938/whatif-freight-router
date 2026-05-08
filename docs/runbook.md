@@ -131,7 +131,7 @@ Useful locations include:
 - `backend/out/artifacts/{run_id}/`
 - `backend/out/manifests/{run_id}.json`
 - `backend/out/scenario_manifests/{run_id}.json`
-- `backend/out/provenance/{run_id}.jsonl`
+- `backend/out/provenance/{run_id}.json`
 - `backend/out/test_runs/{timestamp}/`
 
 Thesis and evaluation bundles also appear under:

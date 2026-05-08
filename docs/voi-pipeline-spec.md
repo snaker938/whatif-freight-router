@@ -202,8 +202,10 @@ The pipeline uses strict-frontier semantics for REFC and VOI:
 * `C(r)` is the fraction of sampled worlds in which route `r` wins under the fixed selector.
 * `r*` is certified only when `C(r*) >= certificate_threshold`.
 * If the threshold is not met, the result must be explicitly marked `uncertified`.
-* If budgets are exhausted before certification, the result remains `uncertified` and the stop certificate must say so.
-* If no action clears the VOI stop threshold, the controller must stop explicitly with `no_action_worth_it`.
+* If the controller certifies the winner, the stop certificate must say `stop_reason=certified`.
+* If budgets are exhausted before certification, the result remains `uncertified` and the stop certificate must say `stop_reason=budget_exhausted`.
+* If no feasible action clears the VOI stop threshold, the controller must stop with `stop_reason=no_action_worth_it`, or `stop_reason=search_incomplete_no_action_worth_it` when search completeness remains below threshold.
+* The standalone controller can also stop with `stop_reason=iteration_cap_reached` or `stop_reason=error_missing_action_hooks`.
 
 The implementation should never imply certainty when the pipeline has only produced an uncertified frontier or an incomplete evidence state.
 

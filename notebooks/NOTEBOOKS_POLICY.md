@@ -27,7 +27,7 @@ Evaluation and reporting outputs are written under `backend/out/`:
 - `backend/out/artifacts/<run_id>/`
 - `backend/out/manifests/<run_id>.json`
 - `backend/out/scenario_manifests/<run_id>.json`
-- `backend/out/provenance/<run_id>.jsonl`
+- `backend/out/provenance/<run_id>.json`
 
 Typical per-run artifact families include:
 

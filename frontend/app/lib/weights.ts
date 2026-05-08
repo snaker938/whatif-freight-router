@@ -83,9 +83,9 @@ export function pickBestBySelectionProfile(
 
   // Academic and modified selection formulas mirrored from backend:
   // 1) Weighted-sum: Marler & Arora (2010) https://doi.org/10.1007/s00158-009-0460-7
-  // 2) Augmented Tchebycheff: Steuer & Choo (1983) https://doi.org/10.1007/BF02591962
+  // 2) Augmented Tchebycheff: Steuer & Choo (1983) https://doi.org/10.1007/BF02591870
   // 3) VIKOR compromise ranking: Opricovic & Tzeng (2004) https://doi.org/10.1016/S0377-2217(03)00020-1
-  // 4) Distance criterion in multi-objective routing: Martins (1984) https://doi.org/10.1016/0377-2217(84)90202-2
+  // 4) Multicriteria shortest paths: Martins (1984) https://doi.org/10.1016/0377-2217(84)90077-8
   // 5) Knee-oriented compromise signal: Branke et al. (2004) https://doi.org/10.1007/978-3-540-30217-9_73
   // 6) Entropy reward: Shannon (1948) https://doi.org/10.1002/j.1538-7305.1948.tb01338.x
   //

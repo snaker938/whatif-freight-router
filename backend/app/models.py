@@ -349,6 +349,88 @@ class EvidenceProvenance(BaseModel):
     families: list[EvidenceSourceRecord] = Field(default_factory=list)
 
 
+class DecisionWorldSupportSummary(BaseModel):
+    support_strength: float | None = None
+    source_support_strength: float | None = None
+    ambiguity_support_ratio: float | None = None
+    source_entropy: float | None = None
+    source_count: int | None = None
+    source_mix_count: int | None = None
+    family_density: float | None = None
+    margin_pressure: float | None = None
+    provenance_coverage: float | None = None
+    live_family_count: int | None = None
+    snapshot_family_count: int | None = None
+    model_family_count: int | None = None
+    proxy_penalty: float | None = None
+    audit_correction: float | None = None
+    recommended_fidelity: str | None = None
+    support_sufficient: bool | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionFidelitySummary(BaseModel):
+    world_bundle_id: str | None = None
+    audit_bundle_id: str | None = None
+    multi_fidelity_mode: str | None = None
+    policy: str | None = None
+    world_count: int | None = None
+    unique_world_count: int | None = None
+    requested_world_count: int | None = None
+    effective_world_count: int | None = None
+    route_ids: list[str] = Field(default_factory=list)
+    active_families: list[str] = Field(default_factory=list)
+    world_kind_weights: dict[str, float] = Field(default_factory=dict)
+    family_state_weights: dict[str, dict[str, float]] = Field(default_factory=dict)
+    targeted_route_fraction: float | None = None
+    stress_world_fraction: float | None = None
+    proxy_world_fraction: float | None = None
+    refreshed_world_fraction: float | None = None
+    world_reuse_rate: float | None = None
+    audited_families: list[str] = Field(default_factory=list)
+    proxy_family_count: int | None = None
+    audited_world_fraction: float | None = None
+    correction_scale: float | None = None
+    correction_penalty: float | None = None
+    recommended_policy: str | None = None
+    manifest_hash: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class DecisionCertificationStateSummary(BaseModel):
+    winner_id: str | None = None
+    threshold: float | None = None
+    certificate_map: dict[str, float] = Field(default_factory=dict)
+    certificate_value: float | None = None
+    certified: bool = False
+    certification_basis: str | None = None
+    world_bundle_id: str | None = None
+    audit_bundle_id: str | None = None
+    support_strength: float | None = None
+    winner_confidence: dict[str, Any] | WinnerConfidenceState | None = None
+    pairwise_gap_states: dict[str, Any] = Field(default_factory=dict)
+    flip_radius: dict[str, Any] | FlipRadiusState | None = None
+    decision_region: dict[str, Any] | DecisionRegionState | None = None
+    certified_set: dict[str, Any] | CertifiedSetState | None = None
+    abstained: bool = False
+    manifest_hash: str | None = None
+
+
+class DecisionTheoremHookRecord(BaseModel):
+    hook_id: str
+    artifact_name: str
+    status: str = "present"
+
+
+class DecisionTheoremHookSummary(BaseModel):
+    hooks: list[DecisionTheoremHookRecord] = Field(default_factory=list)
+
+
+class DecisionLaneManifest(BaseModel):
+    lane_id: str | None = None
+    artifact_names: list[str] = Field(default_factory=list)
+
+
 class DecisionPackage(BaseModel):
     """Compatibility wrapper that exposes the certification-native decision shape."""
 
@@ -376,7 +458,12 @@ class DecisionPackage(BaseModel):
     preference_state: PreferenceState = Field(default_factory=PreferenceState)
     preference_query_trace: dict[str, Any] = Field(default_factory=dict)
     support_summary: dict[str, Any] = Field(default_factory=dict)
-    world_support_summary: dict[str, Any] = Field(default_factory=dict)
+    world_support_summary: dict[str, Any] | DecisionWorldSupportSummary = Field(default_factory=dict)
+    world_fidelity_summary: dict[str, Any] | DecisionFidelitySummary | None = None
+    certification_state_summary: dict[str, Any] | DecisionCertificationStateSummary | None = None
+    theorem_hook_summary: dict[str, Any] | DecisionTheoremHookSummary | None = None
+    lane_manifest: dict[str, Any] | DecisionLaneManifest | None = None
+    selected_route_id: str | None = None
     abstention_summary: dict[str, Any] = Field(default_factory=dict)
     certified_set_summary: dict[str, Any] = Field(default_factory=dict)
     action_trace_summary: dict[str, Any] = Field(default_factory=dict)
@@ -401,6 +488,9 @@ class RouteCertificationSummary(BaseModel):
     top_competitor_route_id: str | None = None
     top_value_of_refresh_family: str | None = None
     ambiguity_context: dict[str, float | int | str | bool | None] | None = None
+    world_support_summary: dict[str, Any] | DecisionWorldSupportSummary | None = None
+    world_fidelity_summary: dict[str, Any] | DecisionFidelitySummary | None = None
+    certification_state_summary: dict[str, Any] | DecisionCertificationStateSummary | None = None
 
 
 class VoiStopSummary(BaseModel):
