@@ -58,6 +58,7 @@ out/
 
 # Misc
 .codex_tmp/
+.codex_agents/
 backend/.codex_tmp/
 .codex/agents/__pycache__/
 .codex_resume_state.md
@@ -71,3 +72,12 @@ tests/__pycache__/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local thesis/submission artifacts kept outside the repository
+ThesisLatex/
+COMP0029_*.pdf
+COMP0029_*_source.zip
+oldThesisPriority.md
+tools/*thesis*.py
+tools/convert_thesis_to_latex.py
+tools/sanitize_thesis_build_artifacts.py
