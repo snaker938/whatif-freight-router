@@ -1468,6 +1468,590 @@ function haversineDistanceKm(a: LatLng, b: LatLng): number {
   return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+const SCREENSHOT_DEMO_RUN_ID = 'screenshot-demo-20260525';
+
+function demoRoute(
+  id: string,
+  coordinates: [number, number][],
+  metrics: RouteOption['metrics'],
+  opts: {
+    certificate: number;
+    certified: boolean;
+    knee?: boolean;
+    source: string;
+    colorHint?: string;
+  },
+): RouteOption {
+  const distanceShare = metrics.distance_km / 4;
+  const durationShare = metrics.duration_s / 4;
+  const costShare = metrics.monetary_cost / 4;
+  const emissionsShare = metrics.emissions_kg / 4;
+  return {
+    id,
+    geometry: { type: 'LineString', coordinates },
+    metrics,
+    knee_score: opts.knee ? 0.94 : 0.71,
+    is_knee: Boolean(opts.knee),
+    eta_explanations: [
+      `${opts.source} route balances time, cost, and carbon under the current freight profile.`,
+      'Scenario multipliers, terrain sampling, toll confidence, and incident risk are included in the displayed metrics.',
+      'Certificate diagnostics are shown in the proof dashboard and compute log.',
+    ],
+    eta_timeline: [
+      { label: 'Depart Birmingham', at_utc: '2026-05-25T09:00:00Z', cumulative_duration_s: 0 },
+      { label: 'M1 corridor', at_utc: '2026-05-25T10:12:00Z', cumulative_duration_s: Math.round(durationShare) },
+      { label: 'Outer London approach', at_utc: '2026-05-25T11:24:00Z', cumulative_duration_s: Math.round(durationShare * 2.6) },
+      { label: 'Arrive London', at_utc: '2026-05-25T12:14:00Z', cumulative_duration_s: metrics.duration_s },
+    ],
+    segment_breakdown: [0, 1, 2, 3].map((idx) => ({
+      segment_index: idx + 1,
+      distance_km: Number(distanceShare.toFixed(1)),
+      duration_s: Math.round(durationShare * (idx === 2 ? 1.16 : 1)),
+      avg_speed_kmh: Math.max(38, metrics.avg_speed_kmh - idx * 3),
+      emissions_kg: Number((emissionsShare * (idx === 1 ? 0.92 : 1)).toFixed(1)),
+      monetary_cost: Number((costShare * (idx === 3 ? 1.12 : 1)).toFixed(1)),
+      time_cost: Number((durationShare / 3600 * 28).toFixed(1)),
+      fuel_cost: Number((costShare * 0.54).toFixed(1)),
+      toll_cost: Number((idx === 2 ? 8.4 : 2.1).toFixed(1)),
+      carbon_cost: Number((emissionsShare * 0.11).toFixed(1)),
+      energy_kwh: metrics.energy_kwh ? Number((metrics.energy_kwh / 4).toFixed(1)) : undefined,
+      grade_pct: idx === 1 ? 1.8 : idx === 2 ? -0.7 : 0.4,
+    })),
+    counterfactuals: [
+      { label: 'Fuel price +10%', monetary_cost_delta: 8.7, selected_still_best: true },
+      { label: 'Rain pressure high', duration_delta_s: 540, selected_still_best: true },
+      { label: 'Carbon weight doubled', emissions_delta_kg: -6.2, selected_still_best: id !== 'fast-motorway-baseline' },
+    ],
+    uncertainty: {
+      duration_p50_s: metrics.duration_s,
+      duration_p90_s: Math.round(metrics.duration_s * 1.13),
+      cost_p90: Number((metrics.monetary_cost * 1.09).toFixed(1)),
+      emissions_p90_kg: Number((metrics.emissions_kg * 1.06).toFixed(1)),
+      certificate_lcb: Number((opts.certificate - 0.05).toFixed(2)),
+    },
+    uncertainty_samples_meta: {
+      world_count: 96,
+      seed: 20260525,
+      stress_world_fraction: 0.24,
+      reuse_rate: 0.42,
+    },
+    toll_confidence: 0.91,
+    toll_metadata: {
+      tariff_version: 'demo-uk-tolls-v2',
+      matched_segments: 5,
+      confidence_band: 'high',
+    },
+    vehicle_profile_id: 'rigid_hgv',
+    vehicle_profile_version: 2,
+    vehicle_profile_source: 'bootstrap_defaults',
+    scenario_summary: {
+      mode: 'no_sharing',
+      context_key: 'weekday_peak_midlands_london',
+      duration_multiplier: 1.08,
+      incident_rate_multiplier: 1.18,
+      incident_delay_multiplier: 1.12,
+      fuel_consumption_multiplier: 1.03,
+      emissions_multiplier: 1.02,
+      stochastic_sigma_multiplier: 1.1,
+      source: 'screenshot_demo_frontend_state',
+      version: 'demo_v1',
+      calibration_basis: 'local_demo_surface',
+      as_of_utc: '2026-05-25T12:00:00Z',
+      live_coverage_overall: 1,
+      live_traffic_pressure: 0.61,
+      live_incident_pressure: 0.32,
+      live_weather_pressure: 0.18,
+    },
+    incident_events: [
+      {
+        event_id: `${id}-dwell-1`,
+        event_type: 'dwell',
+        segment_index: 2,
+        start_offset_s: 3900,
+        delay_s: 180,
+        source: 'synthetic',
+      },
+    ],
+    weather_summary: {
+      enabled: true,
+      profile: 'rain',
+      intensity: 0.42,
+      apply_incident_uplift: true,
+      speed_multiplier: 0.96,
+      incident_multiplier: 1.08,
+      weather_delay_s: metrics.weather_delay_s ?? 420,
+      terrain_source: 'dem_real',
+      terrain_ascent_m: 312,
+      terrain_descent_m: 286,
+      terrain_coverage_ratio: 0.98,
+      terrain_confidence: 0.93,
+      terrain_dem_version: 'uk-dem-demo-v3',
+    },
+    terrain_summary: {
+      source: 'dem_real',
+      coverage_ratio: 0.98,
+      sample_spacing_m: 750,
+      ascent_m: 312,
+      descent_m: 286,
+      grade_histogram: { flat: 0.58, rolling: 0.34, steep: 0.08 },
+      confidence: 0.93,
+      fail_closed_applied: false,
+      version: 'uk-dem-demo-v3',
+    },
+    evidence_provenance: {
+      active_families: ['routing_graph', 'scenario', 'terrain', 'fuel', 'carbon', 'tolls'],
+      families: [
+        {
+          family: 'scenario',
+          source: 'scenario_profiles_uk_v2_live',
+          active: true,
+          freshness_timestamp_utc: '2026-05-25T12:00:00Z',
+          max_age_minutes: 4320,
+          signature: 'demo-scenario-7df2',
+          confidence: 0.92,
+          coverage_ratio: 1,
+        },
+        {
+          family: 'terrain',
+          source: 'uk-dem-demo-v3',
+          active: true,
+          freshness_timestamp_utc: '2026-05-25T12:00:00Z',
+          confidence: 0.93,
+          coverage_ratio: 0.98,
+        },
+      ],
+    },
+    certification: {
+      route_id: id,
+      certificate: opts.certificate,
+      certified: opts.certified,
+      threshold: 0.8,
+      certificate_lcb: Number((opts.certificate - 0.05).toFixed(2)),
+      certificate_ucb: Number(Math.min(0.99, opts.certificate + 0.03).toFixed(2)),
+      minimum_pairwise_gap_lcb: opts.certified ? 0.12 : 0.04,
+      active_families: ['search', 'evidence', 'preference'],
+      top_fragility_families: ['traffic_pressure', 'fuel_price', opts.colorHint ?? 'preference_weight'],
+      top_competitor_route_id: id === 'certified-smart-route' ? 'low-carbon-alternative' : 'certified-smart-route',
+      top_value_of_refresh_family: 'traffic_pressure',
+    },
+  };
+}
+
+function buildScreenshotDemoState() {
+  const origin: LatLng = { lat: 52.4862, lon: -1.8904 };
+  const destination: LatLng = { lat: 51.5072, lon: -0.1276 };
+  const smartRoute = demoRoute(
+    'certified-smart-route',
+    [
+      [-1.8904, 52.4862],
+      [-1.624, 52.318],
+      [-1.276, 52.075],
+      [-0.874, 51.87],
+      [-0.432, 51.67],
+      [-0.1276, 51.5072],
+    ],
+    {
+      distance_km: 191.4,
+      duration_s: 11640,
+      monetary_cost: 176.2,
+      emissions_kg: 124.8,
+      avg_speed_kmh: 59.2,
+      energy_kwh: 402.5,
+      weather_delay_s: 420,
+      incident_delay_s: 180,
+    },
+    { certificate: 0.91, certified: true, knee: true, source: 'DCCS/REFC certified' },
+  );
+  const lowCarbonRoute = demoRoute(
+    'low-carbon-alternative',
+    [
+      [-1.8904, 52.4862],
+      [-1.48, 52.19],
+      [-1.05, 51.98],
+      [-0.74, 51.75],
+      [-0.36, 51.61],
+      [-0.1276, 51.5072],
+    ],
+    {
+      distance_km: 202.8,
+      duration_s: 12480,
+      monetary_cost: 169.4,
+      emissions_kg: 112.6,
+      avg_speed_kmh: 58.5,
+      energy_kwh: 377.2,
+      weather_delay_s: 390,
+      incident_delay_s: 140,
+    },
+    { certificate: 0.84, certified: true, source: 'Low-carbon frontier' },
+  );
+  const fastRoute = demoRoute(
+    'fast-motorway-baseline',
+    [
+      [-1.8904, 52.4862],
+      [-1.78, 52.31],
+      [-1.42, 52.05],
+      [-0.96, 51.82],
+      [-0.52, 51.64],
+      [-0.1276, 51.5072],
+    ],
+    {
+      distance_km: 187.6,
+      duration_s: 11160,
+      monetary_cost: 193.7,
+      emissions_kg: 139.9,
+      avg_speed_kmh: 60.5,
+      energy_kwh: 438.4,
+      weather_delay_s: 510,
+      incident_delay_s: 240,
+    },
+    { certificate: 0.73, certified: false, source: 'Fast baseline', colorHint: 'motorway_tolls' },
+  );
+  const baselineRoute = demoRoute(
+    'osrm-quick-baseline',
+    fastRoute.geometry.coordinates,
+    {
+      distance_km: 188.9,
+      duration_s: 11980,
+      monetary_cost: 198.3,
+      emissions_kg: 145.1,
+      avg_speed_kmh: 56.8,
+      weather_delay_s: 0,
+      incident_delay_s: 0,
+    },
+    { certificate: 0.68, certified: false, source: 'OSRM comparator' },
+  );
+  const orsRoute = demoRoute(
+    'ors-reference',
+    lowCarbonRoute.geometry.coordinates,
+    {
+      distance_km: 205.1,
+      duration_s: 12710,
+      monetary_cost: 181.8,
+      emissions_kg: 120.4,
+      avg_speed_kmh: 58.1,
+      weather_delay_s: 0,
+      incident_delay_s: 0,
+    },
+    { certificate: 0.78, certified: false, source: 'OpenRouteService comparator' },
+  );
+  const routeRunMeta: RouteRunMeta = {
+    run_id: SCREENSHOT_DEMO_RUN_ID,
+    pipeline_mode: 'dccs_refc',
+    manifest_endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/manifest`,
+    artifacts_endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts`,
+    provenance_endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/provenance`,
+    selected_certificate: smartRoute.certification ?? null,
+    certificate_summary: smartRoute.certification ?? null,
+    artifact_pointers: {
+      decision_package: 'decision_package.json',
+      manifest: 'manifest.json',
+      provenance: 'provenance.json',
+      sampled_world_manifest: 'sampled_world_manifest.json',
+      route_fragility_map: 'route_fragility_map.json',
+      value_of_refresh: 'value_of_refresh.json',
+      controller_trace: 'controller_trace.json',
+    },
+    preference_state: {
+      terminal_type: 'certified',
+      query_count: 2,
+      compatible_set_summary: {
+        route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+        compatible_set_size: 2,
+        compatible_set_volume_proxy: 0.37,
+        necessary_best_prob: 0.78,
+        possible_best_prob: 0.96,
+        necessary_best_route_ids: ['certified-smart-route'],
+        possible_best_route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+        support_flag: true,
+        support_reason: 'All active evidence families are inside support for the demo request.',
+      },
+      query_history: [
+        {
+          query_type: 'pairwise',
+          preferred_route_id: 'certified-smart-route',
+          challenger_route_id: 'fast-motorway-baseline',
+          reason: 'User preference favors lower operating cost and emissions over small time gains.',
+        },
+      ],
+      shrinkage_trace: [
+        {
+          query_index: 1,
+          query_type: 'pairwise',
+          before_size: 3,
+          after_size: 2,
+          before_volume_proxy: 1,
+          after_volume_proxy: 0.37,
+          predicted_shrinkage: 0.58,
+          realized_shrinkage: 0.63,
+          target_route_id: 'certified-smart-route',
+        },
+      ],
+      derived_invariants: { monotone_time_money_tradeoff: true, carbon_veto_clear: true },
+      preference_irrelevance_proven: false,
+    },
+    preference_query_trace: {
+      schema_version: 'demo-v1',
+      selected_route_id: 'certified-smart-route',
+      selected_certificate_basis: 'min_expected_action_cost',
+      terminal_type: 'certified',
+      query_count: 2,
+      compatible_set_summary: {
+        route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+        compatible_set_size: 2,
+      },
+      targeted_challenger_route_id: 'fast-motorway-baseline',
+      query_selection_reason: 'Largest certificate shrinkage per question cost.',
+    },
+    action_trace_summary: {
+      stop_reason: 'certified_singleton',
+      search_completeness_score: 0.93,
+      search_completeness_gap: 0.07,
+      pipeline_mode: 'dccs_refc',
+      selected_candidate_count: 3,
+    },
+    witness_summary: {
+      route_id: 'certified-smart-route',
+      primary_witness_route_id: 'certified-smart-route',
+      witness_route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+      challenger_route_ids: ['fast-motorway-baseline'],
+      witness_source_ids: ['scenario_profiles', 'terrain_dem', 'fuel_prices', 'toll_tariffs'],
+      witness_world_count: 96,
+      selected_certificate_basis: 'min_expected_action_cost',
+    },
+    world_support_summary: {
+      selected_route_id: 'certified-smart-route',
+      selected_certificate_basis: 'min_expected_action_cost',
+      support_strength: 0.88,
+      source_support_strength: 0.91,
+      recommended_fidelity: 'audit_plus_proxy',
+      proxy_penalty: 0.04,
+      audit_correction: 0.02,
+      support_sufficient: true,
+      support_flag: true,
+      support_reason: 'Supported by route graph, terrain, toll, carbon, and scenario assets.',
+      world_count: 96,
+      unique_world_count: 72,
+      world_reuse_rate: 0.42,
+      active_families: ['traffic', 'weather', 'fuel', 'carbon', 'tolls'],
+    },
+    terminal_type: 'certified_singleton',
+    selected_certificate_basis: 'min_expected_action_cost',
+    proof_context: {
+      selected_certificate_basis: 'min_expected_action_cost',
+      support_flag: true,
+      witness_summary: {
+        primary_witness_route_id: 'certified-smart-route',
+        witness_route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+        challenger_route_ids: ['fast-motorway-baseline'],
+        witness_world_count: 96,
+      },
+      support_summary: {
+        satisfied: true,
+        observed_source_count: 6,
+        required_source_count: 6,
+        source_mix: ['route_graph', 'scenario', 'terrain', 'fuel', 'carbon', 'tolls'],
+        provenance_mode: 'demo_live_equivalent',
+      },
+      action_trace_summary: {
+        stop_reason: 'certified_singleton',
+        search_completeness_score: 0.93,
+        search_completeness_gap: 0.07,
+        pipeline_mode: 'dccs_refc',
+        selected_candidate_count: 3,
+      },
+    },
+    certified_set: [smartRoute, lowCarbonRoute],
+    certified_set_summary: {
+      certified: true,
+      selected_route_id: 'certified-smart-route',
+      certified_route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+      frontier_route_ids: ['certified-smart-route', 'low-carbon-alternative', 'fast-motorway-baseline'],
+      certificate_basis: 'min_expected_action_cost',
+      minimum_cost_route_id: 'low-carbon-alternative',
+    },
+    preference_summary: {
+      selected_certificate_basis: 'min_expected_action_cost',
+      pipeline_mode: 'dccs_refc',
+      objective_field: 'expected_action_cost',
+      selector_policy: 'selective_min_cost_certification',
+      selective: true,
+      tie_break_order: ['certificate_lcb', 'monetary_cost', 'emissions_kg', 'duration_s'],
+      weights: { time: 60, money: 20, co2: 20 },
+      compatible_set_summary: {
+        route_ids: ['certified-smart-route', 'low-carbon-alternative'],
+        compatible_set_size: 2,
+      },
+      query_count: 2,
+    },
+    support_summary: {
+      satisfied: true,
+      supported: true,
+      support_flag: true,
+      observed_source_count: 6,
+      required_source_count: 6,
+      source_mix: ['route_graph', 'scenario', 'terrain', 'fuel', 'carbon', 'tolls'],
+      missing_sources: [],
+      provenance_mode: 'demo_live_equivalent',
+    },
+    abstention_summary: {
+      abstained: false,
+      reason_code: null,
+      blocking_sources: [],
+      retryable: false,
+    },
+  };
+  const now = new Date().toISOString();
+  const computeTrace: ComputeTraceEntry[] = [
+    {
+      id: 1,
+      at: now,
+      elapsedMs: 0,
+      level: 'info',
+      step: 'Compute initialised',
+      detail: 'Screenshot demo loaded with the same UI state produced by a successful route compute.',
+      attempt: 1,
+      endpoint: '/api/route',
+      alternativesUsed: 3,
+      timeoutMs: 1200000,
+    },
+    {
+      id: 2,
+      at: now,
+      elapsedMs: 840,
+      level: 'info',
+      step: 'Live API trace update',
+      detail: 'calls=12; requested=12; success=12; failed=0; blocked=0; expected=6/6',
+      requestId: 'demo-live-trace-001',
+      attempt: 1,
+      endpoint: '/api/route',
+      alternativesUsed: 3,
+      timeoutMs: 1200000,
+    },
+    {
+      id: 3,
+      at: now,
+      elapsedMs: 2360,
+      level: 'success',
+      step: 'Single-route compute complete',
+      detail: 'selected=certified-smart-route; candidates=3',
+      reasonCode: 'certified_singleton',
+      attempt: 1,
+      endpoint: '/api/route',
+      alternativesUsed: 3,
+      timeoutMs: 1200000,
+      candidateDiagnostics: {
+        graph_search_ms_initial: 418,
+        scenario_context_ms: 92,
+        prefetch_ms: 180,
+        candidate_count: 3,
+        certified_count: 2,
+      },
+    },
+    {
+      id: 4,
+      at: now,
+      elapsedMs: 2680,
+      level: 'info',
+      step: 'Compute finished',
+      detail: 'Request lifecycle ended; aborted=false',
+      attempt: 1,
+      endpoint: '/api/route',
+      alternativesUsed: 3,
+      timeoutMs: 1200000,
+    },
+  ];
+  const decisionPackage: DecisionPackage = {
+    package_kind: 'decision_package',
+    schema_version: 'demo-v1',
+    selected: smartRoute,
+    candidates: [smartRoute, lowCarbonRoute, fastRoute],
+    recommended_route: smartRoute,
+    certified_set: [smartRoute, lowCarbonRoute],
+    terminal_type: 'certified_singleton',
+    selected_route_id: 'certified-smart-route',
+    selected_certificate: smartRoute.certification ?? null,
+    certificate_summary: smartRoute.certification ?? null,
+    preference_summary: routeRunMeta.preference_summary ?? null,
+    support_summary: routeRunMeta.support_summary as DecisionPackage['support_summary'],
+    abstention_summary: routeRunMeta.abstention_summary as DecisionPackage['abstention_summary'],
+    certified_set_summary: routeRunMeta.certified_set_summary as DecisionPackage['certified_set_summary'],
+    action_trace_summary: routeRunMeta.action_trace_summary ?? null,
+    witness_summary: routeRunMeta.witness_summary ?? null,
+    world_support_summary: routeRunMeta.world_support_summary ?? null,
+    proof_context: routeRunMeta.proof_context ?? null,
+    artifact_pointers: routeRunMeta.artifact_pointers ?? null,
+    run_id: SCREENSHOT_DEMO_RUN_ID,
+    pipeline_mode: 'dccs_refc',
+    manifest_endpoint: routeRunMeta.manifest_endpoint,
+    artifacts_endpoint: routeRunMeta.artifacts_endpoint,
+    provenance_endpoint: routeRunMeta.provenance_endpoint,
+    selected_certificate_basis: routeRunMeta.selected_certificate_basis,
+    preference_state: routeRunMeta.preference_state ?? null,
+    preference_query_trace: routeRunMeta.preference_query_trace ?? null,
+    world_fidelity_summary: {
+      multi_fidelity_mode: 'audit_plus_proxy',
+      policy: 'selective_audit',
+      effective_world_count: 96,
+      world_count: 96,
+      proxy_world_fraction: 0.28,
+      stress_world_fraction: 0.24,
+      world_reuse_rate: 0.42,
+      recommended_policy: 'keep_current_fidelity',
+    },
+    certification_state_summary: {
+      winner_id: 'certified-smart-route',
+      certification_basis: 'min_expected_action_cost',
+      certified: true,
+      abstained: false,
+      support_strength: 0.88,
+      certified_set: { safe: true, size: 2 },
+    },
+    controller_summary: {
+      controller_mode: 'voi_dccs',
+      engaged: true,
+      iteration_count: 3,
+      action_count: 5,
+      stop_reason: 'certified_singleton',
+      search_budget_used: 2,
+      evidence_budget_used: 3,
+    },
+    theorem_hook_summary: {
+      hooks: [
+        { hook_id: 'dccs_terminal_semantics', status: 'satisfied', artifact_name: 'decision_package.json' },
+        { hook_id: 'refc_witness_surface', status: 'satisfied', artifact_name: 'certificate_witness.json' },
+      ],
+    },
+    lane_manifest: {
+      lane_id: 'screenshot_demo_lane',
+      lane_name: 'Frontend screenshot demo',
+      lane_version: 'demo-v1',
+      artifact_names: [
+        'decision_package.json',
+        'manifest.json',
+        'provenance.json',
+        'sampled_world_manifest.json',
+        'route_fragility_map.json',
+        'value_of_refresh.json',
+      ],
+    },
+    provenance: {
+      generated_by: 'frontend screenshot demo mode',
+      note: 'Uses app-native components and realistic response shape while local strict OSRM/live stack is unavailable.',
+    },
+  };
+  return {
+    origin,
+    destination,
+    routes: [smartRoute, lowCarbonRoute, fastRoute],
+    selectedRoute: smartRoute,
+    baselineRoute,
+    orsRoute,
+    routeRunMeta,
+    computeTrace,
+    decisionPackage,
+  };
+}
+
 export default function Page() {
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
@@ -1521,9 +2105,11 @@ export default function Page() {
   const [autoReliabilityProfile, setAutoReliabilityProfile] = useState(true);
   const [smartComputeElapsedMs, setSmartComputeElapsedMs] = useState<number | null>(null);
   const [routeRunMeta, setRouteRunMeta] = useState<RouteRunMeta | null>(null);
+  const [runInspectorDecisionPackage, setRunInspectorDecisionPackage] = useState<DecisionPackage | null>(null);
   const [preferenceSyncPending, setPreferenceSyncPending] = useState(false);
   const [preferenceSyncError, setPreferenceSyncError] = useState<string | null>(null);
   const [activeProofDemoPresetId, setActiveProofDemoPresetId] = useState<ProofDemoPresetId | null>(null);
+  const [screenshotDemoActive, setScreenshotDemoActive] = useState(false);
 
   const [routeNames, setRouteNames] = useState<Record<string, string>>({});
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
@@ -1643,6 +2229,7 @@ export default function Page() {
   const tutorialBootstrappedRef = useRef(false);
   const dutySyncSourceRef = useRef<'pins' | 'text' | null>(null);
   const focusPinNonceRef = useRef(0);
+  const screenshotDemoAppliedRef = useRef(false);
   const tutorialPlacementStageRef = useRef<TutorialPlacementStage>('done');
   const tutorialMapClickGuardUntilRef = useRef(0);
   const tutorialStepEnterRef = useRef<string | null>(null);
@@ -1676,6 +2263,475 @@ export default function Page() {
     (_event: string, _payload?: Record<string, unknown>) => {},
     [],
   );
+
+  function loadScreenshotDemoState() {
+    const demo = buildScreenshotDemoState();
+    const now = new Date().toISOString();
+    screenshotDemoAppliedRef.current = true;
+    setScreenshotDemoActive(true);
+    requestSeqRef.current += 1;
+    computeTraceSeqRef.current = demo.computeTrace.length;
+    progressRef.current = { done: demo.routes.length, total: demo.routes.length };
+    routeBufferRef.current = [];
+    setIsPanelCollapsed(false);
+    setOrigin(demo.origin);
+    setDestination(demo.destination);
+    setManagedStop(null);
+    setSelectedPinId(null);
+    setFocusPinRequest(null);
+    setFitAllRequestNonce((prev) => prev + 1);
+    setVehicleType('rigid_hgv');
+    setScenarioMode('no_sharing');
+    setWeights({ time: 60, money: 20, co2: 20 });
+    setComputeMode('route_single');
+    setAdvancedParams({
+      ...DEFAULT_ADVANCED_PARAMS,
+      maxAlternatives: '3',
+      stochasticEnabled: true,
+      stochasticSeed: '20260525',
+      stochasticSamples: '96',
+      weatherEnabled: true,
+      weatherProfile: 'rain',
+      weatherIntensity: '0.42',
+      terrainProfile: 'rolling',
+      useTolls: true,
+    } as ScenarioAdvancedParams);
+    setAdvancedError(null);
+    setParetoRoutes(demo.routes);
+    setSelectedId(demo.selectedRoute.id);
+    setBaselineRoute(demo.baselineRoute);
+    setBaselineMeta({
+      method: 'osrm_quick_baseline',
+      compute_ms: 312.4,
+      notes: ['Screenshot demo comparator loaded from app-native state.'],
+    });
+    setBaselineError(null);
+    setBaselineLoading(false);
+    setGoogleBaselineRoute(demo.orsRoute);
+    setGoogleBaselineMeta({
+      method: 'ors_reference',
+      compute_ms: 482.9,
+      notes: ['Reference comparator shape shown for screenshot coverage.'],
+    });
+    setGoogleBaselineError(null);
+    setGoogleBaselineLoading(false);
+    setShowBaselineOverlay(true);
+    setShowGoogleBaselineOverlay(true);
+    setShowAcademicReferenceOverlay(true);
+    setShowSmartAlternativesOverlay(true);
+    setSmartComputeElapsedMs(2680);
+    setRouteRunMeta(demo.routeRunMeta);
+    setRunInspectorDecisionPackage(demo.decisionPackage);
+    setPreferenceSyncPending(false);
+    setPreferenceSyncError(null);
+    setActiveProofDemoPresetId('safe_singleton');
+    setRouteNames({
+      'certified-smart-route': 'Certified smart route',
+      'low-carbon-alternative': 'Low-carbon alternative',
+      'fast-motorway-baseline': 'Fast motorway baseline',
+    });
+    setLoading(false);
+    setProgress({ done: demo.routes.length, total: demo.routes.length });
+    setWarnings([
+      'Screenshot demo mode: route, proof, and debug surfaces are populated without waiting for Docker/OSRM.',
+      'Strict live and graph readiness are represented as ready so the frontend visuals are available for capture.',
+    ]);
+    setShowWarnings(true);
+    setComputeTrace(demo.computeTrace);
+    setComputeTraceOpen(true);
+    setComputeSession({
+      seq: requestSeqRef.current,
+      startedAt: now,
+      mode: 'route_single',
+      scenario: 'no_sharing',
+      vehicle: 'rigid_hgv',
+      waypointCount: 0,
+      maxAlternatives: demo.routes.length,
+      streamStallTimeoutMs: 90000,
+      origin: demo.origin,
+      destination: demo.destination,
+      attemptTimeoutMs: 1200000,
+      routeFallbackTimeoutMs: 900000,
+      degradeSteps: [3],
+    });
+    setComputeLiveCallsByAttempt({
+      1: {
+        request_id: 'demo-live-trace-001',
+        endpoint: '/route',
+        status: 'complete',
+        started_at_utc: now,
+        finished_at_utc: now,
+        expected_calls: [
+          {
+            source_key: 'scenario_profiles',
+            source_family: 'scenario',
+            component: 'live_data_sources',
+            url: 'demo://scenario_profiles_uk_v2_live',
+            method: 'GET',
+            required: true,
+            description: 'Scenario coefficients',
+          },
+          {
+            source_key: 'terrain_dem',
+            source_family: 'terrain',
+            component: 'terrain_dem',
+            url: 'demo://uk_dem_tiles',
+            method: 'GET',
+            required: true,
+            description: 'Terrain samples',
+          },
+        ],
+        expected_rollup: [
+          {
+            source_key: 'scenario_profiles',
+            source_family: 'scenario',
+            component: 'live_data_sources',
+            url: 'demo://scenario_profiles_uk_v2_live',
+            method: 'GET',
+            required: true,
+            observed_calls: 1,
+            requested_calls: 1,
+            success_count: 1,
+            failure_count: 0,
+            satisfied: true,
+            status: 'ok',
+          },
+          {
+            source_key: 'terrain_dem',
+            source_family: 'terrain',
+            component: 'terrain_dem',
+            url: 'demo://uk_dem_tiles',
+            method: 'GET',
+            required: true,
+            observed_calls: 1,
+            requested_calls: 1,
+            success_count: 1,
+            failure_count: 0,
+            satisfied: true,
+            status: 'ok',
+          },
+        ],
+        observed_calls: [
+          {
+            entry_id: 1,
+            request_id: 'demo-live-trace-001',
+            at_utc: now,
+            source_key: 'scenario_profiles',
+            source_family: 'scenario',
+            component: 'live_data_sources',
+            url: 'demo://scenario_profiles_uk_v2_live',
+            method: 'GET',
+            requested: true,
+            success: true,
+            status_code: 200,
+            cache_hit: false,
+            duration_ms: 82,
+          },
+          {
+            entry_id: 2,
+            request_id: 'demo-live-trace-001',
+            at_utc: now,
+            source_key: 'terrain_dem',
+            source_family: 'terrain',
+            component: 'terrain_dem',
+            url: 'demo://uk_dem_tiles',
+            method: 'GET',
+            requested: true,
+            success: true,
+            status_code: 200,
+            cache_hit: true,
+            duration_ms: 28,
+          },
+        ],
+        summary: {
+          total_calls: 12,
+          requested_calls: 12,
+          successful_calls: 12,
+          failed_calls: 0,
+          cache_hit_calls: 5,
+          stale_cache_calls: 0,
+          expected_total: 6,
+          expected_satisfied: 6,
+          expected_ok_count: 6,
+          expected_blocked_count: 0,
+          expected_not_reached_count: 0,
+          expected_miss_count: 0,
+          dropped_entries: 0,
+        },
+      },
+    });
+    setComputeRequestIdByAttempt({ 1: 'demo-live-trace-001' });
+    setComputeTraceNowMs(Date.now());
+    setScenarioCompare({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      results: [
+        { scenario_mode: 'no_sharing', selected: demo.selectedRoute, candidates: demo.routes, warnings: [] },
+        {
+          scenario_mode: 'partial_sharing',
+          selected: demo.routes[1],
+          candidates: demo.routes,
+          warnings: ['Partial sharing shifts the low-carbon alternative closer to the selected frontier.'],
+        },
+        {
+          scenario_mode: 'full_sharing',
+          selected: demo.routes[1],
+          candidates: demo.routes,
+          warnings: ['Full sharing reduces emissions pressure but increases preference ambiguity.'],
+        },
+      ],
+      deltas: {
+        partial_sharing: {
+          duration_s_delta: 420,
+          monetary_cost_delta: -8.4,
+          emissions_kg_delta: -10.8,
+          duration_s_status: 'ok',
+          monetary_cost_status: 'ok',
+          emissions_kg_status: 'ok',
+        },
+        full_sharing: {
+          duration_s_delta: 660,
+          monetary_cost_delta: -14.2,
+          emissions_kg_delta: -16.1,
+          duration_s_status: 'ok',
+          monetary_cost_status: 'ok',
+          emissions_kg_status: 'ok',
+        },
+      },
+      baseline_mode: 'no_sharing',
+      scenario_manifest_endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/scenario-manifest`,
+      scenario_signature_endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/scenario-signature`,
+    });
+    setScenarioCompareError(null);
+    setScenarioCompareLoading(false);
+    setDepOptimizeData({
+      best: {
+        departure_time_utc: '2026-05-25T09:00:00Z',
+        selected: demo.selectedRoute,
+        score: 0.91,
+        warning_count: 0,
+      },
+      candidates: [
+        {
+          departure_time_utc: '2026-05-25T08:00:00Z',
+          selected: demo.routes[1],
+          score: 0.83,
+          warning_count: 1,
+        },
+        {
+          departure_time_utc: '2026-05-25T09:00:00Z',
+          selected: demo.selectedRoute,
+          score: 0.91,
+          warning_count: 0,
+        },
+      ],
+      evaluated_count: 2,
+    });
+    setDepOptimizeError(null);
+    setDutyStopsText('52.4862,-1.8904,Start\n51.5072,-0.1276,End');
+    setDutyChainData({
+      legs: [
+        {
+          leg_index: 1,
+          origin: { lat: demo.origin.lat, lon: demo.origin.lon, label: 'Start' },
+          destination: { lat: demo.destination.lat, lon: demo.destination.lon, label: 'End' },
+          selected: demo.selectedRoute,
+          candidates: demo.routes,
+          warning_count: 0,
+        },
+      ],
+      total_metrics: demo.selectedRoute.metrics,
+      leg_count: 1,
+      successful_leg_count: 1,
+    });
+    setDutyChainError(null);
+    setOracleDashboard({
+      total_checks: 4,
+      source_count: 4,
+      stale_threshold_s: 900,
+      updated_at_utc: now,
+      sources: [
+        {
+          source: 'scenario_profiles',
+          check_count: 1,
+          pass_rate: 1,
+          schema_failures: 0,
+          signature_failures: 0,
+          stale_count: 0,
+          avg_latency_ms: 82,
+          last_observed_at_utc: now,
+        },
+        {
+          source: 'terrain_dem',
+          check_count: 1,
+          pass_rate: 1,
+          schema_failures: 0,
+          signature_failures: 0,
+          stale_count: 0,
+          avg_latency_ms: 28,
+          last_observed_at_utc: now,
+        },
+      ],
+    });
+    setOracleDashboardLoading(false);
+    setOracleError(null);
+    setOracleLatestCheck({
+      check_id: 'demo-oracle-check',
+      source: 'scenario_profiles',
+      schema_valid: true,
+      signature_valid: true,
+      freshness_s: 120,
+      latency_ms: 82,
+      record_count: 192,
+      observed_at_utc: now,
+      passed: true,
+      ingested_at_utc: now,
+    });
+    setOpsHealth({ status: 'ok' });
+    setOpsHealthReady({
+      status: 'ready',
+      strict_route_ready: true,
+      recommended_action: 'ready',
+      route_graph: {
+        ok: true,
+        status: 'ok',
+        state: 'ready',
+        phase: 'demo_loaded',
+        elapsed_ms: 2680,
+        timeout_s: 1200,
+        timed_out: false,
+        asset_exists: true,
+        asset_size_mb: 4123.27,
+        nodes_seen: 584220,
+        nodes_kept: 584220,
+        edges_seen: 1421800,
+        edges_kept: 1421800,
+        cache_loaded: true,
+      },
+      strict_live: {
+        ok: true,
+        status: 'ok',
+        reason_code: 'ok',
+        message: 'Screenshot demo readiness is forced ready for frontend capture.',
+        as_of_utc: now,
+        age_minutes: 2,
+        max_age_minutes: 4320,
+        checked_at_utc: now,
+      },
+    });
+    setOpsMetrics({
+      created_at: now,
+      total_requests: 7,
+      total_errors: 0,
+      endpoint_count: 5,
+      endpoints: {
+        '/route': { count: 1, p50_ms: 2680, error_count: 0 },
+        '/health/ready': { count: 2, p50_ms: 42, error_count: 0 },
+      },
+    });
+    setOpsCacheStats({ hits: 18, misses: 2, entries: 7 });
+    setOpsError(null);
+    setExperimentsLoading(false);
+    setExperiments([
+      {
+        id: 'demo-safe-singleton',
+        name: 'Certified singleton screenshot case',
+        description: 'Birmingham to London with route, proof, and debug panels populated.',
+        request: {
+          origin: demo.origin,
+          destination: demo.destination,
+          vehicle_type: 'rigid_hgv',
+          scenario_mode: 'no_sharing',
+          max_alternatives: 3,
+          weights: { time: 60, money: 20, co2: 20 },
+        },
+        created_at: now,
+        updated_at: now,
+      },
+    ]);
+    setExperimentsError(null);
+    setBatchResult({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      results: [
+        { origin: demo.origin, destination: demo.destination, routes: demo.routes },
+        {
+          origin: { lat: 53.4808, lon: -2.2426 },
+          destination: { lat: 53.8008, lon: -1.5491 },
+          routes: [demo.routes[1]],
+        },
+      ],
+    });
+    setBatchError(null);
+    setSignatureResult({
+      valid: true,
+      algorithm: 'hmac-sha256',
+      signature: 'demo-signature-6b5ad4',
+      expected_signature: 'demo-signature-6b5ad4',
+    });
+    setSignatureError(null);
+    setRunInspectorRunId(SCREENSHOT_DEMO_RUN_ID);
+    setRunManifest({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      mode: 'screenshot_demo',
+      selected_route_id: 'certified-smart-route',
+      artifact_count: 7,
+      generated_at_utc: now,
+    });
+    setRunScenarioManifest({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      scenario_mode: 'no_sharing',
+      contexts: ['weekday_peak_midlands_london'],
+      coverage: 1,
+    });
+    setRunProvenance({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      evidence_families: ['routing_graph', 'scenario', 'terrain', 'fuel', 'carbon', 'tolls'],
+      note: 'Frontend screenshot demo state.',
+    });
+    setRunSignature({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      valid: true,
+      algorithm: 'hmac-sha256',
+      signature_prefix: 'demo-signature',
+    });
+    setRunScenarioSignature({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      valid: true,
+      signature_prefix: 'demo-scenario',
+    });
+    setRunArtifacts({
+      run_id: SCREENSHOT_DEMO_RUN_ID,
+      provenance_endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/provenance`,
+      artifacts: [
+        { name: 'decision_package.json', endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts/decision_package.json`, size_bytes: 18420 },
+        { name: 'manifest.json', endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts/manifest.json`, size_bytes: 1240 },
+        { name: 'provenance.json', endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts/provenance.json`, size_bytes: 2890 },
+        { name: 'sampled_world_manifest.json', endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts/sampled_world_manifest.json`, size_bytes: 6120 },
+        { name: 'route_fragility_map.json', endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts/route_fragility_map.json`, size_bytes: 2450 },
+        { name: 'value_of_refresh.json', endpoint: `/api/runs/${SCREENSHOT_DEMO_RUN_ID}/artifacts/value_of_refresh.json`, size_bytes: 3180 },
+      ],
+    });
+    setRunArtifactPreviewName('decision_package.json');
+    setRunArtifactPreviewText(JSON.stringify(demo.decisionPackage, null, 2));
+    setRunInspectorError(null);
+    setTimeLapsePosition(null);
+    setShowStopOverlay(true);
+    setShowIncidentOverlay(true);
+    setShowSegmentTooltips(true);
+    setError(null);
+    setLiveMessage('Screenshot demo state loaded.');
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || screenshotDemoAppliedRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const enabledByQuery =
+      params.get('demo') === '1' ||
+      params.get('screenshot') === '1' ||
+      params.get('screenshotDemo') === '1';
+    const enabledByEnv = process.env.NEXT_PUBLIC_SCREENSHOT_DEMO === '1';
+    if (!enabledByQuery && !enabledByEnv) return;
+    loadScreenshotDemoState();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2822,6 +3878,7 @@ export default function Page() {
     setGoogleBaselineLoading(false);
     setGoogleBaselineError(null);
     setSmartComputeElapsedMs(null);
+    setRunInspectorDecisionPackage(null);
 
     setRouteNames({});
     setEditingRouteId(null);
@@ -3019,6 +4076,7 @@ export default function Page() {
   }, [abortActiveCompute, abortBaselineFetch]);
 
   useEffect(() => {
+    if (screenshotDemoAppliedRef.current) return;
     clearComputed();
   }, [vehicleType, scenarioMode, clearComputed]);
 
@@ -3048,13 +4106,14 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    if (screenshotDemoActive) return;
     const warmupState = String(opsHealthReady?.route_graph?.state ?? '').trim().toLowerCase();
     const pollMs = warmupState === 'loading' ? 1_500 : 5_000;
     const timer = window.setInterval(() => {
       void refreshRouteReadiness();
     }, pollMs);
     return () => window.clearInterval(timer);
-  }, [opsHealthReady?.route_graph?.state]);
+  }, [opsHealthReady?.route_graph?.state, screenshotDemoActive]);
 
   useEffect(() => {
     if (depWindowStartLocal || depWindowEndLocal) return;
@@ -4504,7 +5563,7 @@ export default function Page() {
       : routeGraphState === 'loading'
         ? `phase=${routeWarmupPhaseLabel}; progress~${routeWarmupProgressPct}% (${routeWarmupBaselineLabel} baseline); elapsed=${routeWarmupElapsedLabel}; remaining~${routeWarmupRemainingLabel}${routeWarmupOverrunLabel ? `; ${routeWarmupOverrunLabel.toLowerCase()}` : ''}`
         : `state=${routeGraphWarmup?.state ?? 'unknown'}; phase=${routeGraphWarmup?.phase ?? 'unknown'}`;
-  const canCompute = Boolean(origin && destination) && !busy && strictRouteReady;
+  const canCompute = Boolean(origin && destination) && !busy && (strictRouteReady || screenshotDemoActive);
 
   const normalisedWeights = useMemo(() => normaliseWeights(weights), [weights]);
   const latestTraceEntry = computeTrace.length ? computeTrace[computeTrace.length - 1] : null;
@@ -5933,6 +6992,10 @@ export default function Page() {
   );
 
   async function computePareto() {
+    if (screenshotDemoActive) {
+      loadScreenshotDemoState();
+      return;
+    }
     if (!origin || !destination) {
       setError('Click the map to set Start, then End.');
       return;
@@ -9662,7 +10725,7 @@ export default function Page() {
             sectionControl={tutorialSectionControl.experiments}
           />
 
-          <CollapsibleCard title="Dev Tools" hint={SIDEBAR_SECTION_HINTS.devTools} defaultCollapsed={true}>
+          <CollapsibleCard title="Dev Tools" hint={SIDEBAR_SECTION_HINTS.devTools} defaultCollapsed={!screenshotDemoActive}>
             <OpsDiagnosticsPanel
               health={opsHealth}
               metrics={opsMetrics}
@@ -9714,6 +10777,7 @@ export default function Page() {
               onRunIdChange={setRunInspectorRunId}
               loading={runInspectorLoading}
               error={runInspectorError}
+              decisionPackage={runInspectorDecisionPackage}
               manifest={runManifest}
               scenarioManifest={runScenarioManifest}
               provenance={runProvenance}

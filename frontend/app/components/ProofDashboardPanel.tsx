@@ -726,7 +726,7 @@ export default function ProofDashboardPanel({
         { label: 'index.json', href: bundleIndexJsonHref },
         { label: 'index.md', href: bundleIndexMdHref },
         { label: 'methods appendix', href: methodsAppendixHref },
-        { label: 'thesis report', href: thesisReportHref },
+        { label: 'evaluation report', href: thesisReportHref },
       ]),
     },
   ];

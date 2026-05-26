@@ -600,6 +600,7 @@ export type SampledWorldManifestArtifact = {
 };
 
 export type TypedAbstentionReason =
+  | 'typed_abstention_recommended'
   | 'uncertified_due_to_search'
   | 'uncertified_due_to_evidence'
   | 'uncertified_due_to_preference'
@@ -985,7 +986,6 @@ export type DecisionPackage = {
   certified_set?: RouteOption[] | null;
   abstention?: AbstentionRecord | null;
   terminal_type?: 'certified_singleton' | 'certified_set' | 'typed_abstention';
-  terminal_kind?: string | null;
   selected_route_id?: string | null;
   frontier_summary?: Record<string, unknown> | null;
   certificate_summary?: RouteCertificationSummary | Record<string, unknown> | null;
@@ -1755,7 +1755,7 @@ const FRONTEND_ARTIFACT_GROUP_SPECS: Array<{
       {
         name: 'theorem_hook_summary.json',
         label: 'Theorem hooks',
-        description: 'Claim-map hooks linking run evidence to thesis theorem obligations',
+        description: 'Claim-map hooks linking run evidence to formal validation obligations',
         expectation: 'conditional',
       },
     ],

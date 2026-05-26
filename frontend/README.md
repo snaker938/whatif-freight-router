@@ -16,7 +16,7 @@ This directory contains the Next.js user interface for the current freight-route
 - The UI is inspecting a backend that keeps search actions, evidence actions, and preference actions explicit and separate.
 - The visible shell is route-centric, but it now surfaces several read-only decision-state slices for certified singleton, certified set, and typed abstention outcomes.
 - In the checked local direct-REFC smoke slice, a public `typed_abstention` payload can still carry normalized `certified_set_summary`, `winner_confidence_state`, `certificate_witness`, and artifact-pointer surfaces while emitted bundles preserve richer local certified-set artifacts.
-- The typed abstention outcomes surfaced by the payload are `uncertified_due_to_search`, `uncertified_due_to_evidence`, `uncertified_due_to_preference`, `uncertified_due_to_out_of_support_world_model`, `uncertified_due_to_budget`, and `uncertified_due_to_model_assumption`.
+- The typed abstention outcomes surfaced by the payload are `typed_abstention_recommended`, `uncertified_due_to_search`, `uncertified_due_to_evidence`, `uncertified_due_to_preference`, `uncertified_due_to_out_of_support_world_model`, `uncertified_due_to_budget`, and `uncertified_due_to_model_assumption`.
 
 ## Current proof / governance surfaces
 

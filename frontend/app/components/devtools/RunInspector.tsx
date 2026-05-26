@@ -134,7 +134,7 @@ export default function RunInspector({
             <ul className="baselineNotes">
               <li>
                 Package {decisionPackage.package_kind} schema {decisionPackage.schema_version} pipeline {decisionPackage.pipeline_mode}
-                ; terminal {decisionPackage.terminal_kind}; selected{' '}
+                ; terminal {decisionPackage.terminal_type}; selected{' '}
                 {decisionPackage.selected_route_id ?? certifiedSetSummary?.selected_route_id ?? 'n/a'}.
               </li>
               {preferenceSummary ? (
