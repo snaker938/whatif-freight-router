@@ -1,7 +1,7 @@
 # Sample Manifest and Outputs
 
 Last Updated: 2026-04-10
-Applies To: `POST /batch/pareto`, run manifests, signatures, artifact endpoints, and thesis evaluation bundles
+Applies To: `POST /batch/pareto`, run manifests, signatures, artifact endpoints, and checked evaluation bundles
 
 ## Sample Files in Repo
 
@@ -28,7 +28,7 @@ Core route bundle files:
 - routes.geojson
 - results_summary.csv
 
-Thesis and VOI bundle files currently emitted by the run store:
+Evaluation and VOI bundle files currently emitted by the run store:
 
 - dccs_candidates.jsonl
 - dccs_summary.json
@@ -145,9 +145,9 @@ Route bundle results.csv rows add selected as an extra column.
    - `GET /runs/{run_id}/artifacts`
    - `GET /runs/{run_id}/artifacts/<name>`
 
-## Focused-VOI Thesis Bundle Snapshot
+## Focused-VOI Evaluation Bundle Snapshot
 
-The checked focused-VOI thesis evaluation bundle in `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` is a preserved, row-level evidence set for the focused-VOI family. It is not the whole-suite publishability verdict; use the current checked full-suite summaries under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` for that broader decision. Its `evaluation_manifest.json` currently records:
+The checked focused-VOI evaluation bundle in `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` is a preserved, row-level evidence set for the focused-VOI family. It is not the whole-suite publishability verdict; use the current checked full-suite summaries under `out/headline_exports/current_checked/full_suite_curated_latest_20260411/` for that broader decision. Its `evaluation_manifest.json` currently records:
 
 - `run_id`: `thesis_eval_20260331_r2_focused_voi`
 - `created_at`: `2026-04-11T00:33:36.069897+00:00`
@@ -194,9 +194,9 @@ The same bundle’s baseline smoke summary records:
 - ORS `asset_freshness_status`: `graph_identity_verified`
 - ORS `engine_image`: `openrouteservice/openrouteservice:v9.7.1`
 
-## Report-Level Outputs In The Thesis Bundle
+## Report-Level Outputs In The Evaluation Bundle
 
-The thesis evaluation folder includes the derived research outputs as files, not just JSON manifests:
+The evaluation folder includes the derived research outputs as files, not just JSON manifests:
 
 - thesis_summary.json
 - thesis_summary.csv
@@ -207,7 +207,7 @@ The thesis evaluation folder includes the derived research outputs as files, not
 - methods_appendix.md
 - thesis_report.md
 
-Thesis-like bundle indexes are now emitted by the run-store path for newly written or additively refreshed thesis-like bundles, using `index.json` and `index.md` plus file-derived export-status metadata. This is forward-only behavior. The current checked focused bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now carries additively backfilled copies of those files, while other older checked bundles may still legitimately lack `index.json` and `index.md` if they predate this emission change and have not been refreshed. That absence in other older bundles does not invalidate the checked CSV, JSON, or Markdown source artifacts already present there, and any later backfill remains additive-only rather than a claim that a historical bundle was originally emitted with those index files.
+Legacy-named evaluation bundle indexes are now emitted by the run-store path for newly written or additively refreshed legacy-named evaluation bundles, using `index.json` and `index.md` plus file-derived export-status metadata. This is forward-only behavior. The current checked focused bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now carries additively backfilled copies of those files, while other older checked bundles may still legitimately lack `index.json` and `index.md` if they predate this emission change and have not been refreshed. That absence in other older bundles does not invalidate the checked CSV, JSON, or Markdown source artifacts already present there, and any later backfill remains additive-only rather than a claim that a historical bundle was originally emitted with those index files.
 
 The current reviewer-facing publication map for these bundle outputs lives at the repo root in [`paper_artifact_index.json`](../paper_artifact_index.json). In the current checked slice:
 
@@ -250,5 +250,5 @@ Invoke-WebRequest -Uri "http://localhost:8000/runs/$runId/artifacts/index.md" -O
 - [Documentation Index](DOCS_INDEX.md)
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [API Cookbook](api-cookbook.md)
-- [Paper Artifact Index](../paper_artifact_index.json)
+- [Artifact Index](../paper_artifact_index.json)
 - [Reproducibility Capsule](reproducibility-capsule.md)

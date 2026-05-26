@@ -90,11 +90,7 @@ The current evidence for this surface lives in:
 - `docs/evaluation_card.md`
   - evaluator lanes, cohort labels, and checked artifacts
 - `docs/negative_results.md`
-  - scoped limitations and publication-safe wording
-- `docs/thesis-codebase-report.md`
-  - strictness and scope limitations
-  - support and proxy caveats
-  - local evidence claims
+  - scoped limitations and evidence-safe wording
 - `docs/quality-gates-and-benchmarks.md`
   - strict preflight evidence
   - CI lane definitions
@@ -129,7 +125,7 @@ The strongest current claim is limited to this:
 - the current evidence is sufficient for scoped UK-focused analysis
 - the checked full-suite reviewer root now carries the publishability-facing closure surfaces for proxy-audit sample size and claim discipline via `out/headline_exports/current_checked/full_suite_curated_latest_20260411/sample_size_gate_summary.*` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json`
 
-The current checked evidence should be read in two layers. The lane-local calibration metrics remain the detailed truth for overlap, support-conditioned calibration, and estimator behavior. The checked full-suite reviewer root is still the publication-safe summary surface for the sample-size and claim-discipline family: it records the proxy-audit gate row in `sample_size_gate_summary.*` with the maintained row-count requirement, direct `evaluation_requirement_observed_count`, `evaluation_requirement_observed_count_source`, and `evaluation_requirement_total_minimum`. The suite verdict in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json` currently reports `publishable_on_current_evidence=true`, `adoption_claim_supported=true`, `hot_rerun_all_green=true`, and `publishability_blockers=[]`.
+The current checked evidence should be read in two layers. The lane-local calibration metrics remain the detailed truth for overlap, support-conditioned calibration, and estimator behavior. The checked full-suite reviewer root is still the evidence-safe summary surface for the sample-size and claim-discipline family: it records the proxy-audit gate row in `sample_size_gate_summary.*` with the maintained row-count requirement, direct `evaluation_requirement_observed_count`, `evaluation_requirement_observed_count_source`, and `evaluation_requirement_total_minimum`. The suite verdict in `out/headline_exports/current_checked/full_suite_curated_latest_20260411/publishability_verdict.json` currently reports `publishable_on_current_evidence=true`, `adoption_claim_supported=true`, `hot_rerun_all_green=true`, and `publishability_blockers=[]`.
 
 That means the current checked evidence supports the leakage-safe calibration surface, reviewer-facing proxy-audit sample-size accounting, and the applied-evidence publication framing. The detailed calibration plots, positivity diagnostics, and support-conditioned summaries are still the right place to inspect model behavior, while the full-suite root provides the honest gate-facing summary instead of leaving the reader with row-count-only totals.
 
@@ -159,7 +155,7 @@ When reviewing this surface, ask:
 - Is the validation language bounded to the current repo evidence?
 - Does the doc distinguish proxy evidence from fully audited evidence?
 - Are support and overlap caveats stated plainly?
-- Is the claim scoped to the UK-focused thesis setting?
+- Is the claim scoped to the UK-focused evaluation setting?
 
 ## Bottom Line
 

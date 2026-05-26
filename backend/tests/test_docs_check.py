@@ -24,6 +24,49 @@ def test_check_docs_passes_repo_consistency_checks() -> None:
     assert module.run_forbidden_notebook_check() == []
 
 
+def test_path_check_exempts_generated_output_paths(tmp_path: Path, monkeypatch) -> None:
+    module = _load_check_docs_module()
+
+    note = tmp_path / "docs" / "generated.md"
+    note.parent.mkdir()
+    note.write_text(
+        "\n".join(
+            [
+                "`summary.json`",
+                "`out/artifacts/run-1/missing_summary.json`",
+                "`out/headline_exports/run-1/dashboard.csv`",
+                "`out/thesis/run-1/thesis_report.md`",
+                "`backend/out/run-1/manifest.json`",
+                "`docs/not_generated.json`",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "GENERATED_ARTIFACT_NAMES", {"summary.json"})
+    monkeypatch.setattr(
+        module,
+        "GENERATED_ARTIFACT_ROOTS",
+        tuple(
+            (tmp_path / path).resolve()
+            for path in (
+                "backend/out",
+                "out/artifacts",
+                "out/headline_exports",
+                "out/thesis",
+            )
+        ),
+    )
+    monkeypatch.setattr(module, "list_maintained_markdown", lambda: [note])
+
+    errors = [error.replace("\\", "/") for error in module.run_path_check()]
+
+    assert errors == [
+        "docs/generated.md references missing path: docs/not_generated.json"
+    ]
+
+
 def test_check_docs_inventory_includes_maintained_non_docs_surfaces() -> None:
     module = _load_check_docs_module()
 

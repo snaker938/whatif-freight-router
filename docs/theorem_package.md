@@ -7,7 +7,7 @@ This file is the named theorem/proposition package for the current repository sl
 
 It is intentionally narrower than a fully closed proof appendix. The current package publishes explicit theorem-family and lower-bound-family statements, assumptions, code anchors, test anchors, artifact families, evaluator metrics, and report appendix locations. Its current maturity is `partial-proof`, not `theorem-backed`.
 No required theorem or lower-bound family remains scaffold-only in the current slice; each required family is published at `partial-proof` maturity.
-In this file, `Report appendix location` means the narrowest current narrative landing zone inside `docs/thesis-codebase-report.md`, while the exact code/test/artifact/evaluator mapping remains authoritative in `docs/theorem_map.md`.
+In this file, `Report appendix location` means the narrowest current narrative landing zone in the external report artifact; `docs/theorem_map.md` remains the repo-local mapping authority for code, tests, artifacts, and evaluator metrics.
 
 Use this file for the named statement inventory and [`theorem_map.md`](theorem_map.md) for the reviewer-readable mapping ledger.
 

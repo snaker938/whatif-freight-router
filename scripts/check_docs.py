@@ -27,7 +27,7 @@ BASENAME_SEARCH_DIRS = (
     ROOT / "backend" / "scripts",
     ROOT / "backend" / "tests",
 )
-THESIS_BUNDLE_NAMES = {
+GENERATED_BUNDLE_NAMES = {
     "baseline_smoke_summary.json",
     "campaign_report.md",
     "cohort_composition.json",
@@ -63,6 +63,15 @@ THESIS_BUNDLE_NAMES = {
     "thesis_summary_by_cohort.json",
     "winner_summary.json",
 }
+GENERATED_ARTIFACT_ROOTS = tuple(
+    (ROOT / path).resolve()
+    for path in (
+        "backend/out",
+        "out/artifacts",
+        "out/headline_exports",
+        "out/thesis",
+    )
+)
 
 MD_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 APP_ROUTE_RE = re.compile(r'@app\.(get|post|put|delete|patch)\("([^"]+)"')
@@ -162,6 +171,7 @@ PLACEHOLDER_MARKERS = (
 THEOREMISH_NAME_RE = re.compile(
     r"(?im)^(?:[-*]\s*)?(?:Theorem|Proposition|Lower[- ]bound|Impossibility)(?:\s+family)?\s*:\s*([^\n]+)$"
 )
+TABLE_PARSE_ERRORS: list[str] = []
 
 
 def list_docs() -> list[Path]:
@@ -239,13 +249,21 @@ def extract_markdown_table(path: Path, heading: str) -> tuple[list[str], list[di
         return [], []
 
     headers = split_markdown_table_line(table_lines[0])
+    separator_cells = split_markdown_table_line(table_lines[1])
+    if len(separator_cells) != len(headers):
+        TABLE_PARSE_ERRORS.append(
+            f"{path.relative_to(ROOT)} table '{heading}' separator has {len(separator_cells)} cells; expected {len(headers)}: {table_lines[1]}"
+        )
     rows: list[dict[str, str]] = []
-    for raw_line in table_lines[2:]:
+    for row_index, raw_line in enumerate(table_lines[2:], start=1):
         cells = split_markdown_table_line(raw_line)
         if not cells:
             continue
         if len(cells) != len(headers):
-            cells.extend([""] * (len(headers) - len(cells)))
+            TABLE_PARSE_ERRORS.append(
+                f"{path.relative_to(ROOT)} table '{heading}' row {row_index} has {len(cells)} cells; expected {len(headers)}: {raw_line}"
+            )
+            continue
         rows.append(dict(zip(headers, cells)))
     return headers, rows
 
@@ -505,7 +523,12 @@ def load_declared_artifact_names() -> set[str]:
     return set()
 
 
-GENERATED_ARTIFACT_NAMES = load_declared_artifact_names() | THESIS_BUNDLE_NAMES
+GENERATED_ARTIFACT_NAMES = load_declared_artifact_names() | GENERATED_BUNDLE_NAMES
+
+
+def is_generated_artifact_path(path: Path) -> bool:
+    resolved = path.resolve()
+    return any(resolved == root or root in resolved.parents for root in GENERATED_ARTIFACT_ROOTS)
 
 
 def strip_anchor(link: str) -> str:
@@ -677,6 +700,8 @@ def run_path_check() -> list[str]:
             resolved = resolve_path_token(token_norm, md_file)
             if resolved is None:
                 continue
+            if is_generated_artifact_path(resolved):
+                continue
             if not resolved.exists():
                 errors.append(
                     f"{md_file.relative_to(ROOT)} references missing path: {token_norm}"
@@ -723,14 +748,16 @@ def run_forbidden_notebook_check() -> list[str]:
 
 
 def run_theorem_claim_consistency_check() -> list[str]:
+    TABLE_PARSE_ERRORS.clear()
     errors: list[str] = []
 
     theorem_headers, theorem_rows = extract_markdown_table(THEOREM_MAP, THEOREM_TABLE_HEADING)
     if not theorem_headers:
-        return [f"{THEOREM_MAP.relative_to(ROOT)} missing '{THEOREM_TABLE_HEADING}' table"]
+        return [f"{THEOREM_MAP.relative_to(ROOT)} missing '{THEOREM_TABLE_HEADING}' table", *TABLE_PARSE_ERRORS]
     lower_headers, lower_rows = extract_markdown_table(THEOREM_MAP, LOWER_BOUND_TABLE_HEADING)
     if not lower_headers:
         errors.append(f"{THEOREM_MAP.relative_to(ROOT)} missing '{LOWER_BOUND_TABLE_HEADING}' table")
+        errors.extend(TABLE_PARSE_ERRORS)
         return errors
 
     for heading, headers in (
@@ -829,6 +856,7 @@ def run_theorem_claim_consistency_check() -> list[str]:
                 )
 
     errors.extend(run_theorem_mention_consistency_check(rows_by_id))
+    errors.extend(TABLE_PARSE_ERRORS)
     return errors
 
 

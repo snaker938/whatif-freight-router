@@ -2,7 +2,7 @@
 
 This page gives a conservative reviewer path for the current checked publication slice.
 
-It does not claim that all gates are green. It documents the current checked bundle, the source files behind the currently indexed headline tables and figure sources, the checked full-suite verdict companion bundle, the checked broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane companions, and the commands used to inspect, rerun, and export that slice.
+It documents the current checked bundle, the source files behind the currently indexed headline tables and figure sources, the checked full-suite verdict companion bundle, the checked broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun lane companions, and the commands used to inspect, rerun, and export that slice. The maintained checked package is applied-evidence green for the current publishability/adoption verdict, while deployment-grade certification and theorem-grade generalization remain outside this quickstart's claim scope.
 
 ## Current Checked Reviewer Bundle
 
@@ -22,7 +22,7 @@ There is still no checked local `backend/out/artifacts/full_latest_suite_*` bund
 
 The reviewer-facing artifact map for this slice lives at:
 
-- [`out/headline_exports/current_checked/index.md`](../out/headline_exports/current_checked/index.md)
+- `out/headline_exports/current_checked/index.md`
 - [`paper_artifact_index.json`](../paper_artifact_index.json)
 
 Scope note:
@@ -31,7 +31,7 @@ Scope note:
 - The full-suite companion now mirrors the checked suite-root verdict exactly: optional-stopping and perturbation are surfaced and green on the copied proof surfaces, publishability/adoption are green under the applied-evidence policy, and DCCS/refine-cost/VOI remain non-blocking diagnostics for strong certification.
 - The suite-root diagnostic list is narrower than the broader redesign and publication ledger tracked elsewhere in the maintained docs.
 
-## End-To-End Thesis Lane Reproduction
+## End-To-End Evaluation Lane Reproduction
 
 From the repo root:
 
@@ -71,7 +71,7 @@ If the suite completes, it writes a fresh `backend/out/artifacts/full_latest_sui
 - a publishability-verdict JSON artifact
 - a publishability-assessment Markdown report
 
-Treat this as regeneration guidance for local reruns. The maintained reviewer package indexed in `paper_artifact_index.json` still points at the checked focused-VOI bundle and the latest checked campaign slice, while the newer checked full-suite assessment now exposes green optional-stopping and perturbation proofs but still records publishability/adoption blockers from the DCCS, refine-cost forecasting, and VOI families. A successful local rerun of the quickstart package should reproduce that same checked suite-level verdict, not a weaker surrogate.
+Treat this as regeneration guidance for local reruns. The maintained reviewer package indexed in `paper_artifact_index.json` still points at the checked focused-VOI bundle, the latest checked campaign slice, and the checked full-suite verdict companion. The current checked full-suite assessment records `publishable_on_current_evidence = true`, `adoption_claim_supported = true`, `hot_rerun_all_green = true`, and `publishability_blockers = []`. A successful local rerun of the quickstart package should reproduce that same checked suite-level verdict, not a weaker surrogate.
 
 ## Checked Full-Suite Verdict Companion
 
@@ -79,7 +79,7 @@ The maintained reviewer package now carries a checked local companion copy of th
 
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411/`
 
-The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411` when it is available on the current machine. The copied bundle preserves the current checked suite-root verdict exactly: `publishable_on_current_evidence = true`, `adoption_claim_supported = true`, `hot_rerun_all_green = true`, and `publishability_blockers = []`.
+The export helper refreshes that directory from the repo-local checked source mirror at `out/artifacts/full_suite_curated_latest_20260411/`. The copied bundle preserves the current checked suite-root verdict exactly: `publishable_on_current_evidence = true`, `adoption_claim_supported = true`, `hot_rerun_all_green = true`, and `publishability_blockers = []`.
 
 From the repo root:
 
@@ -106,7 +106,7 @@ The maintained reviewer package now carries a checked local companion copy of th
 
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/`
 
-The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411_threshold_sensitivity` when it is available on the current machine. The copied bundle is evidence that the `threshold_sensitivity` evaluator lane exists and emits its maintained sweep artifacts; it is not a claim that the related `P14.40-P14.43` or `G11.*` gates are green.
+The export helper refreshes that directory from the repo-local checked source mirror at `out/artifacts/full_suite_curated_latest_20260411_threshold_sensitivity/`. The copied bundle is evidence that the `threshold_sensitivity` evaluator lane exists and emits its maintained sweep artifacts; it is not a claim that the related `P14.40-P14.43` or `G11.*` gates are green.
 
 From the repo root:
 
@@ -134,7 +134,7 @@ The maintained reviewer package now carries a checked local companion copy of th
 
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/`
 
-The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411_public_transfer` when it is available on the current machine. The copied bundle is evidence that the `public_transfer` evaluator lane emits both the corridor-family and weather-regime holdout surfaces; it is not a claim that the related transfer-size or publishability gates are green.
+The export helper refreshes that directory from the repo-local checked source mirror at `out/artifacts/full_suite_curated_latest_20260411_public_transfer/`. The copied bundle is evidence that the `public_transfer` evaluator lane emits both the corridor-family and weather-regime holdout surfaces; it is not a claim that the related transfer-size or publishability gates are green.
 
 From the repo root:
 
@@ -164,7 +164,7 @@ The maintained reviewer package now carries a checked local companion copy of th
 
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_optional_stopping_coverage/`
 
-The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411_optional_stopping_coverage` when it is available on the current machine. The lane companion exposes the checked optional-stopping evaluator artifacts, while the canonical gate readings for `G11.17-G11.19` and `G11.54` live in the full-suite companion `lane_publishability_summary.*` and `sample_size_gate_summary.*` surfaces.
+The export helper refreshes that directory from the repo-local checked source mirror at `out/artifacts/full_suite_curated_latest_20260411_optional_stopping_coverage/`. The lane companion exposes the checked optional-stopping evaluator artifacts, while the canonical gate readings for `G11.17-G11.19` and `G11.54` live in the full-suite companion `lane_publishability_summary.*` and `sample_size_gate_summary.*` surfaces.
 
 From the repo root:
 
@@ -195,7 +195,7 @@ The maintained reviewer package now carries a checked local companion copy of th
 
 - `out/headline_exports/current_checked/full_suite_curated_latest_20260411_perturbation_flip_radius/`
 
-The export helper refreshes that directory from the checked source bundle at `C:\app\out\artifacts\full_suite_curated_latest_20260411_perturbation_flip_radius` when it is available on the current machine. The lane companion exposes the checked perturbation evaluator artifacts, while the canonical gate readings for `G11.20`, `G11.21`, and `G11.55` live in the full-suite companion `lane_publishability_summary.*` and `sample_size_gate_summary.*` surfaces.
+The export helper refreshes that directory from the repo-local checked source mirror at `out/artifacts/full_suite_curated_latest_20260411_perturbation_flip_radius/`. The lane companion exposes the checked perturbation evaluator artifacts, while the canonical gate readings for `G11.20`, `G11.21`, and `G11.55` live in the full-suite companion `lane_publishability_summary.*` and `sample_size_gate_summary.*` surfaces.
 
 From the repo root:
 
@@ -233,7 +233,7 @@ Use the additional sections below for the other focused-VOI table surfaces and t
 
 Note:
 - This quickstart now gives one documented command block for every currently indexed headline table or figure source surface.
-- Thesis-like `index.json` and `index.md` bundle indexes are emitted for newly written or additively refreshed thesis-like bundles through the run-store path. The current checked focused bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now carries additively backfilled copies of those files, while other older checked bundles may still legitimately lack them if they predate that behavior and have not been refreshed.
+- Legacy-named evaluation `index.json` and `index.md` bundle indexes are emitted for newly written or additively refreshed legacy-named evaluation bundles through the run-store path. The current checked focused bundle at `backend/out/artifacts/thesis_eval_20260331_r2_focused_voi/` now carries additively backfilled copies of those files, while other older checked bundles may still legitimately lack them if they predate that behavior and have not been refreshed.
 - Presence or absence of those bundle-index files does not invalidate the underlying checked CSV, JSON, or Markdown artifacts. Source-inspection commands stay source-first, while the export helper in `Headline SVG And PDF Export Commands` materializes checked SVG, print-ready HTML, and PDF renders for the indexed headline surfaces.
 
 From the repo root:
@@ -347,12 +347,10 @@ These commands produce:
 
 ## Latest Checked Campaign Table And Figure Commands
 
-This block materializes the current campaign-backed headline source surfaces indexed in `paper_artifact_index.json`:
+This block writes the current campaign-backed headline source surfaces indexed in `paper_artifact_index.json`, plus explicit supporting reviewer table sources and separate supporting placeholder exports where noted:
 
 - summary and metrics table source
 - gain-versus-V0 figure source
-- run-validity figure source
-- baseline-smoke figure source
 - certificate-margin-versus-variant figure source
 - ambiguity-alignment-versus-variant figure source
 - cohort-composition figure source
@@ -362,10 +360,13 @@ This block materializes the current campaign-backed headline source surfaces ind
 - controller-refresh-split-versus-variant figure source
 - hard-case-transfer-versus-variant figure source
 - win-rate-versus-variant figure source
-- startup-and-warmup figure source
 - cohort/support-bin composition table source
-- runtime-observability summary table source
-- runtime-action observability table source
+- supporting reviewer table source: broad-cold runtime quantiles
+- supporting reviewer table source: runtime-action observability
+- supporting reviewer table source: runtime-stage quantiles
+- supporting placeholder export: run-validity figure source with no numeric plot rows
+- supporting placeholder export: baseline-smoke figure source with no numeric plot rows
+- supporting placeholder export: startup-and-warmup figure source with no numeric plot rows
 
 From the repo root:
 
@@ -380,20 +381,24 @@ $campaignCompositionDir = Join-Path $reviewerOut ("campaign_composition_" + $run
 New-Item -ItemType Directory -Force -Path $campaignTableDir | Out-Null
 New-Item -ItemType Directory -Force -Path $campaignSharedDir | Out-Null
 New-Item -ItemType Directory -Force -Path $campaignCompositionDir | Out-Null
+$campaignTableBaselineDir = Join-Path $campaignTableDir "out/headline_exports/current_checked/full_suite_curated_latest_20260411"
+$campaignSharedBaselineDir = Join-Path $campaignSharedDir "out/headline_exports/current_checked/full_suite_curated_latest_20260411"
+New-Item -ItemType Directory -Force -Path $campaignTableBaselineDir | Out-Null
+New-Item -ItemType Directory -Force -Path $campaignSharedBaselineDir | Out-Null
 
 Copy-Item "$campaign/campaign_report.md" (Join-Path $campaignTableDir "campaign_report.md")
 Copy-Item "$campaign/campaign_result.json" (Join-Path $campaignTableDir "campaign_result.json")
 Copy-Item "$tranche/thesis_summary.csv" (Join-Path $campaignTableDir "thesis_summary.csv")
 Copy-Item "$tranche/thesis_summary.json" (Join-Path $campaignTableDir "thesis_summary.json")
 Copy-Item "$tranche/evaluation_manifest.json" (Join-Path $campaignTableDir "evaluation_manifest.json")
-Copy-Item "$tranche/osrm_baseline_identity_manifest.json" (Join-Path $campaignTableDir "out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.json")
-Copy-Item "$tranche/ors_baseline_identity_manifest.json" (Join-Path $campaignTableDir "out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.json")
+Copy-Item "$tranche/osrm_baseline_identity_manifest.json" (Join-Path $campaignTableBaselineDir "osrm_baseline_identity_manifest.json")
+Copy-Item "$tranche/ors_baseline_identity_manifest.json" (Join-Path $campaignTableBaselineDir "ors_baseline_identity_manifest.json")
 Copy-Item "$tranche/baseline_fairness_audit.json" (Join-Path $campaignTableDir "baseline_fairness_audit.json")
 Copy-Item "$tranche/baseline_fairness_lane_metadata.json" (Join-Path $campaignTableDir "baseline_fairness_lane_metadata.json")
 Copy-Item "$campaign/campaign_result.json" (Join-Path $campaignSharedDir "campaign_result.json")
 Copy-Item "$tranche/evaluation_manifest.json" (Join-Path $campaignSharedDir "evaluation_manifest.json")
-Copy-Item "$tranche/osrm_baseline_identity_manifest.json" (Join-Path $campaignSharedDir "out/headline_exports/current_checked/full_suite_curated_latest_20260411/osrm_baseline_identity_manifest.json")
-Copy-Item "$tranche/ors_baseline_identity_manifest.json" (Join-Path $campaignSharedDir "out/headline_exports/current_checked/full_suite_curated_latest_20260411/ors_baseline_identity_manifest.json")
+Copy-Item "$tranche/osrm_baseline_identity_manifest.json" (Join-Path $campaignSharedBaselineDir "osrm_baseline_identity_manifest.json")
+Copy-Item "$tranche/ors_baseline_identity_manifest.json" (Join-Path $campaignSharedBaselineDir "ors_baseline_identity_manifest.json")
 Copy-Item "$tranche/baseline_fairness_audit.json" (Join-Path $campaignSharedDir "baseline_fairness_audit.json")
 Copy-Item "$tranche/baseline_fairness_lane_metadata.json" (Join-Path $campaignSharedDir "baseline_fairness_lane_metadata.json")
 Copy-Item "$tranche/cohort_composition.json" (Join-Path $campaignCompositionDir "cohort_composition.json")
@@ -401,10 +406,8 @@ Copy-Item "$tranche/results.json" (Join-Path $campaignCompositionDir "results.js
 Copy-Item "$tranche/evaluation_manifest.json" (Join-Path $campaignCompositionDir "evaluation_manifest.json")
 
 $plots = Get-Content "$tranche/thesis_plots.json" -Raw | ConvertFrom-Json
-$plotSelectors = @(
+$populatedPlotSelectors = @(
   'gain_vs_v0',
-  'run_validity',
-  'baseline_smoke',
   'certificate_margin_vs_variant',
   'ambiguity_alignment_vs_variant',
   'cohort_composition',
@@ -412,11 +415,16 @@ $plotSelectors = @(
   'runtime_distribution_vs_variant',
   'controller_refresh_split_vs_variant',
   'hard_case_transfer_vs_variant',
-  'win_rate_vs_variant',
+  'win_rate_vs_variant'
+)
+
+$supportingPlaceholderSelectors = @(
+  'run_validity',
+  'baseline_smoke',
   'startup_and_warmup'
 )
 
-foreach ($selector in $plotSelectors) {
+foreach ($selector in ($populatedPlotSelectors + $supportingPlaceholderSelectors)) {
   $plotOut = Join-Path $reviewerOut ("campaign_" + $selector + "_" + $runTag + ".json")
   $plots.$selector | ConvertTo-Json -Depth 8 | Set-Content $plotOut
   Write-Host "$selector figure source written to $plotOut"
@@ -441,7 +449,7 @@ Fairness note:
 
 ## Headline SVG And PDF Export Commands
 
-This helper turns the currently indexed headline tables and figures plus the explicit focused-VOI, latest-checked-campaign cohort/support-bin composition, runtime-observability, runtime-action-observability, runtime-stage-quantiles, and preference-burden tables into checked reviewer-facing exports without manual editing. It preserves the source-first CSV/JSON surfaces above, writes additive rendered outputs plus co-packaged `*.source.csv` or `*.source.json` companions and co-packaged `*.provenance.json` companions under `out/headline_exports/current_checked/`, and stages checked local companion copies of the latest full-suite publishability/adoption verdict bundle, the broad-cold runtime-observability bundle, the optional-stopping lane bundle, and the perturbation lane bundle under `out/headline_exports/current_checked/`.
+This helper turns the currently indexed headline tables and figures plus the explicit focused-VOI, latest-checked-campaign cohort/support-bin composition, runtime-observability, runtime-action-observability, runtime-stage-quantiles, and preference-burden tables into checked reviewer-facing exports without manual editing. It preserves the source-first CSV/JSON surfaces above, writes additive rendered outputs plus co-packaged `*.source.csv` or `*.source.json` companions and co-packaged `*.provenance.json` companions under `out/headline_exports/current_checked/`, and stages checked local companion copies of the latest full-suite publishability/adoption verdict bundle, the broad-cold runtime-observability bundle, the threshold-sensitivity bundle, the optional-stopping lane bundle, the perturbation lane bundle, the public-transfer bundle, and the hot-rerun benchmark bundle under `out/headline_exports/current_checked/`.
 
 Requirements:
 
@@ -456,13 +464,13 @@ node .\scripts\export_headline_surfaces.mjs
 Get-ChildItem .\out\headline_exports\current_checked
 ```
 
-These commands produce one `*.svg`, one `*.print.html`, one `*.pdf`, one co-packaged `*.source.csv` or `*.source.json` file, and one co-packaged `*.provenance.json` file for every headline table or figure surface currently listed under `paper_artifact_index.json` `headline_surfaces`, plus the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables and the runtime-observability / runtime-action / runtime-stage-quantiles / preference-burden reviewer tables. They also refresh the checked local full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and broad-cold runtime-observability companion directories under `out/headline_exports/current_checked/`, add a root reviewer-package landing page at `out/headline_exports/current_checked/index.md`, and preserve the full-suite `lane_artifact_generation_summary.*` files and copied lane `thesis_metrics.json` payloads they summarize.
+These commands produce one `*.svg`, one `*.print.html`, one `*.pdf`, one co-packaged `*.source.csv` or `*.source.json` file, and one co-packaged `*.provenance.json` file for every headline table or figure surface currently listed under `paper_artifact_index.json` `headline_surfaces`, plus the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables and the runtime-observability / runtime-action / runtime-stage-quantiles / preference-burden reviewer tables. They also refresh the checked local full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, broad-cold runtime-observability, and hot-rerun companion directories under `out/headline_exports/current_checked/`, add a root reviewer-package landing page at `out/headline_exports/current_checked/index.md`, and preserve the full-suite `lane_artifact_generation_summary.*` files and copied lane `thesis_metrics.json` payloads they summarize.
 
-They also refresh the corresponding `paper_artifact_index.json` headline entries so `rendered_outputs`, `packaged_source_companions`, `packaged_provenance_companions`, `export_formats_available`, and `quickstart_reference` point at the checked export files and this command block, while the reviewer-package companion entries for the checked full-suite verdict, broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun bundles point at the staged local copies.
+They also refresh the corresponding `paper_artifact_index.json` entries for the headline surfaces and explicit supporting reviewer tables so `rendered_outputs`, `packaged_source_companions`, `packaged_provenance_companions`, `export_formats_available`, and `quickstart_reference` point at the checked export files and this command block, while the reviewer-package companion entries for the checked full-suite verdict, broad-cold runtime-observability, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun bundles point at the staged local copies.
 
 ## Checked Runtime-Observability Lane
 
-The checked broad-cold runtime-observability companion bundle at `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/` is the maintained reviewer surface for the broad-cold lane runtime quantiles, action-family budget-share, and stage-timing evidence. It is staged from the repo-local bundle `backend/out/artifacts/full_suite_curated_latest_20260411_broad_cold_proof/`, and it now carries a staged local `index.json` / `index.md` landing page alongside the copied `evaluation_manifest.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/lane_metadata.json`, `thesis_summary.csv`, `thesis_summary.json`, `thesis_results.json`, `thesis_metrics.json`, and `thesis_plots.json` surfaces.
+The checked broad-cold runtime-observability companion bundle at `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/` is the maintained reviewer surface for the broad-cold lane runtime quantiles, action-family budget-share, and stage-timing evidence. It is staged from the repo-local checked source mirror at `out/artifacts/full_suite_curated_latest_20260411_broad_cold_proof/`, and it now carries a staged local `index.json` / `index.md` landing page alongside the copied `evaluation_manifest.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_broad_cold_proof/lane_metadata.json`, `thesis_summary.csv`, `thesis_summary.json`, `thesis_results.json`, `thesis_metrics.json`, and `thesis_plots.json` surfaces.
 
 The root reviewer-package landing page at `out/headline_exports/current_checked/index.md` lists this bundle together with the full-suite verdict, threshold-sensitivity, optional-stopping, perturbation, public-transfer, and hot-rerun companions.
 
@@ -506,7 +514,7 @@ This companion is evidence-bearing and green on its own pair-benchmark gate JSON
 
 After the run or bundle inspection, confirm that:
 
-- the checked bundle contains the evaluator manifest, variant summary CSV/JSON pair, cohort summary CSV/JSON pair, metrics JSON, plots JSON, methods appendix, and thesis report
+- the checked bundle contains the evaluator manifest, variant summary CSV/JSON pair, cohort summary CSV/JSON pair, metrics JSON, plots JSON, methods appendix, and legacy-named evaluation report
 - `paper_artifact_index.json` points to the same checked bundle paths
 - the exported reviewer source files or directories in the runtime-created temp directories match the indexed current bundle sources referenced in `paper_artifact_index.json`
 - each checked headline export in `out/headline_exports/current_checked/` has a sibling `*.source.csv` or `*.source.json` companion
@@ -538,13 +546,13 @@ If the run stops early, the most likely causes are:
 - The latest checked campaign-backed source anchors in `paper_artifact_index.json` currently resolve to `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/`, and the campaign command block above materializes their table and figure source surfaces into a runtime-created temp directory without manual editing.
 - Current truth anchors for the live runtime and UI are [backend/README.md](../backend/README.md), [frontend/README.md](../frontend/README.md), and [docs/api-cookbook.md](api-cookbook.md).
 - For operational details, see [Run and Operations Guide](run-and-operations.md).
-- For the larger thesis narrative, see [Thesis-Grade Codebase Report](thesis-codebase-report.md).
+- For current truth anchors, use [Evaluation Card](evaluation_card.md), [Negative Results](negative_results.md), and [Theorem Map](theorem_map.md).
 
 ## Related Docs
 
-- [Paper Artifact Index](../paper_artifact_index.json)
+- [Artifact Index](../paper_artifact_index.json)
 - [Sample Manifest and Outputs](sample-manifest.md)
 - [Reproducibility Capsule](reproducibility-capsule.md)
 - [Run and Operations Guide](run-and-operations.md)
 - [Evaluation Card](evaluation_card.md)
-- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
+- [Theorem Map](theorem_map.md)

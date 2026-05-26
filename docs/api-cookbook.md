@@ -25,7 +25,7 @@ $base = @{
 Invoke-RestMethod -Uri "http://localhost:8000/route" -Method Post -ContentType "application/json" -Body $base
 ```
 
-Live `/route` is the certification-facing transport. It rejects `pipeline_mode=legacy` and rejects waypoint requests. Use `POST /route/baseline` or `POST /route/baseline/ors` for comparison, ablation, replay, historical-comparison, or waypoint traffic.
+Live `/route` is the certification-facing public response path. It rejects `pipeline_mode=legacy` and rejects waypoint requests. Use `POST /route/baseline` or `POST /route/baseline/ors` for comparison, ablation, replay, historical-comparison, or waypoint traffic.
 
 The live response is `DecisionPackage`, the public certification-oriented `/route` contract. It preserves the current UI compatibility fields (`selected`, `candidates`) while also exposing the decision-state summaries that the frontend surfaces read-only through `DecisionStateSummary`, while the adjacent `PreferenceElicitationPanel` uses the same live payload for in-memory preference actions:
 
@@ -46,7 +46,7 @@ Terminal semantics are explicit on the public payload:
 
 Those terminal labels do not suppress the explanation surfaces. In the checked local `/route` smokes, a public `typed_abstention` response can still carry normalized `certified_set_summary`, `winner_confidence_state`, and `certificate_witness` fields as explanation context, while the emitted bundle may preserve a richer local `certified_set` proof surface for the same request.
 
-The public `/route` payload is the transport contract. In the current smoke-covered direct-REFC slice, that transport can normalize to `terminal_type=typed_abstention` even when the local emitted run bundle preserves richer `certified_set` proof artifacts for the same request. When you need that richer local proof surface, inspect `decision_package.json` and `certified_set_summary.json` via `artifacts_endpoint`; this is a narrow note about the checked local slice, not a global claim about every `/route` abstention.
+The public `/route` payload is the response contract. In the current smoke-covered direct-REFC slice, that response path can normalize to `terminal_type=typed_abstention` even when the local emitted run bundle preserves richer `certified_set` proof artifacts for the same request. When you need that richer local proof surface, inspect `decision_package.json` and `certified_set_summary.json` via `artifacts_endpoint`; this is a narrow note about the checked local slice, not a global claim about every `/route` abstention.
 
 ## 3) Pareto (`POST /pareto`)
 
@@ -170,7 +170,7 @@ Invoke-RestMethod -Uri "http://localhost:8000/runs/$runId/artifacts/results.json
 
 `GET /runs/{run_id}/artifacts` returns `{ run_id, artifacts, provenance_endpoint }`, where each artifact item has `name`, `endpoint`, and `size_bytes`. The backend generic endpoint `GET /runs/{run_id}/artifacts/{artifact_name}` validates the run id as a UUID, rejects unsafe artifact names, resolves inside the run folder, and serves the existing file with media type inferred from `.json`, `.jsonl`, `.geojson`, `.csv`, or `.md`.
 
-Frontend retrieval is narrower: `GET /api/runs/{runId}/...` allows the core run documents plus a fixed artifact allowlist. Unsupported browser proxy paths return `404` with `{ "detail": "unsupported run artifact path" }` before contacting the backend, so backend artifact availability is not the same as in-browser preview/download coverage. Common backend-servable examples include `results.json`, `metadata.json`, thesis-specific outputs such as `thesis_report.md`, `thesis_summary.json`, `thesis_metrics.json`, and proof/governance surfaces such as `preference_state.json`, `preference_query_trace.json`, `certificate_summary.json`, `route_fragility_map.json`, `decision_region_summary.json`, `certificate_witness.json`, `world_support_summary.json`, `voi_action_trace.json`, and `voi_stop_certificate.json`.
+Frontend retrieval is narrower: `GET /api/runs/{runId}/...` allows the core run documents plus a fixed artifact allowlist. Unsupported browser proxy paths return `404` with `{ "detail": "unsupported run artifact path" }` before contacting the backend, so backend artifact availability is not the same as in-browser preview/download coverage. Common backend-servable examples include `results.json`, `metadata.json`, legacy-named evaluation outputs such as `thesis_report.md`, `thesis_summary.json`, `thesis_metrics.json`, and proof/governance surfaces such as `preference_state.json`, `preference_query_trace.json`, `certificate_summary.json`, `route_fragility_map.json`, `decision_region_summary.json`, `certificate_witness.json`, `world_support_summary.json`, `voi_action_trace.json`, and `voi_stop_certificate.json`.
 
 ## 12) Signature Verify (`POST /verify/signature`)
 

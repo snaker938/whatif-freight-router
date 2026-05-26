@@ -13,7 +13,7 @@ This repository is intentionally maintained as a notebook-free, script-first wor
 Use these entry points instead of ad hoc notebook analysis:
 
 - `backend/scripts/run_headless_scenario.py`: backend scenario smoke and headless replay
-- `backend/scripts/run_thesis_lane.py`: smaller lane-local thesis/evaluation reruns
+- `backend/scripts/run_thesis_lane.py`: smaller lane-local evaluation reruns
 - `backend/scripts/run_thesis_evaluation.py`: broad cold proof, focused REFC, focused VOI, and DCCS probe
 - `backend/scripts/run_hot_rerun_benchmark.py`: dedicated second-run hot-rerun reuse benchmark
 - `backend/scripts/compose_thesis_suite_report.py`: compose completed lanes into a final suite report
@@ -33,7 +33,7 @@ Typical per-run artifact families include:
 
 - route outputs: `results.json`, `results.csv`, `metadata.json`, `routes.geojson`
 - DCCS/REFC/VOI outputs: `dccs_summary.json`, `certificate_summary.json`, `value_of_refresh.json`, `voi_action_trace.json`
-- thesis outputs: `thesis_results.*`, `thesis_summary.*`, `thesis_metrics.json`, `thesis_plots.json`, `evaluation_manifest.json`
+- legacy-named evaluation outputs: `thesis_results.*`, `thesis_summary.*`, `thesis_metrics.json`, `thesis_plots.json`, `evaluation_manifest.json`
 - report outputs: `methods_appendix.md`, `thesis_report.md`
 - hot-rerun outputs when applicable: `hot_rerun_vs_cold_comparison.json`, `hot_rerun_gate.json`, `hot_rerun_report.md`
 - composed suite outputs when applicable: `thesis_summary_by_cohort.csv`, `thesis_summary_by_cohort.json`, `suite_sources.json`, `prior_coverage_summary.json`, `cohort_composition.json`

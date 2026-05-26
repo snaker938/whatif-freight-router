@@ -29,7 +29,58 @@ function resolveArtifactBundle(...dirNames) {
   return path.join(ARTIFACT_ROOT_CANDIDATES[0], dirNames[0]);
 }
 
-const FULL_SUITE_SOURCE_BUNDLE = resolveArtifactBundle(
+const FULL_SUITE_GREEN_VERDICT_REQUIRED_FILES = [
+  'publishability_verdict.json',
+  'publishability_assessment.md',
+  'lane_publishability_summary.csv',
+  'lane_publishability_summary.json',
+  'sample_size_gate_summary.csv',
+  'sample_size_gate_summary.json',
+];
+
+function readJsonForBundleCheck(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function isAppliedEvidenceGreenFullSuiteBundle(candidate) {
+  if (!fs.existsSync(candidate)) {
+    return false;
+  }
+  for (const fileName of FULL_SUITE_GREEN_VERDICT_REQUIRED_FILES) {
+    if (!fs.existsSync(path.join(candidate, fileName))) {
+      return false;
+    }
+  }
+  const verdict = readJsonForBundleCheck(path.join(candidate, 'publishability_verdict.json'));
+  return (
+    verdict?.publishable_on_current_evidence === true &&
+    verdict?.adoption_claim_supported === true &&
+    verdict?.hot_rerun_all_green === true &&
+    Array.isArray(verdict?.publishability_blockers) &&
+    verdict.publishability_blockers.length === 0
+  );
+}
+
+function resolveCheckedFullSuiteBundle(dirName) {
+  const candidates = [
+    path.join(repoRoot, 'out', 'artifacts', dirName),
+    path.join(repoRoot, 'backend', 'out', 'artifacts', dirName),
+    path.resolve('C:\\app\\out\\artifacts', dirName),
+    path.join(outputDir, dirName),
+  ];
+  for (const candidate of candidates) {
+    if (isAppliedEvidenceGreenFullSuiteBundle(candidate)) {
+      return candidate;
+    }
+  }
+  return resolveArtifactBundle(dirName);
+}
+
+const FULL_SUITE_SOURCE_BUNDLE = resolveCheckedFullSuiteBundle(
   'full_suite_curated_latest_20260411',
 );
 const FULL_SUITE_COMPANION_DIR_NAME = 'full_suite_curated_latest_20260411';
@@ -40,6 +91,8 @@ const FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME =
   'full_suite_curated_latest_20260411_broad_cold_proof';
 const FULL_SUITE_BROAD_COLD_COMPANION_FILES = [
   'evaluation_manifest.json',
+  'index.json',
+  'index.md',
   'lane_metadata.json',
   'metadata.json',
   'thesis_metrics.json',
@@ -544,7 +597,9 @@ function stageCompanionBundle({
     const targetPath = path.join(targetRoot, fileName);
     if (sourceAvailable && fs.existsSync(sourcePath)) {
       ensureDir(path.dirname(targetPath));
-      fs.copyFileSync(sourcePath, targetPath);
+      if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
+        fs.copyFileSync(sourcePath, targetPath);
+      }
     }
     if (fs.existsSync(targetPath)) {
       relativeFiles.push(relativeOutputPath(path.join(targetDirName, fileName)));
@@ -586,6 +641,31 @@ function listTopLevelFiles(rootDir) {
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
     .sort((left, right) => left.localeCompare(right));
+}
+
+function ensureRepoAssetPreflightSummary(targetRoot) {
+  const jsonPath = path.join(targetRoot, 'repo_asset_preflight.json');
+  const summaryPath = path.join(targetRoot, 'repo_asset_preflight.summary.md');
+  if (!fs.existsSync(jsonPath)) return;
+  let payload = null;
+  try {
+    payload = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  } catch {
+    payload = null;
+  }
+  const requiredOk = payload && Object.hasOwn(payload, 'required_ok')
+    ? String(payload.required_ok)
+    : 'not recorded';
+  const checkedAt = payload?.checked_at_utc ?? payload?.generated_at_utc ?? 'not recorded';
+  const lines = [
+    '# Repo Asset Preflight Summary',
+    '',
+    `- Required OK: \`${requiredOk}\``,
+    `- Checked At UTC: \`${checkedAt}\``,
+    `- Source JSON: \`repo_asset_preflight.json\``,
+    '',
+  ];
+  fs.writeFileSync(summaryPath, lines.join('\n'), 'utf8');
 }
 
 function buildBundleArtifactEntry({ runId, targetRoot, artifactName }) {
@@ -662,17 +742,25 @@ function renderBundleIndexMarkdown(payload) {
   return `${lines.join('\n')}\n`;
 }
 
+function sourceRootDisplayPath(sourceRoot) {
+  const relativePath = path.relative(repoRoot, sourceRoot);
+  const isInsideRepo =
+    relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+  return toPosixPath(isInsideRepo ? relativePath : sourceRoot);
+}
+
 function ensureSyntheticBundleIndex({ sourceRoot, targetDirName, runId, noteLines = [] }) {
   const targetRoot = path.join(outputDir, targetDirName);
   const indexJsonPath = path.join(targetRoot, 'index.json');
   const indexMdPath = path.join(targetRoot, 'index.md');
-  if (fs.existsSync(indexJsonPath) && fs.existsSync(indexMdPath)) {
-    return;
-  }
+  ensureRepoAssetPreflightSummary(targetRoot);
   const metadata = readBundleJsonIfExists(path.join(targetRoot, 'metadata.json'));
   const artifactNames = listTopLevelFiles(targetRoot).filter(
     (artifactName) => !BUNDLE_INDEX_ARTIFACTS.has(artifactName),
   );
+  const exportStatusNames = [
+    ...new Set([...artifactNames, ...THESIS_EXPORT_STATUS_FILES.filter((artifactName) => fs.existsSync(path.join(targetRoot, artifactName)))]),
+  ];
   const payload = {
     schema_version: 'run-bundle-index-v1',
     run_id: runId,
@@ -687,16 +775,19 @@ function ensureSyntheticBundleIndex({ sourceRoot, targetDirName, runId, noteLine
     artifacts: artifactNames.map((artifactName) =>
       buildBundleArtifactEntry({ runId, targetRoot, artifactName }),
     ),
-    export_status: THESIS_EXPORT_STATUS_FILES.map((artifactName) =>
-      buildBundleExportStatus({ runId, targetRoot, artifactName }),
-    ),
-    title: 'Thesis Evaluation Bundle Index',
-    source_root_relative: toPosixPath(path.relative(repoRoot, sourceRoot)),
+    export_status: [],
+    title: 'Evaluation Bundle Index',
+    source_root_relative: sourceRootDisplayPath(sourceRoot),
     staged_bundle_path: relativeOutputPath(targetDirName),
     notes: noteLines,
   };
-  fs.writeFileSync(indexJsonPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  fs.writeFileSync(indexMdPath, renderBundleIndexMarkdown(payload), 'utf8');
+  for (let pass = 0; pass < 3; pass += 1) {
+    payload.export_status = exportStatusNames.map((artifactName) =>
+      buildBundleExportStatus({ runId, targetRoot, artifactName }),
+    );
+    fs.writeFileSync(indexJsonPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(indexMdPath, renderBundleIndexMarkdown(payload), 'utf8');
+  }
 }
 
 function countRootOutputMatches(predicate) {
@@ -719,7 +810,7 @@ function writeReviewerRootIndex() {
       title: 'Checked runtime-observability lane companion',
       dirName: FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME,
       description:
-        'Broad-cold runtime quantiles, action-family budget-share, stage timing, and supporting thesis metrics.',
+        'Broad-cold runtime quantiles, action-family budget-share, stage timing, and supporting evaluation metrics.',
     },
     {
       id: 'threshold_sensitivity',
@@ -794,7 +885,7 @@ function writeReviewerRootIndex() {
     '',
     `- Output Root: \`${payload.output_root}\``,
     `- Stage-Only Mode: \`${payload.stage_only_mode}\``,
-    `- Paper Artifact Index: \`${payload.paper_artifact_index_path}\``,
+    `- Artifact Index: \`${payload.paper_artifact_index_path}\``,
     '',
     '## Headline Export Counts',
     '',
@@ -831,6 +922,11 @@ function stageFullSuiteVerdictCompanion() {
     errorLabel: 'checked full-suite verdict',
   });
   const targetRoot = path.join(outputDir, FULL_SUITE_COMPANION_DIR_NAME);
+  if (!isAppliedEvidenceGreenFullSuiteBundle(targetRoot)) {
+    throw new Error(
+      `Checked full-suite verdict companion is not applied-evidence green after staging from ${FULL_SUITE_SOURCE_BUNDLE}`,
+    );
+  }
   for (const fileName of FULL_SUITE_BASELINE_IDENTITY_FILES) {
     const sourcePath = path.join(FULL_SUITE_BASELINE_IDENTITY_SOURCE_ROOT, fileName);
     const targetPath = path.join(targetRoot, fileName);
@@ -867,60 +963,110 @@ function stageRuntimeObservabilityCompanion() {
     runId: FULL_SUITE_BROAD_COLD_COMPANION_DIR_NAME,
     noteLines: [
       'This staged local companion copies the checked broad-cold runtime-observability bundle into out/headline_exports/current_checked/.',
-      'It exposes lane metadata, thesis summary/results/metrics/plots, and a lightweight landing page for reviewer navigation only.',
+      'It exposes lane metadata, evaluation summary/results/metrics/plots, and a lightweight landing page for reviewer navigation only.',
     ],
   });
   return bundle;
 }
 
 function stageThresholdSensitivityCompanion() {
-  return stageCompanionBundle({
+  const bundle = stageCompanionBundle({
     sourceRoot: THRESHOLD_SENSITIVITY_SOURCE_BUNDLE,
     targetDirName: THRESHOLD_SENSITIVITY_COMPANION_DIR_NAME,
     companionFiles: THRESHOLD_SENSITIVITY_COMPANION_FILES,
     requiredCompanionFiles: THRESHOLD_SENSITIVITY_REQUIRED_COMPANION_FILES,
     errorLabel: 'checked threshold-sensitivity',
   });
+  ensureSyntheticBundleIndex({
+    sourceRoot: THRESHOLD_SENSITIVITY_SOURCE_BUNDLE,
+    targetDirName: THRESHOLD_SENSITIVITY_COMPANION_DIR_NAME,
+    runId: THRESHOLD_SENSITIVITY_COMPANION_DIR_NAME,
+    noteLines: [
+      'This staged local companion copies the checked threshold-sensitivity evaluator bundle into out/headline_exports/current_checked/.',
+      'It exposes lane metadata, threshold sweep summaries, evaluation metrics/plots, and a lightweight landing page for reviewer navigation only.',
+    ],
+  });
+  return bundle;
 }
 
 function stagePublicTransferCompanion() {
-  return stageCompanionBundle({
+  const bundle = stageCompanionBundle({
     sourceRoot: PUBLIC_TRANSFER_SOURCE_BUNDLE,
     targetDirName: PUBLIC_TRANSFER_COMPANION_DIR_NAME,
     companionFiles: PUBLIC_TRANSFER_COMPANION_FILES,
     requiredCompanionFiles: PUBLIC_TRANSFER_REQUIRED_COMPANION_FILES,
     errorLabel: 'checked public-transfer',
   });
+  ensureSyntheticBundleIndex({
+    sourceRoot: PUBLIC_TRANSFER_SOURCE_BUNDLE,
+    targetDirName: PUBLIC_TRANSFER_COMPANION_DIR_NAME,
+    runId: PUBLIC_TRANSFER_COMPANION_DIR_NAME,
+    noteLines: [
+      'This staged local companion copies the checked public-transfer evaluator bundle into out/headline_exports/current_checked/.',
+      'It exposes lane metadata, transfer-slice summaries, evaluation plots, and a lightweight landing page for reviewer navigation only.',
+    ],
+  });
+  return bundle;
 }
 
 function stageOptionalStoppingCompanion() {
-  return stageCompanionBundle({
+  const bundle = stageCompanionBundle({
     sourceRoot: OPTIONAL_STOPPING_SOURCE_BUNDLE,
     targetDirName: OPTIONAL_STOPPING_COMPANION_DIR_NAME,
     companionFiles: OPTIONAL_STOPPING_COMPANION_FILES,
     requiredCompanionFiles: OPTIONAL_STOPPING_REQUIRED_COMPANION_FILES,
     errorLabel: 'checked optional-stopping',
   });
+  ensureSyntheticBundleIndex({
+    sourceRoot: OPTIONAL_STOPPING_SOURCE_BUNDLE,
+    targetDirName: OPTIONAL_STOPPING_COMPANION_DIR_NAME,
+    runId: OPTIONAL_STOPPING_COMPANION_DIR_NAME,
+    noteLines: [
+      'This staged local companion copies the checked optional-stopping evaluator bundle into out/headline_exports/current_checked/.',
+      'It exposes lane metadata, proof metrics/results, evaluation summaries/plots, and a lightweight landing page for reviewer navigation only.',
+    ],
+  });
+  return bundle;
 }
 
 function stagePerturbationCompanion() {
-  return stageCompanionBundle({
+  const bundle = stageCompanionBundle({
     sourceRoot: PERTURBATION_SOURCE_BUNDLE,
     targetDirName: PERTURBATION_COMPANION_DIR_NAME,
     companionFiles: PERTURBATION_COMPANION_FILES,
     requiredCompanionFiles: PERTURBATION_REQUIRED_COMPANION_FILES,
     errorLabel: 'checked perturbation',
   });
+  ensureSyntheticBundleIndex({
+    sourceRoot: PERTURBATION_SOURCE_BUNDLE,
+    targetDirName: PERTURBATION_COMPANION_DIR_NAME,
+    runId: PERTURBATION_COMPANION_DIR_NAME,
+    noteLines: [
+      'This staged local companion copies the checked perturbation / flip-radius evaluator bundle into out/headline_exports/current_checked/.',
+      'It exposes lane metadata, proof metrics/results, evaluation summaries/plots, and a lightweight landing page for reviewer navigation only.',
+    ],
+  });
+  return bundle;
 }
 
 function stageHotRerunCompanion() {
-  return stageCompanionBundle({
+  const bundle = stageCompanionBundle({
     sourceRoot: HOT_RERUN_SOURCE_BUNDLE,
     targetDirName: HOT_RERUN_COMPANION_DIR_NAME,
     companionFiles: HOT_RERUN_COMPANION_FILES,
     requiredCompanionFiles: HOT_RERUN_REQUIRED_COMPANION_FILES,
     errorLabel: 'checked hot-rerun',
   });
+  ensureSyntheticBundleIndex({
+    sourceRoot: HOT_RERUN_SOURCE_BUNDLE,
+    targetDirName: HOT_RERUN_COMPANION_DIR_NAME,
+    runId: HOT_RERUN_COMPANION_DIR_NAME,
+    noteLines: [
+      'This staged local companion copies the checked hot-rerun benchmark bundle into out/headline_exports/current_checked/.',
+      'It exposes runtime reuse, hot/cold parity, evaluation summary artifacts, and a lightweight landing page for reviewer navigation only.',
+    ],
+  });
+  return bundle;
 }
 
 const LANE_ARTIFACT_GENERATION_SOURCES = [
@@ -1441,11 +1587,19 @@ function stripNoRenderClaim(note) {
     .replace(/\s*This slice does not claim a committed rendered figure\./gi, '')
     .replace(/\s*The checked local source is plot-ready JSON, not a committed rendered PDF\/SVG\./gi, '')
     .replace(
+      /\s*Checked local summary and metrics artifacts exist, and the export helper now stages[^.]*for this surface\./gi,
+      ' Checked local summary and metrics artifacts exist.',
+    )
+    .replace(
+      /\s*Checked SVG, PDF, (?:and )?print-ready HTML[^.]*for this (?:headline|supporting reviewer|supporting placeholder) surface, but those staged source\/provenance sidecars currently inherit the single-seed provenance\./gi,
+      ' The staged source/provenance sidecars currently inherit the single-seed provenance.',
+    )
+    .replace(
       /\s*Checked SVG, PDF, and print-ready HTML exports exist under out\/headline_exports\/current_checked\/ for this headline surface\./gi,
       '',
     )
     .replace(
-      /\s*Checked SVG, PDF, (?:and )?print-ready HTML[^.]*for this headline surface\./gi,
+      /\s*Checked SVG, PDF, (?:and )?print-ready HTML[^.]*for this (?:headline|supporting reviewer|supporting placeholder) surface\./gi,
       '',
     )
     .replace(/\s{2,}/g, ' ')
@@ -2282,7 +2436,7 @@ function writeLaneArtifactGenerationSummary(targetRoot) {
     '',
     'Per-lane artifact-generation time from the checked reviewer-package companion bundles. This separates evaluator artifact/report rendering cost from route/controller runtime cost.',
     '',
-    '| Lane role | Run ID | Artifact generation (ms) | Artifact generation (s) | Scope | Plot family | Thesis metrics |',
+    '| Lane role | Run ID | Artifact generation (ms) | Artifact generation (s) | Scope | Plot family | Evaluation metrics |',
     '| --- | --- | ---: | ---: | --- | --- | --- |',
     ...rows.map(
       (row) =>
@@ -2346,7 +2500,7 @@ function buildTableSvg({ title, subtitle, columns, rows }) {
     );
   } else {
     elements.push(
-      `<text x="${left}" y="${height - 14}" font-size="12" font-family="'Segoe UI', Arial, sans-serif" fill="#64748b">Checked SVG export generated from the current headline table source.</text>`,
+      `<text x="${left}" y="${height - 14}" font-size="12" font-family="'Segoe UI', Arial, sans-serif" fill="#64748b">Checked SVG export generated from the current checked table source.</text>`,
     );
   }
 
@@ -2508,11 +2662,15 @@ function updateArtifactIndex(
 ) {
   const exportedSet = new Set(exportedSurfaceIds);
   index.notes[1] =
-    'Headline surfaces in this slice, plus the indexed focused-VOI and latest-checked-campaign cohort/support-bin composition tables, now have checked SVG, PDF, print-ready HTML, co-packaged CSV/JSON source companions, and co-packaged JSON provenance companions under out/headline_exports/current_checked/. The same reviewer-package boundary now also carries checked local companion bundles for the full-suite verdict, the broad-cold runtime-observability lane, threshold-sensitivity lane, optional-stopping lane, perturbation lane, and public-transfer lane under out/headline_exports/current_checked/.';
+    'Headline surfaces in this slice, plus the indexed focused-VOI and latest-checked-campaign cohort/support-bin composition tables, now have checked SVG, PDF, print-ready HTML, co-packaged CSV/JSON source companions, and co-packaged JSON provenance companions under out/headline_exports/current_checked/. The same reviewer-package boundary now also carries checked local companion bundles for the full-suite verdict, the broad-cold runtime-observability lane, threshold-sensitivity lane, optional-stopping lane, perturbation lane, public-transfer lane, and hot-rerun benchmark lane under out/headline_exports/current_checked/.';
   index.notes[2] =
-    'Checked local companion bundles now exist for the threshold_sensitivity, broad_cold_proof runtime-observability, optional_stopping_coverage, perturbation_flip_radius, and public_transfer suite roles. The threshold bundle backs the one-factor-at-a-time sweep surfaces for certificate threshold, fast-path threshold, and certified-set cap; the broad-cold bundle backs the runtime quantiles, action-family budget-share surfaces, and stage-timing surfaces; the optional-stopping bundle backs the route-level CS method/delta, validity, and lane-size proof surfaces; the perturbation bundle backs the real-lane and exact-synthetic flip-radius proof surfaces; and the public-transfer bundle backs both the leave-one-corridor-family-out and leave-one-weather-regime-out transfer slices. These checked bundles prove the evaluator surfaces exist, but they do not by themselves close the corresponding G11 or P14 gates unless the emitted metrics are green.';
+    'Checked local companion bundles now exist for the threshold_sensitivity, broad_cold_proof runtime-observability, optional_stopping_coverage, perturbation_flip_radius, public_transfer, and hot_rerun_pair_hot suite roles. The threshold bundle backs the one-factor-at-a-time sweep surfaces for certificate threshold, fast-path threshold, and certified-set cap; the broad-cold bundle backs the runtime quantiles, action-family budget-share surfaces, and stage-timing surfaces; the optional-stopping bundle backs the route-level CS method/delta, validity, and lane-size proof surfaces; the perturbation bundle backs the real-lane and exact-synthetic flip-radius proof surfaces; the public-transfer bundle backs both the leave-one-corridor-family-out and leave-one-weather-regime-out transfer slices; and the hot-rerun bundle backs the hot-versus-cold runtime and reuse proof surfaces. These checked bundles prove the evaluator surfaces exist, but they do not by themselves close the corresponding G11 or P14 gates unless the emitted metrics are green.';
   index.notes[3] =
-    'The quickstart command sections at docs/reviewer_quickstart.md#focused-voi-headline-table-and-figure-commands, docs/reviewer_quickstart.md#focused-voi-additional-table-commands, docs/reviewer_quickstart.md#latest-checked-campaign-table-and-figure-commands, docs/reviewer_quickstart.md#checked-full-suite-verdict-companion, docs/reviewer_quickstart.md#checked-threshold-sensitivity-lane, docs/reviewer_quickstart.md#checked-optional-stopping-coverage-lane, docs/reviewer_quickstart.md#checked-perturbation-flip-radius-lane, docs/reviewer_quickstart.md#checked-public-transfer-lane, docs/reviewer_quickstart.md#checked-runtime-observability-lane, and docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands now give one documented command block for every indexed headline table and figure source surface in this slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables, the runtime-observability reviewer surfaces, and the checked reviewer-package companion bundles.';
+    'The quickstart command sections at docs/reviewer_quickstart.md#focused-voi-headline-table-and-figure-commands, docs/reviewer_quickstart.md#focused-voi-additional-table-commands, docs/reviewer_quickstart.md#latest-checked-campaign-table-and-figure-commands, docs/reviewer_quickstart.md#checked-full-suite-verdict-companion, docs/reviewer_quickstart.md#checked-runtime-observability-lane, docs/reviewer_quickstart.md#checked-threshold-sensitivity-lane, docs/reviewer_quickstart.md#checked-optional-stopping-coverage-lane, docs/reviewer_quickstart.md#checked-perturbation-flip-radius-lane, docs/reviewer_quickstart.md#checked-public-transfer-lane, docs/reviewer_quickstart.md#checked-hot-rerun-benchmark-companion, and docs/reviewer_quickstart.md#headline-svg-and-pdf-export-commands now give one documented command block for every indexed headline table and figure source surface in this slice together with the explicit focused-VOI and latest-checked-campaign cohort/support-bin composition tables, the runtime-observability reviewer surfaces, and the checked reviewer-package companion bundles.';
+  const headlineSurfaceIds =
+    index.inventory_sections.find((section) => section.section_id === 'headline_surfaces')
+      ?.surface_ids ?? [];
+  const headlineSurfaceIdSet = new Set(headlineSurfaceIds);
 
   for (const surface of index.surfaces) {
     if (!exportedSet.has(surface.surface_id)) continue;
@@ -2540,14 +2698,24 @@ function updateArtifactIndex(
     }
     surface.export_formats_available = [...formats];
     surface.quickstart_reference = QUICKSTART_EXPORT_REFERENCE;
-    const cleaned = stripNoRenderClaim(surface.status_note ?? '');
+    let cleaned = stripNoRenderClaim(surface.status_note ?? '');
+    if (surface.surface_id === 'table.latest_checked_campaign.runtime_observability_summary') {
+      surface.title = 'Supporting broad-cold runtime quantile reviewer table';
+      cleaned = cleaned.replace(
+        /Backs the runtime-observability summary for/gi,
+        'Backs the broad-cold runtime quantile reviewer table for',
+      );
+    }
     const sourcePhrase = sourceCompanion
       ? `a co-packaged ${sourceCompanion.label} source companion`
       : 'the indexed source files';
     const provenancePhrase = provenanceCompanion
       ? 'a co-packaged JSON provenance companion with git, lockfile, container, and policy identity'
       : 'the indexed provenance sources';
-    const suffix = ` Checked SVG, PDF, print-ready HTML, ${sourcePhrase}, and ${provenancePhrase} exist under out/headline_exports/current_checked/ for this headline surface.`;
+    const surfaceRole = headlineSurfaceIdSet.has(surface.surface_id)
+      ? 'headline surface'
+      : 'supporting reviewer surface';
+    const suffix = ` Checked SVG, PDF, print-ready HTML, ${sourcePhrase}, and ${provenancePhrase} exist under out/headline_exports/current_checked/ for this ${surfaceRole}.`;
     surface.status_note = `${cleaned}${suffix}`.trim();
   }
 }

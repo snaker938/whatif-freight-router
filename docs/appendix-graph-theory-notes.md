@@ -16,7 +16,7 @@ The current graph validation stack is centered on `backend/scripts/validate_grap
 - Bounding box: `lat 49.75..61.1`, `lon -8.75..2.25`
 - Coverage status: `coverage_passed=true`
 - Fixture proximity: the worst fixture still lands within 2.55 km of a graph node
-- Validation purpose: ensure route generation and strict frontier selection are operating on a graph that can support the thesis evaluation fixtures without silent coverage drift
+- Validation purpose: ensure route generation and strict frontier selection are operating on a graph that can support the evaluation fixtures without silent coverage drift
 
 ## Why Frontier Quality Depends on Candidate Breadth
 
@@ -37,7 +37,6 @@ Pareto quality is bounded by candidate-space coverage. Better path enumeration i
 ## Related Docs
 
 - [Documentation Index](DOCS_INDEX.md)
-- [Dissertation Math Overview](dissertation-math-overview.md)
 - [Expanded Math Appendix](math-appendix.md)
 - [Quality Gates and Benchmarks](quality-gates-and-benchmarks.md)
 

@@ -5,7 +5,8 @@ WhatIf Freight Router is an auditable, tri-source, selective minimum-cost certif
 The optimization objective is to minimize expected action cost to a justified terminal decision. The controller keeps three action families explicit and separate: search actions, evidence actions, and preference actions.
 In this central claim set, the problem is posed as minimum-cost certification under coupled but distinct uncertainty sources; the controller can buy search, evidence, and preference information, and each resulting decision is surfaced as a certified singleton, certified set, or typed abstention through artifacts and traces.
 User-facing terminal outcomes are certified singleton, certified set, or typed abstention.
-Typed abstention classes are:
+Typed abstention reason codes are:
+- `typed_abstention_recommended`
 - `uncertified_due_to_search`
 - `uncertified_due_to_evidence`
 - `uncertified_due_to_preference`
@@ -54,7 +55,7 @@ URLs:
 
 For the full current environment matrix, use `.env.example` and the operational notes in [`docs/run-and-operations.md`](docs/run-and-operations.md).
 
-The current codebase includes an explicit thesis-facing DCCS/REFC/VOI backend path. In the verified default configuration, the default primary live `/route` path for thesis-facing non-waypoint requests is the redesigned certification engine, with supported requests resolving through `dccs_refc`. Live `/route` rejects `pipeline_mode=legacy` and rejects waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. The public `/route` response surface is `DecisionPackage`, and terminal outcomes in the certification-facing path are certified singleton, certified set, or typed abstention.
+The current codebase includes an explicit evaluation-facing DCCS/REFC/VOI backend path. In the verified default configuration, the default primary live `/route` path for non-waypoint requests is the redesigned certification engine, with supported requests resolving through `dccs_refc`. Live `/route` rejects `pipeline_mode=legacy` and rejects waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. The public `/route` response surface is `DecisionPackage`, and terminal outcomes in the certification-facing path are certified singleton, certified set, or typed abstention.
 This README documents the current certification-facing runtime surface and does not treat still-open redesign or publication gates as closed.
 
 ### Route compute timeout/fallback knobs
@@ -229,7 +230,7 @@ Use this for full containerized verification. Do not run this at the same time a
   - `uv run python scripts/check_eta_concept_drift.py --input-csv .\eta_observations.csv --mae-threshold-s 120 --mape-threshold-pct 10`
 
 - `backend/scripts/compose_thesis_suite_report.py`
-  - regenerate the thesis suite artifacts from completed evaluation runs
+  - regenerate the legacy-named evaluation suite artifacts from completed evaluation runs
   - run from `backend/`:
   - `uv run python scripts/compose_thesis_suite_report.py --run-id <run_id> --out-dir out`
 
@@ -259,6 +260,7 @@ Use this for full containerized verification. Do not run this at the same time a
   - complete local runbook (frontend/backend/full stack/docs/tests)
 - run docs checks from repo root:
   - `python scripts/check_docs.py`
+  - generated outputs under `backend/out`, `out/artifacts`, `out/headline_exports`, and `out/thesis` are regeneration targets, not required committed paths
 - serve docs locally from repo root:
   - `.\scripts\serve_docs.ps1`
   - `.\scripts\serve_docs.ps1 -Port 8088 -OpenBrowser`
@@ -277,7 +279,7 @@ Use this for full containerized verification. Do not run this at the same time a
   - reason-code catalog and stream/non-stream failure shape
 - `docs/quality-gates-and-benchmarks.md`
   - quality and performance gate workflow
-- Publication-facing docs:
+- Evidence/export docs:
   - `docs/reviewer_quickstart.md`
   - `docs/evaluation_card.md`
   - `docs/negative_results.md`

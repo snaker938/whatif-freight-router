@@ -1,6 +1,6 @@
 # Data Card
 
-This page is the corpus- and support-facing reference for the current thesis-style evaluation data.
+This page is the corpus- and support-facing reference for the current checked evaluation data.
 
 It is intentionally conservative. It describes the OD corpus, support bins, and evidence artifacts the repository already documents today. It does **not** claim the corpus is complete, universal, or fully closed for all future evaluator use.
 
@@ -17,7 +17,7 @@ Use this page when you want to know:
 
 ## Corpus Overview
 
-The docs currently describe the OD corpus as a sampled or assembled set of UK origin-destination cases used for thesis evaluation and ambiguity-aware analysis.
+The docs currently describe the OD corpus as a sampled or assembled set of UK origin-destination cases used for checked evaluation and ambiguity-aware analysis.
 
 The corpus is not presented here as a universal transport dataset. In the current repository, it is a bounded evidence set for the checked UK-focused workflows.
 
@@ -25,8 +25,8 @@ Current repository docs indicate that the corpus and related support labels are 
 
 - distance and corridor binning
 - ambiguity-aware evaluation slices
-- scenario comparison and thesis-lane reporting
-- cohort composition summaries in thesis bundles
+- scenario comparison and evaluation-lane reporting
+- cohort composition summaries in evaluation bundles
 
 ## Support And Ambiguity Slices
 
@@ -48,7 +48,7 @@ These fields are useful because they explain why some rows are grouped as repres
 What is evidenced now:
 
 - the corpus is stratified enough to support cohort composition and ambiguity summaries
-- support-aware slices are visible in the thesis-lane outputs
+- support-aware slices are visible in the evaluation-lane outputs
 - current docs connect these slices to evaluated bundles rather than treating them as abstract labels
 
 What is not yet evidenced as a blanket claim:
@@ -77,7 +77,7 @@ These files are the best source for current bundle-local OD corpus composition, 
 
 ## Current Evidence Shapes
 
-The current docs indicate that the thesis bundles can report:
+The current docs indicate that the evaluation bundles can report:
 
 - row counts for the OD corpus
 - cohort counts and composition
@@ -113,9 +113,9 @@ The data card does not restate those source families in full. It only points to 
 The current repo does support the following data-facing facts:
 
 - the OD corpus is a real checked evaluation input, not a hypothetical placeholder
-- cohort and support summaries are present in thesis bundles
+- cohort and support summaries are present in evaluation bundles
 - ambiguity/support fields are explicit in the docs and runtime outputs
-- the corpus is scoped to UK-focused thesis evaluation rather than universal transport data
+- the corpus is scoped to checked UK-focused evaluation rather than universal transport data
 
 ## What Is Not Yet Green
 
@@ -132,15 +132,15 @@ Those claims would require stronger evidence than the current docs provide.
 
 For current evidence, reviewers should start with:
 
-1. `docs/thesis-codebase-report.md`
-   - OD corpus sections
-   - ambiguity/corpus evidence sections
+1. `docs/evaluation_card.md`
+   - cohort semantics
+   - artifact examples
    - limitations and scope notes
 2. `docs/sample-manifest.md`
    - artifact bundle names
    - `od_corpus.*` and `cohort_composition.json`
 3. `docs/quality-gates-and-benchmarks.md`
-   - current thesis-lane validation snapshot
+   - current evaluation-lane validation snapshot
    - strict preflight and benchmark evidence
 4. `docs/model-assets-and-data-sources.md`
    - raw source families
@@ -149,7 +149,7 @@ For current evidence, reviewers should start with:
    - current slice status for corpus and support surfaces
 6. `docs/DOCS_INDEX.md`
    - docs navigation entry point
-   - publication and review surface links
+   - evidence and review surface links
 
 ## Suggested Review Framing
 
@@ -158,7 +158,7 @@ When reviewing corpus or support claims, use these questions:
 - Is the claim about the corpus itself, or about a particular checked bundle?
 - Does the doc point to a concrete artifact file, or only to a general concept?
 - Is the support bin described as a current slice label or a permanent taxonomy?
-- Are the notes scoped to UK-focused thesis evaluation, or drifting into universality?
+- Are the notes scoped to checked UK-focused evaluation, or drifting into universality?
 
 ## Bottom Line
 
@@ -170,4 +170,4 @@ It does **not** yet support a blanket claim of completeness, universality, or th
 
 - [Evaluation Card](evaluation_card.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)
-- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
+- [Sample Manifest and Outputs](sample-manifest.md)

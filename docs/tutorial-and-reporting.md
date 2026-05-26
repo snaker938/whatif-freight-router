@@ -77,7 +77,7 @@ Current backend artifact endpoints targeted by the frontend proxy allowlist are 
 
 The `frontend/app/api/runs/[runId]/[...subpath]/route.ts` proxy is intentionally allowlisted, so reporting links stay predictable instead of exposing arbitrary backend paths. In the current allowlist, `index.json` and `index.md` are bundle files you may inspect through the backend artifact route directly, but they are not exposed through this frontend proxy today.
 
-For route-compute bundles, `index.json` is the machine-readable bundle manifest and `index.md` is the reviewer-readable companion summary. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as stable artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
+For route-compute bundles, `index.json` is the machine-readable bundle manifest and `index.md` is the reviewer-readable companion summary. Legacy-named evaluation bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as stable artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
 
 ## Labeling Discipline For Reporting Surfaces
 

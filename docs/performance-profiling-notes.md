@@ -1,7 +1,7 @@
 # Performance Profiling Notes
 
 Last Updated: 2026-04-09
-Applies To: `backend/scripts/benchmark_model_v2.py`, `backend/scripts/benchmark_batch_pareto.py`, `backend/scripts/benchmark_route_graph_warmup.py`, `backend/scripts/run_hot_rerun_benchmark.py`, `backend/scripts/validate_graph_coverage.py`, and thesis evaluation runtime artifacts
+Applies To: `backend/scripts/benchmark_model_v2.py`, `backend/scripts/benchmark_batch_pareto.py`, `backend/scripts/benchmark_route_graph_warmup.py`, `backend/scripts/run_hot_rerun_benchmark.py`, `backend/scripts/validate_graph_coverage.py`, and evaluation runtime artifacts
 
 ## Primary Benchmark Entry Points
 
@@ -37,7 +37,7 @@ Related analysis scripts:
 - one flat-terrain pass and one hilly-terrain pass
 - p95 success gate `2000 ms`
 
-This benchmark is the steady-state micro-benchmark. It should not be compared directly with thesis-lane timings that include startup, baseline acquisition, certification, and reporting overhead.
+This benchmark is the steady-state micro-benchmark. It should not be compared directly with evaluation-lane timings that include startup, baseline acquisition, certification, and reporting overhead.
 
 ## Current Graph-Scale Context
 
@@ -52,9 +52,9 @@ This benchmark is the steady-state micro-benchmark. It should not be compared di
 
 That graph size explains why warmup strategy is material to user-visible latency.
 
-## Latest Local Thesis Runtime Evidence
+## Latest Local Evaluation-Lane Runtime Evidence
 
-The newest checked thesis bundle is `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`.
+The newest checked evaluation bundle is `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`.
 
 Route-runtime summary from `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001/thesis_summary.json`:
 
@@ -77,7 +77,7 @@ Additional current runtime evidence:
 - `C` mean option-build cache-hit rate `0.75`
 - `C` option-build cache savings `3271.665 ms` per row
 
-Baseline acquisition in the same thesis run:
+Baseline acquisition in the same evaluation run:
 
 - OSRM baseline compute `140.54 ms`, `189.471 km`, `13306.17 s`
 - ORS baseline compute `170.91 ms`, `203.868 km`, `18581.61 s`
@@ -140,7 +140,7 @@ On resource-constrained machines:
 1. Run one benchmark script at a time.
 2. Keep the backend otherwise idle.
 3. Avoid running full pytest and graph-heavy benchmarks together.
-4. Profile steady-state route building separately from thesis-lane orchestration.
+4. Profile steady-state route building separately from evaluation-lane orchestration.
 5. Use `scripts/run_backend_tests_safe.ps1` before profiling if the machine is already under load.
 
 ## Related Docs

@@ -36,7 +36,7 @@ ors:
         maximum_waypoints: 50
         maximum_visited_nodes: 1000000
     profiles:
-      # Thesis benchmarking uses the freight-relevant local ORS profile directly.
+      # Local benchmarking uses the freight-relevant local ORS profile directly.
       # Keeping only driving-hgv avoids building unrelated graphs and reduces warmup.
       driving-hgv:
         enabled: true

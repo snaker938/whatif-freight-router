@@ -34,10 +34,13 @@ This page is the source-of-truth backend API contract for current strict runtime
   - `route_cache`
   - `hot_rerun_route_cache_checkpoint`
   - `certification_cache`
+  - `hot_rerun_certification_cache_checkpoint`
   - `k_raw_cache`
   - `route_option_cache`
   - `route_state_cache`
+  - `hot_rerun_route_state_cache_checkpoint`
   - `voi_dccs_cache`
+  - `hot_rerun_voi_dccs_cache_checkpoint`
 - Route and pareto responses commonly expose these diagnostics families:
   - `stage_timings_ms`
   - `resource_usage`
@@ -54,7 +57,7 @@ This page is the source-of-truth backend API contract for current strict runtime
 
 ## Endpoint Inventory
 
-For endpoint parity, `python scripts/check_docs.py --check-endpoints` compares FastAPI decorators in `backend/app/main.py` with backticked `METHOD /path` entries in this file; the command still also runs the always-on notebook-reference ban. It does not validate frontend Next.js proxy coverage, response-model field details, artifact allowlists, endpoint mentions in `docs/api-cookbook.md`, or thesis prose.
+For endpoint parity, `python scripts/check_docs.py --check-endpoints` compares FastAPI decorators in `backend/app/main.py` with backticked `METHOD /path` entries in this file; the command still also runs the always-on notebook-reference ban. It does not validate frontend Next.js proxy coverage, response-model field details, artifact allowlists, endpoint mentions in `docs/api-cookbook.md`, or evaluation prose.
 
 ### System And Admin
 
@@ -363,7 +366,7 @@ Successful route payloads include additive scenario fields:
   - index.md
   - routes.geojson
   - results_summary.csv
-- The thesis bundle also emits extended artifacts when the run enables them:
+- The evaluation bundle also emits extended artifacts when the run enables them:
   - dccs_candidates.jsonl
   - dccs_summary.json
   - refined_routes.jsonl
@@ -401,12 +404,12 @@ Successful route payloads include additive scenario fields:
 
 - `index.json` is the machine-readable route-bundle index. It summarizes run id, terminal type, selected certificate basis, support state, artifact pointers, and per-artifact endpoints for the current run folder.
 - `index.md` is the reviewer-readable companion summary for the same route bundle.
-- The public `/route` response is the transport contract. In the current smoke-covered direct-REFC slice, that transport can normalize to `terminal_type=typed_abstention` even when the emitted local run bundle preserves richer proof artifacts such as `decision_package.json` and `certified_set_summary.json`.
-- In that same checked local slice, the public `typed_abstention` response can still carry normalized explanation surfaces such as `certified_set_summary`, `winner_confidence_state`, `certificate_witness`, and `artifact_pointers`; those fields remain part of the transport contract even when the emitted bundle keeps a richer local proof surface.
+- The public `/route` response is the response contract. In the current smoke-covered direct-REFC slice, that response path can normalize to `terminal_type=typed_abstention` even when the emitted local run bundle preserves richer proof artifacts such as `decision_package.json` and `certified_set_summary.json`.
+- In that same checked local slice, the public `typed_abstention` response can still carry normalized explanation surfaces such as `certified_set_summary`, `winner_confidence_state`, `certificate_witness`, and `artifact_pointers`; those fields remain part of the response contract even when the emitted bundle keeps a richer local proof surface.
 - Operators who need that richer local proof surface should inspect those emitted artifacts through `GET /runs/{run_id}/artifacts/{artifact_name}`. This is a narrow note about the checked local smoke slice, not a global claim about every `/route` abstention.
-- Older focused-VOI and thesis-like export bundles may still carry `thesis_summary_by_cohort.*`; that is an export/history surface, not a current `ARTIFACT_FILES` entry. Current transfer-generalization artifact names are `thesis_summary_by_transfer_slice.*` and `thesis_summary_by_weather_regime_transfer_slice.*`.
+- Older focused-VOI and legacy-named evaluation export bundles may still carry `thesis_summary_by_cohort.*`; that is an export/history surface, not a current `ARTIFACT_FILES` entry. Current transfer-generalization artifact names are `thesis_summary_by_transfer_slice.*` and `thesis_summary_by_weather_regime_transfer_slice.*`.
 
-For thesis-like bundles emitted or rewritten through the run store, `index.json` now uses `bundle_type = thesis_evaluation` and includes an `export_status` section for maintained thesis/report artifacts; `index.md` mirrors that same presence/absence view as an `Export Status` section. In the maintained set, this can include files such as `thesis_results.csv`, `thesis_summary.csv`, the thesis summary-by-cohort CSV, `thesis_report.md`, and `evaluation_manifest.json`. Read that behavior as forward-looking for new or rewritten bundles only: it does not imply historical backfill for older checked directories that predate the newer bundle-index emission path.
+For legacy-named evaluation bundles emitted or rewritten through the run store, `index.json` now uses `bundle_type = thesis_evaluation` and includes an `export_status` section for maintained report artifacts; `index.md` mirrors that same presence/absence view as an `Export Status` section. In the maintained set, this can include files such as `thesis_results.csv`, `thesis_summary.csv`, the summary-by-cohort CSV, `thesis_report.md`, and `evaluation_manifest.json`. Read that behavior as forward-looking for new or rewritten bundles only: it does not imply historical backfill for older checked directories that predate the newer bundle-index emission path.
 - Signed manifests are written to:
   - `backend/out/manifests/{run_id}.json`
   - `backend/out/scenario_manifests/{run_id}.json`

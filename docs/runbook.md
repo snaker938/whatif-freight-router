@@ -2,7 +2,7 @@
 
 This page is the shortest operator-facing reference for starting, checking, using, and stopping the current repository in its documented local configuration.
 
-It is intentionally conservative. It describes the commands and artifact locations the repository already documents today. It does **not** claim all gates are green.
+It is intentionally conservative. It describes the commands and artifact locations the repository already documents today. The maintained reviewer package is applied-evidence green for the current publishability/adoption verdict, while deployment-grade certification remains outside this runbook's scope.
 
 ## What This Runbook Covers
 
@@ -10,7 +10,7 @@ Use this page for:
 
 - starting the local stack
 - checking readiness before compute
-- locating runtime artifacts and thesis bundles
+- locating runtime artifacts and evaluation bundles
 - handling common failure modes
 - shutting the stack down cleanly
 
@@ -134,7 +134,7 @@ Useful locations include:
 - `backend/out/provenance/{run_id}.json`
 - `backend/out/test_runs/{timestamp}/`
 
-Thesis and evaluation bundles also appear under:
+Legacy-named evaluation bundles also appear under:
 
 - `backend/out/thesis_campaigns/*`
 
@@ -175,7 +175,7 @@ The run-store and sample-manifest docs list representative artifact families suc
 - `methods_appendix.md`
 - `evaluation_manifest.json`
 
-For route-compute bundles, `index.json` is the machine-readable bundle index and `index.md` is the reviewer-readable summary of the same run folder. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Use those files first when you need the stable artifact list and artifact-presence status for one checked bundle; they do not imply committed PDF or SVG renders.
+For route-compute bundles, `index.json` is the machine-readable bundle index and `index.md` is the reviewer-readable summary of the same run folder. Legacy-named evaluation bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Use those files first when you need the stable artifact list and artifact-presence status for one checked bundle; they do not imply committed PDF or SVG renders.
 
 ## Shutdown
 
@@ -221,7 +221,7 @@ When writing or speaking about the system, keep the scope narrow:
 - readiness is explicit and inspectable
 - failures are often a sign that the stack is correctly refusing unsafe work
 
-Do **not** describe this as universal deployability or as proof that every gate is green.
+Describe this as an applied-evidence green reviewer package, not as universal deployability or deployment-grade certification.
 
 ## Related Docs
 

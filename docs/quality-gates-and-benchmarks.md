@@ -1,7 +1,7 @@
 # Quality Gates and Benchmarks
 
 Last Updated: 2026-04-11
-Applies To: `backend/scripts/preflight_live_runtime.py`, `backend/scripts/score_model_quality.py`, `backend/scripts/benchmark_model_v2.py`, `backend/scripts/benchmark_batch_pareto.py`, `backend/scripts/validate_graph_coverage.py`, `backend/scripts/run_full_latest_suite.py`, thesis evaluation artifacts under `backend/out/thesis_campaigns/*`, and CI lanes in [.github/workflows/backend-ci.yml](../.github/workflows/backend-ci.yml)
+Applies To: `backend/scripts/preflight_live_runtime.py`, `backend/scripts/score_model_quality.py`, `backend/scripts/benchmark_model_v2.py`, `backend/scripts/benchmark_batch_pareto.py`, `backend/scripts/validate_graph_coverage.py`, `backend/scripts/run_full_latest_suite.py`, checked evaluation artifacts under `backend/out/thesis_campaigns/*`, and CI lanes in [.github/workflows/backend-ci.yml](../.github/workflows/backend-ci.yml)
 
 This page defines operational backend gates used locally and in CI, and records the latest local evidence currently present in the repo. It does not by itself certify any redesign-complete `G11.*` gate or any publishability `P14.*` item as green.
 
@@ -25,7 +25,7 @@ uv run python scripts/score_model_quality.py --subsystem stochastic_sampling
 uv run python scripts/score_model_quality.py --subsystem toll_classification
 ```
 
-Batch and thesis-oriented benchmark helpers:
+Batch and evaluation-lane benchmark helpers:
 
 ```powershell
 uv run python scripts/benchmark_batch_pareto.py --mode inprocess-fake --pair-count 100 --seed 20260212
@@ -64,11 +64,11 @@ uv run python scripts/validate_graph_coverage.py
 - bounding box `lat 49.75..61.1`, `lon -8.75..2.25`
 - `coverage_passed: true`
 
-### Latest thesis-lane benchmark evidence
+### Latest Evaluation-Lane Benchmark Evidence
 
-The newest checked thesis campaign bundle is `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`.
+The newest checked evaluation campaign bundle is `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2`.
 
-This thesis section is descriptive only. The snapshots below are checked local bundles, not gate-closing proof runs. Treat every `G11.*` and `P14.*` item as open unless this page cites the exact artifact path, measured value, required threshold, and required sample size for that item.
+This evaluation-lane section is descriptive only. The snapshots below are checked local bundles, not gate-closing proof runs. Treat every `G11.*` and `P14.*` item as open unless this page cites the exact artifact path, measured value, required threshold, and required sample size for that item.
 
 Campaign-level validity:
 
@@ -101,7 +101,7 @@ Across `A`, `B`, and `C`, the current bundle records the same mean objective del
 - monetary gain `2.47`
 - emissions gain `-1.4795 kg`
 
-These thesis runtimes are not the same thing as the `backend/scripts/benchmark_model_v2.py` p95 gate. They include thesis-run orchestration, baseline acquisition, certification, and startup overhead.
+These evaluation-lane runtimes are not the same thing as the `backend/scripts/benchmark_model_v2.py` p95 gate. They include evaluation-run orchestration, baseline acquisition, certification, and startup overhead.
 
 In the inspected evaluator source this turn, explicit suite roles are `broad_cold_proof`, `focused_refc_proof`, `focused_voi_proof`, `dccs_diagnostic_probe`, `hot_rerun_cold_source`, `hot_rerun`, `preference_proof`, `optional_stopping_coverage`, `proxy_audit_calibration`, `perturbation_flip_radius`, `threshold_sensitivity`, `public_transfer`, and `synthetic_ground_truth`. The `proxy_audit_calibration` role now also spells out its source-level `3` bias regime x `3` audit-budget level x `2` support-condition cell structure. Checked local reviewer companions now also exist for `threshold_sensitivity` and `public_transfer` under `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/`. The threshold companion cites `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/lane_metadata.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.csv`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_summary.json`, `out/headline_exports/current_checked/full_suite_curated_latest_20260411_threshold_sensitivity/threshold_sensitivity_report.md`, and the `threshold_sensitivity_vs_variant` plot family. The public-transfer companion cites both `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_transfer_slice.*` and `out/headline_exports/current_checked/full_suite_curated_latest_20260411_public_transfer/thesis_summary_by_weather_regime_transfer_slice.*` together with the paired transfer plot families. Treat those checked companions as evidence that the evaluator lanes and maintained surfaces exist; do not treat them as green `G11.*` or `P14.*` proof unless this page also cites the required sample sizes and thresholds.
 

@@ -17,7 +17,7 @@ A family should only be treated as closed when the formal statement, assumptions
 
 Rows marked `partial-proof` already satisfy the maintained-doc requirement that the family be named and mapped to code, tests, artifact fields, evaluator metrics, and appendix locations. They should not be read as theorem-backed closure.
 No required theorem or lower-bound family remains scaffold-only in the current slice; each required family is now published at `partial-proof` maturity.
-The `Report appendix location` column names the narrowest current narrative landing zone inside `docs/thesis-codebase-report.md`. The adjacent code/test/artifact/evaluator columns remain the exact object-level mapping and should not be read as implying that the report names every cited file individually.
+The `Report appendix location` column names the narrowest current narrative landing zone in the external report artifact; the code/test/artifact/evaluator columns remain the repo-local authority and should be read as the exact object-level mapping.
 
 ## Required Theorem / Proposition Families
 
@@ -68,4 +68,3 @@ These rows are not theorem claims. They are the current structural surfaces that
 - [Detailed Claim Matrix](claim_matrix.md)
 - [Evaluation Card](evaluation_card.md)
 - [Negative Results](negative_results.md)
-- [Thesis-Grade Codebase Report](thesis-codebase-report.md)

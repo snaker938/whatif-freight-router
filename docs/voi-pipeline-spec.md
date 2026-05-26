@@ -1,6 +1,6 @@
-# VOI Thesis Pipeline Spec
+# VOI Certification Pipeline Spec
 
-This document defines the thesis-facing routing pipeline for the DCCS, REFC, and VOI-AD2R workstream. It is intentionally aligned with the current backend contracts in `backend/app/decision_critical.py`, `backend/app/evidence_certification.py`, `backend/app/voi_controller.py`, and the request/response models in `backend/app/models.py`.
+This document defines the evaluation-facing routing pipeline for the DCCS, REFC, and VOI-AD2R workstream. It is intentionally aligned with the current backend contracts in `backend/app/decision_critical.py`, `backend/app/evidence_certification.py`, `backend/app/voi_controller.py`, and the request/response models in `backend/app/models.py`.
 
 ## 1. Pipeline Modes
 
@@ -9,10 +9,10 @@ The pipeline supports four modes:
 * `legacy`: existing staged routing flow with no DCCS, no REFC, and no VOI loop.
 * `dccs`: apply DCCS triage before refinement, then continue with the normal route build and frontier selection.
 * `dccs_refc`: DCCS plus strict-frontier certification.
-* `voi`: full thesis pipeline, including DCCS, REFC, and the VOI-AD2R controller.
+* `voi`: full certification/evaluation pipeline, including DCCS, REFC, and the VOI-AD2R controller.
 
-The effective mode is carried on route requests through `RouteRequest.pipeline_mode`, `ParetoRequest.pipeline_mode`, and the batch request variants. In the verified default configuration, the default primary live `/route` path for thesis-facing non-waypoint requests resolves through `dccs_refc`. Live `/route` no longer supports `pipeline_mode=legacy` and does not support waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. Explicit request overrides still resolve against that deployment default for the supported live modes.
-In thesis-suite runs, those modes are mapped as `V0 -> legacy`, `A -> dccs`, `B -> dccs_refc`, and `C -> voi`.
+The effective mode is carried on route requests through `RouteRequest.pipeline_mode`, `ParetoRequest.pipeline_mode`, and the batch request variants. In the verified default configuration, the default primary live `/route` path for evaluation-facing non-waypoint requests resolves through `dccs_refc`. Live `/route` no longer supports `pipeline_mode=legacy` and does not support waypoint requests; comparison, ablation, replay, and historical-comparison traffic is directed to `/route/baseline` and `/route/baseline/ors`. Explicit request overrides still resolve against that deployment default for the supported live modes.
+In evaluation-suite runs, those modes are mapped as `V0 -> legacy`, `A -> dccs`, `B -> dccs_refc`, and `C -> voi`.
 
 ## 2. Candidate Lifecycle
 
@@ -44,7 +44,7 @@ The lifecycle is:
 * `select_candidates(...)`
 * `record_refine_outcome(...)`
 
-Each candidate record carries the auditable triage fields needed for thesis analysis: graph path, proxy objectives, mechanism descriptor, confidence, overlap, stretch, objective gap, mechanism gap, predicted refine cost, flip probability, score terms, selected/skipped decision, and observed refine cost once refinement completes.
+Each candidate record carries the auditable triage fields needed for evaluation analysis: graph path, proxy objectives, mechanism descriptor, confidence, overlap, stretch, objective gap, mechanism gap, predicted refine cost, flip probability, score terms, selected/skipped decision, and observed refine cost once refinement completes.
 The current DCCS record contract also includes candidate-envelope bounds, envelope provenance or source, support mass or support status, known dominance metadata, and explicit safe-elimination provenance fields such as `safe_eliminated`, `necessary_dominated`, `dominated_by_route_id`, `dominance_margin`, and `safe_elimination_reason`.
 Those fields support an auditable candidate-level selection workflow; they are not being presented here as theorem-level guarantees.
 
@@ -86,7 +86,7 @@ The controller uses a fixed auditable action set: refine top-1 DCCS candidate, r
 
 Artifacts are stored per run under the existing run store conventions. The current evaluator treats `strict_frontier.jsonl` as the strict frontier artifact and validates `voi_controller_state.jsonl` alongside the other VOI traces.
 
-The current checked thesis example bundle is:
+The current checked evaluation example bundle is:
 
 `backend/out/thesis_campaigns/dominance_cluster5_cardiff_bath_corr12p5_r2/tranche_001/artifacts/dominance_cluster5_cardiff_bath_corr12p5_r2_t001`
 
@@ -118,7 +118,7 @@ When the controller runs in refinement mode, the evaluator also accepts before/a
 * initial_value_of_refresh.json
 * initial_sampled_world_manifest.json
 
-The thesis-suite evaluation outputs in the same checked bundle include:
+The evaluation-suite outputs in the same checked bundle include these legacy-named artifacts:
 
 * thesis_results.csv
 * thesis_results.json
@@ -209,9 +209,9 @@ The pipeline uses strict-frontier semantics for REFC and VOI:
 
 The implementation should never imply certainty when the pipeline has only produced an uncertified frontier or an incomplete evidence state.
 
-## 8. Minimal Thesis Outputs
+## 8. Minimal Evaluation Outputs
 
-Each route run should be able to produce a compact thesis bundle:
+Each route run should be able to produce a compact evaluation bundle:
 
 * candidate ledger for DCCS
 * strict frontier and winner summary
@@ -219,10 +219,10 @@ Each route run should be able to produce a compact thesis bundle:
 * VOI action trace and stop certificate
 * final route trace linking all of the above
 
-That bundle is the citable unit for thesis figures, ablations, and replay checks.
+That bundle is the reproducible unit for figures, ablations, and replay checks.
 
 ## Related Docs
 
 - [Documentation Index](DOCS_INDEX.md)
-- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
+- [Theorem Map](theorem_map.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)

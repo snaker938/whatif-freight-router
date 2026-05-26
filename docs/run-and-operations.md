@@ -247,7 +247,7 @@ Under `backend/out/`:
 - `provenance/{run_id}.json`
 - `test_runs/{timestamp}/` (safe test runner outputs)
 
-Route-compute bundles may include `index.json` and `index.md` as machine-readable and reviewer-readable bundle indexes. Thesis-like bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
+Route-compute bundles may include `index.json` and `index.md` as machine-readable and reviewer-readable bundle indexes. Legacy-named evaluation bundles may also carry the same pair when they were emitted or additively refreshed through the run-store path. Treat those files as artifact-list and artifact-presence entrypoints only; they do not imply committed PDF or SVG renders.
 
 ## Safe Test Execution (Low Resource)
 

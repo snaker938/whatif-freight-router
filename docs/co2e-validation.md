@@ -5,7 +5,7 @@ Applies To: emissions and carbon-cost calculations in backend route outputs
 
 ## Purpose
 
-Capture the current backend validation focus for emissions and carbon-pricing semantics, using the latest local fuel, carbon, and thesis-evaluation evidence currently present in the repo.
+Capture the current backend validation focus for emissions and carbon-pricing semantics, using the latest local fuel, carbon, and checked evaluation evidence currently present in the repo.
 
 ## Current Asset-Backed Evidence
 
@@ -63,15 +63,15 @@ That 4x4x5x5x5 surface is the main structured input behind route-level fuel and 
 - terrain uplift and weather effects that alter speed or energy use
 - route distance, stop-and-go pressure, and stochastic route-state changes
 
-## Latest Thesis-Lane CO2e Signal
+## Latest Evaluation-Lane CO2e Signal
 
-The latest checked thesis campaign bundle records the following mean emissions delta versus `V0`:
+The latest checked evaluation campaign bundle records the following mean emissions delta versus `V0`:
 
 - `A`: `-1.4795 kg`
 - `B`: `-1.4795 kg`
 - `C`: `-1.4795 kg`
 
-That does not prove a universal external win rate, but it does confirm that the currently checked thesis lane preserves measurable emissions improvements relative to the matched-budget legacy comparator.
+That does not prove a universal external win rate, but it does confirm that the currently checked evaluation lane preserves measurable emissions improvements relative to the matched-budget legacy comparator.
 
 ## Recommended Validation Commands
 

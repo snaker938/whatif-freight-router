@@ -87,7 +87,7 @@ Current surface:
 - `GET /runs/{run_id}/artifacts/methods_appendix.md`
 - `GET /runs/{run_id}/artifacts/thesis_report.md`
 
-The inspector supports core-doc inspection, artifact listing, preview, and download. It is the primary in-app reporting surface for the thesis evaluation bundles and for the more specialized DCCS/VOI outputs that the backend emits.
+The inspector supports core-doc inspection, artifact listing, preview, and download. It is the primary in-app reporting surface for the evaluation bundles and for the more specialized DCCS/VOI outputs that the backend emits.
 
 ## Signature Verifier
 

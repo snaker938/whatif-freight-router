@@ -18,7 +18,6 @@ Start here, then follow topic links.
 - [Backend APIs and Tooling](backend-api-tools.md)
 - [Strict Error Contract Reference](strict-errors-reference.md)
 - [Model Assets and Data Sources](model-assets-and-data-sources.md)
-- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
 
 ## Backend Core
 
@@ -42,13 +41,12 @@ Start here, then follow topic links.
 ## Routing and Modeling
 
 - [Synthetic Incidents and Weather](synthetic-incidents-weather.md)
-- [VOI Thesis Pipeline Spec](voi-pipeline-spec.md)
+- [VOI Certification Pipeline Spec](voi-pipeline-spec.md)
 - [Sample Manifest and Outputs](sample-manifest.md)
 - [CO2e Validation Notes](co2e-validation.md)
-- [Dissertation Math Overview](dissertation-math-overview.md)
 - [Expanded Math Appendix](math-appendix.md)
 - [Graph Theory Notes](appendix-graph-theory-notes.md)
-- [Thesis-Grade Codebase Report](thesis-codebase-report.md)
+- [Theorem Map](theorem_map.md)
 
 ## Quality, Performance, Reproducibility
 
@@ -59,9 +57,9 @@ Start here, then follow topic links.
 - [ETA Concept Drift Checks](eta-concept-drift.md)
 - [Theorem and Lower-Bound Package](theorem_package.md)
 
-## Publication and Review
+## Evidence and Review
 
-- [Paper Artifact Index](../paper_artifact_index.json)
+- [Artifact Index](../paper_artifact_index.json)
 - [Top-Level Claim Matrix](../claim_matrix.md)
 - [Detailed Claim Matrix](claim_matrix.md)
 - [Theorem Map](theorem_map.md)
@@ -85,6 +83,8 @@ Get-Content docs/redesign-implementation-tracker.md
 ```powershell
 python scripts/check_docs.py
 ```
+
+Generated outputs under `backend/out`, `out/artifacts`, `out/headline_exports`, and `out/thesis` are regeneration targets, not required committed paths.
 
 - Run individual checks:
 

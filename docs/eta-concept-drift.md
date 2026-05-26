@@ -34,7 +34,7 @@ Each row is converted into:
 - `--mape-threshold-pct 10`
 - `--out-dir out`
 
-Those thresholds are the current documented alert boundary, not a checked thesis result.
+Those thresholds are the current documented alert boundary, not a checked evaluation result.
 
 ## Command
 

@@ -15,7 +15,7 @@ This directory contains the FastAPI service for the current freight-router runti
 - The live `/route` path returns the public `DecisionPackage` contract.
 - Terminal outcomes are represented as certified singleton, certified set, or typed abstention.
 - In the checked local direct-REFC smoke slice, public `typed_abstention` responses can still carry normalized `certified_set_summary`, `winner_confidence_state`, `certificate_witness`, and artifact-pointer surfaces while emitted bundles preserve richer local certified-set artifacts.
-- Typed abstention classes are `uncertified_due_to_search`, `uncertified_due_to_evidence`, `uncertified_due_to_preference`, `uncertified_due_to_out_of_support_world_model`, `uncertified_due_to_budget`, and `uncertified_due_to_model_assumption`.
+- Typed abstention classes are `typed_abstention_recommended`, `uncertified_due_to_search`, `uncertified_due_to_evidence`, `uncertified_due_to_preference`, `uncertified_due_to_out_of_support_world_model`, `uncertified_due_to_budget`, and `uncertified_due_to_model_assumption`.
 - The top-level response model currently carries route, certificate, preference, support, witness, action-trace, and artifact metadata fields.
 - The runtime writes artifact bundles for route computation, certificate/proof surfaces, preference state, support summaries, and provenance.
 
@@ -30,4 +30,4 @@ This directory contains the FastAPI service for the current freight-router runti
 
 - This is a factual map of the current codebase, not a publishability claim.
 - The redesign is in progress, but broad hard gates are not yet asserted as green here.
-- Any theorem, metric, or thesis claim must be checked against the backend tests, artifacts, and report text before being treated as complete.
+- Any theorem, metric, or evaluation claim must be checked against the backend tests, artifacts, and docs before being treated as complete.
