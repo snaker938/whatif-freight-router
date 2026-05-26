@@ -144,13 +144,13 @@ def robust_objective(
     family = str(risk_family or "cvar_excess").strip().lower()
     if family == "entropic":
         theta = max(1e-6, float(risk_theta))
-        # This is a thesis-specific entropic-style tail penalty, not the
+        # This is an implementation-specific entropic-style tail penalty, not the
         # canonical entropic risk measure on the full loss distribution.
         penalty = math.log1p(risk * math.expm1(theta * tail_excess)) / theta
         return float(mean_value) + penalty
     if family == "downside_semivariance":
         scale = max(1.0, abs(float(mean_value)))
-        # This is a thesis-specific quadratic penalty on CVaR excess, not the
+        # This is an implementation-specific quadratic penalty on CVaR excess, not the
         # textbook downside semivariance definition over centered tail losses.
         penalty = (tail_excess * tail_excess) / scale
         return float(mean_value) + (risk * penalty)

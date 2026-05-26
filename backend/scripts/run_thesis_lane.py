@@ -25,7 +25,7 @@ def _now() -> str:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the thesis-only test and evaluation lane.")
+    parser = argparse.ArgumentParser(description="Run the evaluation-only test and lane.")
     default_corpus_csv = ROOT / "data" / "eval" / "uk_od_corpus_thesis_broad.csv"
     parser.add_argument("--report-md", type=Path, default=ROOT / "out" / "thesis_lane_report.md")
     parser.add_argument("--report-json", type=Path, default=ROOT / "out" / "thesis_lane_report.json")
@@ -404,11 +404,11 @@ def main(argv: list[str] | None = None) -> int:
         "backend_lifecycle": backend_lifecycle,
     }
     report_lines = [
-        "# Thesis Lane Report",
+        "# Evaluation Lane Report",
         "",
         f"- Generated at: `{summary['generated_at_utc']}`",
-        f"- Thesis pytest exit code: `{pytest_exit}`",
-        f"- Thesis pytest args: `{' '.join(pytest_args)}`",
+        f"- Evaluation pytest exit code: `{pytest_exit}`",
+        f"- Evaluation pytest args: `{' '.join(pytest_args)}`",
         f"- Evaluation exit code: `{evaluation_exit}`",
     ]
     if isinstance(backend_lifecycle, dict) and backend_lifecycle.get("managed"):
@@ -440,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
                     f"- Cohort summary CSV: `{evaluation_payload.get('summary_by_cohort_csv')}`",
                     f"- Cohort summary JSON: `{evaluation_payload.get('summary_by_cohort_json')}`",
                     f"- Cohort composition JSON: `{evaluation_payload.get('cohort_composition_path')}`",
-                    f"- Thesis report: `{evaluation_payload.get('thesis_report')}`",
+                    f"- Evaluation report: `{evaluation_payload.get('thesis_report')}`",
                     f"- Methods appendix: `{evaluation_payload.get('methods_appendix')}`",
                     f"- Evaluation manifest: `{evaluation_payload.get('evaluation_manifest')}`",
                     f"- Manifest path: `{evaluation_payload.get('manifest_path')}`",

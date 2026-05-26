@@ -781,7 +781,7 @@ def test_thesis_like_bundle_metadata_creates_bundle_index_with_export_status(
     assert "report.pdf" not in export_status
 
     index_markdown = discovered["index.md"].read_text(encoding="utf-8")
-    assert "# Thesis Evaluation Bundle Index" in index_markdown
+    assert "# Evaluation Bundle Index" in index_markdown
     assert "## Export Status" in index_markdown
     assert "`thesis_report.md`: present" in index_markdown
     assert "`results.csv`: absent" in index_markdown

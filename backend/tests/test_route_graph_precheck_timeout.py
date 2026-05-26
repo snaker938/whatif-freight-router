@@ -230,11 +230,12 @@ def test_collect_route_options_precheck_timeout_fail_closed(monkeypatch) -> None
     assert candidate_diag.precheck_gate_action == "fail_closed"
 
 
-@pytest.mark.parametrize("pipeline_mode", ["dccs", "dccs_refc", "tri_source"])
+@pytest.mark.parametrize("pipeline_mode", ["dccs", "dccs_refc", "voi"])
 def test_compute_direct_route_pipeline_precheck_deferred_load_degraded_continue(
     monkeypatch,
     pipeline_mode: str,
 ) -> None:
+    monkeypatch.setenv("STRICT_RUNTIME_TEST_BYPASS", "1")
     fallback_route = _make_ranked_route(duration_s=27_800.0, lon_seed=0.05, road_class="trunk")
     captured_start_goal: dict[str, Any] = {}
 

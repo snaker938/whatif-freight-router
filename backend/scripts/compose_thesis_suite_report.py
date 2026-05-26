@@ -89,7 +89,7 @@ def _split_prior_sources(value: Any) -> list[str]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Compose a final thesis suite report from completed evaluation runs.")
+    parser = argparse.ArgumentParser(description="Compose a final evaluation suite report from completed evaluation runs.")
     parser.add_argument("--run-id", default="thesis_suite_20260322_r3")
     parser.add_argument("--out-dir", default=str(PROJECT_ROOT / "out"))
     parser.add_argument("--representative-base", default=str(DEFAULT_REPRESENTATIVE_BASE))

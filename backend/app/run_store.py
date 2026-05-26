@@ -489,6 +489,8 @@ def _bundle_title(bundle_type: Any) -> str:
         return "Route-Compute Bundle Index"
     if normalized == "batch_pareto":
         return "Batch Pareto Bundle Index"
+    if normalized == "thesis_evaluation":
+        return "Evaluation Bundle Index"
     if normalized:
         return f"{normalized.replace('_', ' ').title()} Bundle Index"
     return "Run Bundle Index"

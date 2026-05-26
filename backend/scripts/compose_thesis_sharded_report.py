@@ -35,7 +35,7 @@ DEFAULT_CANONICAL_CORPUS = PROJECT_ROOT / "data" / "eval" / "uk_od_corpus_thesis
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Compose a thesis evaluation bundle from completed shard result CSVs.")
+    parser = argparse.ArgumentParser(description="Compose an evaluation bundle from completed shard result CSVs.")
     parser.add_argument("--run-id", default="thesis_sharded_campaign")
     parser.add_argument("--out-dir", default=str(PROJECT_ROOT / "out"))
     parser.add_argument("--canonical-corpus", default=str(DEFAULT_CANONICAL_CORPUS))

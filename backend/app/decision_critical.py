@@ -8,7 +8,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from .candidate_bounds import CandidateEnvelope, build_candidate_envelope
 from .candidate_criticality import CandidateCriticalityEstimate, build_candidate_criticality
 
-# DCCS is thesis-specific, but its objective-space coverage and diversity terms
+# DCCS is implementation-specific, but its objective-space coverage and diversity terms
 # borrow from standard multi-objective search ideas such as normalized
 # nearest-neighbour spacing and crowding/diversification; see Deb et al.,
 # "A fast and elitist multiobjective genetic algorithm: NSGA-II",
@@ -918,7 +918,7 @@ def _flip_probability(
     stretch: float,
     config: "DCCSConfig",
 ) -> float:
-    # Thesis heuristic: turn challenger advantages into a probability-like
+    # Deterministic heuristic: turn challenger advantages into a probability-like
     # budget-allocation score via a logistic link. This is not claimed as a
     # learned probability model; it is an auditable deterministic transform.
     proxy_confidence = _confidence_map(candidate)

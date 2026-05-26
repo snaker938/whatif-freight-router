@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.scripts]
-thesis-eval = "scripts.run_thesis_evaluation:main"
-thesis-lane = "scripts.run_thesis_lane:main"
+evaluation-run = "scripts.run_thesis_evaluation:main"
+evaluation-lane = "scripts.run_thesis_lane:main"
 
 [dependency-groups]
 dev = [
@@ -47,7 +47,7 @@ ignore = ["E501"]
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-  "thesis: thesis-results generation lane",
-  "thesis_results: thesis result-lane and artifact-contract coverage",
-  "thesis_modules: deterministic DCCS/REFC/VOI thesis module coverage",
+  "thesis: legacy-named evaluation-results generation lane",
+  "thesis_results: legacy-named evaluation result-lane and artifact-contract coverage",
+  "thesis_modules: deterministic DCCS/REFC/VOI evaluation module coverage",
 ]

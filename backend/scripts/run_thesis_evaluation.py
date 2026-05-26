@@ -273,9 +273,9 @@ LANE_METADATA_DEFAULTS: dict[str, dict[str, Any]] = {
         "why": "Coverage lane for optional-stopping validity and confidence-sequence calibration.",
         "evaluation_size_requirement": {
             "requirement_id": "G11.54",
-            "unit": "rows",
-            "minimum": 200,
-            "minimum_description": "optional-stopping coverage row count >= 200",
+            "unit": "samples",
+            "minimum": 30000,
+            "minimum_description": "optional-stopping effective certificate worlds >= 30,000",
         },
         "headline_seed_repeat_required": False,
     },
@@ -2235,7 +2235,7 @@ def _prepare_in_process_backend_runtime() -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run deterministic thesis evaluation over a fixed OD corpus.")
+    parser = argparse.ArgumentParser(description="Run deterministic evaluation over a fixed OD corpus.")
     corpus = parser.add_mutually_exclusive_group(required=True)
     corpus.add_argument("--corpus-json", default=None)
     corpus.add_argument("--corpus-csv", default=None)
@@ -2297,9 +2297,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--auto-enrich-corpus-ambiguity",
         action="store_true",
-        help="If set, backfill missing corpus ambiguity prior columns before evaluation. Disabled by default so thesis runs use explicit checked-in corpus priors and avoid hidden route-graph probe cost.",
+        help="If set, backfill missing corpus ambiguity prior columns before evaluation. Disabled by default so evaluation runs use explicit checked-in corpus priors and avoid hidden route-graph probe cost.",
     )
-    parser.add_argument("--allow-proxy-ors", action="store_true", help="Allow proxy-labelled secondary baseline responses in thesis evaluation output.")
+    parser.add_argument("--allow-proxy-ors", action="store_true", help="Allow proxy-labelled secondary baseline responses in evaluation output.")
     parser.add_argument("--allow-evidence-fallbacks", action="store_true", help="Allow fallback/proxy evidence provenance in selected thesis routes.")
     parser.add_argument(
         "--evaluation-suite-role",
@@ -2528,7 +2528,7 @@ def _variant_specs(args: argparse.Namespace) -> list[VariantSpec]:
         VariantSpec("A", "dccs", "dccs"),
         VariantSpec("B", "dccs_refc", "dccs"),
         VariantSpec("C", "voi", "dccs"),
-        # Run the legacy baseline last so the thesis variants can reuse the
+        # Run the legacy baseline last so the evaluation variants can reuse the
         # expensive search/option-build state they extend during suite runs.
         VariantSpec("V0", "legacy", str(args.baseline_refinement_policy)),
     ]
@@ -2588,6 +2588,108 @@ def _variant_payload(
     if spec.refinement_policy:
         payload["refinement_policy"] = spec.refinement_policy
     return payload
+
+
+def _baseline_variant_run_id(od: Mapping[str, Any], spec: VariantSpec, baseline: BaselineResult) -> str:
+    digest = _digest(
+        {
+            "od_id": od.get("od_id"),
+            "variant_id": spec.variant_id,
+            "pipeline_mode": spec.pipeline_mode,
+            "baseline_method": baseline.method,
+            "route_id": baseline.route.get("id") or baseline.route.get("route_id"),
+        }
+    )
+    return f"baseline-{digest[:24]}"
+
+
+def _legacy_baseline_route_response(
+    od: Mapping[str, Any],
+    spec: VariantSpec,
+    baseline: BaselineResult,
+) -> dict[str, Any]:
+    run_id = _baseline_variant_run_id(od, spec, baseline)
+    selected = dict(baseline.route)
+    selected.setdefault("id", f"{baseline.method}_baseline")
+    return {
+        "selected": selected,
+        "candidates": [selected],
+        "run_id": run_id,
+        "manifest_endpoint": f"/runs/{run_id}/manifest",
+        "artifacts_endpoint": f"/runs/{run_id}/artifacts",
+        "selected_certificate": None,
+        "compute_ms": baseline.compute_ms,
+        "pipeline_mode": spec.pipeline_mode,
+        "baseline_method": baseline.method,
+    }
+
+
+def _legacy_baseline_artifacts(
+    route_response: Mapping[str, Any],
+    baseline: BaselineResult,
+) -> dict[str, Any]:
+    selected = dict(route_response.get("selected") or {})
+    selected_metrics = route_metrics(selected)
+    route_id = str(selected.get("id") or selected.get("route_id") or "").strip()
+    frontier_row = {
+        "route_id": route_id,
+        "duration_s": selected_metrics["duration_s"],
+        "monetary_cost": selected_metrics["monetary_cost"],
+        "emissions_kg": selected_metrics["emissions_kg"],
+    }
+    run_id = str(route_response.get("run_id") or "").strip()
+    return {
+        "metadata.json": {
+            "run_id": run_id,
+            "pipeline_mode": "legacy",
+            "baseline_method": baseline.method,
+            "baseline_provider_mode": baseline.provider_mode,
+            "evaluation_artifact_source": "baseline_comparison_endpoint",
+        },
+        "decision_package.json": {
+            "preference_summary": {
+                "query_count": 0,
+                "terminal_type": "typed_abstention",
+                "preference_irrelevance_proven": True,
+                "no_query_reason": "singleton_frontier",
+                "selected_certificate_basis": "baseline_comparison",
+            },
+            "preference_state": {
+                "query_count": 0,
+                "preference_irrelevance_proven": True,
+                "no_query_reason": "singleton_frontier",
+                "contradiction_record": {
+                    "contradiction_detected": False,
+                    "contradiction_reasons": [],
+                },
+                "shrinkage_trace": [],
+            },
+        },
+        FRONTIER_ARTIFACT: [frontier_row],
+        "final_route_trace.json": {
+            "stage_timings_ms": {
+                "dccs_ms": 0.0,
+                "refc_ms": 0.0,
+                "voi_ms": 0.0,
+                "pareto_ms": 0.0,
+                "refinement_ms": 0.0,
+                "k_raw_ms": 0.0,
+                "supplemental_rescue_ms": 0.0,
+                "baseline_comparison_ms": round(float(baseline.compute_ms), 3),
+            },
+            "candidate_diagnostics": {
+                "selected_candidate_count": 1,
+                "baseline_method": baseline.method,
+                "baseline_provider_mode": baseline.provider_mode,
+            },
+            "selected_candidate_ids": [route_id] if route_id else [],
+            "baseline_comparison": {
+                "method": baseline.method,
+                "provider_mode": baseline.provider_mode,
+                "snapshot_used": bool(baseline.snapshot_used),
+            },
+        },
+    }
 
 
 def _absolute_url(base_url: str, endpoint: str) -> str:
@@ -4675,7 +4777,7 @@ def _ors_baseline(client: httpx.Client, base_url: str, payload: dict[str, Any], 
         provider_mode=requested_provider_mode,
     )
     if "proxy" in str(live.method).lower() or "proxy" in str(live.provider_mode).lower():
-        raise ValueError("ORS baseline returned a proxy fallback, which is not allowed in strict thesis evaluation.")
+        raise ValueError("ORS baseline returned a proxy fallback, which is not allowed in strict evaluation.")
     if str(live.provider_mode or "").strip().lower() != requested_provider_mode:
         raise ValueError(
             f"ORS baseline provider mismatch: requested={requested_provider_mode} returned={live.provider_mode}"
@@ -8328,10 +8430,10 @@ def _methods_appendix(
             f"- Repeated headline multiple-comparison adjustment (when repeated artifacts exist): `{HEADLINE_MULTIPLE_COMPARISON_METHOD_ID}`",
             "",
             "Comparator honesty:",
-            "- `V0` is not a full-budget legacy solve in this thesis lane; it is a matched-budget legacy comparator whose expensive refinement stage is capped by the same `search_budget` used by the new pipeline variants.",
+            "- `V0` is not a full-budget legacy solve in this evaluation lane; it is a matched-budget legacy comparator whose expensive refinement stage is capped by the same `search_budget` used by the new pipeline variants.",
             "- The thesis runner passes the same upstream ambiguity/support priors to every variant, including `V0`, so `V0` here should be read as an evaluator-informed legacy comparator rather than an uninformed public-API call with no corpus context.",
             "- The secondary baseline is the self-hosted local openrouteservice engine when `ors_baseline_policy=local_service`; `repo_local` is retained only as an explicit fallback/debug comparator.",
-            "- Corpus ambiguity is treated as an upstream route-graph prior when available. Missing corpus priors are not backfilled unless `--auto-enrich-corpus-ambiguity` is explicitly enabled, so thesis runs do not hide extra route-graph probe cost inside evaluation runtime.",
+            "- Corpus ambiguity is treated as an upstream route-graph prior when available. Missing corpus priors are not backfilled unless `--auto-enrich-corpus-ambiguity` is explicitly enabled, so evaluation runs do not hide extra route-graph probe cost inside evaluation runtime.",
             "- Ambiguity-adaptive budgeting is deterministic and corpus-prior driven: low-ambiguity rows use smaller REFC/VOI budgets, while high-ambiguity rows keep larger search and certification budgets so the controller is still meaningfully stressed.",
             "",
             "Metric definitions:",
@@ -8724,7 +8826,7 @@ def _cohort_scaffolding_payload() -> dict[str, Any]:
         "assignment_contract": (
             "Rows keep their primary corpus cohort, while overlap cohorts such as hard_case, "
             "controller_stress, preference_sensitive, support_fragile, and proxy_friendly are "
-            "reported as non-exclusive lenses so thesis claims can separate baseline population "
+            "reported as non-exclusive lenses so evaluation claims can separate baseline population "
             "effects from stress-condition effects."
         ),
     }
@@ -10477,6 +10579,25 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
         f"mean_weighted_margin_vs_osrm={row.get('mean_weighted_margin_vs_osrm')}",
         f"mean_weighted_margin_vs_best_baseline={row.get('mean_weighted_margin_vs_best_baseline')}",
         f"dominance_win_best_baseline={_rate_text(row.get('dominance_win_rate_best_baseline'), int(row.get('dominance_denominator_best_baseline') or 0))}",
+        f"mean_certificate={row.get('mean_certificate')} (n={row.get('mean_certificate_denominator')})",
+        f"mean_top_refresh_gain={row.get('mean_top_refresh_gain')} (n={row.get('mean_top_refresh_gain_denominator')})",
+        f"mean_top_fragility_mass={row.get('mean_top_fragility_mass')} (n={row.get('mean_top_fragility_mass_denominator')})",
+        f"mean_competitor_pressure={row.get('mean_competitor_pressure')} (n={row.get('mean_competitor_pressure_denominator')})",
+        f"refresh_first_productive_rate={row.get('refresh_first_productive_rate')} (n={row.get('refresh_first_productive_denominator')})",
+        f"refresh_resolution_honesty_rate={row.get('refresh_resolution_honesty_rate')} (n={row.get('refresh_resolution_honesty_denominator')})",
+        f"mean_ambiguity_prior_gap={row.get('mean_ambiguity_prior_gap')}",
+        f"mean_ambiguity_budget_prior={row.get('mean_ambiguity_budget_prior')}",
+        f"mean_ambiguity_budget_prior_gap={row.get('mean_ambiguity_budget_prior_gap')}",
+        f"budget_prior_exceeds_raw_rate={row.get('budget_prior_exceeds_raw_rate')}",
+        f"warmup_amortized_ms={row.get('warmup_amortized_ms')}",
+        f"baseline_identity_verified_rate={row.get('baseline_identity_verified_rate')}",
+        f"voi_action_density={row.get('mean_voi_action_density')}",
+        f"mean_refc_shortcut_rate={row.get('mean_refc_shortcut_rate')}",
+        f"mean_refc_cache_hits={row.get('mean_refc_cache_hits')}",
+        f"mean_refc_unique_world_count={row.get('mean_refc_unique_world_count')}",
+        f"mean_refc_world_reuse_rate={row.get('mean_refc_world_reuse_rate')}",
+        f"mean_refc_hard_stress_pack_count={row.get('mean_refc_hard_stress_pack_count')}",
+        f"mean_refc_stress_world_fraction={row.get('mean_refc_stress_world_fraction')}",
     ]
     if include_od_ambiguity:
         segments.append(f"mean_od_ambiguity_index={row.get('mean_od_ambiguity_index')}")
@@ -10487,14 +10608,12 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
             f"mean_observed_ambiguity_index={row.get('mean_observed_ambiguity_index')}",
             f"mean_ambiguity_alignment={row.get('mean_ambiguity_alignment')}",
             f"ambiguity_prior_realized_correlation={row.get('ambiguity_prior_realized_correlation')}",
-            f"mean_ambiguity_prior_gap={row.get('mean_ambiguity_prior_gap')}",
             f"ambiguity_prior_top_k_precision={row.get('ambiguity_prior_top_k_precision')} (k={row.get('ambiguity_prior_top_k_precision_k')}, n={row.get('ambiguity_prior_top_k_precision_denominator')})",
             f"ambiguity_prior_overtrigger_rate={row.get('ambiguity_prior_overtrigger_rate')}",
             f"mean_frontier_count={row.get('mean_frontier_count')}",
             f"nontrivial_frontier_rate={row.get('nontrivial_frontier_rate')}",
             f"mean_nominal_winner_margin={row.get('mean_nominal_winner_margin')}",
             f"mean_near_tie_mass={row.get('mean_near_tie_mass')}",
-            f"mean_certificate={row.get('mean_certificate')} (n={row.get('mean_certificate_denominator')})",
             f"mean_certificate_margin={row.get('mean_certificate_margin')}",
             f"mean_hard_case_rate={row.get('mean_hard_case_rate')}",
             f"mean_hard_case_certificate={row.get('mean_hard_case_certificate')}",
@@ -10529,9 +10648,6 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
             f"preference_irrelevance_proven_rate={row.get('preference_irrelevance_proven_rate')} (n={row.get('preference_irrelevance_proven_denominator')})",
             f"preference_no_query_reason_counts_json={row.get('preference_no_query_reason_counts_json')}",
             f"mean_dccs_frontier_recall_at_budget={row.get('mean_dccs_frontier_recall_at_budget')}",
-            f"mean_top_refresh_gain={row.get('mean_top_refresh_gain')} (n={row.get('mean_top_refresh_gain_denominator')})",
-            f"mean_top_fragility_mass={row.get('mean_top_fragility_mass')} (n={row.get('mean_top_fragility_mass_denominator')})",
-            f"mean_competitor_pressure={row.get('mean_competitor_pressure')} (n={row.get('mean_competitor_pressure_denominator')})",
             f"proxy_correction_active_rate={row.get('proxy_correction_active_rate')} (n={row.get('proxy_correction_active_denominator')})",
             f"mean_proxy_only_fraction={row.get('mean_proxy_only_fraction')}",
             f"mean_audit_correction_mass={row.get('mean_audit_correction_mass')}",
@@ -10554,8 +10670,6 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
             f"multi_fidelity_support_bin_counts_json={row.get('multi_fidelity_support_bin_counts_json')}",
             f"support_bin_counts_json={row.get('support_bin_counts_json')}",
             f"support_conditioned_preference_shrinkage_widening_json={row.get('support_conditioned_preference_shrinkage_widening_json')}",
-            f"refresh_first_productive_rate={row.get('refresh_first_productive_rate')} (n={row.get('refresh_first_productive_denominator')})",
-            f"refresh_resolution_honesty_rate={row.get('refresh_resolution_honesty_rate')} (n={row.get('refresh_resolution_honesty_denominator')})",
             f"mean_voi_realized_certificate_lift={row.get('mean_voi_realized_certificate_lift')}",
             f"mean_voi_realized_runner_up_gap_lift={row.get('mean_voi_realized_runner_up_gap_lift')}",
             f"mean_voi_realized_margin_lift={row.get('mean_voi_realized_margin_lift')}",
@@ -10597,7 +10711,6 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
             f"mean_preflight_and_warmup_ms={row.get('mean_preflight_and_warmup_ms')}",
             f"mean_runtime_per_refined_candidate_ms={row.get('mean_runtime_per_refined_candidate_ms')}",
             f"mean_runtime_per_frontier_member_ms={row.get('mean_runtime_per_frontier_member_ms')}",
-            f"warmup_amortized_ms={row.get('warmup_amortized_ms')}",
             f"mean_route_improvement_per_second={row.get('mean_route_improvement_per_second')}",
             f"mean_controller_cost_per_certificate_point={row.get('mean_controller_cost_per_certificate_point')}",
             f"refine_cost_sample_count={row.get('refine_cost_sample_count')}",
@@ -10605,13 +10718,6 @@ def _success_variant_line(row: dict[str, Any], *, include_od_ambiguity: bool) ->
             f"refine_cost_zero_observed_count={row.get('refine_cost_zero_observed_count')}",
             f"mean_certificate_gain_per_world={row.get('mean_certificate_gain_per_world')}",
             f"mean_cache_reuse_ratio={row.get('mean_cache_reuse_ratio')}",
-            f"baseline_identity_verified_rate={row.get('baseline_identity_verified_rate')}",
-            f"mean_refc_shortcut_rate={row.get('mean_refc_shortcut_rate')}",
-            f"mean_refc_cache_hits={row.get('mean_refc_cache_hits')}",
-            f"mean_refc_unique_world_count={row.get('mean_refc_unique_world_count')}",
-            f"mean_refc_world_reuse_rate={row.get('mean_refc_world_reuse_rate')}",
-            f"mean_refc_hard_stress_pack_count={row.get('mean_refc_hard_stress_pack_count')}",
-            f"mean_refc_stress_world_fraction={row.get('mean_refc_stress_world_fraction')}",
             f"mean_requested_cert_world_count={row.get('mean_requested_cert_world_count')}",
             f"mean_effective_cert_world_count={row.get('mean_effective_cert_world_count')}",
             f"mean_world_count_efficiency={row.get('mean_world_count_efficiency')}",
@@ -10729,7 +10835,7 @@ def _thesis_report(
     hard_case_claim_supported = _hard_case_claim_supported()
     controller_stress_claim_supported = _controller_stress_claim_supported()
     lines = [
-        "# Thesis Evaluation Report",
+        "# Evaluation Report",
         "",
         f"- Evaluation run id: `{run_id}`",
         f"- Corpus hash: `{corpus_hash}`",
@@ -10798,7 +10904,7 @@ def _thesis_report(
         lines.append("- Upstream ambiguity still depends on realized routing behavior because the corpus carried no explicit ambiguity prior.")
     if v0_row is not None and a_row is not None and b_row is not None and c_row is not None:
         lines.append(
-            "- Legacy quality is no longer maxed out relative to the thesis pipeline: "
+            "- Legacy quality is no longer maxed out relative to the evaluation pipeline: "
             f"`V0 weighted_win_best_baseline={_rate_text(v0_row.get('weighted_win_rate_best_baseline'), int(v0_row.get('weighted_denominator_best_baseline') or 0))}` "
             f"vs `A/B/C={_rate_text(a_row.get('weighted_win_rate_best_baseline'), int(a_row.get('weighted_denominator_best_baseline') or 0))}/"
             f"{_rate_text(b_row.get('weighted_win_rate_best_baseline'), int(b_row.get('weighted_denominator_best_baseline') or 0))}/"
@@ -10821,10 +10927,10 @@ def _thesis_report(
     lines.append("## Comparator Honesty")
     lines.append("")
     lines.append("- `V0` is a matched-budget legacy comparator: its expensive refinement is capped by the configured legacy baseline policy rather than being allowed to refine every candidate.")
-    lines.append("- In this thesis lane, `V0` also receives the same upstream ambiguity/support priors carried by the corpus rows, so the comparison is between evaluator-informed variants rather than between informed A/B/C requests and an uninformed legacy request.")
+    lines.append("- In this evaluation lane, `V0` also receives the same upstream ambiguity/support priors carried by the corpus rows, so the comparison is between evaluator-informed variants rather than between informed A/B/C requests and an uninformed legacy request.")
     lines.append(f"- The configured V0 baseline refinement policy for this run is `{legacy_refinement_policy}`.")
-    lines.append("- The secondary baseline is the self-hosted local openrouteservice engine when `ors_baseline_policy=local_service`; thesis evaluation fails closed if the backend resolves to any other provider mode.")
-    lines.append("- This thesis lane does not require a paid ORS API key and does not silently downgrade to repo-local heuristic artifacts when `local_service` is requested.")
+    lines.append("- The secondary baseline is the self-hosted local openrouteservice engine when `ors_baseline_policy=local_service`; evaluation fails closed if the backend resolves to any other provider mode.")
+    lines.append("- This evaluation lane does not require a paid ORS API key and does not silently downgrade to repo-local heuristic artifacts when `local_service` is requested.")
     lines.append("- `baseline_identity_verified_rate` reports how often the self-hosted baseline identity was actually provenance-verified in the recorded rows; missing provenance is surfaced as a metric gap rather than treated as a hidden success.")
     lines.append("- `best_baseline` denotes the stronger of the self-hosted OSRM and self-hosted ORS comparators under the same fixed selector weights used for that row.")
     lines.append("- Supplemental diversity rescue is disclosed separately. If a selected winner comes from a supplemental comparator-engine seed, the report surfaces that rate explicitly instead of hiding it inside headline win counts.")
@@ -11514,25 +11620,30 @@ def _run_thesis_evaluation_once(args: argparse.Namespace, *, client: httpx.Clien
                     variant_seed = _variant_seed(args, od, od_index=od_index, variant_id=spec.variant_id)
                     variant_request_config = _effective_request_config(args, od, variant_seed=variant_seed)
                     try:
-                        if cache_mode == "cold":
+                        if cache_mode == "cold" and spec.pipeline_mode != "legacy":
                             _clear_backend_caches(
                                 active_client,
                                 backend_url=args.backend_url,
                                 scope=cold_cache_scope,
                             )
                             cache_reset_count += 1
-                        response, route_ms = _post_json(
-                            active_client,
-                            _absolute_url(args.backend_url, "/route"),
-                            _variant_payload(
-                                args,
-                                od,
-                                spec,
-                                variant_seed=variant_seed,
-                                request_config=variant_request_config,
-                            ),
-                        )
-                        artifacts = _fetch_run_artifacts(active_client, args.backend_url, response)
+                        if spec.pipeline_mode == "legacy":
+                            response = _legacy_baseline_route_response(od, spec, osrm)
+                            route_ms = round(float(osrm.compute_ms), 3)
+                            artifacts = _legacy_baseline_artifacts(response, osrm)
+                        else:
+                            response, route_ms = _post_json(
+                                active_client,
+                                _absolute_url(args.backend_url, "/route"),
+                                _variant_payload(
+                                    args,
+                                    od,
+                                    spec,
+                                    variant_seed=variant_seed,
+                                    request_config=variant_request_config,
+                                ),
+                            )
+                            artifacts = _fetch_run_artifacts(active_client, args.backend_url, response)
                         _validate_route_artifacts(spec=spec, route_response=response, artifacts=artifacts)
                         response["artifact_validation"] = {
                             "status": "ok",

@@ -1396,7 +1396,7 @@ def enrich_rows(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Add deterministic route-graph ambiguity priors to an existing thesis corpus CSV.")
+    parser = argparse.ArgumentParser(description="Add deterministic route-graph ambiguity priors to an existing evaluation corpus CSV.")
     parser.add_argument("--input-csv", required=True)
     parser.add_argument("--output-csv", required=True)
     parser.add_argument("--probe-max-paths", type=int, default=6)

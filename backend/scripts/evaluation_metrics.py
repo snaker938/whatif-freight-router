@@ -640,7 +640,7 @@ def frontier_action_gain(
     signals: list[float] = []
     count = as_float(frontier_count, float("nan"))
     if math.isfinite(count):
-        # Bounded thesis-specific frontier richness proxy; this is deliberately
+        # Bounded evaluation-specific frontier richness proxy; this is deliberately
         # normalized so downstream efficiency metrics remain unitless.
         signals.append(min(1.0, max(0.0, (count - 1.0) / 4.0)))
     diversity = as_float(frontier_diversity_index, float("nan"))

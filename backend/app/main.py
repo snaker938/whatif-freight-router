@@ -1716,7 +1716,7 @@ async def get_metrics() -> dict[str, object]:
 
 
 @app.get("/cache/stats")
-async def get_cache_stats() -> dict[str, dict[str, int]]:
+async def get_cache_stats() -> dict[str, dict[str, Any]]:
     return {
         "route_cache": route_cache_stats(),
         "hot_rerun_route_cache_checkpoint": route_cache_checkpoint_stats(),
@@ -22100,7 +22100,7 @@ async def compute_route_baseline(
                 f"distance x{float(settings.route_baseline_distance_multiplier):.2f}."
             )
         else:
-            notes.append("Returned as a raw OSRM engine baseline with no thesis-time realism multipliers.")
+            notes.append("Returned as a raw OSRM engine baseline with no evaluation-time realism multipliers.")
         log_event(
             "route_baseline_request",
             request_id=request_id,
@@ -22235,7 +22235,7 @@ async def compute_route_ors_baseline(
                     f"distance x{ors_distance_multiplier:.2f}."
                 )
             else:
-                notes.append("Returned as a raw openrouteservice engine baseline with no thesis-time realism multipliers.")
+                notes.append("Returned as a raw openrouteservice engine baseline with no evaluation-time realism multipliers.")
         else:
             notes = [
                 "Repo-local secondary baseline realized through route-graph candidate selection and OSRM geometry.",

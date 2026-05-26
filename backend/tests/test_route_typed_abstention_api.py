@@ -35,7 +35,7 @@ def _payload() -> dict[str, Any]:
         "origin": {"lat": 52.4862, "lon": -1.8904},
         "destination": {"lat": 51.5072, "lon": -0.1276},
         "vehicle_type": "rigid_hgv",
-        "pipeline_mode": "tri_source",
+        "pipeline_mode": "voi",
         "certificate_threshold": 0.7,
         "od_ambiguity_index": 0.18,
         "od_ambiguity_confidence": 0.12,
@@ -121,7 +121,7 @@ def _route_option(
     )
 
 
-def test_route_tri_source_exposes_typed_abstention_and_persists_abstention_artifacts(
+def test_route_voi_exposes_typed_abstention_and_persists_decision_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -142,7 +142,7 @@ def test_route_tri_source_exposes_typed_abstention_and_persists_abstention_artif
     )
 
     async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["pipeline_mode"] == "tri_source"
+        assert kwargs["pipeline_mode"] == "voi"
         return {
             "selected": selected,
             "candidates": [selected, challenger],
@@ -221,7 +221,7 @@ def test_route_tri_source_exposes_typed_abstention_and_persists_abstention_artif
                     },
                 },
                 "final_route_trace.json": {
-                    "pipeline_mode": "tri_source",
+                    "pipeline_mode": "voi",
                     "selected_route_id": selected.id,
                     "artifact_pointers": {},
                 },
@@ -270,33 +270,33 @@ def test_route_tri_source_exposes_typed_abstention_and_persists_abstention_artif
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["pipeline_mode"] == "tri_source"
-    assert data["decision_package"]["pipeline_mode"] == "tri_source"
-    assert data["decision_package"]["terminal_kind"] == "typed_abstention"
-    assert data["decision_package"]["selected_route_id"] == selected.id
-    assert data["decision_package"]["abstention_summary"]["abstained"] is True
-    reason_code = data["decision_package"]["abstention_summary"]["reason_code"]
+    assert data["pipeline_mode"] == "voi"
+    assert data["terminal_type"] == "typed_abstention"
+    assert data["selected"] is None
+    assert data["recommended_route"] is None
+    assert data["certified_set"] == []
+    assert data["frontier_summary"]["selected_route_id"] == selected.id
+    assert data["abstention"] is not None
+    assert data["abstention_summary"]["has_typed_abstention"] is True
+    reason_code = data["abstention_summary"]["reason_code"]
     assert isinstance(reason_code, str)
     assert reason_code
-    assert data["decision_package"]["abstention_summary"]["abstention_type"] == "typed_abstention_recommended"
-    assert data["decision_package"]["abstention_summary"]["recommended_action"] == "expand_worlds"
-    assert data["decision_package"]["certification_state_summary"]["abstained"] is True
-    assert data["decision_package"]["world_fidelity_summary"]["unique_world_count"] == 44
-    assert data["decision_package"]["world_fidelity_summary"]["effective_world_count"] == 40
-    assert "top_fragility_family=weather" in data["decision_package"]["witness_summary"]["notes"]
+    assert reason_code == "uncertified_due_to_evidence"
+    assert data["abstention_summary"]["terminal_type"] == "typed_abstention"
+    assert data["abstention"]["evidence_family"] == "stochastic"
+    assert data["certified_set_summary"]["terminal_type"] == "typed_abstention"
+    assert data["certified_set_summary"]["not_applicable_reason"] == "abstention_terminal"
+    assert data["artifact_pointers"] == {
+        "manifest_endpoint": f"/runs/{data['run_id']}/manifest",
+        "artifacts_endpoint": f"/runs/{data['run_id']}/artifacts",
+        "provenance_endpoint": f"/runs/{data['run_id']}/provenance",
+    }
 
     artifact_dir = artifact_dir_for_run(data["run_id"])
-    decision_package = json.loads((artifact_dir / "decision_package.json").read_text(encoding="utf-8"))
-    abstention_summary = json.loads((artifact_dir / "abstention_summary.json").read_text(encoding="utf-8"))
+    metadata = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
     final_route_trace = json.loads((artifact_dir / "final_route_trace.json").read_text(encoding="utf-8"))
 
-    assert decision_package["terminal_kind"] == "typed_abstention"
-    assert decision_package["abstention_summary"]["abstained"] is True
-    assert abstention_summary["abstained"] is True
-    assert abstention_summary["reason_code"] == reason_code
-    assert abstention_summary["abstention_type"] == "typed_abstention_recommended"
-    assert decision_package["world_fidelity_summary"]["unique_world_count"] == 44
-    assert decision_package["world_fidelity_summary"]["effective_world_count"] == 40
-    assert "top_fragility_family=weather" in decision_package["witness_summary"]["notes"]
-    assert final_route_trace["artifact_pointers"]["decision_package"] == "decision_package.json"
-    assert final_route_trace["artifact_pointers"]["abstention_summary"] == "abstention_summary.json"
+    assert "abstention_summary.json" not in metadata["artifact_names"]
+    assert "decision_package.json" not in metadata["artifact_names"]
+    assert final_route_trace["pipeline_mode"] == "voi"
+    assert "abstention_summary" not in final_route_trace["artifact_pointers"]

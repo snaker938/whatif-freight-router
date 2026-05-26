@@ -15,6 +15,7 @@ from app.models import (
     RouteOption,
     ScenarioMode,
     ScenarioSummary,
+    VoiStopSummary,
 )
 from app.routing_osrm import OSRMError
 from app.settings import settings
@@ -230,13 +231,13 @@ def baseline_client(baseline_osrm: FakeBaselineOSRM):
         app.dependency_overrides.clear()
 
 
-def test_route_defaults_to_tri_source_and_returns_decision_package(
+def test_route_defaults_to_dccs_refc_and_returns_decision_package(
     monkeypatch: pytest.MonkeyPatch,
     baseline_osrm: FakeBaselineOSRM,
     tmp_path,
 ) -> None:
     monkeypatch.setattr(settings, "out_dir", str(tmp_path))
-    monkeypatch.setattr(settings, "route_pipeline_default_mode", "tri_source")
+    monkeypatch.setattr(settings, "route_pipeline_default_mode", "dccs_refc")
     monkeypatch.setattr(main_module, "_routing_graph_warmup_failfast_detail", lambda: None)
 
     async def _fail_if_legacy_called(**kwargs: Any) -> tuple[
@@ -246,11 +247,11 @@ def test_route_defaults_to_tri_source_and_returns_decision_package(
         main_module.TerrainDiagnostics,
         main_module.CandidateDiagnostics,
     ]:
-        raise AssertionError("legacy route collector should not run for default tri_source requests")
+        raise AssertionError("legacy route collector should not run for default dccs_refc requests")
 
-    selected = _route_response_option("tri_source_route_a", monetary_cost=110.0, certificate=0.86, certified=True)
+    selected = _route_response_option("dccs_refc_route_a", monetary_cost=110.0, certificate=0.86, certified=True)
     challenger = _route_response_option(
-        "tri_source_route_b",
+        "dccs_refc_route_b",
         monetary_cost=128.0,
         duration_s=8420.0,
         emissions_kg=150.1,
@@ -259,17 +260,39 @@ def test_route_defaults_to_tri_source_and_returns_decision_package(
     )
 
     async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["pipeline_mode"] == "tri_source"
+        assert kwargs["pipeline_mode"] == "dccs_refc"
         return {
             "selected": selected,
             "candidates": [selected, challenger],
-            "warnings": ["tri_source support placeholder active"],
+            "warnings": ["dccs_refc support placeholder active"],
             "candidate_fetches": 2,
             "terrain_diag": main_module.TerrainDiagnostics(),
             "candidate_diag": main_module.CandidateDiagnostics(raw_count=2, deduped_count=2, candidate_budget=2),
             "selected_certificate": selected.certification,
-            "voi_stop_summary": None,
+            "voi_stop_summary": VoiStopSummary(
+                final_route_id=selected.id,
+                certificate=0.86,
+                certified=True,
+                iteration_count=0,
+                search_budget_used=0,
+                evidence_budget_used=0,
+                stop_reason="certificate_threshold_met",
+            ),
+            "strict_frontier": [selected],
             "extra_json_artifacts": {
+                "decision_package.json": {
+                    "schema_version": "1.0.0",
+                    "terminal_type": "certified_singleton",
+                    "selected_route_id": selected.id,
+                    "world_support_summary": {"support_flag": True},
+                },
+                "final_route_trace.json": {
+                    "artifact_pointers": {
+                        "decision_package": "decision_package.json",
+                        "voi_controller_trace_summary": "voi_controller_trace_summary.json",
+                    },
+                },
+                "voi_controller_trace_summary.json": {"pipeline_mode": "dccs_refc"},
                 "winner_summary.json": {"route_id": selected.id},
                 "certificate_summary.json": {
                     "selected_route_id": selected.id,
@@ -343,30 +366,20 @@ def test_route_defaults_to_tri_source_and_returns_decision_package(
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["pipeline_mode"] == "tri_source"
+    assert data["pipeline_mode"] == "dccs_refc"
+    assert data["terminal_type"] == "certified_singleton"
     assert data["selected"]["id"] == selected.id
-    assert data["decision_package"]["pipeline_mode"] == "tri_source"
-    assert data["decision_package"]["terminal_kind"] in {"certified_singleton", "certified_set"}
-    assert data["decision_package"]["selected_route_id"] == selected.id
-    assert data["decision_package"]["preference_summary"]["selected_route_id"] == selected.id
-    assert data["decision_package"]["preference_summary"]["certified_only_required"] is False
-    assert isinstance(data["decision_package"]["preference_summary"]["suggested_queries"], list)
-    assert data["decision_package"]["support_summary"]["observed_source_count"] == 3
-    assert data["decision_package"]["world_support_summary"] is not None
-    assert data["decision_package"]["world_fidelity_summary"] is not None
-    assert data["decision_package"]["certification_state_summary"] is not None
-    assert data["decision_package"]["world_support_summary"]["support_sufficient"] is True
-    assert data["decision_package"]["world_fidelity_summary"]["world_count"] >= 0
-    assert data["decision_package"]["certification_state_summary"]["winner_id"] == selected.id
-    assert data["decision_package"]["certified_set_summary"]["selected_route_id"] == selected.id
+    assert data["recommended_route"]["id"] == selected.id
+    assert data["frontier_summary"]["selected_route_id"] == selected.id
+    assert data["preference_summary"]["pipeline_mode"] == "dccs_refc"
+    assert data["support_summary"]["support_flag"] is True
+    assert data["world_support_summary"] is not None
+    assert data["certified_set_summary"]["selected_route_id"] == selected.id
     artifact_path = tmp_path / "artifacts" / data["run_id"] / "decision_package.json"
     assert artifact_path.exists()
     artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-    assert artifact_payload["pipeline_mode"] == "tri_source"
-    assert artifact_payload["terminal_kind"] in {"certified_singleton", "certified_set"}
+    assert artifact_payload["terminal_type"] == "certified_singleton"
     assert artifact_payload["world_support_summary"] is not None
-    assert artifact_payload["world_fidelity_summary"] is not None
-    assert artifact_payload["certification_state_summary"] is not None
     final_trace_path = tmp_path / "artifacts" / data["run_id"] / "final_route_trace.json"
     assert final_trace_path.exists()
     final_trace_payload = json.loads(final_trace_path.read_text(encoding="utf-8"))
@@ -378,8 +391,7 @@ def test_route_defaults_to_tri_source_and_returns_decision_package(
     controller_trace_summary_path = tmp_path / "artifacts" / data["run_id"] / "voi_controller_trace_summary.json"
     assert controller_trace_summary_path.exists()
     controller_trace_summary = json.loads(controller_trace_summary_path.read_text(encoding="utf-8"))
-    assert controller_trace_summary["pipeline_mode"] == "tri_source"
-    assert controller_trace_summary["controller_mode"] == "tri_source_controller"
+    assert controller_trace_summary["pipeline_mode"] == "dccs_refc"
     if "voi_replay_oracle_summary" in final_trace_payload["artifact_pointers"]:
         assert (
             final_trace_payload["artifact_pointers"]["voi_replay_oracle_summary"]
@@ -387,7 +399,7 @@ def test_route_defaults_to_tri_source_and_returns_decision_package(
         )
 
 
-def test_route_waypoints_fall_back_from_tri_source_to_legacy_with_manifest_warning(
+def test_route_rejects_waypoints_on_live_route_with_baseline_endpoint_guidance(
     monkeypatch: pytest.MonkeyPatch,
     baseline_osrm: FakeBaselineOSRM,
     tmp_path,
@@ -420,7 +432,7 @@ def test_route_waypoints_fall_back_from_tri_source_to_legacy_with_manifest_warni
         )
 
     async def _fail_if_direct_called(**kwargs: Any) -> dict[str, Any]:
-        raise AssertionError("direct tri_source runtime should not run for waypoint fallback requests")
+        raise AssertionError("direct live runtime should not run for unsupported waypoint requests")
 
     monkeypatch.setattr(
         main_module,
@@ -448,26 +460,22 @@ def test_route_waypoints_fall_back_from_tri_source_to_legacy_with_manifest_warni
         with TestClient(app) as client:
             resp = client.post(
                 "/route",
-                json={
-                    **_payload(with_waypoint=True),
-                    "pipeline_mode": "tri_source",
-                    "od_ambiguity_source_count": 2,
-                    "od_ambiguity_source_mix": "routing_graph_probe,engine_augmented_probe",
-                },
+                    json={
+                        **_payload(with_waypoint=True),
+                        "pipeline_mode": "dccs_refc",
+                        "od_ambiguity_source_count": 2,
+                        "od_ambiguity_source_mix": "routing_graph_probe,engine_augmented_probe",
+                    },
             )
     finally:
         app.dependency_overrides.clear()
 
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["pipeline_mode"] == "legacy"
-    assert data["decision_package"]["pipeline_mode"] == "legacy"
-    assert data["decision_package"]["terminal_kind"] == "typed_abstention"
-    assert data["decision_package"]["abstention_summary"]["reason_code"] == "legacy_runtime_selected"
-    assert data["decision_package"]["abstention_summary"]["abstention_type"] == "typed_abstention_recommended"
-    manifest_path = tmp_path / "manifests" / f"{data['run_id']}.json"
-    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert any("tri_source" in warning and "legacy" in warning for warning in manifest_payload["warnings"])
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["reason_code"] == "waypoints_not_supported_on_live_route"
+    assert detail["requested_pipeline_mode"] == "dccs_refc"
+    assert detail["effective_pipeline_mode"] == "dccs_refc"
+    assert detail["baseline_endpoints"] == ["/route/baseline", "/route/baseline/ors"]
 
 
 def test_route_baseline_returns_osrm_quick_route(

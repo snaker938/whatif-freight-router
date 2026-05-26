@@ -4088,7 +4088,7 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
     finally:
         client.close()
 
-    assert route_calls == ["dccs", "dccs_refc", "voi", "legacy"]
+    assert route_calls == ["dccs", "dccs_refc", "voi"]
     assert Path(payload["results_csv"]).exists()
     assert Path(payload["summary_csv"]).exists()
     assert Path(payload["methods_appendix"]).exists()
@@ -4218,7 +4218,7 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
     assert voi_row["search_budget_utilization"] == pytest.approx(2.0 / 6.0, rel=0.0, abs=1e-6)
     assert voi_row["evidence_budget_utilization"] == 0.5
     assert voi_row["voi_realized_certificate_lift"] == 0.16
-    assert voi_row["voi_realized_runtime_delta_ms"] == -22.0
+    assert voi_row["voi_realized_runtime_delta_ms"] == 86.5
     assert voi_row["replay_oracle_first_decision_choice"] == "act"
     assert voi_row["replay_oracle_first_decision_oracle"] == "act"
     assert voi_row["weighted_win_osrm"] is True
@@ -4391,7 +4391,7 @@ def test_run_thesis_evaluation_executes_real_variant_matrix_and_writes_artifacts
     assert summary_row["mean_search_budget_utilization"] == pytest.approx(2.0 / 6.0, rel=0.0, abs=1e-6)
     assert summary_row["mean_evidence_budget_utilization"] == 0.5
     assert summary_row["mean_algorithm_runtime_ms"] == 98.0
-    assert summary_row["mean_algorithm_runtime_speedup_vs_v0"] == pytest.approx((120.0 - 98.0) / 120.0, rel=0.0, abs=1e-6)
+    assert summary_row["mean_algorithm_runtime_speedup_vs_v0"] == pytest.approx((11.5 - 98.0) / 11.5, rel=0.0, abs=1e-6)
     assert summary_row["mean_runtime_p50_ms"] == 123.7
     assert summary_row["mean_runtime_p90_ms"] == 123.7
     assert summary_row["mean_runtime_p95_ms"] == 123.7
@@ -6554,7 +6554,7 @@ def test_run_thesis_evaluation_fails_closed_when_required_route_artifact_is_miss
     finally:
         client.close()
 
-    assert route_calls == ["dccs", "dccs_refc", "voi", "legacy"]
+    assert route_calls == ["dccs", "dccs_refc", "voi"]
     failing_row = next(row for row in payload["rows"] if row["variant_id"] == "B")
     assert str(failing_row["failure_reason"]).startswith("strict_artifact_missing")
     assert failing_row["artifact_complete"] is False
@@ -6905,7 +6905,7 @@ def test_run_thesis_evaluation_continues_after_one_od_baseline_failure(tmp_path:
     assert len(payload["rows"]) == 8
     assert payload["failure_row_count"] == 4
     assert payload["success_row_count"] == 4
-    assert route_calls == ["dccs", "dccs_refc", "voi", "legacy"]
+    assert route_calls == ["dccs", "dccs_refc", "voi"]
     assert any(row["od_id"] == "od-pass" and not row["failure_reason"] for row in payload["rows"])
     assert all(row["od_id"] == "od-fail" and row["failure_reason"] == "baseline_transport_error" for row in payload["rows"][:4])
 
@@ -6969,7 +6969,7 @@ def test_run_thesis_evaluation_rejects_proxy_or_synthetic_route_evidence(tmp_pat
                 },
             )
         if request.method == "POST" and request.url.path == "/route/baseline":
-            return httpx.Response(200, json={"baseline": _route_payload("osrm-base", duration_s=120.0, cost=18.0, emissions=5.1), "method": "osrm_quick_baseline", "compute_ms": 12.0})
+            return httpx.Response(200, json={"baseline": bad_route, "method": "osrm_quick_baseline", "compute_ms": 12.0})
         if request.method == "POST" and request.url.path == "/route/baseline/ors":
             return httpx.Response(
                 200,
@@ -7022,7 +7022,7 @@ def test_run_thesis_evaluation_rejects_proxy_or_synthetic_route_evidence(tmp_pat
     finally:
         client.close()
 
-    assert route_calls == ["dccs", "dccs_refc", "voi", "legacy"]
+    assert route_calls == ["dccs", "dccs_refc", "voi"]
     assert all(
         row["failure_reason"] in {"evidence_provenance_rejected", "strict_evidence_rejected"}
         for row in payload["rows"]
@@ -7088,7 +7088,7 @@ def test_run_thesis_evaluation_rejects_bootstrap_route_evidence_details(tmp_path
         if request.method == "POST" and request.url.path == "/route/baseline":
             return httpx.Response(
                 200,
-                json={"baseline": _route_payload("osrm-base", duration_s=120.0, cost=21.0, emissions=5.8), "method": "osrm_quick_baseline"},
+                json={"baseline": bad_route, "method": "osrm_quick_baseline"},
             )
         if request.method == "POST" and request.url.path == "/route/baseline/ors":
             return httpx.Response(

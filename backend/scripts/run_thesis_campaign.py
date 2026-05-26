@@ -30,7 +30,7 @@ def _now() -> str:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the thesis evaluation in small sequential OD tranches with a "
+            "Run the legacy-named evaluation in small sequential OD tranches with a "
             "persistent green/regression ledger."
         )
     )
@@ -860,7 +860,7 @@ def _campaign_markdown(
 ) -> str:
     gate_config = state.get("gate_config") if isinstance(state, Mapping) else {}
     lines = [
-        "# Thesis Campaign Ledger",
+        "# Evaluation Campaign Ledger",
         "",
         f"- Campaign id: `{state.get('campaign_id')}`",
         f"- Sequential mode: `{state.get('sequential_mode') or 'retain_green_replay_then_widen'}`",

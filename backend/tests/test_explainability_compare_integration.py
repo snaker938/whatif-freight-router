@@ -188,7 +188,7 @@ def test_full_explainability_and_compare_flow(tmp_path: Path, monkeypatch) -> No
     )
 
     async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["pipeline_mode"] == "tri_source"
+        assert kwargs["pipeline_mode"] == "dccs_refc"
         req = kwargs["req"]
         options, warnings, candidate_fetches, terrain_diag, candidate_diag = (
             await _fake_collect_route_options_with_diagnostics(

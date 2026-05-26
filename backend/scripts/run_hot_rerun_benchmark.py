@@ -162,7 +162,7 @@ def _stable_certificate_winner_identity(row: Mapping[str, Any]) -> str | None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = _build_eval_parser()
-    parser.description = "Run a cold thesis evaluation followed by a true hot rerun on the same backend instance."
+    parser.description = "Run a cold evaluation followed by a true hot rerun on the same backend instance."
     parser.add_argument("--pair-run-id", default=None)
     parser.add_argument("--cold-run-id", default=None)
     parser.add_argument("--hot-run-id", default=None)

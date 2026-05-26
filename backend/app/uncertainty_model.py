@@ -697,7 +697,7 @@ def _factors_from_shocks(
 ) -> tuple[float, float, float, int]:
     traffic_z, incident_z, weather_z, price_z, eco_z = shocks
     # Calibrated regime parameters are loaded from artifact tables. The
-    # multiplicative factor construction below is thesis-specific; it combines
+    # multiplicative factor construction below is implementation-specific; it combines
     # empirical quantile mappings with bounded regime-weighted mixes rather than
     # claiming a standard published transform family.
     sigma_scaled = sigma * regime.sigma_scale

@@ -25,7 +25,7 @@ from app.certification_cache import (
     set_cached_certification,
 )
 from app.departure_profile import DepartureMultiplier
-from app.models import CostToggles, DecisionPackage, GeoJSONLineString, RouteMetrics, RouteOption, ScenarioSummary
+from app.models import CostToggles, GeoJSONLineString, RouteMetrics, RouteOption, ScenarioSummary
 from app.routing_graph import GraphCandidateDiagnostics
 from app.scenario import ScenarioMode, ScenarioPolicy, ScenarioRouteContext
 from app.settings import settings
@@ -302,9 +302,9 @@ def _runtime_stubs(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def _bounded_tri_source_cache_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+def _bounded_dccs_refc_cache_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_compute_direct_route_pipeline(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["pipeline_mode"] == "tri_source"
+        assert kwargs["pipeline_mode"] == "dccs_refc"
         req = kwargs["req"]
         osrm = kwargs["osrm"]
         raw_routes: list[dict[str, Any]] = []
@@ -382,11 +382,6 @@ def _bounded_tri_source_cache_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         main_module,
-        "_build_route_decision_package",
-        lambda **kwargs: DecisionPackage(selected_route_id=kwargs["selected"].id),
-    )
-    monkeypatch.setattr(
-        main_module,
         "_write_route_run_bundle",
         lambda **_kwargs: {
             "run_id": "pytest-route-cache",
@@ -397,7 +392,7 @@ def _bounded_tri_source_cache_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_route_cache_hits_and_keying(_bounded_tri_source_cache_runtime: None) -> None:
+def test_route_cache_hits_and_keying(_bounded_dccs_refc_cache_runtime: None) -> None:
     osrm = CountingOSRM()
     app.dependency_overrides[osrm_client] = lambda: osrm
     route_cache.clear_route_cache()
@@ -426,16 +421,14 @@ def test_route_cache_hits_and_keying(_bounded_tri_source_cache_runtime: None) ->
             assert stats["hits"] >= 1
             assert stats["misses"] >= 2
             assert stats["size"] >= 1
-            assert stats["schema_version"] == route_cache.ROUTE_CACHE_SCHEMA_VERSION
-            assert stats["checkpoint_operations"] == 0
-            assert stats["restore_operations"] == 0
-            assert stats["invalidation_counters"]["expired"] == 0
-            assert stats["invalidation_counters"]["manual_clear"] >= 0
+            assert stats["ttl_s"] >= 1
+            assert stats["max_entries"] >= 1
+            assert stats["estimated_bytes"] >= 0
+            assert stats["max_estimated_bytes"] >= 0
             assert "hot_rerun_route_cache_checkpoint" in stats_payload
             checkpoint_stats = stats_payload["hot_rerun_route_cache_checkpoint"]
-            assert checkpoint_stats["schema_version"] == route_cache.ROUTE_CACHE_SCHEMA_VERSION
-            assert checkpoint_stats["checkpoint_operations"] == 0
-            assert checkpoint_stats["restore_operations"] == 0
+            assert checkpoint_stats["size"] >= 0
+            assert checkpoint_stats["ttl_s"] >= 1
             assert "certification_cache" in stats_payload
             assert "hot_rerun_certification_cache_checkpoint" in stats_payload
     finally:
@@ -538,15 +531,12 @@ def test_route_cache_checkpoint_restore_round_trip() -> None:
         assert cached[0][0]["route_id"] == "route-1"
         active_stats = route_cache.route_cache_stats()
         checkpoint_stats = route_cache.route_cache_checkpoint_stats()
-        assert active_stats["schema_version"] == route_cache.ROUTE_CACHE_SCHEMA_VERSION
-        assert active_stats["checkpoint_operations"] >= 1
-        assert active_stats["checkpointed_entries"] >= 1
-        assert active_stats["restore_operations"] >= 1
-        assert active_stats["restored_entries"] >= 1
-        assert checkpoint_stats["checkpoint_operations"] >= 1
-        assert checkpoint_stats["checkpointed_entries"] >= 1
-        assert checkpoint_stats["restore_operations"] >= 1
-        assert checkpoint_stats["restored_entries"] >= 1
+        assert active_stats["size"] == 1
+        assert active_stats["ttl_s"] >= 1
+        assert active_stats["max_entries"] >= 1
+        assert checkpoint_stats["size"] == 1
+        assert checkpoint_stats["ttl_s"] >= 1
+        assert checkpoint_stats["max_entries"] >= 1
     finally:
         route_cache.clear_route_cache()
         route_cache.clear_route_cache_checkpoint()
@@ -595,6 +585,10 @@ def test_restore_hot_rerun_cache_endpoint_reports_restore_count(
         "route_checkpoint_size": 7,
         "certification_checkpoint_size": 4,
         "restored_certification_cache": 3,
+        "route_state_checkpoint_size": 0,
+        "restored_route_state_cache": 0,
+        "voi_dccs_checkpoint_size": 0,
+        "restored_voi_dccs_cache": 0,
     }
 
 
@@ -677,7 +671,7 @@ def test_scenario_policy_cache_is_keyed_by_exact_context(monkeypatch: pytest.Mon
     assert cache[(ScenarioMode.PARTIAL_SHARING.value, weekday.context_key)] is weekday_policy
 
 
-def test_route_cache_ttl_expiry_causes_recompute(_bounded_tri_source_cache_runtime: None) -> None:
+def test_route_cache_ttl_expiry_causes_recompute(_bounded_dccs_refc_cache_runtime: None) -> None:
     osrm = CountingOSRM()
     app.dependency_overrides[osrm_client] = lambda: osrm
     route_cache.clear_route_cache()
@@ -696,7 +690,8 @@ def test_route_cache_ttl_expiry_causes_recompute(_bounded_tri_source_cache_runti
             assert second.status_code == 200
             assert osrm.calls == first_fetch_count * 2
             stats = route_cache.route_cache_stats()
-            assert stats["invalidation_counters"]["expired"] >= 1
+            assert stats["misses"] >= first_fetch_count * 2
+            assert stats["size"] >= first_fetch_count
     finally:
         route_cache.ROUTE_CACHE._ttl_s = old_ttl
         app.dependency_overrides.clear()

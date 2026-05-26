@@ -70,7 +70,7 @@ DEFAULT_STATE_EFFECTS: dict[str, tuple[float, float, float]] = {
     "refreshed": (-0.038, -0.030, -0.024),
 }
 
-# Thesis-defined bounded perturbation priors. These are explicit scenario
+# Evaluation-defined bounded perturbation priors. These are explicit scenario
 # states used for replayable fragility analysis, not a learned stochastic model.
 DEFAULT_FAMILY_SENSITIVITY: dict[str, tuple[float, float, float]] = {
     "scenario": (0.82, 0.34, 0.24),

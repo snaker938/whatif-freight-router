@@ -162,7 +162,7 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_defaults = _evaluation_defaults()
     parser = argparse.ArgumentParser(
         description=(
-            "Build fresh latest corpora and run the full thesis evaluation suite plus hot rerun "
+            "Build fresh latest corpora and run the full evaluation suite plus hot rerun "
             "into one aggregated reviewer-facing bundle."
         )
     )

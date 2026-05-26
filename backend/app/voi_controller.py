@@ -6681,7 +6681,7 @@ def score_action(action: VOIAction, *, config: VOIConfig | None = None) -> VOIAc
     else:
         predicted_delta_search_completeness = max(0.0, _as_float(predicted_delta_search_completeness))
     scored_action = replace(action, predicted_delta_search_completeness=predicted_delta_search_completeness)
-    # Thesis controller heuristic: a deterministic value-per-cost ranking over
+    # Evaluation controller heuristic: a deterministic value-per-cost ranking over
     # certificate/winner-LCB gain, gap-LCB gain, boundary contraction, and the
     # narrower robustness / unresolved-mass / preference-ambiguity lifts that
     # the action surfaces already expose.

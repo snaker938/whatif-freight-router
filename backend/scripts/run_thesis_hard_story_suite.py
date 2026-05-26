@@ -50,7 +50,7 @@ DEFAULT_LANE_SPECS: tuple[dict[str, str], ...] = (
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Run a serial harder-story thesis suite over the checked-in hard corpora "
+            "Run a serial harder-story evaluation suite over the checked-in hard corpora "
             "and compose the resulting lane outputs into a single quoteable bundle."
         )
     )
@@ -158,7 +158,7 @@ def _markdown_report(
     composed_payload: dict[str, Any] | None,
 ) -> str:
     lines = [
-        "# Hard Story Thesis Suite",
+        "# Hard Story Evaluation Suite",
         "",
         f"- Suite id: `{suite_id}`",
         f"- Generated at: `{_now()}`",
