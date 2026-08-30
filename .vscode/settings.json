@@ -63,7 +63,7 @@
   // Change "frontend" if your folder name is different.
   "eslint.workingDirectories": [{ "directory": "frontend", "changeProcessCWD": true }],
 
-  "python.terminal.useEnvFile": true
+  "python.terminal.useEnvFile": true,
 
   // ---------- Docker Compose schema help ----------
   "yaml.schemas": {
