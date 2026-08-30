@@ -22,6 +22,7 @@ jobs:
       - name: Fast deterministic backend lane
         run: |
           uv run --project backend pytest \
+            backend/tests/test_dev_launcher_contract.py \
             backend/tests/test_cost_model.py \
             backend/tests/test_emissions_context.py \
             backend/tests/test_stochastic_uncertainty.py \
