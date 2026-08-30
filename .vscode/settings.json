@@ -14,7 +14,8 @@
 
     // your repo-specific heavy folders
     "osrm/data/**": true,
-    "backend/out/**": true
+    "backend/out/**": true,
+    "out/**": true
   },
   "search.exclude": {
     "**/node_modules/**": true,
@@ -29,7 +30,8 @@
 
     // your repo-specific heavy folders
     "osrm/data/**": true,
-    "backend/out/**": true
+    "backend/out/**": true,
+    "out/**": true
   },
 
   // ---------- Spell checker (CSpell) ----------
