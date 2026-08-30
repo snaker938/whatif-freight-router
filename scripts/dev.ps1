@@ -171,38 +171,23 @@ function Test-PortListening {
   }
 }
 
-$backendCmd = @'
-$env:OSRM_BASE_URL = "http://localhost:5000"
-$env:OUT_DIR = "out"
-if (-not (Test-Path ".venv")) { uv sync --dev }
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-'@
-
-$frontendCmd = @'
-$env:BACKEND_INTERNAL_URL = "http://localhost:8000"
-if (-not (Test-Path "node_modules")) { pnpm install }
-pnpm dev
-'@
-
 if (Test-PortListening -Port 8000) {
   Write-Host "Port 8000 already in use. Skipping backend launch."
 } else {
-  $backendEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($backendCmd))
   Start-Process pwsh -WorkingDirectory (Join-Path $repoRoot "backend") -ArgumentList @(
     "-NoExit",
-    "-EncodedCommand",
-    $backendEncoded
+    "-File",
+    "..\scripts\dev-backend.ps1"
   ) | Out-Null
 }
 
 if (Test-PortListening -Port 3000) {
   Write-Host "Port 3000 already in use. Skipping frontend launch."
 } else {
-  $frontendEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($frontendCmd))
   Start-Process pwsh -WorkingDirectory (Join-Path $repoRoot "frontend") -ArgumentList @(
     "-NoExit",
-    "-EncodedCommand",
-    $frontendEncoded
+    "-File",
+    "..\scripts\dev-frontend.ps1"
   ) | Out-Null
 }
 
